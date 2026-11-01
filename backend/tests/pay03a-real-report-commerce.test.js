@@ -165,8 +165,10 @@ function createInMemoryPay03aHarness() {
     failPaymentLookup: false,
     failNextFulfillmentRpc: false,
     failNextAuditInsert: false,
+    failOwnershipLookup: false,
   };
   const auditEvents = [];
+  const ownershipHistory = [];
 
   const sessions = new Map([
     ['tok-buyer-1', { user_id: 'buyer-03a-1', is_valid: true, expires_at: '2099-01-01T00:00:00Z' }],
@@ -292,9 +294,14 @@ function createInMemoryPay03aHarness() {
 
   function makeSelectQuery(table) {
     const filters = [];
+    const inFilters = [];
     const builder = {
       eq(col, val) {
         filters.push([col, val]);
+        return builder;
+      },
+      in(col, vals) {
+        inFilters.push([col, Array.isArray(vals) ? vals : []]);
         return builder;
       },
       order() {
@@ -330,6 +337,12 @@ function createInMemoryPay03aHarness() {
             error: { message: 'simulated_payment_lookup_failure' },
           }).then(onFulfilled, onRejected);
         }
+        if (table === 'vehicle_ownership_history' && faultInjection.failOwnershipLookup) {
+          return Promise.resolve({
+            data: null,
+            error: { message: 'simulated_ownership_lookup_failure' },
+          }).then(onFulfilled, onRejected);
+        }
         return resolveRows()
           .then((data) => ({ data, error: null }))
           .then(onFulfilled, onRejected);
@@ -344,6 +357,7 @@ function createInMemoryPay03aHarness() {
       else if (table === 'payment_transactions') rows = Array.from(payments.values());
       else if (table === 'pay02_report_orders') rows = Array.from(reportOrders.values());
       else if (table === 'report_versions') rows = Array.from(reportVersions.values());
+      else if (table === 'vehicle_ownership_history') rows = ownershipHistory.slice();
       else if (table === 'user_sessions') {
         const tokenFilter = filters.find(([k]) => k === 'token');
         const sess = tokenFilter ? sessions.get(tokenFilter[1]) : null;
@@ -357,6 +371,9 @@ function createInMemoryPay03aHarness() {
       }
       for (const [col, val] of filters) {
         rows = rows.filter((r) => r && r[col] === val);
+      }
+      for (const [col, vals] of inFilters) {
+        rows = rows.filter((r) => r && vals.includes(r[col]));
       }
       return rows;
     }
@@ -729,6 +746,7 @@ function createInMemoryPay03aHarness() {
     reportVersions,
     faultInjection,
     auditEvents,
+    ownershipHistory,
     refundCreateCalls: () => stripeState.refundCreateCalls,
   };
 }
@@ -1908,13 +1926,16 @@ test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projec
 
 test('PAY03A STG01-FINAL D-ELIG-1: only verified evidence/maintenance and recorded ownership-ledger events qualify; unverified, disputed and superseded records never make a vehicle purchasable or "verified"', async () => {
   const harness = createInMemoryPay03aHarness();
-  harness.vehicles.set('RU3-1316558', {
-    vin: 'RU3-1316558',
-    make: 'Honda',
-    model: 'Vezel Hybrid Z',
+  // Synthetic chassis-style identifier: tests must never attach synthetic "verified" history to a real
+  // vehicle such as the T11 CAP Honda Vezel (RU3-1316558), whose evidence is all pending in staging.
+  const VIN = 'SYN-0000001';
+  harness.vehicles.set(VIN, {
+    vin: VIN,
+    make: 'Synthetic',
+    model: 'Eligibility Fixture',
     year: 2018,
-    owner_id: 'owner-real-import-1',
-    import_source: 'BE FORWARD CAP CD740269',
+    owner_id: 'owner-synthetic-1',
+    import_source: 'STG01-FINAL synthetic unit fixture',
     status: 'Available',
   });
 
@@ -1924,7 +1945,7 @@ test('PAY03A STG01-FINAL D-ELIG-1: only verified evidence/maintenance and record
     schema: 'vehicle_history_report.v1',
     vin,
     audience: 'buyer',
-    identity: { vin, make: 'Honda', model: 'Vezel Hybrid Z', year: 2018 },
+    identity: { vin, make: 'Synthetic', model: 'Eligibility Fixture', year: 2018 },
     timeline,
     evidence_index: evidenceIndex,
     listing_history: [],
@@ -1950,7 +1971,7 @@ test('PAY03A STG01-FINAL D-ELIG-1: only verified evidence/maintenance and record
 
   for (const status of ['unverified', 'disputed']) {
     const readiness = await inspectVehicleReportReadiness({
-      vin: 'RU3-1316558',
+      vin: VIN,
       buyerId: 'buyer-03a-1',
       db: harness.db,
       reportAssembler: assemblerWith([partsentryEvent(status)]),
@@ -1963,7 +1984,7 @@ test('PAY03A STG01-FINAL D-ELIG-1: only verified evidence/maintenance and record
     await assert.rejects(
       createPay03aReportCheckout({
         buyerId: 'buyer-03a-1',
-        vin: 'RU3-1316558',
+        vin: VIN,
         requestKey: `pay03a_delig1_refuse_${status}_0001`,
         db: harness.db,
         stripe: harness.stripeMock,
@@ -1982,7 +2003,7 @@ test('PAY03A STG01-FINAL D-ELIG-1: only verified evidence/maintenance and record
     { ...partsentryEvent('verified'), verification_status: 'recorded', source_kind: 'evidence' },
   ]) {
     const readiness = await inspectVehicleReportReadiness({
-      vin: 'RU3-1316558',
+      vin: VIN,
       buyerId: 'buyer-03a-1',
       db: harness.db,
       reportAssembler: assemblerWith([event]),
@@ -1992,7 +2013,7 @@ test('PAY03A STG01-FINAL D-ELIG-1: only verified evidence/maintenance and record
 
   // Positive controls: verified maintenance and recorded ownership-ledger transfers still qualify.
   const verifiedMaintenance = await inspectVehicleReportReadiness({
-    vin: 'RU3-1316558',
+    vin: VIN,
     buyerId: 'buyer-03a-1',
     db: harness.db,
     reportAssembler: assemblerWith([partsentryEvent('verified')]),
@@ -2001,8 +2022,13 @@ test('PAY03A STG01-FINAL D-ELIG-1: only verified evidence/maintenance and record
   assert.equal(verifiedMaintenance.readiness.historicalEventCount, 1);
   assert.equal(verifiedMaintenance.provenanceClassification, 'GENUINE_VERIFIED_SOURCE_BACKED');
 
+  // A recorded ledger event qualifies only when the ledger holds a genuine change of owner (D-ELIG-2).
+  harness.ownershipHistory.push({
+    id: 9001, vin: VIN, previous_owner_id: 'owner-synthetic-0', new_owner_id: 'owner-synthetic-1',
+    transfer_date: '2026-04-01T00:00:00Z', transfer_id: '00000000-0000-4000-8000-000000009001',
+  });
   const ledgerTransfer = await inspectVehicleReportReadiness({
-    vin: 'RU3-1316558',
+    vin: VIN,
     buyerId: 'buyer-03a-1',
     db: harness.db,
     reportAssembler: assemblerWith([{
@@ -2155,4 +2181,64 @@ test('PAY03A STG01-FINAL D-AUDIT-1 (HTTP): the refund actor comes from the prove
     supabase.from = origFrom;
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test('PAY03A STG01-FINAL D-ELIG-2: CarUp initial-registration ledger rows are not ownership history; only a genuine change of owner qualifies, and a failed ledger read fails closed', async () => {
+  const harness = createInMemoryPay03aHarness();
+  const VIN = 'SYN-0000002';
+  harness.vehicles.set(VIN, {
+    vin: VIN,
+    make: 'Synthetic',
+    model: 'Ledger Fixture',
+    year: 2017,
+    owner_id: 'owner-synthetic-b',
+    import_source: 'STG01-FINAL synthetic unit fixture',
+    status: 'Available',
+    created_at: '2026-06-17T10:00:00Z',
+  });
+  // Shape observed on shared staging (read-only census, 2026-11-01): 328 of 329 ledger rows have no
+  // previous owner and were written within two minutes of the vehicle's creation in CarUp.
+  harness.ownershipHistory.push({
+    id: 9101, vin: VIN, previous_owner_id: null, new_owner_id: 'owner-synthetic-b',
+    transfer_date: '2026-06-17T10:00:30Z', transfer_hash: 'h-initial', transfer_id: null,
+  });
+
+  // Real assembler over the harness tables (no injected timeline).
+  const registrationOnly = await inspectVehicleReportReadiness({ vin: VIN, buyerId: 'buyer-03a-1', db: harness.db });
+  assert.equal(registrationOnly.eligibleForPurchase, false, 'An initial CarUp registration is not vehicle history');
+  assert.equal(registrationOnly.readiness.historicalEventCount, 0);
+  assert.equal(registrationOnly.provenanceClassification, 'PROVENANCE_UNVERIFIED');
+  await assert.rejects(
+    createPay03aReportCheckout({
+      buyerId: 'buyer-03a-1',
+      vin: VIN,
+      requestKey: 'pay03a_delig2_registration_only_01',
+      db: harness.db,
+      stripe: harness.stripeMock,
+    }),
+    (err) => err.code === 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE' && err.status === 422,
+  );
+  const listed = await listEligibleReportVehicles({ search: VIN, db: harness.db });
+  const listedRow = listed.vehicles.find((v) => v.vin === VIN);
+  assert.ok(listedRow);
+  assert.equal(listedRow.eligibleForReport, false);
+
+  // A genuine change of owner (previous owner recorded and different) qualifies — counted once.
+  harness.ownershipHistory.push({
+    id: 9102, vin: VIN, previous_owner_id: 'owner-synthetic-b', new_owner_id: 'owner-synthetic-c',
+    transfer_date: '2026-09-01T00:00:00Z', transfer_hash: 'h-transfer', transfer_id: '00000000-0000-4000-8000-000000009102',
+  });
+  const withTransfer = await inspectVehicleReportReadiness({ vin: VIN, buyerId: 'buyer-03a-1', db: harness.db });
+  assert.equal(withTransfer.eligibleForPurchase, true);
+  assert.equal(withTransfer.readiness.historicalEventCount, 1, 'Only the genuine transfer counts, not the registration row');
+  const listedAgain = await listEligibleReportVehicles({ search: VIN, db: harness.db });
+  assert.equal(listedAgain.vehicles.find((v) => v.vin === VIN).eligibleForReport, true);
+
+  // The ledger is the only basis here: if it cannot be read, eligibility fails closed.
+  harness.faultInjection.failOwnershipLookup = true;
+  const ledgerUnreadable = await inspectVehicleReportReadiness({ vin: VIN, buyerId: 'buyer-03a-1', db: harness.db });
+  assert.equal(ledgerUnreadable.eligibleForPurchase, false);
+  harness.faultInjection.failOwnershipLookup = false;
+  assert.equal(harness.quotes.size, 0);
+  assert.equal(harness.payments.size, 0);
 });

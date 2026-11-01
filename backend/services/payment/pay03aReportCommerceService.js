@@ -157,6 +157,36 @@ const QUALIFYING_HISTORICAL_STATUSES = Object.freeze({
   ownership_ledger: Object.freeze(['recorded']),
 });
 
+/**
+ * STG01-FINAL D-ELIG-2: the canonical lifecycle reads only `id, transfer_date` from
+ * `vehicle_ownership_history` and projects EVERY row as an "Ownership transfer". On shared staging
+ * 328 of 329 rows have no previous owner and were written when the vehicle was created in CarUp:
+ * they are initial-registration records, not history. A ledger event therefore qualifies only up to
+ * the number of genuine changes of owner (previous owner recorded and different from the new owner).
+ * A failed ledger read counts as zero, so eligibility that rests on the ledger fails closed.
+ */
+async function countGenuineOwnershipTransfers(db, vins) {
+  const list = [...new Set((vins || []).filter((vin) => typeof vin === 'string' && vin.trim()))];
+  const counts = new Map();
+  if (!list.length || !db || typeof db.from !== 'function') return counts;
+  try {
+    let query = db.from('vehicle_ownership_history').select('vin, previous_owner_id, new_owner_id');
+    query = list.length === 1 ? query.eq('vin', list[0]) : query.in('vin', list);
+    const { data, error } = await query;
+    if (error || !Array.isArray(data)) return new Map();
+    for (const row of data) {
+      const previous = String(row?.previous_owner_id ?? '').trim();
+      const next = String(row?.new_owner_id ?? '').trim();
+      if (row?.vin && previous && next && previous !== next) {
+        counts.set(row.vin, (counts.get(row.vin) || 0) + 1);
+      }
+    }
+    return counts;
+  } catch {
+    return new Map();
+  }
+}
+
 function isQualifyingHistoricalEvent(e) {
   if (!e || typeof e !== 'object') return false;
   const allowed = Object.prototype.hasOwnProperty.call(QUALIFYING_HISTORICAL_STATUSES, e.source_kind)
@@ -165,9 +195,16 @@ function isQualifyingHistoricalEvent(e) {
   return Boolean(allowed && allowed.includes(e.verification_status));
 }
 
-function evaluateHistoricalEvidence(assembled, vehicle = null) {
+function evaluateHistoricalEvidence(assembled, vehicle = null, { genuineOwnershipTransfers = 0 } = {}) {
   const timeline = Array.isArray(assembled?.timeline) ? assembled.timeline : [];
-  const verifiedHistoricalEvents = timeline.filter(isQualifyingHistoricalEvent);
+  const qualifyingEvents = timeline.filter(isQualifyingHistoricalEvent);
+  const ledgerEvents = qualifyingEvents.filter((e) => e.source_kind === 'ownership_ledger');
+  const genuineLedgerEventCount = Math.min(
+    ledgerEvents.length,
+    Math.max(0, Math.trunc(Number(genuineOwnershipTransfers) || 0)),
+  );
+  const verifiedHistoricalEventCount =
+    qualifyingEvents.length - ledgerEvents.length + genuineLedgerEventCount;
   const evidenceIndex = Array.isArray(assembled?.evidence_index) ? assembled.evidence_index : [];
   const verifiedEvidenceIndex = evidenceIndex.filter(
     (e) => e && e.verification_status === 'verified',
@@ -177,7 +214,7 @@ function evaluateHistoricalEvidence(assembled, vehicle = null) {
   const confirmedAlerts = keyAlerts.filter((a) => a && a.reviewed === true);
 
   const hasHistoricalEvidence =
-    verifiedHistoricalEvents.length > 0
+    verifiedHistoricalEventCount > 0
     || verifiedEvidenceIndex.length > 0
     || confirmedAlerts.length > 0;
 
@@ -225,7 +262,7 @@ function evaluateHistoricalEvidence(assembled, vehicle = null) {
       : hasListingOnlyWithoutVerifiedHistory
         ? 'This vehicle has seller-stated marketplace listing snapshots only, with zero verified historical lifecycle or inspection records. Seller-stated listings alone do not qualify for paid report commerce.'
         : 'This vehicle record contains only basic VIN/identity metadata with zero historical lifecycle evidence, inspection records, or listing history. Purchase is refused before charging so customers are not billed for an empty metadata-only report.',
-    historicalEventCount: verifiedHistoricalEvents.length,
+    historicalEventCount: verifiedHistoricalEventCount,
     evidenceIndexCount: verifiedEvidenceIndex.length,
     listingSnapshotCount: listingHistory.length,
     keyAlertCount: confirmedAlerts.length,
@@ -383,7 +420,10 @@ export async function inspectVehicleReportReadiness({
   }
 
   const provenance = verifyVehicleReportProvenance(assembled, vehicle);
-  const eligibility = evaluateHistoricalEvidence(assembled, vehicle);
+  const genuineTransfers = await countGenuineOwnershipTransfers(db, [cleanVin]);
+  const eligibility = evaluateHistoricalEvidence(assembled, vehicle, {
+    genuineOwnershipTransfers: genuineTransfers.get(cleanVin) || 0,
+  });
   const product = getPay02CatalogueItem(PAY03A_PRODUCT_CODE);
   const quotePreview = previewPay02Quote({
     productCode: PAY03A_PRODUCT_CODE,
@@ -509,6 +549,7 @@ export async function listEligibleReportVehicles({
     );
   });
 
+  const genuineTransfers = await countGenuineOwnershipTransfers(db, rows.map((v) => v.vin));
   const vehicles = [];
   for (const v of rows) {
     let eligibility = {
@@ -524,7 +565,9 @@ export async function listEligibleReportVehicles({
     };
     try {
       const assembled = await reportAssembler(db, v.vin, { audience: 'buyer' });
-      eligibility = evaluateHistoricalEvidence(assembled, v);
+      eligibility = evaluateHistoricalEvidence(assembled, v, {
+        genuineOwnershipTransfers: genuineTransfers.get(v.vin) || 0,
+      });
     } catch {
       eligibility = {
         eligibleForPurchase: false,
