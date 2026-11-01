@@ -95,8 +95,9 @@ if (PHASE === 'paid') {
   check('P02', 'Buyer receives the report with Cache-Control no-store', report.status === 200 && /no-store/.test(report.cacheControl || ''), { status: report.status, cacheControl: report.cacheControl });
   check('P03', 'D-HASH-1 physical: sha256 over the delivered report JSON equals the certified content_hash', recomputed === report.json?.contentHash
     && recomputed === l.order.report_content_hash, { recomputed, contentHash: report.json?.contentHash });
-  check('P04', 'Report is the purchased vehicle with its commercial binding and limitations', delivered?.vin === 'QA-PAY03A-0001'
-    && delivered?.commercial_snapshot?.order_id === ORDER && delivered?.commercial_snapshot?.payment_reference === purchase.paymentReference
+  check('P04', 'Report is the purchased vehicle, with limitations, and carries no buyer/payment/order identifiers (F2)', delivered?.vin === 'QA-PAY03A-0001'
+    && !JSON.stringify(delivered || {}).includes(purchase.paymentReference) && !JSON.stringify(delivered || {}).includes(accounts.buyerA.userId)
+    && !JSON.stringify(delivered || {}).includes(ORDER)
     && Array.isArray(delivered?.limitations) && delivered.limitations.length > 0 && delivered?.audience === 'buyer',
     { evidence_index: (delivered?.evidence_index || []).length, timeline: (delivered?.timeline || []).length, limitations: (delivered?.limitations || []).length, scheme: delivered?.commercial_snapshot?.content_hash_scheme });
   check('P05', 'Private evidence never appears in the buyer report', !JSON.stringify(delivered || {}).includes('e746f9dd-ad90-4941-abf8-5ebaa1cf768c')

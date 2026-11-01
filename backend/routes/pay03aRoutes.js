@@ -40,6 +40,12 @@ function actorRole(req) {
   return req.userContext?.effectiveRole || req.userContext?.role || 'buyer';
 }
 
+// STG01-FINAL F11: administrator audits record the PLATFORM role. The effective role can be shaped by
+// tenant headers (x-tenant-id / x-stakeholder-role); the platform role cannot.
+function adminPlatformRole(req) {
+  return req.userContext?.platformRole || req.userContext?.baseRole || 'admin';
+}
+
 // Request provenance for the canonical audit record. Identity itself always comes from the proven
 // session (`req.userContext`), never from the request body.
 function auditRequestContext(req) {
@@ -73,10 +79,12 @@ function resolvePay03aStripe(req) {
 
 function respondError(res, err) {
   if (err instanceof Pay02Error || err instanceof Pay01aError) {
-    return res.status(err.status || 409).json({
+    const status = err.status || 409;
+    return res.status(status).json({
       error: err.code,
       code: err.code,
-      ...(err.details ? { details: err.details } : {}),
+      // STG01-FINAL F10: curated details only on 4xx; 5xx details can carry raw database/RPC messages.
+      ...(err.details && status < 500 ? { details: err.details } : {}),
     });
   }
   return res.status(503).json({
@@ -238,7 +246,7 @@ router.post('/api/pay03a/admin/orders/:orderId/reconcile', adminSession, async (
     const result = await reconcileAndFulfillPay03aAdminOrder({
       orderId: req.params.orderId,
       adminActorId: actorId(req),
-      adminActorRole: actorRole(req),
+      adminActorRole: adminPlatformRole(req),
       sourceRoute: '/api/pay03a/admin/orders/:orderId/reconcile',
       requestContext: auditRequestContext(req),
       db: resolvePay03aDb(req),
@@ -255,7 +263,7 @@ router.post('/api/pay03a/admin/orders/:orderId/refund', adminSession, async (req
     const result = await refundPay03aAdminOrder({
       orderId: req.params.orderId,
       adminActorId: actorId(req),
-      adminActorRole: actorRole(req),
+      adminActorRole: adminPlatformRole(req),
       sourceRoute: '/api/pay03a/admin/orders/:orderId/refund',
       requestContext: auditRequestContext(req),
       db: resolvePay03aDb(req),

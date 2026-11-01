@@ -66,7 +66,7 @@ const readinessFixture = {
       'Report generated from real CarUp Vehicle History sources for VIN WBA3A5C51DF358101.',
   },
   deliverableComparison: {
-    policyStatus: 'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+    policyStatus: 'SANDBOX_ONLY_OWNER_APPROVED_RETAIL_NOT_APPROVED',
     freeLiveReport: {
       endpoint: 'GET /api/vehicles/:vin/report',
       cost: 'Free (authenticated live view)',
@@ -437,7 +437,7 @@ describe('PAY-03A customer-facing real Vehicle History Report commerce', () => {
       'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE',
     )
     expect(screen.getByTestId('pay03a-deliverable-comparison')).toHaveTextContent(
-      'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+      'SANDBOX_ONLY_OWNER_APPROVED_RETAIL_NOT_APPROVED',
     )
     expect(screen.getByTestId('pay03a-buy-button')).toBeDisabled()
   })

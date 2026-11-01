@@ -1544,13 +1544,11 @@ export async function deliverVerifiedVehicleHistoryReport({
     commercial_snapshot: {
       product_code: 'intel.report.vehicle_history_single',
       product_version: qProductVersion,
-      order_id: resolvedOrder.id,
-      quote_id: qId,
-      quote_number: resolvedQuote.quote_number || resolvedQuote.quoteNumber || null,
-      payment_reference: resolvedPayment.reference,
-      buyer_id: cleanBuyer,
+      // STG01-FINAL F2: no buyer, order, quote or payment identifiers in the payload. Anyone holding a share
+      // link receives this document; the binding lives in report_versions.pay03a_order_id and
+      // pay02_report_orders, and the buyer sees their order through the authenticated order projection.
       deliverable_type: 'immutable_buyer_owned_report_snapshot',
-      policy_status: 'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+      policy_status: 'SANDBOX_ONLY_OWNER_APPROVED_RETAIL_NOT_APPROVED',
       // STG01-FINAL D-HASH-1: content_hash = sha256 of this document serialized in JSONB key order,
       // i.e. sha256 over exactly the JSON the buyer receives from report_versions.payload.
       content_hash_scheme: 'sha256:jsonb-key-order-json-v1',

@@ -366,7 +366,7 @@ function createInMemoryPay03aHarness() {
 
     async function resolveRows() {
       let rows = [];
-      if (table === 'vehicles') rows = Array.from(vehicles.values());
+      if (table === 'vehicles') rows = Array.from(vehicles.values()).map((v) => ({ publication_status: 'published', ...v }));
       else if (table === 'vehicle_evidence') rows = vehicleEvidence.slice();
       else if (table === 'pay02_commercial_quotes') rows = Array.from(quotes.values());
       else if (table === 'payment_transactions') rows = Array.from(payments.values());
@@ -631,11 +631,10 @@ function createInMemoryPay03aHarness() {
             ord.granted_at = ord.granted_at || new Date().toISOString();
           }
         } else if (pay.status === 'refund_pending') {
+          // Mirrors migration 20261101100000 (STG01-FINAL F4): suspend via order status; never revoke the
+          // one-way snapshot here, so a failed/cancelled provider refund can restore access.
           if (ord && ord.entitlement_status !== 'revoked_refunded') {
             ord.entitlement_status = 'refund_suspended';
-            if (ord.report_version_id && reportVersions.has(ord.report_version_id)) {
-              reportVersions.get(ord.report_version_id).revoked = true;
-            }
           }
         } else if (pay.status === 'refunded') {
           q.status = 'refunded';
@@ -965,7 +964,7 @@ test('PAY03A Pre-Purchase Readiness & R1-B Evidence Policy: verifies real vehicl
   assert.equal(list.vehicles[2].ineligibilityReason, 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE');
   assert.equal(
     list.deliverableComparison.policyStatus,
-    'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+    'SANDBOX_ONLY_OWNER_APPROVED_RETAIL_NOT_APPROVED',
   );
 
   const readiness = await inspectVehicleReportReadiness({
@@ -2409,4 +2408,96 @@ test('PAY03A STG01-FINAL D-HASH-1: the paid snapshot content_hash is reproducibl
   assert.equal(recomputed, fulfilled.contentHash, 'sha256 over the delivered JSON must equal the certified content_hash');
   assert.equal(fulfilled.report.commercial_snapshot.content_hash_scheme, 'sha256:jsonb-key-order-json-v1');
   await pg.close();
+});
+
+test('PAY03A STG01-FINAL independent challenge F1/F2/F3/F6/F7/F9/F10: category, privacy, revocation, visibility, honesty, opt-in and error hygiene', async () => {
+  const { requirePay03aSandbox } = await import('../services/payment/pay03aReportCommerceService.js');
+  const { revokeShare } = await import('../services/report/reportService.js');
+  const harness = createInMemoryPay03aHarness();
+
+  // F9: commerce is explicit opt-in (mirrors the webhook's `=== 'true'` sync gate).
+  assert.throws(
+    () => requirePay03aSandbox({ NODE_ENV: 'test', CARUP_ENV: 'test', SUPABASE_URL: 'http://localhost:54321' }),
+    (err) => err.code === 'PAY03A_COMMERCE_DISABLED' && err.status === 404,
+  );
+
+  // F7: the comparison must not claim the free route lacks snapshots, hashes or share links.
+  const free = PAY03A_DELIVERABLE_COMPARISON.freeLiveReport;
+  for (const claim of [...free.excludes, ...free.includes]) {
+    assert.doesNotMatch(claim, /No immutable|No buyer-controlled expiring share|content_hash certificate/i);
+  }
+  assert.ok([...free.includes, free.nature].join(' ').includes('/api/vehicles/:vin/report/versions'));
+
+  // F1: dated, independently reviewed current-condition or dealer-listing evidence is not history.
+  const VIN = 'SYN-0000006';
+  harness.vehicles.set(VIN, { vin: VIN, make: 'Synthetic', model: 'Category Fixture', year: 2015, owner_id: 'seller-syn-6', status: 'Available' });
+  for (const cls of ['current_condition', 'dealer_listing']) {
+    harness.vehicleEvidence.push({ id: `ev-syn6-${cls}`, vin: VIN, evidence_class: cls, verification_status: 'verified', visibility_level: 'public_safe',
+      uploaded_by: 'seller-syn-6', verified_by: 'reviewer-syn-6', event_date: '2026-10-31', captured_at: '2026-10-31T00:00:00Z' });
+    const r = await inspectVehicleReportReadiness({ vin: VIN, buyerId: 'buyer-03a-1', db: harness.db });
+    assert.equal(r.eligibleForPurchase, false, `${cls} evidence must not qualify as history`);
+  }
+  harness.vehicleEvidence.push({ id: 'ev-syn6-import', vin: VIN, evidence_class: 'import', verification_status: 'verified', visibility_level: 'public_safe',
+    uploaded_by: 'seller-syn-6', verified_by: 'reviewer-syn-6', event_date: '2026-08-01', captured_at: '2026-08-01T00:00:00Z' });
+  const withImport = await inspectVehicleReportReadiness({ vin: VIN, buyerId: 'buyer-03a-1', db: harness.db });
+  assert.equal(withImport.eligibleForPurchase, true);
+  assert.equal(withImport.readiness.historicalEventCount, 1);
+  assert.equal(withImport.readiness.evidenceIndexCount, 1);
+
+  // F6: unpublished vehicles are neither discoverable nor purchasable; the legacy trust_score is not exposed.
+  harness.vehicles.set('SYN-0000007', { vin: 'SYN-0000007', make: 'Synthetic', model: 'Draft Fixture', year: 2014, owner_id: 'seller-syn-7',
+    status: 'Available', publication_status: 'draft', trust_score: 80 });
+  const listed = await listEligibleReportVehicles({ db: harness.db });
+  assert.equal(listed.vehicles.some((v) => v.vin === 'SYN-0000007'), false, 'draft vehicles must not be enumerable');
+  assert.ok(listed.vehicles.every((v) => v.trustScore === null), 'raw trust_score must not be exposed');
+  await assert.rejects(
+    inspectVehicleReportReadiness({ vin: 'SYN-0000007', buyerId: 'buyer-03a-1', db: harness.db }),
+    (err) => err.code === 'PAY03A_VEHICLE_NOT_FOUND' && err.status === 404,
+  );
+
+  // F2: the paid snapshot (and therefore any shared copy) carries no buyer or payment identifiers.
+  const checkout = await createPay03aReportCheckout({ buyerId: 'buyer-03a-1', vin: 'WBA3A5C51DF358101',
+    requestKey: 'pay03a_review_f2_privacy_0001', db: harness.db, stripe: harness.stripeMock });
+  harness.stripeMock.markCheckoutPaid(checkout.checkoutId);
+  const delivered = await readPay03aBuyerReport({ buyerId: 'buyer-03a-1', orderId: checkout.orderId, db: harness.db, stripe: harness.stripeMock });
+  const snapshot = delivered.report.commercial_snapshot;
+  for (const key of ['buyer_id', 'payment_reference', 'order_id', 'quote_id', 'quote_number']) {
+    assert.equal(Object.prototype.hasOwnProperty.call(snapshot, key), false, `commercial_snapshot.${key} must not be stored in the payload`);
+  }
+  const payloadText = JSON.stringify(delivered.report);
+  for (const secret of ['buyer-03a-1', checkout.paymentReference, checkout.orderId]) {
+    assert.equal(payloadText.includes(secret), false, 'payload must not contain buyer/payment/order identifiers');
+  }
+  assert.equal(snapshot.policy_status, 'SANDBOX_ONLY_OWNER_APPROVED_RETAIL_NOT_APPROVED');
+
+  // F3: a paid snapshot can only be revoked by the governed refund flow.
+  await assert.rejects(
+    revokeShare(harness.db, delivered.reportVersionId, { correctionNotice: 'not authorized' }),
+    (err) => err.statusCode === 403 && err.code === 'PAY03A_SNAPSHOT_REVOCATION_GOVERNED',
+  );
+  assert.equal(harness.reportVersions.get(delivered.reportVersionId).revoked, false);
+
+  // F10: a 5xx never echoes internal error detail to the caller.
+  const origFrom = supabase.from;
+  supabase.from = harness.db.from.bind(harness.db);
+  const app = express();
+  app.use(express.json());
+  app.locals.pay03aDb = harness.db;
+  app.locals.pay03aStripe = harness.stripeMock;
+  app.use(pay03aRoutes);
+  const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  try {
+    const c2 = await createPay03aReportCheckout({ buyerId: 'buyer-03a-1', vin: 'JTDBR32E820112202',
+      requestKey: 'pay03a_review_f10_errors_0001', db: harness.db, stripe: harness.stripeMock });
+    harness.stripeMock.markCheckoutPaid(c2.checkoutId);
+    harness.faultInjection.failNextFulfillmentRpc = true;
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/pay03a/orders/${c2.orderId}/report`, { headers: { 'x-session-token': 'tok-buyer-1' } });
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.equal(body.code, 'PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED');
+    assert.equal(Object.prototype.hasOwnProperty.call(body, 'details'), false, '5xx responses must not carry internal details');
+  } finally {
+    supabase.from = origFrom;
+    await new Promise((resolve) => server.close(resolve));
+  }
 });

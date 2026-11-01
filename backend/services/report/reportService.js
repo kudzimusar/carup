@@ -451,7 +451,20 @@ export async function getReportByShareToken(supabase, token, { now = Date.now() 
   };
 }
 
-export async function revokeShare(supabase, versionId, { correctionNotice = null } = {}) {
+export async function revokeShare(supabase, versionId, { correctionNotice = null, authorizedPay03aRevocation = false } = {}) {
+  // STG01-FINAL F3: revocation of a PAID snapshot is one-way and only the governed refund flow may do it.
+  // The Milestone 4 route is reachable by any signed-in account; without this, anyone could destroy a
+  // buyer's paid report while the buyer stays charged.
+  if (!authorizedPay03aRevocation) {
+    // `sel` throws on a read error, so an unreadable target fails closed (nothing is revoked).
+    const [target] = await sel(supabase, 'report_versions', { id: versionId });
+    if (target && (target.report_tier === 'pay03a_commercial_snapshot' || target.pay03a_order_id)) {
+      const err = new Error('Paid report snapshots can only be revoked by the governed refund flow.');
+      err.statusCode = 403;
+      err.code = 'PAY03A_SNAPSHOT_REVOCATION_GOVERNED';
+      throw err;
+    }
+  }
   const { data, error } = await supabase.from('report_versions').update({ revoked: true, correction_notice: correctionNotice }).eq('id', versionId).select();
   if (error) throw new Error(`revoke failed: ${error.message}`);
   return Array.isArray(data) ? data[0] : data;

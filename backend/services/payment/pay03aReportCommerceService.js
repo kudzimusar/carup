@@ -13,6 +13,7 @@
  */
 import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
+import { publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses } from '../../utils/vehicleStatus.js';
 import {
   assembleReport,
   createShareLink,
@@ -53,34 +54,35 @@ export const PAY03A_CHECKOUT_LABEL = 'CarUp Vehicle History Report — Single VI
  * and does not claim exclusive or secret external data sources.
  */
 export const PAY03A_DELIVERABLE_COMPARISON = Object.freeze({
-  policyStatus: 'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+  // Owner decision 2026-11-01: approved for SANDBOX TESTING ONLY; retail sale is not approved.
+  policyStatus: 'SANDBOX_ONLY_OWNER_APPROVED_RETAIL_NOT_APPROVED',
   freeLiveReport: {
     endpoint: 'GET /api/vehicles/:vin/report',
-    cost: 'Free (authenticated live view)',
-    nature: 'Ephemeral on-demand live read of current vehicle state and timeline.',
+    cost: 'Free',
+    nature:
+      'Live read of the same CarUp report engine. Signed-in accounts can also create a free self-service snapshot with a SHA-256 hash and an expiring share link through POST /api/vehicles/:vin/report/versions (Milestone 4).',
     includes: [
-      'On-demand buyer-safe vehicle identity and completeness summary',
-      'Live timeline and disclosure view as of the current request instant',
+      'On-demand vehicle identity, completeness and limitations from the canonical report engine',
+      'Optional free self-service snapshot and expiring share link (POST /api/vehicles/:vin/report/versions)',
     ],
     excludes: [
-      'No immutable timestamped report_versions snapshot or SHA-256 content_hash certificate',
-      'No buyer-owned commercial order record or durable archive guarantee',
-      'No buyer-controlled expiring share link (/api/reports/shared/:token)',
+      'No pre-purchase evidence gate: a report is produced even when no qualifying history exists',
+      'No purchase record bound to a canonical payment, and no entitlement or refund governance',
     ],
   },
   paidCommercialSnapshot: {
     productCode: PAY03A_PRODUCT_CODE,
     cost: 'JPY 100 (Sandbox Test Fixture — Not Final Commercial Tariff)',
     nature:
-      'Immutable, versioned, SHA-256 content-hashed report_versions snapshot bound 1:1 to a verified buyer order and canonical payment_transactions record.',
+      'The same report engine, sold only when the vehicle meets the evidence threshold, as an immutable snapshot bound 1:1 to a verified purchase and canonical payment record.',
     includes: [
-      'Requires verified historical lifecycle evidence before checkout is allowed (metadata-only VINs refused before charging)',
-      'Immutable buyer-owned report_versions snapshot with cryptographic SHA-256 content_hash and generation timestamp',
-      'Durable buyer order archive (/api/pay03a/orders/:orderId/report) backed by canonical payment_transactions',
-      'Buyer-controlled expiring share link (/api/reports/shared/:token) with fail-closed entitlement & refund revocation enforcement',
+      'Refused before charging unless the vehicle has independently reviewed, dated history evidence (or a verified maintenance record, or a genuine CarUp ownership transfer)',
+      'Snapshot bound to the purchase and canonical payment record, with governed refund that revokes access',
+      'SHA-256 content hash reproducible from the delivered report JSON',
+      'Share links governed by the purchase entitlement and revoked on refund',
     ],
     honestyDisclosure:
-      'Paid sandbox fulfillment uses the same underlying CarUp canonical vehicle lifecycle engine (assembleReport) as the live route; it does not claim exclusive external registry or secret data sources.',
+      'Paid and free reports use the same CarUp report engine (assembleReport); the paid product adds no exclusive or secret data source. Its differences are the evidence gate and the purchase, entitlement and refund governance.',
   },
 });
 
@@ -225,8 +227,13 @@ async function countGenuineOwnershipTransfers(db, vins) {
   }
 }
 
+// STG01-FINAL F1 (Owner decision 2026-11-01): present-day condition and dealer-listing evidence does not
+// record the vehicle's past, so it never qualifies, however well it is reviewed or dated.
+const NON_HISTORICAL_EVIDENCE_CATEGORIES = Object.freeze(['current_condition', 'dealer_listing']);
+
 function isQualifyingHistoricalEvent(e) {
   if (!e || typeof e !== 'object') return false;
+  if (e.source_kind === 'evidence' && NON_HISTORICAL_EVIDENCE_CATEGORIES.includes(e.evidence_class)) return false;
   const allowed = Object.prototype.hasOwnProperty.call(QUALIFYING_HISTORICAL_STATUSES, e.source_kind)
     ? QUALIFYING_HISTORICAL_STATUSES[e.source_kind]
     : null;
@@ -258,6 +265,7 @@ function evaluateHistoricalEvidence(
     (e) => e
       && e.verification_status === 'verified'
       && Boolean(e.lifecycle_category)
+      && !NON_HISTORICAL_EVIDENCE_CATEGORIES.includes(e.lifecycle_category)
       && independent.has(String(e.evidence_id ?? e.id)),
   );
   const listingHistory = Array.isArray(assembled?.listing_history) ? assembled.listing_history : [];
@@ -329,7 +337,9 @@ const PAYMENT_COLUMNS =
 
 export function requirePay03aSandbox(env = process.env, { requireStripe = false } = {}) {
   requirePay02NonProduction(env);
-  if (env.CARUP_PAY02_ENABLED === 'false' || env.CARUP_PAY03A_ENABLED === 'false') {
+  // STG01-FINAL F9: explicit opt-in, matching the webhook's `=== 'true'` entitlement-sync gate, so the
+  // routes can never be live while webhook entitlement sync is off.
+  if (env.CARUP_PAY02_ENABLED !== 'true' || env.CARUP_PAY03A_ENABLED !== 'true') {
     throw new Pay02Error('PAY03A_COMMERCE_DISABLED', 404);
   }
   if (requireStripe) {
@@ -444,10 +454,13 @@ export async function inspectVehicleReportReadiness({
     throw new Pay02Error('PAY03A_DB_UNAVAILABLE', 503);
   }
 
+  // STG01-FINAL F6: only publicly visible vehicles (same status/publication gate as the public list).
   const { data: vehicle, error: vehErr } = await db
     .from('vehicles')
     .select('*')
     .eq('vin', cleanVin)
+    .in('status', publicVehicleStatusFilterValues())
+    .in('publication_status', publiclyVisiblePublicationStatuses())
     .maybeSingle();
   if (vehErr) {
     throw new Pay02Error('PAY03A_VEHICLE_READ_FAILED', 503);
@@ -523,7 +536,7 @@ export async function inspectVehicleReportReadiness({
       dutyPaid: Boolean(vehicle.duty_paid),
       policeVerified: Boolean(vehicle.police_verified),
       status: vehicle.status || 'Available',
-      trustScore: vehicle.trust_score ?? null,
+      trustScore: null, // F6: the raw trust_score column is an unversioned legacy cache
       isSyntheticFixture: eligibility.isSyntheticFixture,
       isQaFixture: eligibility.isQaFixture,
       provenanceClassification: eligibility.provenanceClassification,
@@ -587,6 +600,8 @@ export async function listEligibleReportVehicles({
   const { data, error } = await db
     .from('vehicles')
     .select('*')
+    .in('status', publicVehicleStatusFilterValues())
+    .in('publication_status', publiclyVisiblePublicationStatuses())
     .order('created_at', { ascending: false })
     .limit(Math.min(Math.max(Number(limit) || 20, 1), 50));
   if (error) {
@@ -656,7 +671,7 @@ export async function listEligibleReportVehicles({
       dutyPaid: Boolean(v.duty_paid),
       policeVerified: Boolean(v.police_verified),
       status: v.status || 'Available',
-      trustScore: v.trust_score ?? null,
+      trustScore: null, // F6: the raw trust_score column is an unversioned legacy cache
       eligibleForReport: eligibility.eligibleForPurchase,
       eligibilityStatus: eligibility.eligibilityStatus,
       ineligibilityReason: eligibility.ineligibilityReason,
@@ -1379,6 +1394,7 @@ export async function refundPay03aAdminOrder({
     try {
       await revokeShare(db, initial.order.report_version_id, {
         correctionNotice: 'Entitlement revoked following governed payment refund.',
+        authorizedPay03aRevocation: true,
       });
     } catch {
       // Already revoked by pay02_sync_quote_from_canonical_payment RPC

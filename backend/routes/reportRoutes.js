@@ -43,7 +43,12 @@ router.post('/api/report-versions/:id/share', authorizeRole(['owner', 'dealer', 
 }));
 
 router.post('/api/report-versions/:id/revoke', authorizeRole(['owner', 'dealer', 'admin', 'government']), asyncHandler(async (req, res) => {
-  await revokeShare(supabase, req.params.id, { correctionNotice: req.body.correction_notice || null });
+  try {
+    await revokeShare(supabase, req.params.id, { correctionNotice: req.body.correction_notice || null });
+  } catch (err) {
+    if (err?.statusCode === 403) return res.status(403).json({ error: err.message, code: err.code });
+    throw err;
+  }
   res.json({ revoked: true });
 }));
 
