@@ -6,13 +6,16 @@ on:
       - 'backend/services/payment/pay03a*'
       - 'backend/services/payment/pay01aService.js'
       - 'backend/services/report/reportService.js'
+      - 'backend/services/evidence/**'
       - 'backend/routes/pay02Routes.js'
       - 'backend/routes/pay03aRoutes.js'
       - 'backend/routes/reportRoutes.js'
+      - 'backend/routes/vehiclesRoutes.js'
       - 'backend/server.js'
       - 'backend/tests/pay02-commercial-foundation.test.js'
       - 'backend/tests/pay03a-real-report-commerce.test.js'
       - 'backend/tests/vehicle-report.test.js'
+      - 'backend/tests/operations-evidence-semantics.test.js'
       - 'backend/tests/sql/pay02-foundation-postgres-smoke.sql'
       - 'backend/tests/sql/pay03a-real-report-postgres-smoke.sql'
       - 'backend/tests/sql/fixtures/pay03a-synthetic-vehicle-fixtures.sql'
@@ -51,8 +54,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: PAY-01A/B/C regressions, PAY-02 commercial foundation, PAY-03A real report commerce, and vehicle report contracts
-        run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js backend/tests/pay02-commercial-foundation.test.js backend/tests/pay03a-real-report-commerce.test.js backend/tests/vehicle-report.test.js backend/tests/golden-journey.test.js
+      - name: PAY-01A/B/C regressions, PAY-02 commercial foundation, PAY-03A real report commerce, evidence governance, and vehicle report contracts
+        run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js backend/tests/pay02-commercial-foundation.test.js backend/tests/pay03a-real-report-commerce.test.js backend/tests/vehicle-report.test.js backend/tests/operations-evidence-semantics.test.js backend/tests/golden-journey.test.js
       - name: PAY-03A customer UI, PAY-02 admin governance UI, PAY-01B/C UI, and route custody
         working-directory: web
         run: npx vitest run src/pages/VehicleHistoryCommerce.test.tsx src/pages/dashboard/admin/Pay02CommercialFoundation.test.tsx src/pages/dashboard/admin/Pay01aPayments.test.tsx src/pages/DemoVehicleHistory.test.tsx src/lib/routeAccess.test.ts
@@ -121,6 +124,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f database/migrations/supabase_schema.sql
           sed '/^-- +migrate Down/,$d' database/migrations/014_passport_evidence_architecture.sql | psql -v ON_ERROR_STOP=1
           sed '/^-- +migrate Down/,$d' database/migrations/015_vehicle_evidence_timeline.sql | psql -v ON_ERROR_STOP=1
+          sed '/^-- +migrate Down/,$d' database/migrations/20260603233640_governance_foundation_trust_audit_events.sql | psql -v ON_ERROR_STOP=1
           sed '/^-- +migrate Down/,$d' database/migrations/20260621120000_vehicle_life_evidence_taxonomy_provenance.sql | psql -v ON_ERROR_STOP=1
           sed '/^-- +migrate Down/,$d' database/migrations/20260621130000_external_source_ingestion.sql | psql -v ON_ERROR_STOP=1
           sed '/^-- +migrate Down/,$d' database/migrations/20260621140000_ai_temporal_disclosure_intelligence.sql | psql -v ON_ERROR_STOP=1

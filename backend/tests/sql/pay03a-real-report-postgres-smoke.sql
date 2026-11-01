@@ -1,4 +1,4 @@
--- CARUP-PAY-03A (R1) isolated ephemeral PostgreSQL smoke test:
+-- CARUP-PAY-03A (R1 + STG01-R3-R1) isolated ephemeral PostgreSQL smoke test:
 -- Verifies:
 -- 1. R1-A: Deployable migration `20261031160000_carup_pay03a_real_report_commerce.sql` did NOT manufacture
 --    synthetic `WBA3A5C51DF358101`, `JTDBR32E820112202`, or `DBA-GRS204-0005303` vehicle rows, and
@@ -16,6 +16,9 @@
 --    table reads of paid snapshots by `anon`/`authenticated` while preserving legacy report reads.
 -- 8. Concurrency/idempotent replay of `pay03a_complete_report_fulfillment` and immutability of content & binding.
 -- 9. Governed refund (`refund_pending` -> `refunded`) suspending and revoking both `pay02_report_orders` and `report_versions.revoked = true`.
+-- 10. STG01-R3-R1: Atomic evidence review RPC (`public.carup_review_vehicle_evidence`) ACLs, self-review refusal,
+--     transactional rollback on audit/update/provenance failure, verified/rejected transitions, idempotent replay,
+--     and conflicting review refusal (`EVIDENCE_REVIEW_CONFLICT`).
 
 -- Step A: Pre-fixture checks (prove deployable migration did not insert synthetic vehicles and legacy reports work)
 DO $$
@@ -108,7 +111,7 @@ BEGIN
     RAISE EXCEPTION 'PAY03A_SYNTHETIC_FIXTURE_STATE_UNEXPECTED';
   END IF;
 
-  -- 2. Verify RLS and ACLs on `public.report_versions` and `public.pay03a_complete_report_fulfillment`.
+  -- 2. Verify RLS and ACLs on `public.report_versions`, `public.pay03a_complete_report_fulfillment`, and `public.carup_review_vehicle_evidence`.
   IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid = 'public.report_versions'::regclass AND relrowsecurity) THEN
     RAISE EXCEPTION 'PAY03A_RLS_DISABLED_ON_REPORT_VERSIONS';
   END IF;
@@ -122,10 +125,17 @@ BEGIN
     IF has_function_privilege(v_role, 'public.pay03a_complete_report_fulfillment(uuid,text,text,jsonb,text,jsonb)', 'EXECUTE') THEN
       RAISE EXCEPTION 'PAY03A_UNAUTHORIZED_FULFILLMENT_RPC_GRANT_%', v_role;
     END IF;
+    IF has_function_privilege(v_role, 'public.carup_review_vehicle_evidence(text,uuid,text,text,numeric,numeric,text,text,text,text,text,text,text,jsonb,jsonb,jsonb,integer,text,text,timestamptz)', 'EXECUTE') THEN
+      RAISE EXCEPTION 'PAY03A_UNAUTHORIZED_EVIDENCE_REVIEW_RPC_GRANT_%', v_role;
+    END IF;
   END LOOP;
 
   IF NOT has_function_privilege('service_role', 'public.pay03a_complete_report_fulfillment(uuid,text,text,jsonb,text,jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION 'PAY03A_SERVICE_ROLE_FULFILLMENT_GRANT_MISSING';
+  END IF;
+
+  IF NOT has_function_privilege('service_role', 'public.carup_review_vehicle_evidence(text,uuid,text,text,numeric,numeric,text,text,text,text,text,text,text,jsonb,jsonb,jsonb,integer,text,text,timestamptz)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'PAY03A_SERVICE_ROLE_EVIDENCE_REVIEW_GRANT_MISSING';
   END IF;
 
   -- 3. Issue server-authorized PAY-02 quote for fixture vehicle `WBA3A5C51DF358101`.
@@ -334,4 +344,115 @@ BEGIN
   END;
 
   RAISE NOTICE 'PAY03A_POSTGRES_SMOKE_PASS: Canonical vehicle/report schema preserved, synthetic fixtures segregated, atomic report fulfillment, idempotent replay, restrictive RLS, and refund revocation verified';
+END $$;
+
+-- Step D: STG01-R3-R1 Atomic Evidence Review Governance Smoke Test (`public.carup_review_vehicle_evidence`)
+DO $$
+DECLARE
+  v_ev_id uuid := '22222222-3333-4444-8555-666666666601';
+  v_review_1 jsonb;
+  v_review_replay jsonb;
+BEGIN
+  INSERT INTO public.users (id, name, email, role, is_verified, subscription, join_date) VALUES
+    ('u_smoke_uploader', 'Smoke Uploader', 'smoke.uploader@carup.test', 'owner', true, 'Free', '2026-10-31'),
+    ('u_smoke_reviewer_1', 'Smoke Reviewer 1', 'smoke.reviewer1@carup.test', 'admin', true, 'System', '2026-10-31'),
+    ('u_smoke_reviewer_2', 'Smoke Reviewer 2', 'smoke.reviewer2@carup.test', 'government', true, 'System', '2026-10-31')
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO public.vehicle_evidence (
+    id, vehicle_id, vin, event_type, evidence_type, evidence_class, evidence_subtype,
+    file_url, storage_bucket, file_path, mime_type, file_size,
+    uploaded_by, uploader_role, verification_status, trust_score_impact, confidence_impact, visibility_level
+  ) VALUES (
+    v_ev_id, 'WBA3A5C51DF358101', 'WBA3A5C51DF358101', 'import_photo', 'import_photo', 'import', 'port_photo',
+    'https://private.example/smoke.jpg', 'vehicle-images', 'WBA3A5C51DF358101/smoke.jpg', 'image/jpeg', 1024,
+    'u_smoke_uploader', 'owner', 'pending', 0, 2, 'public_safe'
+  );
+
+  INSERT INTO public.evidence_provenance_events (
+    evidence_id, vin, sequence, event_type, actor_user_id, actor_role, actor_type, details, prev_hash, content_hash
+  ) VALUES (
+    v_ev_id, 'WBA3A5C51DF358101', 1, 'uploaded', 'u_smoke_uploader', 'owner', 'user', '{}'::jsonb, NULL, 'smoke_prov_hash_seq_1'
+  );
+
+  -- 1. Self-review refusal inside PostgreSQL RPC
+  BEGIN
+    PERFORM public.carup_review_vehicle_evidence(
+      'WBA3A5C51DF358101', v_ev_id, 'verified', 'Self review attempt', 3, 2,
+      'u_smoke_uploader', 'admin', NULL, '/api/vehicles/:vin/evidence/:evidenceId/verify',
+      'req_smoke_self', '127.0.0.1', 'psql-smoke',
+      '{"verification_status":"pending"}'::jsonb, '{"verification_status":"verified"}'::jsonb,
+      '{}'::jsonb, 2, 'smoke_prov_hash_seq_1', 'smoke_prov_hash_seq_2', now()
+    );
+    RAISE EXCEPTION 'EVIDENCE_SELF_REVIEW_WRONGLY_PERMITTED';
+  EXCEPTION WHEN OTHERS THEN
+    IF position('EVIDENCE_REVIEW_SELF_FORBIDDEN' IN SQLERRM) = 0 THEN RAISE; END IF;
+  END;
+
+  -- 2. Provenance sequence/prev_hash mismatch refusal (rolls back atomically)
+  BEGIN
+    PERFORM public.carup_review_vehicle_evidence(
+      'WBA3A5C51DF358101', v_ev_id, 'verified', 'Stale sequence attempt', 3, 2,
+      'u_smoke_reviewer_1', 'admin', NULL, '/api/vehicles/:vin/evidence/:evidenceId/verify',
+      'req_smoke_stale', '127.0.0.1', 'psql-smoke',
+      '{"verification_status":"pending"}'::jsonb, '{"verification_status":"verified"}'::jsonb,
+      '{}'::jsonb, 99, 'wrong_prev_hash', 'smoke_prov_hash_seq_2', now()
+    );
+    RAISE EXCEPTION 'EVIDENCE_STALE_PROVENANCE_WRONGLY_PERMITTED';
+  EXCEPTION WHEN OTHERS THEN
+    IF position('EVIDENCE_REVIEW_PROVENANCE_SEQUENCE_CONFLICT' IN SQLERRM) = 0 THEN RAISE; END IF;
+  END;
+
+  IF (SELECT count(*) FROM public.trust_audit_events WHERE (v_ev_id::text) = ANY(evidence_ids)) <> 0
+     OR (SELECT verification_status FROM public.vehicle_evidence WHERE id = v_ev_id) <> 'pending' THEN
+    RAISE EXCEPTION 'EVIDENCE_REVIEW_FAILED_CALL_LEFT_PARTIAL_STATE';
+  END IF;
+
+  -- 3. Successful atomic review commits audit, status update, and provenance together
+  v_review_1 := public.carup_review_vehicle_evidence(
+    'WBA3A5C51DF358101', v_ev_id, 'verified', 'Verified export yard photo', 3, 2,
+    'u_smoke_reviewer_1', 'admin', NULL, '/api/vehicles/:vin/evidence/:evidenceId/verify',
+    'req_smoke_ok', '127.0.0.1', 'psql-smoke',
+    '{"verification_status":"pending"}'::jsonb, '{"verification_status":"verified"}'::jsonb,
+    '{"notes":"Verified export yard photo"}'::jsonb, 2, 'smoke_prov_hash_seq_1', 'smoke_prov_hash_seq_2', now()
+  );
+
+  IF (v_review_1->>'idempotent_replay')::boolean <> false
+     OR (SELECT verification_status FROM public.vehicle_evidence WHERE id = v_ev_id) <> 'verified'
+     OR (SELECT count(*) FROM public.trust_audit_events WHERE (v_ev_id::text) = ANY(evidence_ids)) <> 1
+     OR (SELECT count(*) FROM public.evidence_provenance_events WHERE evidence_id = v_ev_id) <> 2 THEN
+    RAISE EXCEPTION 'EVIDENCE_ATOMIC_REVIEW_COMMIT_FAILED: %', v_review_1;
+  END IF;
+
+  -- 4. Idempotent replay by same reviewer with identical parameters returns existing audit & provenance
+  v_review_replay := public.carup_review_vehicle_evidence(
+    'WBA3A5C51DF358101', v_ev_id, 'verified', 'Verified export yard photo', 3, 2,
+    'u_smoke_reviewer_1', 'admin', NULL, '/api/vehicles/:vin/evidence/:evidenceId/verify',
+    'req_smoke_replay', '127.0.0.1', 'psql-smoke',
+    '{"verification_status":"pending"}'::jsonb, '{"verification_status":"verified"}'::jsonb,
+    '{"notes":"Verified export yard photo"}'::jsonb, 2, 'smoke_prov_hash_seq_1', 'smoke_prov_hash_seq_2', now()
+  );
+
+  IF (v_review_replay->>'idempotent_replay')::boolean <> true
+     OR (v_review_replay->>'audit_event_id') <> (v_review_1->>'audit_event_id')
+     OR (SELECT count(*) FROM public.trust_audit_events WHERE (v_ev_id::text) = ANY(evidence_ids)) <> 1
+     OR (SELECT count(*) FROM public.evidence_provenance_events WHERE evidence_id = v_ev_id) <> 2 THEN
+    RAISE EXCEPTION 'EVIDENCE_ATOMIC_REVIEW_IDEMPOTENT_REPLAY_FAILED: %', v_review_replay;
+  END IF;
+
+  -- 5. Conflicting second reviewer decision is refused with EVIDENCE_REVIEW_CONFLICT
+  BEGIN
+    PERFORM public.carup_review_vehicle_evidence(
+      'WBA3A5C51DF358101', v_ev_id, 'rejected', 'Conflicting rejection', -5, 2,
+      'u_smoke_reviewer_2', 'government', NULL, '/api/vehicles/:vin/evidence/:evidenceId/reject',
+      'req_smoke_conflict', '127.0.0.1', 'psql-smoke',
+      '{"verification_status":"pending"}'::jsonb, '{"verification_status":"rejected"}'::jsonb,
+      '{}'::jsonb, 2, 'smoke_prov_hash_seq_1', 'smoke_prov_hash_seq_2_b', now()
+    );
+    RAISE EXCEPTION 'EVIDENCE_CONFLICTING_SECOND_REVIEW_WRONGLY_PERMITTED';
+  EXCEPTION WHEN OTHERS THEN
+    IF position('EVIDENCE_REVIEW_CONFLICT' IN SQLERRM) = 0 THEN RAISE; END IF;
+  END;
+
+  RAISE NOTICE 'STG01_R3_R1_ATOMIC_EVIDENCE_REVIEW_SMOKE_PASS: Atomic audit + status + provenance transaction, self-review refusal, idempotent replay, and conflict guard verified';
 END $$;

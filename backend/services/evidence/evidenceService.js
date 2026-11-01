@@ -10,8 +10,7 @@ import {
   GENERIC_COMPAT_DOCUMENT_TYPE,
 } from './evidenceTaxonomy.js';
 import { computePerceptualHash } from './perceptualHash.js';
-import { recordProvenanceEvent } from './provenanceService.js';
-import { logAuditEvent } from '../auditLogger.js';
+import { computeContentHash, recordProvenanceEvent } from './provenanceService.js';
 import {
   OPERATIONS_CAPABILITIES,
   hasOperationsCapability,
@@ -572,15 +571,93 @@ export class EvidenceReviewGovernanceError extends Error {
   }
 }
 
+const SENSITIVE_AUDIT_KEYS = ['password', 'token', 'api_key', 'secret', 'key', 'credential', 'auth', 'signature'];
+
+function redactAuditPayload(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(redactAuditPayload);
+  const result = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const isSensitive = SENSITIVE_AUDIT_KEYS.some((sk) => k.toLowerCase().includes(sk));
+    if (isSensitive && v !== null && v !== undefined) {
+      result[k] = '[REDACTED]';
+    } else if (typeof v === 'object') {
+      result[k] = redactAuditPayload(v);
+    } else {
+      result[k] = v;
+    }
+  }
+  return result;
+}
+
+function mapAtomicReviewRpcError(err) {
+  const msg = String(err?.message || err || '');
+  if (msg.includes('EVIDENCE_REVIEW_NOT_FOUND')) {
+    return new EvidenceReviewGovernanceError(
+      'Evidence record not found matching this VIN',
+      'EVIDENCE_REVIEW_NOT_FOUND',
+      404,
+    );
+  }
+  if (msg.includes('EVIDENCE_REVIEW_SELF_FORBIDDEN')) {
+    return new EvidenceReviewGovernanceError(
+      'The uploader cannot verify or reject their own evidence submission.',
+      'EVIDENCE_REVIEW_SELF_FORBIDDEN',
+      403,
+    );
+  }
+  if (
+    msg.includes('EVIDENCE_REVIEW_CONFLICT')
+    || msg.includes('EVIDENCE_REVIEW_PROVENANCE_SEQUENCE_CONFLICT')
+    || msg.includes('duplicate key value violates unique constraint')
+  ) {
+    return new EvidenceReviewGovernanceError(
+      'Concurrent or conflicting evidence review state detected; refresh and retry.',
+      'EVIDENCE_REVIEW_CONFLICT',
+      409,
+    );
+  }
+  if (msg.includes('EVIDENCE_REVIEW_PROVENANCE_FAILED') || msg.includes('evidence_provenance_events')) {
+    return new EvidenceReviewGovernanceError(
+      `Evidence provenance append failed: ${msg}`,
+      'EVIDENCE_REVIEW_PROVENANCE_FAILED',
+      500,
+    );
+  }
+  if (msg.includes('EVIDENCE_REVIEW_WRITE_FAILED') || msg.includes('vehicle_evidence')) {
+    return new EvidenceReviewGovernanceError(
+      `Evidence review update failed: ${msg}`,
+      'EVIDENCE_REVIEW_WRITE_FAILED',
+      500,
+    );
+  }
+  if (msg.includes('EVIDENCE_REVIEW_AUDIT_FAILED') || msg.includes('trust_audit_events')) {
+    return new EvidenceReviewGovernanceError(
+      `Evidence review audit could not be recorded: ${msg}`,
+      'EVIDENCE_REVIEW_AUDIT_FAILED',
+      500,
+    );
+  }
+  return new EvidenceReviewGovernanceError(
+    `Atomic evidence review transaction failed: ${msg}`,
+    'EVIDENCE_REVIEW_TRANSACTION_FAILED',
+    500,
+  );
+}
+
 /**
- * Bounded, fail-closed evidence verification/rejection governance (CARUP-PAY-03A-STG01-R3 Work Unit 2).
+ * Bounded, transactional, race-safe evidence verification/rejection governance
+ * (CARUP-PAY-03A-STG01-R3-R1).
  *
- * Enforces:
+ * Guarantees via canonical PostgreSQL RPC `public.carup_review_vehicle_evidence`:
  * 1. Genuine authenticated session (`isProvenSession(actor)` — `x-user-id` fallback identities are refused).
  * 2. Server-derived Operations capability (`OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_REVIEW`).
  * 3. Independent reviewer (`G5 — no self-certification`: `evidence.uploaded_by !== actor.id`).
- * 4. Durable attributable audit persistence in `trust_audit_events` BEFORE mutating `vehicle_evidence`,
- *    failing closed (`500 EVIDENCE_REVIEW_AUDIT_FAILED`) when `trust_audit_events` persistence fails.
+ * 4. Row-level `FOR UPDATE` locking on `public.vehicle_evidence` so concurrent reviewers cannot
+ *    overwrite each other's decisions using stale state, with explicit idempotency/conflict rules.
+ * 5. Authoritative audit (`trust_audit_events`), evidence status (`vehicle_evidence`), and
+ *    hash-chained provenance event (`evidence_provenance_events`) commit together or roll back
+ *    together in a single PostgreSQL transaction.
  */
 export async function reviewEvidenceRecord(client = supabase, {
   vin,
@@ -603,7 +680,17 @@ export async function reviewEvidenceRecord(client = supabase, {
   if (!actor?.id) {
     throw new EvidenceReviewGovernanceError('Authentication required.', 'OPERATIONS_UNAUTHENTICATED', 401);
   }
-  if (!isProvenSession(actor)) {
+  const authMethod = String(actor.authenticationMethod || '').trim().toLowerCase();
+  if (
+    !authMethod
+    || authMethod === 'none'
+    || authMethod === 'expired'
+    || authMethod === 'expired-jwt'
+    || authMethod === 'invalid'
+  ) {
+    throw new EvidenceReviewGovernanceError('Authentication required.', 'OPERATIONS_UNAUTHENTICATED', 401);
+  }
+  if (!isProvenSession(actor) || (authMethod !== 'session' && authMethod !== 'jwt')) {
     throw new EvidenceReviewGovernanceError(
       'This Operations action requires a proven session.',
       'OPERATIONS_PROVEN_SESSION_REQUIRED',
@@ -615,6 +702,13 @@ export async function reviewEvidenceRecord(client = supabase, {
       `Forbidden. This action requires the '${OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_REVIEW}' capability.`,
       'OPERATIONS_CAPABILITY_REQUIRED',
       403,
+    );
+  }
+  if (!client || typeof client.rpc !== 'function') {
+    throw new EvidenceReviewGovernanceError(
+      'Atomic PostgreSQL evidence review RPC authority is required.',
+      'EVIDENCE_REVIEW_ATOMIC_RPC_REQUIRED',
+      503,
     );
   }
 
@@ -655,116 +749,113 @@ export async function reviewEvidenceRecord(client = supabase, {
     requestedTrustImpact ?? defaultImpact,
   );
   const reviewedAt = new Date().toISOString();
-  const eventType = decision === 'verified' ? 'EVIDENCE_VERIFIED' : 'EVIDENCE_REJECTED';
+  const provEventType = decision === 'verified' ? 'approved' : 'rejected';
+  const actorRole = actor.role || actor.baseRole || actor.platformRole || null;
   const sourceRoute =
     req?.originalUrl
     || req?.path
     || `/api/vehicles/:vin/evidence/:evidenceId/${decision === 'verified' ? 'verify' : 'reject'}`;
+  const requestId = req?.requestId || req?.correlationId || req?.headers?.['x-request-id'] || null;
+  const ipAddress = req?.ip || req?.headers?.['x-forwarded-for'] || null;
+  const userAgent = req?.headers?.['user-agent'] || null;
 
-  // Audit FIRST, fail closed: if durable attributable audit persistence in trust_audit_events fails,
-  // refuse the verification/rejection before mutating vehicle_evidence.
-  let audit;
-  try {
-    audit = await logAuditEvent(client, {
-      req,
-      event_type: eventType,
-      targetType: 'evidence',
-      targetId: cleanEvidenceId,
-      vin: cleanVin,
-      evidence_ids: [cleanEvidenceId],
-      previous_value: {
-        verification_status: evidence.verification_status,
-        verification_notes: evidence.verification_notes || null,
-        trust_score_impact: evidence.trust_score_impact ?? null,
-      },
-      new_value: {
-        verification_status: decision,
-        verification_notes: notes || null,
-        trust_score_impact: trustScoreImpact,
-        ...(decision === 'verified' ? { confidence_impact: confidenceImpact || 0 } : {}),
-      },
-      actor_user_id: actor.id,
-      actor_role: actor.role || actor.baseRole || actor.platformRole || null,
-      actor_tenant_id: actor.tenantId ?? null,
-      source_route: sourceRoute,
-      reason: notes || null,
-      decision_notes: notes || null,
-      metadata: {
-        vin: cleanVin,
-        evidenceType: evidence.evidence_type,
-        trustScoreImpact,
-        ...(decision === 'verified' ? { confidenceImpact: confidenceImpact || 0 } : { notes: notes || null }),
-      },
-    });
-  } catch (err) {
+  // Read current provenance chain head to compute deterministic SHA-256 content_hash
+  // (verified inside the PostgreSQL RPC under the FOR UPDATE lock on vehicle_evidence).
+  const { data: provRows, error: provReadErr } = await client
+    .from('evidence_provenance_events')
+    .select('*')
+    .eq('evidence_id', cleanEvidenceId)
+    .order('sequence', { ascending: false })
+    .limit(1);
+  if (provReadErr) {
     throw new EvidenceReviewGovernanceError(
-      err?.message || 'Evidence review audit could not be recorded',
-      'EVIDENCE_REVIEW_AUDIT_FAILED',
+      `Evidence provenance read failed: ${provReadErr.message}`,
+      'EVIDENCE_REVIEW_PROVENANCE_FAILED',
       500,
     );
   }
+  const lastProv = Array.isArray(provRows) ? provRows[0] || null : provRows || null;
+  const expectedSequence = lastProv ? Number(lastProv.sequence) + 1 : 1;
+  const expectedPrevHash = lastProv ? lastProv.content_hash : null;
 
-  if (!audit?.success || audit?.warning) {
-    throw new EvidenceReviewGovernanceError(
-      audit?.error || audit?.warning || 'Evidence review audit could not be recorded',
-      'EVIDENCE_REVIEW_AUDIT_FAILED',
-      500,
-    );
-  }
+  // Keys ordered by PostgreSQL JSONB canonical order (length ascending, then ASCII)
+  // so `verifyProvenanceChain()` recomputes the exact same SHA-256 `content_hash`
+  // after round-tripping through `evidence_provenance_events.details` (JSONB).
+  const provenanceDetails = {
+    verified_at: reviewedAt,
+    verified_by: actor.id,
+    trust_score_impact: trustScoreImpact,
+    verification_status: decision,
+    previous_verification_status: evidence.verification_status,
+  };
+  const contentHash = computeContentHash({
+    evidence_id: cleanEvidenceId,
+    sequence: expectedSequence,
+    event_type: provEventType,
+    actor_user_id: actor.id,
+    actor_role: actorRole,
+    actor_type: 'user',
+    details: provenanceDetails,
+    prev_hash: expectedPrevHash,
+  });
 
-  const updatePayload = {
+  const previousValue = redactAuditPayload({
+    verification_status: evidence.verification_status,
+    verification_notes: evidence.verification_notes || null,
+    trust_score_impact: evidence.trust_score_impact ?? null,
+  });
+  const newValue = redactAuditPayload({
     verification_status: decision,
     verification_notes: notes || null,
-    verified_by: actor.id,
-    verified_at: reviewedAt,
     trust_score_impact: trustScoreImpact,
-    trust_impact: trustScoreImpact,
     ...(decision === 'verified' ? { confidence_impact: confidenceImpact || 0 } : {}),
-    updated_at: reviewedAt,
-  };
+  });
 
-  const { data: updated, error: updateErr } = await client
-    .from('vehicle_evidence')
-    .update(updatePayload)
-    .eq('id', cleanEvidenceId)
-    .eq('vin', cleanVin)
-    .select('*')
-    .single();
+  const { data: rpcData, error: rpcErr } = await client.rpc('carup_review_vehicle_evidence', {
+    p_vin: cleanVin,
+    p_evidence_id: cleanEvidenceId,
+    p_decision: decision,
+    p_notes: notes || null,
+    p_trust_score_impact: trustScoreImpact,
+    p_confidence_impact: confidenceImpact || 0,
+    p_actor_user_id: actor.id,
+    p_actor_role: actorRole,
+    p_actor_tenant_id: actor.tenantId ?? null,
+    p_source_route: sourceRoute,
+    p_request_id: requestId,
+    p_ip_address: ipAddress,
+    p_user_agent: userAgent,
+    p_previous_value: previousValue,
+    p_new_value: newValue,
+    p_provenance_details: provenanceDetails,
+    p_expected_sequence: expectedSequence,
+    p_expected_prev_hash: expectedPrevHash,
+    p_content_hash: contentHash,
+    p_reviewed_at: reviewedAt,
+  });
 
-  if (updateErr || !updated) {
+  if (rpcErr) {
+    throw mapAtomicReviewRpcError(rpcErr);
+  }
+  if (
+    !rpcData
+    || !rpcData.evidence
+    || !rpcData.audit_event_id
+    || !rpcData.provenance_event_id
+  ) {
     throw new EvidenceReviewGovernanceError(
-      updateErr?.message || 'Evidence review update failed',
-      'EVIDENCE_REVIEW_WRITE_FAILED',
+      'Atomic evidence review RPC did not return committed audit, evidence, and provenance identifiers.',
+      'EVIDENCE_REVIEW_TRANSACTION_FAILED',
       500,
     );
-  }
-
-  try {
-    await recordProvenanceEvent(client, {
-      evidenceId: cleanEvidenceId,
-      vin: cleanVin,
-      eventType: decision === 'verified' ? 'approved' : 'rejected',
-      actorUserId: actor.id,
-      actorRole: actor.role || actor.baseRole || actor.platformRole || null,
-      actorType: 'user',
-      sourceRoute,
-      requestId: req?.requestId || req?.headers?.['x-request-id'] || null,
-      ipAddress: req?.ip || null,
-      details: {
-        previous_verification_status: evidence.verification_status,
-        verification_status: decision,
-        verified_by: actor.id,
-        verified_at: reviewedAt,
-        trust_score_impact: trustScoreImpact,
-      },
-    });
-  } catch (err) {
-    console.warn('[Provenance] failed to record evidence review event:', err.message);
   }
 
   return {
-    evidence: normalizeEvidenceRecord(updated),
-    previousEvidence: evidence,
+    evidence: normalizeEvidenceRecord(rpcData.evidence),
+    previousEvidence: rpcData.previous_evidence || evidence,
     trustScoreImpact,
+    auditEventId: rpcData.audit_event_id,
+    provenanceEventId: rpcData.provenance_event_id,
+    idempotentReplay: Boolean(rpcData.idempotent_replay),
   };
 }
