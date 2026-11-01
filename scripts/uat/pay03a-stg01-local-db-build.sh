@@ -171,6 +171,7 @@ alignment ci-recipe:grant-authenticated-users-ownership \
 "GRANT SELECT ON TABLE public.users, public.vehicle_ownership_history TO authenticated;"
 
 migration 20261031160000_carup_pay03a_real_report_commerce.sql
+migration 20261101100000_carup_pay03a_refund_suspension_and_lock_order.sql
 
 # vehicle_media_references exists only in the CAP-R2 migration, whose other tables need the Trade OS
 # diaspora schema. The governed-media route reports `not_loaded` without it, so apply ONLY its statements

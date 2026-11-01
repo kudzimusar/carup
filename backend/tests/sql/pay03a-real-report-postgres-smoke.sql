@@ -15,7 +15,7 @@
 -- 7. R1-C & R1-D: Restrictive RLS policy (`pay03a_paid_report_entitlement_guard`) blocks direct PostgREST
 --    table reads of paid snapshots by `anon`/`authenticated` while preserving legacy report reads.
 -- 8. Concurrency/idempotent replay of `pay03a_complete_report_fulfillment` and immutability of content & binding.
--- 9. Governed refund (`refund_pending` -> `refunded`) suspending and revoking both `pay02_report_orders` and `report_versions.revoked = true`.
+-- 9. Governed refund: `refund_pending` suspends (snapshot kept), a failed refund restores access, `refunded` revokes order and `report_versions.revoked = true`.
 -- 10. STG01-R3-R1: Atomic evidence review RPC (`public.carup_review_vehicle_evidence`) ACLs, self-review refusal,
 --     transactional rollback on audit/update/provenance failure, verified/rejected transitions, idempotent replay,
 --     and conflicting review refusal (`EVIDENCE_REVIEW_CONFLICT`).
@@ -297,7 +297,9 @@ BEGIN
     RAISE EXCEPTION 'PAY03A_PAID_SNAPSHOT_DIRECT_CLIENT_BYPASS_PERMITTED: %', v_paid_client_visible;
   END IF;
 
-  -- 10. Verify `refund_pending` and `refunded` revoke both order and share snapshot.
+  -- 10. `refund_pending` SUSPENDS access (order refund_suspended) without revoking the one-way snapshot
+  --     (STG01-FINAL F4, migration 20261101100000); a refund that fails at the provider
+  --     (refund_pending -> paid) restores entitlement and access; only `refunded` revokes order and snapshot.
   PERFORM public.pay01a_apply_provider_snapshot(
     v_payment_ref,
     'refund_pending',
@@ -308,8 +310,36 @@ BEGIN
   );
   v_sync := public.pay02_sync_quote_from_canonical_payment(v_payment_ref);
   IF v_sync->>'report_entitlement_status' <> 'refund_suspended'
-     OR (SELECT revoked FROM public.report_versions WHERE id = v_report_ver_id) <> true THEN
+     OR (SELECT revoked FROM public.report_versions WHERE id = v_report_ver_id) <> false THEN
     RAISE EXCEPTION 'PAY03A_REFUND_PENDING_SUSPENSION_FAILED: %', v_sync;
+  END IF;
+
+  PERFORM public.pay01a_apply_provider_snapshot(
+    v_payment_ref,
+    'paid',
+    'pi_test_pay03a_fixture_01',
+    NULL,
+    'evt_pay03a_refund_failed_01',
+    'refund.failed'
+  );
+  v_sync := public.pay02_sync_quote_from_canonical_payment(v_payment_ref);
+  IF v_sync->>'report_entitlement_status' <> 'entitled'
+     OR (SELECT revoked FROM public.report_versions WHERE id = v_report_ver_id) <> false
+     OR (SELECT revoked_at FROM public.pay02_report_orders WHERE id = v_order_id) IS NOT NULL THEN
+    RAISE EXCEPTION 'PAY03A_FAILED_REFUND_ACCESS_NOT_RESTORED: %', v_sync;
+  END IF;
+
+  PERFORM public.pay01a_apply_provider_snapshot(
+    v_payment_ref,
+    'refund_pending',
+    'pi_test_pay03a_fixture_01',
+    're_test_pay03a_fixture_01',
+    'evt_pay03a_refund_pending_02',
+    'refund.updated'
+  );
+  v_sync := public.pay02_sync_quote_from_canonical_payment(v_payment_ref);
+  IF v_sync->>'report_entitlement_status' <> 'refund_suspended' THEN
+    RAISE EXCEPTION 'PAY03A_REFUND_PENDING_RESUSPENSION_FAILED: %', v_sync;
   END IF;
 
   PERFORM public.pay01a_apply_provider_snapshot(
