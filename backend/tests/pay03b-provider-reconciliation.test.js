@@ -384,7 +384,11 @@ test('simulator: signed events verify only with the simulator secret and carry t
   const event = { id: 'sim_evt_1', type: 'invoice.paid', livemode: false, account: sim.accountId, data: { object: { id: 'sim_in_1', object: 'invoice' } } };
   const { rawBody, signature } = sim.signEvent(event);
   assert.deepEqual(sim.verifyWebhook({ rawBody, signature }), event);
-  assert.throws(() => sim.verifyWebhook({ rawBody, signature: signature.replace(/v1=./, 'v1=0') }), /PAY03B_SIMULATOR_SIGNATURE_INVALID/);
+  // Tamper with the signature digest: always CHANGE its first hex digit (replacing it with a fixed '0' was a no-op, and the
+  // test flaked, whenever the real digest already started with '0').
+  const tampered = signature.replace(/v1=([0-9a-f])/, (_, c) => `v1=${c === '0' ? '1' : '0'}`);
+  assert.notEqual(tampered, signature);
+  assert.throws(() => sim.verifyWebhook({ rawBody, signature: tampered }), /PAY03B_SIMULATOR_SIGNATURE_INVALID/);
   // Correctly signed with the simulator secret but claiming the real Stripe account (or live mode): refused.
   for (const forged of [{ ...event, account: PAY01A_ACCOUNT }, { ...event, livemode: true }, { ...event, id: 'evt_real_looking' }]) {
     const signedForged = sim.signEvent(forged);
