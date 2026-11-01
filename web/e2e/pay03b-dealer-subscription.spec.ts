@@ -71,8 +71,10 @@ async function axeClean(page: Page, include: string) {
   expect(found, `no WCAG 2 A/AA violations in ${include}`).toEqual([])
 }
 
-// Sensitive routes share one per-IP rate-limit counter; pace the serial flow.
-test.afterEach(async () => { await new Promise((resolve) => setTimeout(resolve, 12_000)) })
+// Every sensitive route (login, checkout, verify, change, cancel, admin reads...) shares ONE per-IP counter with a
+// 10/min budget on most PAY-03B routes. This one-IP, machine-speed journey spends about 11 sensitive calls between
+// the cancel/resume test and the third administrator view (3 per view: list, F5 list, detail), so it is paced.
+test.afterEach(async () => { await new Promise((resolve) => setTimeout(resolve, 20_000)) })
 
 test('runtime provenance: web build and backend are the candidate; provider is the local simulator', async ({ request, baseURL }) => {
   const web = await (await request.get(`${baseURL}/carup-provenance.json`)).json()

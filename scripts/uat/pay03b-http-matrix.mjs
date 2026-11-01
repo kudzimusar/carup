@@ -21,7 +21,9 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const key = (label) => `pay03b_uat_${label}_${randomBytes(6).toString('hex')}`;
 
 // Every isSensitive route shares ONE per-IP counter; pace sensitive calls so the matrix never trips a 429.
-const SENSITIVE = [/^\/api\/pay03b\/dealer\/subscription\/checkout/, /^\/api\/pay03b\/admin\/(subscriptions|reconciliation-exceptions)/, /^\/api\/auth\/login/];
+// Mirrors the isSensitive limiters in backend/server.js (including the provider-calling dealer routes added for R12).
+const SENSITIVE = [/^\/api\/pay03b\/dealer\/subscription\/(checkout|verify|change|change-preview|cancel|payment-method|invoices)(\/|\?|$)/,
+  /^\/api\/pay03b\/admin\/(subscriptions|reconciliation-exceptions|stripe-sandbox)/, /^\/api\/auth\/login/];
 let lastSensitive = 0;
 async function paceIfSensitive(path) {
   if (!SENSITIVE.some((re) => re.test(path))) return;
