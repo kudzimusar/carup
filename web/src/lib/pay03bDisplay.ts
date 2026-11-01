@@ -185,10 +185,24 @@ export function describePay03bAccessReason(reason: string | null | undefined): s
 
 // ------------------------------------------------------------------------------------------ labels
 
+/**
+ * Destructive confirm buttons on PAY-03B surfaces (refund, suspend, immediate cancel, abandon checkout). The theme's
+ * `bg-destructive` (#ef4444) gives white text 3.7:1, below WCAG 2 AA (4.5:1) — finding F-L2-02 of the Level 2 rehearsal.
+ * red-700 (#b91c1c) gives 6.5:1. Passed as `className`; tailwind-merge lets it replace the variant's background.
+ */
+export const PAY03B_DESTRUCTIVE_ACTION_CLASS = 'bg-red-700 text-white hover:bg-red-800 focus-visible:ring-red-700/30 dark:bg-red-700'
+
 export function humanizePay03bToken(value: string | null | undefined): string {
   if (!value) return '—'
   const text = value.replace(/_/g, ' ').trim()
   return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/** A lifecycle transition cause; a compound cause ('invoice_paid:payment_refunded') names each part. */
+export function describePay03bTransitionCause(cause: string | null | undefined): string {
+  if (!cause) return '—'
+  const [first, ...rest] = cause.split(':')
+  return [humanizePay03bToken(first), ...rest.map((part) => part.replace(/_/g, ' ').trim())].join(' · ')
 }
 
 const SUBSCRIPTION_STATUS: Record<string, string> = {
@@ -379,6 +393,19 @@ export function describePay03bChangePolicy(policy: Pay03bChangePolicy | null | u
     ? 'Downgrades take effect from the next billing period.'
     : 'Downgrades are not offered from this plan.'
   return [upgrade, downgrade]
+}
+
+/** The gateway that bills a NEW checkout in this runtime (mirrors the backend: anything but the simulator is Stripe sandbox). */
+export function pay03bRuntimeGateway(providerMode: string | null | undefined): string {
+  return providerMode === 'local_simulator' ? 'pay03b_local_provider_simulator' : 'stripe_carup_japan_sandbox'
+}
+
+/**
+ * Whether this gateway can bill the plan. The database refuses any other gateway (checkout and plan change), so the UI
+ * offers neither for such a plan; an unknown allowlist is not billable (finding F-L2-01).
+ */
+export function pay03bPlanBillableBy(plan: Pick<Pay03bPlan, 'providerAllowlist'>, gateway: string | null | undefined): boolean {
+  return Boolean(gateway) && (plan.providerAllowlist ?? []).includes(gateway as string)
 }
 
 /** Plan-change modes the CURRENT plan's governed change policy allows for this target (mirrors the database). */

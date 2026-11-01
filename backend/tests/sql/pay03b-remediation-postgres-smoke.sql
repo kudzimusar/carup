@@ -217,3 +217,45 @@ BEGIN
   IF v_e IS DISTINCT FROM '{"status": "trialing"}'::jsonb THEN RAISE EXCEPTION 'PAY03B_REM_R14_APPROVED_TRIAL_REFUSED: %', v_e; END IF;
   RAISE NOTICE 'PAY03B_REMEDIATION_POSTGRES_SMOKE_PASS: R1 R2 R3 R4 R5 R6 R8 R10 R11 R14 verified on the canonical functions';
 END $$;
+
+-- L2-03 (Level 2 Stripe sandbox finding): a governed full refund of a PAID invoice revokes that period's paid coverage,
+-- and the lifecycle transition that records the revocation names the canonical payment outcome. The provider invoice
+-- itself stays 'paid' after its charge is refunded, so a cause derived from the invoice status alone read 'invoice_paid'.
+INSERT INTO public.tenants (id, name, type, status) VALUES ('c3000000-0000-4000-8000-0000000000e2', 'Rem Dealer Two [SYNTHETIC]', 'dealership', 'active');
+INSERT INTO public.organizations (id, name, type, created_at, status, tenant_id)
+  VALUES ('org_pay03b_rem2', 'Rem Dealer Two Motors [SYNTHETIC]', 'dealership', '2026-11-01', 'active', 'c3000000-0000-4000-8000-0000000000e2');
+INSERT INTO public.tenant_users (tenant_id, user_id, role) VALUES ('c3000000-0000-4000-8000-0000000000e2', 'rem_owner', 'admin');
+
+DO $$
+DECLARE v_plan uuid; v_sub uuid; v_now timestamptz := clock_timestamp(); v_last text;
+BEGIN
+  SELECT id INTO v_plan FROM public.pay03b_subscription_plans WHERE plan_code = 'dealer_storefront_rem_std' AND effective_to IS NULL;
+  v_sub := (public.pay03b_claim_business_subscription_checkout('c3000000-0000-4000-8000-0000000000e2', 'org_pay03b_rem2', 'rem_owner', v_plan,
+    'pay03b_rem_claim_000002', 'stripe_carup_japan_sandbox')->'subscription'->>'id')::uuid;
+  PERFORM public.pay03b_bind_billing_customer('c3000000-0000-4000-8000-0000000000e2', 'org_pay03b_rem2', 'stripe_carup_japan_sandbox', 'cus_pay03brem2', 'rem_owner');
+  PERFORM public.pay03b_attach_subscription_checkout(v_sub, 'cs_test_pay03brem2', 'cus_pay03brem2');
+  PERFORM public.pay03b_apply_subscription_snapshot(v_sub, 'sub_pay03brem2', 'active', 'price_pay03b_rem_std', v_now, v_now + interval '30 days',
+    false, NULL, NULL, NULL, clock_timestamp(), NULL, NULL, NULL);
+  PERFORM pg_temp.inv(v_sub, 'in_pay03brem2a', 'subscription_create', 'price_pay03b_rem_std', v_now, v_now + interval '30 days',
+    3000, 3000, 'paid', 'pi_pay03brem2a', 'paid');
+  PERFORM pg_temp.inv(v_sub, 'in_pay03brem2b', 'subscription_cycle', 'price_pay03b_rem_std', v_now + interval '30 days', v_now + interval '60 days',
+    3000, 3000, 'paid', 'pi_pay03brem2b', 'paid');
+  IF (SELECT paid_through FROM public.pay03b_business_subscriptions WHERE id = v_sub) IS DISTINCT FROM v_now + interval '60 days' THEN
+    RAISE EXCEPTION 'PAY03B_REM_L2_03_SETUP: the paid renewal does not extend coverage';
+  END IF;
+  -- The provider-confirmed full refund of the renewal, as the governed administrator refund's provider read records it.
+  PERFORM public.pay03b_record_subscription_invoice(v_sub, 'in_pay03brem2b', 'subscription_cycle', 'price_pay03b_rem_std',
+    v_now + interval '30 days', v_now + interval '60 days', 'JPY', 3000, 3000, 0, 'paid', 'pi_pay03brem2b', 1, NULL, clock_timestamp(),
+    'refunded', 're_pay03brem2b', 3000, 0, ARRAY['re_pay03brem2b'], NULL, 'provider_readback', NULL, NULL);
+  IF (SELECT paid_through FROM public.pay03b_business_subscriptions WHERE id = v_sub) IS DISTINCT FROM v_now + interval '30 days' THEN
+    RAISE EXCEPTION 'PAY03B_REM_L2_03_COVERAGE_NOT_REVOKED';
+  END IF;
+  SELECT cause INTO v_last FROM public.pay03b_subscription_transitions WHERE subscription_id = v_sub ORDER BY recorded_at DESC LIMIT 1;
+  IF v_last IS DISTINCT FROM 'invoice_paid:payment_refunded' THEN
+    RAISE EXCEPTION 'PAY03B_REM_L2_03_TRANSITION_CAUSE: the coverage revocation is recorded as %', v_last;
+  END IF;
+  IF (SELECT count(*) FROM public.pay03b_subscription_transitions WHERE subscription_id = v_sub AND cause = 'invoice_paid') <> 2 THEN
+    RAISE EXCEPTION 'PAY03B_REM_L2_03_PAID_CAUSE_CHANGED: an ordinary paid invoice must still be recorded as invoice_paid';
+  END IF;
+  RAISE NOTICE 'PAY03B_REMEDIATION_POSTGRES_SMOKE_PASS: L2-03 a refund-driven coverage revocation names the canonical payment outcome';
+END $$;

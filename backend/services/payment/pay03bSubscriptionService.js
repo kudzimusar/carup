@@ -671,7 +671,10 @@ export async function previewPay03bDealerPlanChange({ db = supabase, env = proce
   if (!ctx.billingAuthority) throw new Pay03bError('PAY03B_BILLING_AUTHORITY_REFUSED', 403);
   const row = await liveSubscriptionFor(db, tenantId);
   const [target] = await selectRows(db.from('pay03b_subscription_plans').select('*').eq('id', targetPlanId));
-  if (!target || target.subscription_scope !== PAY03B_DEALER_SCOPE || !target.provider_price_ref) {
+  // Same rule as pay03b_request_subscription_change, checked BEFORE any provider call: a plan the subscription's
+  // gateway cannot bill is refused here, so another gateway's price reference never reaches the provider (F-L2-01).
+  if (!target || target.subscription_scope !== PAY03B_DEALER_SCOPE || !target.provider_price_ref
+    || !(target.provider_allowlist || []).includes(row.gateway)) {
     throw new Pay03bError('PAY03B_TARGET_PLAN_NOT_PURCHASABLE', 409);
   }
   const snapshot = await provider.getSubscription(row.provider_subscription_id);

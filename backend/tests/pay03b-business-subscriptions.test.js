@@ -247,6 +247,33 @@ test('PAY-03B service on real PostgreSQL', { skip }, async (t) => {
     assert.equal(new Set(overview.invoices.map((i) => i.paymentReference)).size, 3, 'one canonical payment per invoice');
   });
 
+  await t.test('F-L2-01: a target plan the subscription gateway cannot use is refused BEFORE any provider call (preview and change)', async () => {
+    const d = await subscribedDealer('gw');
+    const { data: stripeOnly, error } = await db.rpc('pay03b_register_sandbox_plan_version', {
+      p_plan_code: 'svc_gw_stripe_only', p_product_code: 'mkt.dealer.storefront_package', p_subscription_scope: 'dealer_storefront',
+      p_subscriber_scope: 'dealer_organization', p_tier_rank: 30, p_display_name: 'Svc Stripe-only plan', p_pricing_kind: 'sandbox_fixture',
+      p_billing_interval: 'month', p_interval_count: 1, p_amount_minor: 9000, p_currency: 'JPY', p_currency_scale: 0,
+      p_gateway: 'stripe_carup_japan_sandbox', p_provider_price_ref: 'price_svc_gw_stripe_only',
+      p_entitlements: { 'dealer.inventory.published_listing_capacity': 99 }, p_trial_days: null, p_grace_days: null, p_change_policy: null,
+      p_cancellation_policy: null, p_refund_policy: 'governed_admin_refund', p_approval_evidence_ref: 'SERVICE-TEST-FIXTURE-AUTH',
+      p_approved_by: 'service-test', p_created_by: 'service-test',
+    });
+    assert.equal(error, null, `register svc_gw_stripe_only: ${error?.message}`);
+    const calls = [];
+    const spy = wrapProvider({
+      getSubscription: async (...a) => { calls.push('getSubscription'); return sim.getSubscription(...a); },
+      previewPlanChange: async (...a) => { calls.push('previewPlanChange'); return sim.previewPlanChange(...a); },
+      changePlan: async (...a) => { calls.push('changePlan'); return sim.changePlan(...a); },
+    });
+    await assert.rejects(S.previewPay03bDealerPlanChange({ db, env, provider: spy, actorId: d.ownerId, tenantId: d.tenantId,
+      targetPlanId: stripeOnly.id, mode: 'period_end' }), (e) => e.code === 'PAY03B_TARGET_PLAN_NOT_PURCHASABLE');
+    await assert.rejects(S.changePay03bDealerPlan({ db, env, provider: spy, actorId: d.ownerId, tenantId: d.tenantId,
+      targetPlanId: stripeOnly.id, mode: 'period_end', requestKey: `svc_gw_change_${run}_01` }),
+    (e) => e.code === 'PAY03B_TARGET_PLAN_NOT_PURCHASABLE');
+    assert.deepEqual(calls, [], 'a foreign gateway price reference never reaches the provider');
+    await db.query("UPDATE public.pay03b_subscription_plans SET effective_to = clock_timestamp(), activation_status = 'retired' WHERE id = $1", [stripeOnly.id]);
+  });
+
   await t.test('plan change at period end: provider-backed preview, no charge now, entitlements follow the PAID plan', async () => {
     const preview = await S.previewPay03bDealerPlanChange({ db, env, provider: sim, actorId: ids.owner, tenantId: ids.tenantA,
       targetPlanId: plans.prem.id, mode: 'period_end' });

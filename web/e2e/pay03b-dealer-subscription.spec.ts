@@ -192,5 +192,24 @@ for (const vp of VIEWPORTS) {
     await noHorizontalOverflow(page)
     await axeClean(page, '[data-testid="pay03b-admin-subscription-detail"]')
     await page.screenshot({ path: `${SCREENS}/10-admin-subscription-detail-${vp.name}.png`, fullPage: true })
+    if (vp.name === 'desktop') {
+      // Finding F-L2-02 (Level 2): the destructive confirm buttons failed WCAG 2 AA contrast. Each dialog is opened,
+      // checked and closed without confirming (opening a dialog makes no request).
+      await page.locator('[data-testid^="pay03b-admin-refund-sim_in_"]').first().click()
+      await expect(page.getByTestId('pay03b-admin-refund-dialog')).toBeVisible()
+      await page.getByTestId('pay03b-admin-refund-reason').fill('Accessibility check only; this dialog is closed without confirming.')
+      await page.getByTestId('pay03b-admin-refund-understood').check()
+      await axeClean(page, '[data-testid="pay03b-admin-refund-dialog"]')
+      await page.getByTestId('pay03b-admin-refund-dialog').screenshot({ path: `${SCREENS}/11-admin-refund-dialog-desktop.png` })
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('pay03b-admin-refund-dialog')).toHaveCount(0)
+      await page.getByTestId('pay03b-admin-suspend').click()
+      await expect(page.getByTestId('pay03b-admin-suspension-dialog')).toBeVisible()
+      await page.getByTestId('pay03b-admin-suspension-reason').fill('Accessibility check only; this dialog is closed without confirming.')
+      await axeClean(page, '[data-testid="pay03b-admin-suspension-dialog"]')
+      await page.getByTestId('pay03b-admin-suspension-dialog').screenshot({ path: `${SCREENS}/12-admin-suspension-dialog-desktop.png` })
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('pay03b-admin-suspension-dialog')).toHaveCount(0)
+    }
   })
 }

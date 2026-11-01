@@ -66,6 +66,9 @@ import {
   pay03bCommercialKind,
   pay03bProviderLabel,
   type Pay03bErrorDescription,
+  PAY03B_DESTRUCTIVE_ACTION_CLASS,
+  pay03bPlanBillableBy,
+  pay03bRuntimeGateway,
 } from '@/lib/pay03bDisplay'
 import type {
   Pay03bAcknowledgedTerms,
@@ -703,7 +706,7 @@ function ConfirmActionDialog({
           <Button variant="outline" onClick={onClose}>Keep as is</Button>
           <Button
             variant={mode === 'immediate' ? 'destructive' : 'default'}
-            className="h-auto min-h-9 whitespace-normal"
+            className={`h-auto min-h-9 whitespace-normal ${mode === 'immediate' ? PAY03B_DESTRUCTIVE_ACTION_CLASS : ''}`}
             disabled={busy}
             onClick={() => void confirm()}
             data-testid="pay03b-confirm-action"
@@ -1147,7 +1150,7 @@ export default function DealerSubscription() {
                           </Button>
                         ) : null}
                         {abandonArmed ? (
-                          <Button size="sm" variant="destructive" disabled={abandoning} onClick={() => void abandonCheckout()} data-testid="pay03b-abandon-confirm">
+                          <Button size="sm" variant="destructive" className={PAY03B_DESTRUCTIVE_ACTION_CLASS} disabled={abandoning} onClick={() => void abandonCheckout()} data-testid="pay03b-abandon-confirm">
                             {abandoning ? 'Abandoning…' : 'Yes, abandon this unpaid checkout'}
                           </Button>
                         ) : (
@@ -1219,9 +1222,12 @@ export default function DealerSubscription() {
                 {plans.map((plan) => {
                   const kind = pay03bCommercialKind(plan)
                   const isCurrent = Boolean(sub && live && sub.planId === plan.id)
+                  // Only a gateway on the plan's allowlist can bill it; the database refuses any other (F-L2-01).
                   const canSubscribe = billingAdmin && !live && kind === 'sandbox' && plan.purchasable
+                    && pay03bPlanBillableBy(plan, pay03bRuntimeGateway(overview.providerMode))
                   // Unknown current plan (e.g. its version was retired): offer nothing rather than guess its terms.
                   const changeModes = billingAdmin && changeable && currentPlan && kind === 'sandbox' && plan.purchasable && !isCurrent
+                    && pay03bPlanBillableBy(plan, sub?.gateway)
                     ? pay03bAllowedChangeModes(currentPlan, plan)
                     : null
                   return (

@@ -53,7 +53,7 @@ const STANDARD = {
   entitlements: { [CAPACITY]: 10 }, trialDays: null, graceDays: 3,
   changePolicy: { upgrade: 'immediate_prorated', downgrade: 'period_end', proration: 'always_invoice' },
   cancellationPolicy: { period_end: true, immediate: false }, refundPolicy: 'governed_admin_refund',
-  blockerClass: null, blockerReason: null, simulated: true, purchasable: true,
+  blockerClass: null, blockerReason: null, simulated: true, purchasable: true, providerAllowlist: ['pay03b_local_provider_simulator'],
 }
 const PREMIUM = {
   ...STANDARD, id: 'plan-prem', planCode: 'dealer_sandbox_prem', displayName: 'Sandbox Premium', tierRank: 20,
@@ -116,6 +116,33 @@ beforeEach(() => {
   vi.clearAllMocks()
   api.fetchPay03bDealerOverview.mockResolvedValue(overview())
   api.verifyPay03bDealerSubscription.mockResolvedValue(overview())
+})
+
+describe('Plan & Billing — gateway compatibility (finding F-L2-01)', () => {
+  const STRIPE_STD = { ...STANDARD, id: 'plan-l2', planCode: 'dealer_stripe_std', displayName: 'Stripe sandbox Standard',
+    simulated: false, providerAllowlist: ['stripe_carup_japan_sandbox'] }
+  const STRIPE_PREM = { ...PREMIUM, id: 'plan-l2-prem', planCode: 'dealer_stripe_prem', displayName: 'Stripe sandbox Premium',
+    simulated: false, providerAllowlist: ['stripe_carup_japan_sandbox'] }
+
+  it('in a Stripe-sandbox runtime, only plans Stripe can bill offer a checkout', async () => {
+    api.fetchPay03bDealerOverview.mockResolvedValue(overview({ providerMode: 'stripe_sandbox', plans: [STANDARD, PREMIUM, STRIPE_STD] }))
+    renderPage()
+    expect(await screen.findByTestId('pay03b-subscribe-dealer_stripe_std')).toBeTruthy()
+    expect(screen.queryByTestId('pay03b-subscribe-dealer_sandbox_std')).toBeNull()
+    expect(screen.queryByTestId('pay03b-subscribe-dealer_sandbox_prem')).toBeNull()
+  })
+
+  it('a live Stripe-gateway subscription is offered changes only to plans Stripe can bill', async () => {
+    api.fetchPay03bDealerOverview.mockResolvedValue(activeOverview({
+      providerMode: 'stripe_sandbox', plans: [STANDARD, PREMIUM, STRIPE_STD, STRIPE_PREM],
+      subscription: { ...ACTIVE_SUB, gateway: 'stripe_carup_japan_sandbox', simulated: false, planId: 'plan-l2', planCode: 'dealer_stripe_std',
+        paidPlanId: 'plan-l2', paidPlanCode: 'dealer_stripe_std', providerSubscriptionId: 'sub_test_1' },
+    }))
+    renderPage()
+    expect(await screen.findByTestId('pay03b-change-plan-dealer_stripe_prem')).toBeTruthy()
+    expect(screen.queryByTestId('pay03b-change-plan-dealer_sandbox_prem')).toBeNull()
+    expect(screen.queryByTestId('pay03b-change-plan-dealer_sandbox_std')).toBeNull()
+  })
 })
 
 describe('Plan & Billing — catalogue truth', () => {
@@ -406,6 +433,10 @@ describe('Plan & Billing — live subscription', () => {
     renderPage()
     fireEvent.click(await screen.findByTestId('pay03b-cancel-immediate'))
     expect((await screen.findByTestId('pay03b-confirm-body')).textContent).toContain('Access to paid features ends immediately')
+    const immediate = screen.getByTestId('pay03b-confirm-action')
+    // WCAG 2 AA (finding F-L2-02): white on the theme's bg-destructive (#ef4444) is 3.7:1; PAY-03B uses red-700 (6.5:1).
+    expect(immediate.className).toContain('bg-red-700')
+    expect(immediate.className).not.toContain('bg-destructive')
   })
 
   it('explains an unconfigured payment-method update honestly and does not navigate', async () => {
@@ -549,7 +580,11 @@ describe('Plan & Billing — invoices and notices', () => {
     fireEvent.click(within(dialog).getByTestId('pay03b-terms-cancel'))
     fireEvent.click(within(notice).getByTestId('pay03b-abandon-checkout'))
     expect(api.abandonPay03bDealerCheckout).not.toHaveBeenCalled()
-    fireEvent.click(await within(notice).findByTestId('pay03b-abandon-confirm'))
+    const abandon = await within(notice).findByTestId('pay03b-abandon-confirm')
+    // WCAG 2 AA (finding F-L2-02): white on the theme's bg-destructive (#ef4444) is 3.7:1; PAY-03B uses red-700 (6.5:1).
+    expect(abandon.className).toContain('bg-red-700')
+    expect(abandon.className).not.toContain('bg-destructive')
+    fireEvent.click(abandon)
     await waitFor(() => expect(api.abandonPay03bDealerCheckout).toHaveBeenCalledTimes(1))
     expect((await screen.findByTestId('pay03b-action-status')).textContent).toContain('abandoned')
   })

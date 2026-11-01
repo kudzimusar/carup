@@ -879,6 +879,9 @@ describe('Pay02CommercialFoundation — PAY-03B business subscriptions & F5 reco
     const dialog = await screen.findByTestId('pay03b-admin-suspension-dialog')
     const confirm = within(dialog).getByTestId('pay03b-admin-suspension-confirm') as HTMLButtonElement
     expect(confirm.disabled).toBe(true)
+    // WCAG 2 AA (finding F-L2-02): white on the theme's bg-destructive (#ef4444) is 3.7:1; PAY-03B uses red-700 (6.5:1).
+    expect(confirm.className).toContain('bg-red-700')
+    expect(confirm.className).not.toContain('bg-destructive')
     fireEvent.change(within(dialog).getByTestId('pay03b-admin-suspension-reason'), { target: { value: 'Chargeback opened by the card issuer.' } })
     expect(confirm.disabled).toBe(false)
     fireEvent.click(confirm)
@@ -902,6 +905,9 @@ describe('Pay02CommercialFoundation — PAY-03B business subscriptions & F5 reco
     expect(effect).toContain('governed FULL refund of ¥3,000')
     expect(effect).toContain('paid coverage of its period')
     const confirm = within(dialog).getByTestId('pay03b-admin-refund-confirm') as HTMLButtonElement
+    // WCAG 2 AA (finding F-L2-02): white on the theme's bg-destructive (#ef4444) is 3.7:1; PAY-03B uses red-700 (6.5:1).
+    expect(confirm.className).toContain('bg-red-700')
+    expect(confirm.className).not.toContain('bg-destructive')
     fireEvent.change(within(dialog).getByTestId('pay03b-admin-refund-reason'), { target: { value: 'Dealer charged twice for November.' } })
     expect(confirm.disabled).toBe(true)
     fireEvent.click(within(dialog).getByTestId('pay03b-admin-refund-understood'))

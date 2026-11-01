@@ -12,6 +12,9 @@ import {
   pay03bCommercialKind,
   pay03bCommercialLabel,
   pay03bProviderLabel,
+  describePay03bTransitionCause,
+  pay03bPlanBillableBy,
+  pay03bRuntimeGateway,
 } from './pay03bDisplay'
 
 describe('formatPay03bMinor — minor units with the currency’s own scale', () => {
@@ -35,6 +38,30 @@ describe('formatPay03bMinor — minor units with the currency’s own scale', ()
     expect(formatPay03bInterval('month', 1)).toBe('per month')
     expect(formatPay03bInterval('month', 3)).toBe('every 3 months')
     expect(formatPay03bInterval(null, 1)).toBeNull()
+  })
+})
+
+describe('gateway compatibility (finding F-L2-01)', () => {
+  it('maps the runtime provider mode to the gateway that bills a NEW checkout (mirrors the backend)', () => {
+    expect(pay03bRuntimeGateway('local_simulator')).toBe('pay03b_local_provider_simulator')
+    expect(pay03bRuntimeGateway('stripe_sandbox')).toBe('stripe_carup_japan_sandbox')
+  })
+
+  it('a plan is billable only by a gateway on its allowlist; unknown is not billable', () => {
+    expect(pay03bPlanBillableBy({ providerAllowlist: ['stripe_carup_japan_sandbox'] }, 'stripe_carup_japan_sandbox')).toBe(true)
+    expect(pay03bPlanBillableBy({ providerAllowlist: ['pay03b_local_provider_simulator'] }, 'stripe_carup_japan_sandbox')).toBe(false)
+    expect(pay03bPlanBillableBy({ providerAllowlist: [] }, 'stripe_carup_japan_sandbox')).toBe(false)
+    expect(pay03bPlanBillableBy({}, 'stripe_carup_japan_sandbox')).toBe(false)
+    expect(pay03bPlanBillableBy({ providerAllowlist: ['stripe_carup_japan_sandbox'] }, null)).toBe(false)
+  })
+})
+
+describe('lifecycle transition causes', () => {
+  it('names each part of a compound cause, including the canonical payment outcome (finding F-L2-03)', () => {
+    expect(describePay03bTransitionCause('invoice_paid:payment_refunded')).toBe('Invoice paid · payment refunded')
+    expect(describePay03bTransitionCause('provider_snapshot:active')).toBe('Provider snapshot · active')
+    expect(describePay03bTransitionCause('invoice_paid')).toBe('Invoice paid')
+    expect(describePay03bTransitionCause(null)).toBe('—')
   })
 })
 

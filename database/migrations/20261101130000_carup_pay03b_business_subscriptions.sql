@@ -1104,7 +1104,11 @@ BEGIN
     END IF;
   END IF;
 
-  v_sub := public.pay03b_refresh_paid_coverage(v_sub.id, 'invoice_' || v_invoice.provider_status, p_event_id);
+  -- The cause names the canonical payment outcome when it differs from a 'paid' provider invoice: an invoice stays
+  -- 'paid' at the provider after its charge is refunded, so a refund-driven coverage change must not read 'invoice_paid'.
+  v_sub := public.pay03b_refresh_paid_coverage(v_sub.id, 'invoice_' || v_invoice.provider_status
+    || CASE WHEN v_invoice.provider_status = 'paid' AND v_payment.reference IS NOT NULL AND v_payment.status IS DISTINCT FROM 'paid'
+            THEN ':payment_' || v_payment.status ELSE '' END, p_event_id);
   RETURN jsonb_build_object(
     'invoice', to_jsonb(v_invoice),
     'payment', CASE WHEN v_payment.reference IS NULL THEN NULL ELSE to_jsonb(v_payment) END,

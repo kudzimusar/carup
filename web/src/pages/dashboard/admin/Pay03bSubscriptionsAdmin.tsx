@@ -57,6 +57,8 @@ import {
   pay03bCommercialKind,
   pay03bCommercialLabel,
   type Pay03bErrorDescription,
+  PAY03B_DESTRUCTIVE_ACTION_CLASS,
+  describePay03bTransitionCause,
 } from '@/lib/pay03bDisplay'
 import type {
   Pay03bAdminSubscriptionDetail,
@@ -202,6 +204,7 @@ function SuspensionDialog({ subscription, action, idempotencyKey, submit, onClos
           <Button variant="outline" onClick={onClose}>Close</Button>
           <Button
             variant={action === 'suspend' ? 'destructive' : 'default'}
+            className={action === 'suspend' ? PAY03B_DESTRUCTIVE_ACTION_CLASS : undefined}
             disabled={busy || !valid}
             onClick={() => void confirm()}
             data-testid="pay03b-admin-suspension-confirm"
@@ -266,7 +269,7 @@ function RefundDialog({ invoice, submit, onClose, onDone }: {
         {error ? <ErrorBox error={error} testId="pay03b-admin-refund-error" /> : null}
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Close</Button>
-          <Button variant="destructive" disabled={busy || !valid} onClick={() => void confirm()} data-testid="pay03b-admin-refund-confirm">
+          <Button variant="destructive" className={PAY03B_DESTRUCTIVE_ACTION_CLASS} disabled={busy || !valid} onClick={() => void confirm()} data-testid="pay03b-admin-refund-confirm">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
             Refund invoice payment
           </Button>
@@ -965,7 +968,7 @@ export default function Pay03bSubscriptionsAdmin({ baseUrl, getAuthHeaders, onRe
                         {detail.transitions.map((transition) => (
                           <li key={transition.id} className="rounded-md border bg-white p-2 [overflow-wrap:anywhere]" data-testid={`pay03b-admin-transition-${transition.id}`}>
                             <span className="font-medium">{humanizePay03bToken(transition.from_status)} → {humanizePay03bToken(transition.to_status)}</span>
-                            {' · '}{humanizePay03bToken(transition.cause)}
+                            {' · '}{describePay03bTransitionCause(transition.cause)}
                             {transition.to_plan_id && transition.to_plan_id !== transition.from_plan_id
                               ? ` · plan ${planLabel(transition.from_plan_id)} → ${planLabel(transition.to_plan_id)}`
                               : ''}
