@@ -62,7 +62,9 @@ async function call(method, path, body, identity = {}) {
   return { status: res.status, json };
 }
 
-for (const [key, acct] of Object.entries(accounts)) {
+// Only the QA accounts defined above: the same file also records the seeded tenant ids, which are not accounts.
+for (const key of Object.keys(DEFS)) {
+  const acct = accounts[key];
   const exists = sql(`select count(*) from public.users where email = ${lit(acct.email)}`) === '1';
   if (!exists) {
     const r = await call('POST', '/api/auth/register', { name: acct.name, email: acct.email, password: acct.password });
