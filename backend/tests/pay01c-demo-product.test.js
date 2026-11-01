@@ -57,7 +57,9 @@ function fake() {
         payment.pay01a_checkout_id = args.p_checkout_id;
         return { data: { ...payment }, error: null };
       }
-      if (name === 'pay01a_apply_provider_snapshot') {
+      // PAY-03B F5: the service writes through pay03b_apply_provider_payment_snapshot (same contract plus refund
+      // evidence); the certified pay01a_apply_provider_snapshot delegates to it.
+      if (name === 'pay01a_apply_provider_snapshot' || name === 'pay03b_apply_provider_payment_snapshot') {
         const dup = Boolean(args.p_event_id && receiptIds.has(args.p_event_id));
         if (args.p_event_id) receiptIds.add(args.p_event_id);
         if (!dup) {
