@@ -2381,3 +2381,32 @@ test('PAY03A STG01-FINAL D-DATE-1 (threshold default): independently reviewed ev
   assert.equal(dated.readiness.historicalEventCount, 1, 'Only the dated row counts');
   assert.equal(dated.readiness.evidenceIndexCount, 1);
 });
+
+test('PAY03A STG01-FINAL D-HASH-1: the paid snapshot content_hash is reproducible from the JSONB-stored report a buyer actually receives', async () => {
+  const { PGlite: RoundTripPGlite } = await import('@electric-sql/pglite');
+  const crypto = await import('node:crypto');
+  const harness = createInMemoryPay03aHarness();
+  const checkout = await createPay03aReportCheckout({
+    buyerId: 'buyer-03a-1',
+    vin: 'WBA3A5C51DF358101',
+    requestKey: 'pay03a_dhash1_reproducible_01',
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  harness.stripeMock.markCheckoutPaid(checkout.checkoutId);
+  const fulfilled = await readPay03aBuyerReport({
+    buyerId: 'buyer-03a-1',
+    orderId: checkout.orderId,
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  assert.match(fulfilled.contentHash, /^[0-9a-f]{64}$/);
+  // report_versions.payload is JSONB: PostgREST hands the buyer the payload in JSONB key order.
+  const pg = await RoundTripPGlite.create();
+  const { rows } = await pg.query('select $1::jsonb as payload', [JSON.stringify(fulfilled.report)]);
+  const delivered = rows[0].payload;
+  const recomputed = crypto.createHash('sha256').update(JSON.stringify(delivered)).digest('hex');
+  assert.equal(recomputed, fulfilled.contentHash, 'sha256 over the delivered JSON must equal the certified content_hash');
+  assert.equal(fulfilled.report.commercial_snapshot.content_hash_scheme, 'sha256:jsonb-key-order-json-v1');
+  await pg.close();
+});

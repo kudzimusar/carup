@@ -1474,3 +1474,44 @@ test('STG01-R3-R1 Adversarial PostgreSQL Suite: atomic transaction boundary, rol
     await pg.close();
   }
 });
+
+test('STG01-FINAL D-PROV-1: provenance content hashes survive the PostgreSQL JSONB round trip for every writer, not only the atomic review RPC', async () => {
+  const { PGlite: RoundTripPGlite } = await import('@electric-sql/pglite');
+  const { computeContentHash } = await import('../services/evidence/provenanceService.js');
+  const pg = await RoundTripPGlite.create();
+  // The upload / classification-correction / ingestion writers build `details` in insertion order.
+  // evidence_provenance_events.details is JSONB, which re-orders object keys (length, then bytes),
+  // so a hash over insertion order can never be recomputed from storage (observed on the local
+  // UAT runtime: every `uploaded` event failed verifyProvenanceChain, chain_valid=false).
+  const cases = [
+    { evidence_class: 'import', evidence_subtype: 'port_photo', source_id: null, checksum: 'a4decaf0' },
+    { reason: 'publish', nested: { zeta: 1, alpha: [ { yy: 2, b: 3 } ], mid: null }, from: 'x', to_value: true, n: 1.5 },
+    // Already in JSONB order (the shape the STG01-R3-R1 review RPC writes): must hash identically to before.
+    { verified_at: '2026-11-01T02:51:36Z', verified_by: 'u_rev', trust_score_impact: 3, verification_status: 'verified', previous_verification_status: 'pending' },
+  ];
+  for (const details of cases) {
+    const base = {
+      evidence_id: '00000000-0000-4000-8000-0000000000aa', sequence: 1, event_type: 'uploaded',
+      actor_user_id: 'u_up', actor_role: 'owner', actor_type: 'user', details, prev_hash: null,
+    };
+    const written = computeContentHash(base);
+    const { rows } = await pg.query('select $1::jsonb as d', [JSON.stringify(details)]);
+    const stored = rows[0].d;
+    assert.equal(
+      computeContentHash({ ...base, details: stored }),
+      written,
+      `hash must be recomputable from JSONB storage for keys ${Object.keys(details).join(',')}`,
+    );
+  }
+  // Backward compatibility: a hash computed over JSONB-ordered details is unchanged by the fix.
+  const rpcShaped = cases[2];
+  const legacy = (await import('node:crypto')).createHash('sha256').update(JSON.stringify({
+    evidence_id: '00000000-0000-4000-8000-0000000000aa', sequence: 1, event_type: 'uploaded', actor_user_id: 'u_up',
+    actor_role: 'owner', actor_type: 'user', details: rpcShaped, prev_hash: null,
+  })).digest('hex');
+  assert.equal(computeContentHash({
+    evidence_id: '00000000-0000-4000-8000-0000000000aa', sequence: 1, event_type: 'uploaded',
+    actor_user_id: 'u_up', actor_role: 'owner', actor_type: 'user', details: rpcShaped, prev_hash: null,
+  }), legacy);
+  await pg.close();
+});

@@ -15,6 +15,7 @@
  * - Enforces full bidirectional database cross-reference verification and vehicle/provenance validation
  *   for the first real product candidate (`intel.report.vehicle_history_single`).
  */
+import { toJsonbKeyOrder } from '../../utils/jsonbCanonical.js';
 import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
 import { assembleReport, generateReportVersion } from '../report/reportService.js';
@@ -1550,17 +1551,21 @@ export async function deliverVerifiedVehicleHistoryReport({
       buyer_id: cleanBuyer,
       deliverable_type: 'immutable_buyer_owned_report_snapshot',
       policy_status: 'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+      // STG01-FINAL D-HASH-1: content_hash = sha256 of this document serialized in JSONB key order,
+      // i.e. sha256 over exactly the JSON the buyer receives from report_versions.payload.
+      content_hash_scheme: 'sha256:jsonb-key-order-json-v1',
     },
   };
 
-  const computedHash = crypto.createHash('sha256').update(JSON.stringify(report)).digest('hex');
+  const canonicalReport = toJsonbKeyOrder(report);
+  const computedHash = crypto.createHash('sha256').update(JSON.stringify(canonicalReport)).digest('hex');
   const { data: atomicFulfillment, error: rpcErr } = await db.rpc(
     'pay03a_complete_report_fulfillment',
     {
       p_order_id: resolvedOrder.id,
       p_buyer_id: cleanBuyer,
       p_vin: cleanVin,
-      p_payload: report,
+      p_payload: canonicalReport,
       p_content_hash: computedHash,
       p_completeness: report.completeness || {},
     },
@@ -1587,7 +1592,7 @@ export async function deliverVerifiedVehicleHistoryReport({
   if (!atomicFulfillment || !atomicFulfillment.report_version_id) {
     throw new Pay02Error('PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED', 503);
   }
-  const storedReport = atomicFulfillment.payload || report;
+  const storedReport = atomicFulfillment.payload || canonicalReport;
   const storedProvenance = verifyVehicleReportProvenance(storedReport, resolvedVehicle);
   return {
     productCode: 'intel.report.vehicle_history_single',
