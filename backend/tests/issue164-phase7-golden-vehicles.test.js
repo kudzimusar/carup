@@ -13,6 +13,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { CALCULATION_VERSION } from '../services/trustDecision/calculationVersion.js';
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
@@ -113,7 +114,7 @@ async function makeDeps(client, opts = {}) {
       client,
       evaluateCompleteness,
       refreshCanonicalTrust: async (vin) => { calls.refreshCanonicalTrust.push(vin); return { vin, written: true }; },
-      getCanonicalTrust: async (vin) => ({ vin, evaluation_state: 'evaluated', calculation_version: 'trust-decision-1.0.0', score: 72, band: 'moderate' }),
+      getCanonicalTrust: async (vin) => ({ vin, evaluation_state: 'evaluated', calculation_version: CALCULATION_VERSION, score: 72, band: 'moderate' }),
       toPublicTrust: (rec) => ({ vin: rec.vin, evaluation_state: rec.evaluation_state, calculation_version: rec.calculation_version, score: rec.score, band: rec.band }),
       createInquiry: async (c, payload, actor) => {
         calls.createInquiry.push({ payload, actor });

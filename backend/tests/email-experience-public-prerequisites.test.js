@@ -160,7 +160,10 @@ test('E3 the SPA rewrite EXCLUDES the asset namespace', () => {
   const vercel = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'web/vercel.json'), 'utf8'));
   assert.equal(vercel.rewrites.length, 1);
   const [rewrite] = vercel.rewrites;
-  assert.equal(rewrite.destination, '/index.html');
+  // OC-LAUNCH-04 routes documents through the public-document function (canonical metadata before
+  // JavaScript; real 404/503 for unknown or unpublished paths) instead of the bare SPA shell. The
+  // invariant this test protects is unchanged: the asset namespace is never rewritten.
+  assert.equal(rewrite.destination, '/api/public-page?path=$1');
   assert.match(rewrite.source, /email-assets/, 'the namespace must be excluded from the catch-all');
 
   // The source really does exclude the namespace and really does still catch ordinary routes.
@@ -171,6 +174,9 @@ test('E3 the SPA rewrite EXCLUDES the asset namespace', () => {
   assert.ok(pattern.test('/'), 'the root still rewrites');
   assert.ok(!pattern.test('/email-assets/manifest.json'), 'a real asset is served as a file');
   assert.ok(!pattern.test('/email-assets/no-such-g12.png'), 'and a missing one is NOT the SPA shell');
+  // The build's own static files are never routed through the document function either.
+  assert.ok(!pattern.test('/assets/index-abc123.js'), 'built assets are served as files');
+  assert.ok(!pattern.test('/api/public-page'), 'the function is never rewritten into itself');
 });
 
 // ============================================================================

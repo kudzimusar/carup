@@ -145,7 +145,7 @@ test('the most restrictive limiter\'s headers are the ones reported', async () =
   const loose = rateLimiter({ max: 100, windowMs: 60_000 });
   const tight = rateLimiter({ max: 5, windowMs: 60_000, isSensitive: true });
   const ip = uniqueIp();
-  const req = { headers: {}, method: 'POST', originalUrl: '/api/verification', carupClientIp: ip, ip, socket: {} };
+  const req = { headers: {}, method: 'POST', originalUrl: '/api/media/upload', carupClientIp: ip, ip, socket: {} };
   const res = fakeRes();
   await new Promise((r) => loose(req, res, r));
   await new Promise((r) => tight(req, res, r));
@@ -168,8 +168,16 @@ test('client-IP resolution is mounted before every rate limiter', () => {
 test('only the global limiter reads the staging capacity; sensitive limits are unchanged', () => {
   assert.match(serverSrc, /app\.use\(rateLimiter\(\{ max: GLOBAL_RATE_LIMIT\.max, windowMs: 60 \* 1000, isSensitive: false \}\)\)/);
   assert.equal((serverSrc.match(/GLOBAL_RATE_LIMIT\.max/g) || []).length, 2, 'used once for the log line and once for the global limiter');
-  for (const route of ['/api/auth/switch-role', '/api/media/upload', '/api/verification', '/api/safepay/create']) {
+  for (const route of ['/api/auth/switch-role', '/api/media/upload', '/api/safepay/create']) {
     const line = new RegExp(`app\\.use\\('${route.replace(/\//g, '\\/')}', rateLimiter\\(\\{ max: 5, windowMs: 60 \\* 1000, isSensitive: true \\}\\)\\)`);
     assert.match(serverSrc, line, `${route} must keep max 5/min`);
   }
+});
+
+test('OC-2A: there is NO /api/verification prefix limiter — the review routes there are governed by the global limiter', () => {
+  // The 5/min prefix limiter existed for the retired document-intelligence router and throttled the
+  // Trust Fact and PartSentry review routes that own the prefix. It must not come back, in any
+  // spelling (behaviour: oc2a-verification-route-convergence.test.js, test (iv)).
+  assert.doesNotMatch(serverSrc, /app\.use\(\s*\[?\s*['"`]\/api\/verification\b[^)]*rateLimiter/);
+  assert.doesNotMatch(serverSrc, /app\.use\(\s*\[?\s*['"`]\/api\/verification\b/);
 });

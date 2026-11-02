@@ -6,7 +6,7 @@
  *   GET  /api/evidence/sources                               public-safe source registry
  *   POST /api/vehicles/:vin/evidence-sets                    create an evidence set (authz)
  *   GET  /api/vehicles/:vin/evidence-sets                    list evidence sets
- *   GET  /api/vehicles/:vin/evidence/:id/provenance          chain-of-custody (role-scoped)
+ *   GET  /api/vehicles/:vin/evidence/:id/provenance          chain-of-custody (session + evidence object authority)
  *   POST /api/vehicles/:vin/evidence/:id/extractions         submit OCR field extractions
  *   GET  /api/vehicles/:vin/extractions                      list VIN extractions (admin/reviewer)
  *   PATCH /api/vehicles/:vin/extractions/:extractionId/review  submit reviewer decision
@@ -17,14 +17,15 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { ValidationError, NotFoundError, DatabaseError } from '../utils/errors.js';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
+import { requireEvidenceObjectAuthority } from '../middleware/evidenceObjectAuthority.js';
 import { getTaxonomy } from '../services/evidence/evidenceTaxonomy.js';
 import { listPublicSources } from '../services/evidence/sourceRegistryService.js';
 import { createEvidenceSet, listEvidenceSetsForVin } from '../services/evidence/evidenceSetService.js';
 import {
   listProvenanceEvents,
   verifyProvenanceChain,
-  toPublicProvenanceSummary,
+  toProvenanceProjection,
 } from '../services/evidence/provenanceService.js';
 import {
   persistExtractions,
@@ -78,20 +79,18 @@ router.get('/api/vehicles/:vin/evidence-sets', asyncHandler(async (req, res) => 
 }));
 
 // --- Provenance / chain of custody ---------------------------------------------------
+// OC-4A: a real session (never an asserted x-user-id), then EVIDENCE object authority — the evidence
+// must belong to :vin and the caller must hold the vehicle rule, have submitted the evidence, or hold a
+// platform evidence-review role. The projection is chosen by audience; no audience receives IPs, and
+// only platform admins receive actor ids (evidenceObjectAuthority.js, provenanceService.js).
 router.get('/api/vehicles/:vin/evidence/:evidenceId/provenance',
-  authorizeRole(),
+  authorizeSessionRole(),
+  requireEvidenceObjectAuthority(),
   asyncHandler(async (req, res) => {
     const { evidenceId } = req.params;
-    const role = req.userContext?.role;
     const events = await listProvenanceEvents(supabase, evidenceId);
     const chain = await verifyProvenanceChain(supabase, evidenceId);
-
-    if (PRIVILEGED_ROLES.includes(role)) {
-      res.json({ chain_valid: chain.valid, events });
-    } else {
-      // Public-safe: omit IPs / raw actor IDs (master plan §5.6).
-      res.json({ chain_valid: chain.valid, events: toPublicProvenanceSummary(events) });
-    }
+    res.json({ evidence_id: evidenceId, vin: req.params.vin, ...toProvenanceProjection(req.evidenceAccess.audience, events, chain) });
   }));
 
 // --- Phase 3: Document extractions ---------------------------------------------------

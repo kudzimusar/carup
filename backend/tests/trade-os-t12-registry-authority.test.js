@@ -25,6 +25,8 @@ import { readFile } from 'node:fs/promises';
 import { isGenuineRegistryRecord, NON_SUBSTANTIATING_MODES } from '../services/evidence/vehicleFactResolver.js';
 
 const DOC_INTEL = 'backend/services/document-intelligence/documentIntelligenceService.js';
+const FIXTURE_GUARD = 'backend/config/testFixtureGuard.js';
+const DOC_SCHEMAS = 'backend/services/document-intelligence/documentSchemas.js';
 const TRUST_GRAPH = 'backend/services/trustGraph/trustGraphService.js';
 
 test('T12: the OCR approval path writes NO government registry record', async () => {
@@ -63,9 +65,21 @@ test('T12: what CarUp DID observe is still recorded — the positive control', a
   // just as well if the whole OCR path had been deleted.
   const source = await readFile(DOC_INTEL, 'utf8');
   const code = source.replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
-  assert.match(code, /from\('ocr_customs_declarations'\)[\s\S]{0,200}\.insert/, 'what the document SAID is no longer recorded');
-  assert.match(code, /from\('administrative_overrides'\)[\s\S]{0,200}\.insert/, 'who approved it is no longer recorded');
+  // OCR 1.0-A/B moved the per-class structured write behind the canonical schema registry: the
+  // customs schema names its table, and Document Intelligence persists every structured candidate
+  // through that one insert. The positive control follows the write to where it now lives.
+  const schemas = (await readFile(DOC_SCHEMAS, 'utf8')).replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+  assert.match(schemas, /table:\s*'ocr_customs_declarations'/, 'the customs reading no longer has a table to land in');
+  assert.match(code, /persistStructuredCandidate\(\s*schema/, 'structured readings are no longer persisted');
+  assert.match(code, /from\(table\)\.insert\(row\)/, 'what the document SAID is no longer recorded');
   assert.match(code, /raw_verification_confidence/, 'the confidence of the reading is no longer recorded');
+  // OC-2A (converging on O2-X1) RETIRED the Document Intelligence approval itself, so there is no
+  // approver here to record any more: the former `administrative_overrides` positive control is
+  // FLIPPED. Document Intelligence records only what the document said; a human decision is
+  // recorded by the governed domain reviewer that makes it, never by extraction.
+  assert.doesNotMatch(code, /administrative_overrides/, 'Document Intelligence must not write an approval override any more');
+  const { DocumentIntelligenceService } = await import('../services/document-intelligence/documentIntelligenceService.js');
+  assert.equal(typeof DocumentIntelligenceService.approveDocumentVerification, 'undefined', 'the retired approval must not return');
 });
 
 test('T12: a synthesised registry row cannot substantiate anything', () => {
@@ -86,9 +100,22 @@ test('T12: the sample-document parser stays gated to the test suite', async () =
   // It is the reason the ban above is scoped, so its gate is part of this phase's evidence.
   const source = await readFile(DOC_INTEL, 'utf8');
   const code = source.replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
-  assert.match(code, /NODE_ENV === 'test' && process\.env\.ALLOW_OCR_MOCK === 'true'/);
-  assert.match(code, /if \(DocumentIntelligenceService\.isOcrMockAllowed\(\)\) \{\n\s*const mockResult/,
+  // OC-3B-R extracted that gate to config/testFixtureGuard.js — one rule for every fixture, which now
+  // also refuses a runtime that declares itself deployed — and isOcrMockAllowed delegates to it. The
+  // pin follows the gate to where it lives, and pins the delegation that keeps this parser behind it.
+  assert.match(code, /static isOcrMockAllowed\(\) \{\s*return isTestFixtureAllowed\(process\.env\);\s*\}/,
+    'the sample parser gate no longer delegates to the shared test-fixture guard');
+  const guard = (await readFile(FIXTURE_GUARD, 'utf8')).replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+  assert.match(guard, /env\.NODE_ENV === 'test' && env\.ALLOW_OCR_MOCK === 'true' && !isDeployedRuntime\(env\)/,
+    'the shared test-fixture guard lost its rule');
+  // OCR 1.0-A/B moved the sample reader to the provider boundary: it runs only when no provider is
+  // configured AND the test-suite gate allows it, and it is the ONLY caller of the sample documents.
+  assert.match(code, /const simulate = !configuredProvider\.isConfigured\(\) && DocumentIntelligenceService\.isOcrMockAllowed\(\);/,
     'the sample parser is reachable without the gate');
+  assert.match(code, /if \(simulate\) \{[\s\S]{0,600}getMockZimbabweDocument\(/,
+    'the sample documents are produced outside the gated branch');
+  assert.equal((code.match(/getMockZimbabweDocument\(/g) || []).length, 2,
+    'the sample documents gained a caller outside the gated branch (expected: its definition and one gated call)');
 });
 
 test('T12: an absent row is not a genuine one', () => {

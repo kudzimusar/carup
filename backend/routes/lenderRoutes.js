@@ -19,7 +19,6 @@ import { supabase } from '../db/supabase.js';
 import {
   recordApplicantConsent, requestApplicantDeletion, requestLenderEligibility,
   ingestLenderWebhook, getLenderStatus, getLenderHistory, financeAvailabilityPublic,
-  FINANCE_WEBHOOK_PROVIDER_ID,
 } from '../services/finance/lenderWorkflow.js';
 import { getTrustDecision } from '../services/trustDecision/trustDecisionService.js';
 import {
@@ -171,7 +170,8 @@ router.post('/api/finance/lender/webhook',
   express.json({ verify: (req, _res, buf) => { req.rawBody = buf.toString(); } }),
   asyncHandler(async (req, res) => {
     const result = await ingestLenderWebhook({
-      providerId: req.headers['x-provider-id'] || FINANCE_WEBHOOK_PROVIDER_ID,
+      // Checked against the server-owned identity, never used to pick the key (B5).
+      providerId: req.headers['x-provider-id'] || null,
       payloadString: req.rawBody || JSON.stringify(req.body || {}),
       signature: req.headers['x-signature'],
       timestamp: req.headers['x-timestamp'],

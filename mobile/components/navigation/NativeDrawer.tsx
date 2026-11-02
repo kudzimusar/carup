@@ -13,7 +13,7 @@
  * then `router.push`es. Role switch / Sign out call the auth store then refresh
  * governance. Android hardware back closes the drawer before leaving the screen.
  */
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   BackHandler,
@@ -37,6 +37,7 @@ import {
   type DrawerActionItem,
 } from '../../navigation/nativeDrawerSections';
 import type { NativeNavContext } from '../../navigation/types';
+import type { TenantMembership } from '@shared/types';
 
 interface NativeDrawerProps {
   visible: boolean;
@@ -58,6 +59,8 @@ function routeToHref(expoRoute: string): string {
 }
 
 const BRAND_NAVY = '#0f172a';
+// A stable empty list: a zustand selector that returned a fresh [] would re-render forever.
+const NO_MEMBERSHIPS: TenantMembership[] = [];
 
 export function NativeDrawer({ visible, onClose }: NativeDrawerProps): React.ReactElement {
   const router = useRouter();
@@ -71,6 +74,13 @@ export function NativeDrawer({ visible, onClose }: NativeDrawerProps): React.Rea
   const userName = useAuthStore((s) => s.user?.name ?? null);
   const logout = useAuthStore((s) => s.logout);
   const switchRole = useAuthStore((s) => s.switchRole);
+  // OC-5D — the organisation this session acts for is the person's explicit choice.
+  const memberships = useAuthStore((s) => s.user?.memberships ?? NO_MEMBERSHIPS);
+  const activeTenantId = useAuthStore((s) => s.user?.active_tenant_id ?? null);
+  const activeTenantName = useAuthStore((s) => s.user?.active_tenant?.name ?? null);
+  const tenantContext = useAuthStore((s) => s.user?.tenant_context ?? 'none');
+  const selectActiveTenant = useAuthStore((s) => s.selectActiveTenant);
+  const [organisationNotice, setOrganisationNotice] = useState<string | null>(null);
   const effectiveStates = useFeatureGovernanceStore((s) => s.effectiveStates);
 
   const ctx: NativeNavContext = {
@@ -147,6 +157,60 @@ export function NativeDrawer({ visible, onClose }: NativeDrawerProps): React.Rea
     },
     [logout, switchRole, onClose, router],
   );
+
+  const chooseOrganisation = useCallback(
+    async (tenantId: string | null) => {
+      const result = await selectActiveTenant(tenantId);
+      setOrganisationNotice(result.ok ? null : result.error ?? 'Could not change organisation.');
+    },
+    [selectActiveTenant],
+  );
+
+  function renderOrganisation(): React.ReactElement | null {
+    if (!isAuthenticated || (memberships.length === 0 && !activeTenantId)) return null;
+    const choices = memberships.filter((m) => m.selectable && m.id !== activeTenantId);
+    const current = activeTenantId ? activeTenantName ?? 'your organisation' : 'yourself';
+    return (
+      <View style={styles.section} testID="drawer-organisation">
+        <Text style={styles.sectionTitle} accessibilityRole="header">
+          Organisation
+        </Text>
+        <View style={styles.item} accessibilityRole="text">
+          <Text style={styles.itemLabelMuted}>
+            {tenantContext === 'revoked'
+              ? 'Your access to the organisation you were acting for has changed.'
+              : `Acting for ${current}`}
+          </Text>
+        </View>
+        {choices.map((m) => (
+          <Pressable
+            key={m.id}
+            onPress={() => void chooseOrganisation(m.id)}
+            accessibilityRole="button"
+            accessibilityLabel={`Act for ${m.name ?? 'organisation'}`}
+            style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}
+          >
+            <Text style={styles.itemLabel}>Act for {m.name ?? 'Unnamed organisation'}</Text>
+          </Pressable>
+        ))}
+        {activeTenantId ? (
+          <Pressable
+            onPress={() => void chooseOrganisation(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Act for yourself"
+            style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}
+          >
+            <Text style={styles.itemLabel}>Act for yourself</Text>
+          </Pressable>
+        ) : null}
+        {organisationNotice ? (
+          <Text style={styles.itemLabelDestructive} accessibilityLiveRegion="polite">
+            {organisationNotice}
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
 
   function renderLink(item: DrawerLinkItem): React.ReactElement {
     const selected = pathname === routeToHref(item.expoRoute);
@@ -264,6 +328,7 @@ export function NativeDrawer({ visible, onClose }: NativeDrawerProps): React.Rea
                 {section.items.map(renderItem)}
               </View>
             ))}
+            {renderOrganisation()}
           </ScrollView>
         </Animated.View>
       </View>

@@ -329,12 +329,21 @@ test('K1 the provider payload carries the RENDERER text, not the stale pre-rende
 test('K2 non-email channels never reach the renderer', async () => {
   const seen = [];
   const worker = new CommunicationDeliveryWorker({
-    repository: { list: async () => [], findOne: async () => null, insert: async () => ({ id: 'a' }), updateById: async (_t, id) => ({ id }) },
+    // OC-EXPO-02: push resolves from a verified Expo registration and fails closed without one, so the
+    // push recipient is given one. The renderer contract under test is unchanged.
+    repository: {
+      list: async (table, filters = {}) => (table === 'channel_identities' && filters.channel === 'push'
+        ? [{ id: 'push-identity', user_id: 'k2-user', channel: 'push', provider: 'expo_push', verified: true, consent_status: 'opted_in', normalized_address: 'ExponentPushToken[k2-test]' }]
+        : []),
+      findOne: async () => null,
+      insert: async () => ({ id: 'a' }),
+      updateById: async (_t, id) => ({ id }),
+    },
     adapterRegistry: { get: () => ({ provider: 'x', send: async (input) => { seen.push(input); return { accepted: true }; } }) },
     emailRenderer: () => { throw new Error('the renderer must not be called for a non-email channel'); },
   });
   for (const channel of ['in_app', 'push']) {
-    await worker.deliverNotification({ id: `k2-${channel}`, channel, title: 'T', message: 'M', payload: {} });
+    await worker.deliverNotification({ id: `k2-${channel}`, channel, recipient_user_id: 'k2-user', title: 'T', message: 'M', payload: {} });
   }
   assert.equal(seen.length, 2);
   for (const input of seen) {

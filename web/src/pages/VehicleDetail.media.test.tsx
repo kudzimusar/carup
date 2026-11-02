@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-import { render, screen, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, waitFor, cleanup, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 /**
@@ -2441,5 +2441,74 @@ describe('Marketplace listings — the cover image carries the label that qualif
     // under `not_loaded` alike.
     const listingImage = readFileSync(resolve(REPO, 'web/src/components/marketplace/ListingImage.tsx'), 'utf8')
     expect(listingImage).toContain('Image unavailable')
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+describe('VehicleDetail — low-data truth and governed seller contact (OC-LAUNCH R1)', () => {
+  function serveNothing(detailError: unknown) {
+    lookupVehiclePassport.mockRejectedValue(new Error('lookup failed'))
+    fetchVehicle.mockRejectedValue(new Error('vehicle failed'))
+    fetchVehiclePassport.mockRejectedValue(new Error('passport failed'))
+    fetchMarketplaceListingDetail.mockRejectedValue(detailError)
+  }
+
+  it('reports a connection failure as a failure with a retry, never as a missing vehicle', async () => {
+    serveNothing(Object.assign(new Error('HTTP error! status: 503'), { status: 503 }))
+    renderDetail()
+    expect(await screen.findByTestId('vehicle-load-failed')).toBeTruthy()
+    expect(screen.queryByTestId('vehicle-not-found')).toBeNull()
+    expect(screen.queryByText('Vehicle Not Found')).toBeNull()
+
+    const before = fetchMarketplaceListingDetail.mock.calls.length
+    servePassport(passportFixture({ evidenceVault: [] }))
+    serveListingMedia([image(CARD_IMAGE)])
+    fireEvent.click(screen.getByTestId('vehicle-load-retry'))
+    await waitFor(() => expect(fetchMarketplaceListingDetail.mock.calls.length).toBeGreaterThan(before))
+    await waitFor(() => expect(screen.getByTestId('listing-media-block')).toBeTruthy())
+  })
+
+  it('keeps a not-public listing as Vehicle Not Found', async () => {
+    serveNothing(Object.assign(new Error('HTTP error! status: 404'), { status: 404 }))
+    renderDetail()
+    expect(await screen.findByTestId('vehicle-not-found')).toBeTruthy()
+    expect(screen.queryByTestId('vehicle-load-failed')).toBeNull()
+  })
+
+  it('replaces an endless spinner with a retry once the load deadline passes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      lookupVehiclePassport.mockImplementation(() => new Promise(() => {}))
+      fetchMarketplaceListingDetail.mockImplementation(() => new Promise(() => {}))
+      renderDetail()
+      expect(screen.queryByTestId('vehicle-load-stalled')).toBeNull()
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_100) })
+      expect(screen.getByTestId('vehicle-load-stalled')).toBeTruthy()
+      expect(screen.getByTestId('vehicle-load-retry')).toBeTruthy()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('never renders a raw seller wa.me or tel: link, even when the read carries a tenant phone', async () => {
+    const body = passportFixture({ evidenceVault: [] }) as { vehicle: Record<string, unknown> }
+    body.vehicle.tenant = { name: 'Harare Motors', phone: '+263 77 000 0000' }
+    servePassport(body)
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('seller-contact-unavailable')).toBeTruthy())
+    expect(document.querySelector('a[href^="https://wa.me/"]')).toBeNull()
+    expect(document.querySelector('a[href^="tel:"]')).toBeNull()
+    expect(document.body.textContent).not.toContain('+263 77 000 0000')
+    expect(screen.getByTestId('seller-contact-governed-note').textContent).toMatch(/phone number is never shown/i)
+    expect(DETAIL_CODE).not.toContain('https://wa.me/${')
+  })
+
+  it('labels registry and police evidence as Recorded, never as an authority Verified check', () => {
+    for (const label of ["'Customs duty evidence (ZIMRA)'", "'Registration evidence (CVR)'", "'Police-clearance evidence (ZRP)'"]) {
+      expect(DETAIL_CODE).toContain(`label: ${label}`)
+    }
+    for (const claim of ["'ZIMRA Customs Cleared'", "'CVR Ownership Registration'", "'ZRP Police Clearance'", 'No active stolen vehicle alert', 'by the registry authority', 'which government and']) {
+      expect(DETAIL_CODE).not.toContain(claim)
+    }
+    expect(DETAIL_CODE).toContain("status: m.zrp_police_cleared ? 'recorded' : 'not_verified'")
+    expect(DETAIL_CODE).toContain("status: m.stolen_alert_active ? 'warning' : 'none_recorded'")
   })
 })

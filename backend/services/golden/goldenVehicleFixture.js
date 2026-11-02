@@ -34,6 +34,7 @@ import {
   LISTING_IMAGE_MIME, EVIDENCE_DOCUMENT_MIME,
 } from './goldenSyntheticAssets.js';
 import { documentEvidenceTypes } from '../evidence/evidenceService.js';
+import { CALCULATION_VERSION } from '../trustDecision/calculationVersion.js';
 
 /**
  * The visibility an uploaded Golden evidence row starts at.
@@ -408,7 +409,7 @@ export async function bootstrap(depsIn = {}) {
       const pub = deps.toPublicTrust(rec);
       // Golden A must EARN a current evaluated result; a not_evaluated/unversioned read is a required
       // failure (it would mean the fixture's defining trust conclusion was never produced).
-      if (spec.key === 'A' && !(pub.evaluation_state === 'evaluated' && pub.calculation_version === 'trust-decision-1.0.0' && Number.isFinite(pub.score))) {
+      if (spec.key === 'A' && !(pub.evaluation_state === 'evaluated' && pub.calculation_version === CALCULATION_VERSION && Number.isFinite(pub.score))) {
         throw new Error(`Golden A trust must be current+evaluated; got state=${pub.evaluation_state} version=${pub.calculation_version} score=${pub.score}`);
       }
       return { evaluation_state: pub.evaluation_state, score: pub.score, band: pub.band, calculation_version: pub.calculation_version };
@@ -583,11 +584,11 @@ export async function verify(depsIn = {}) {
     if (spec.key === 'A') {
       // Golden A's defining property is that it EARNS a current, versioned, evaluated trust result.
       // not_evaluated is a failure for A — it would mean the trust result was never produced.
-      check('A:trust_evaluated', pub.evaluation_state === 'evaluated' && pub.calculation_version === 'trust-decision-1.0.0' && Number.isFinite(pub.score), { state: pub.evaluation_state, version: pub.calculation_version, score: pub.score });
+      check('A:trust_evaluated', pub.evaluation_state === 'evaluated' && pub.calculation_version === CALCULATION_VERSION && Number.isFinite(pub.score), { state: pub.evaluation_state, version: pub.calculation_version, score: pub.score });
     } else {
       // Golden B's trust is derived honestly; an evaluated-low OR a not_evaluated result are both valid,
       // and either must have come from the canonical path (never a seeded score).
-      check('B:trust_derived', (pub.evaluation_state === 'evaluated' && pub.calculation_version === 'trust-decision-1.0.0') || pub.evaluation_state === 'not_evaluated', { state: pub.evaluation_state, version: pub.calculation_version, score: pub.score });
+      check('B:trust_derived', (pub.evaluation_state === 'evaluated' && pub.calculation_version === CALCULATION_VERSION) || pub.evaluation_state === 'not_evaluated', { state: pub.evaluation_state, version: pub.calculation_version, score: pub.score });
     }
 
     // Completeness / publication truthfulness

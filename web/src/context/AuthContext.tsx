@@ -1,7 +1,7 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import type { UserRole, AuthUser } from '@shared/types'
-import { apiRequest, resolveApiBaseUrl, setUnauthorizedHandler, SessionExpiredError, type AuthHeaders } from '@/lib/apiClient'
-import { readStoredAuth, storeAuth, clearStoredAuth, validateStoredSession } from '@/lib/authSession'
+import { apiRequest, resolveApiBaseUrl, setUnauthorizedHandler, setTenantContextHandler, SessionExpiredError, type AuthHeaders } from '@/lib/apiClient'
+import { readStoredAuth, storeAuth, clearStoredAuth, validateStoredSession, withServerTenantContext } from '@/lib/authSession'
 import { setNavAnalyticsAuthProvider } from '@/lib/navigationAnalytics'
 
 const API_BASE = resolveApiBaseUrl(
@@ -9,14 +9,30 @@ const API_BASE = resolveApiBaseUrl(
   typeof window !== 'undefined' ? window.location.hostname : undefined,
 );
 
+/**
+ * What Sign Out established about the SERVER session (PC01-K1-R1). Local state is cleared in every
+ * case; only the server side differs, and it is reported as it is — never claimed revoked unconfirmed.
+ *   revoked        the server ended this session; its token no longer authenticates anything
+ *   already_ended  the server reports the session was not valid any more (expired, or ended elsewhere)
+ *   unconfirmed    the server could not be reached or refused; the token may still be valid until expiry
+ */
+export type SignOutOutcome = 'revoked' | 'already_ended' | 'unconfirmed'
+
 interface AuthContextType {
   user: AuthUser | null
   token: string | null
   isAuthenticated: boolean
   loading: boolean
   login: (userData: AuthUser, token: string) => void
-  logout: () => void
+  logout: () => Promise<SignOutOutcome>
   switchRole: (role: UserRole, tenantId?: string) => Promise<void>
+  /**
+   * OC-5D — choose the organisation this session acts for (null = act for yourself). The server
+   * verifies it and records it on the session; nothing is ever selected for the person.
+   */
+  selectActiveTenant: (tenantId: string | null) => Promise<void>
+  /** Re-read the session's organisation and memberships from the server. */
+  refreshSession: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -25,8 +41,10 @@ const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   loading: true,
   login: () => {},
-  logout: () => {},
+  logout: async () => 'already_ended',
   switchRole: async () => {},
+  selectActiveTenant: async () => {},
+  refreshSession: async () => {},
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -40,6 +58,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => (typeof window !== 'undefined' ? readStoredAuth(localStorage)?.token ?? null : null),
   )
   const [loading, setLoading] = useState(true)
+  // The latest identity, for callbacks invoked from outside React (the API client's handlers).
+  const userRef = useRef(user)
+  const tokenRef = useRef(token)
+  useEffect(() => { userRef.current = user; tokenRef.current = token }, [user, token])
+  const refreshInFlight = useRef<Promise<void> | null>(null)
 
   // Clear ALL client auth state + storage. Used on logout and whenever the backend reports the
   // session is invalid/expired.
@@ -90,6 +113,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false
     validateStoredSession({ baseUrl: API_BASE, token: stored.token, userId: stored.user?.id })
+      .then((serverUser) => {
+        // OC-5D: adopt the server's view of the session's organisation. A user stored by an older
+        // build may carry the organisation login used to guess; the server's answer replaces it.
+        if (cancelled || !serverUser) return
+        if (readStoredAuth(localStorage)?.token !== stored.token) return // a newer sign-in won
+        // The server's answer wins for the whole identity (PR #197's adoption: a renamed account or a
+        // changed role must not outlive the session), and its organisation REPLACES the stored one.
+        const next = withServerTenantContext({ ...stored.user, ...serverUser }, serverUser)
+        setUser(next)
+        storeAuth(localStorage, next, stored.token)
+      })
       .catch((err: unknown) => {
         if (!cancelled && err instanceof SessionExpiredError) clearAuth()
       })
@@ -106,8 +140,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     storeAuth(localStorage, userData, sessionToken)
   }, [])
 
-  const logout = useCallback(() => {
+  // PC01-K1-R1 — Sign Out ends the session on the SERVER (POST /api/auth/logout), not only here.
+  // Local state is cleared FIRST and unconditionally, so a network failure can never strand a person
+  // inside the dashboard; the server call then uses the token captured before the clear.
+  const logout = useCallback(async (): Promise<SignOutOutcome> => {
+    const sessionToken = tokenRef.current
+    const sessionUser = userRef.current
     clearAuth()
+    if (!sessionToken || !sessionUser) return 'already_ended'
+    try {
+      await apiRequest({
+        baseUrl: API_BASE,
+        path: '/auth/logout',
+        options: { method: 'POST', body: JSON.stringify({}) },
+        authHeaders: {
+          'x-session-token': sessionToken,
+          'x-user-id': sessionUser.id,
+          ...(sessionUser.role ? { 'x-stakeholder-role': sessionUser.role } : {}),
+        },
+      })
+      return 'revoked'
+    } catch (e) {
+      // 401: the server no longer accepts this session — there is nothing left to revoke.
+      if (e instanceof SessionExpiredError) return 'already_ended'
+      console.warn('[auth] Signed out on this device; the server did not confirm the session ended.')
+      return 'unconfirmed'
+    }
   }, [clearAuth])
 
   const switchRole = useCallback(async (role: UserRole, tenantId?: string) => {
@@ -140,8 +198,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user, token, clearAuth])
 
+  const refreshSession = useCallback(async () => {
+    if (refreshInFlight.current) return refreshInFlight.current
+    const currentToken = tokenRef.current
+    const currentUser = userRef.current
+    if (!currentToken || !currentUser) return
+    const run = (async () => {
+      try {
+        const serverUser = await validateStoredSession({ baseUrl: API_BASE, token: currentToken, userId: currentUser.id })
+        if (tokenRef.current !== currentToken || !userRef.current) return
+        const next = withServerTenantContext({ ...userRef.current, ...serverUser }, serverUser)
+        setUser(next)
+        storeAuth(localStorage, next, currentToken)
+      } catch (e) {
+        if (e instanceof SessionExpiredError) clearAuth()
+      } finally {
+        refreshInFlight.current = null
+      }
+    })()
+    refreshInFlight.current = run
+    return run
+  }, [clearAuth])
+
+  // A request refused because the session's organisation changed under it: re-read the session.
+  useEffect(() => {
+    setTenantContextHandler(() => { void refreshSession() })
+    return () => setTenantContextHandler(null)
+  }, [refreshSession])
+
+  const selectActiveTenant = useCallback(async (tenantId: string | null) => {
+    const currentToken = tokenRef.current
+    const currentUser = userRef.current
+    if (!currentToken || !currentUser) return
+    try {
+      const data = await apiRequest<{ user?: Partial<AuthUser> }>({
+        baseUrl: API_BASE,
+        path: '/auth/active-tenant',
+        options: { method: 'PUT', body: JSON.stringify({ tenantId }) },
+        // Deliberately no x-tenant-id: this call CHANGES the organisation, it does not act for one.
+        authHeaders: { 'x-session-token': currentToken, 'x-user-id': currentUser.id },
+      })
+      if (tokenRef.current !== currentToken || !userRef.current) return
+      const next = withServerTenantContext(userRef.current, data.user ?? { active_tenant_id: null })
+      setUser(next)
+      storeAuth(localStorage, next, currentToken)
+    } catch (e) {
+      if (e instanceof SessionExpiredError) clearAuth()
+      throw e
+    }
+  }, [clearAuth])
+
   return (
-    <AuthContext.Provider value={{ user, token, isAuthenticated: !!token, loading, login, logout, switchRole }}>
+    <AuthContext.Provider value={{ user, token, isAuthenticated: !!token, loading, login, logout, switchRole, selectActiveTenant, refreshSession }}>
       {children}
     </AuthContext.Provider>
   )

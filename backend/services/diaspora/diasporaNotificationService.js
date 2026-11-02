@@ -39,16 +39,13 @@ export async function queueDiasporaNotification({ recipientId, type, title, mess
   }
 }
 
+/**
+ * Legacy Diaspora milestone notices have one accepted future delivery authority: the direct
+ * notification_queue write below. The domain mutation has already committed and is separately
+ * audited by its owning service. Emitting the same milestone into domain_events created a second,
+ * unconsumed durable work item for the same transition, so this helper must never dual-write it.
+ */
 export async function notifyDiasporaMilestone({ eventType, importOrder, actorId = null, title, message, metadata = {} }) {
-  await emitDiasporaEvent(eventType, {
-    importOrderId: importOrder?.id,
-    status: importOrder?.status,
-    actorId,
-    title,
-    message,
-    ...metadata,
-  }, importOrder?.tenant_id || null);
-
   return queueDiasporaNotification({
     recipientId: importOrder?.buyer_id || importOrder?.created_by,
     type: eventType,

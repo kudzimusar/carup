@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useStepUpGuard } from '@/hooks/useStepUpGuard'
 import { toast } from 'sonner'
 import {
   AlertTriangle, ArrowLeft, CheckCircle, FileText, Loader2, ShieldAlert, XCircle,
@@ -125,6 +126,7 @@ export default function VehicleOperationsReview() {
     fetchVehicleOperationsReview, approveEvidence, rejectEvidence,
     correctEvidenceClassification, reviewSellerAuthority, fetchEvidenceTaxonomy,
   } = useCarUpApi()
+  const { runGuarded, stepUpDialog } = useStepUpGuard()
 
   const [review, setReview] = useState<OperationsReview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -219,16 +221,17 @@ export default function VehicleOperationsReview() {
     if (!authorityReason.trim()) { toast.error('A seller authority decision requires a reason.'); return }
     setBusyId('seller-authority')
     try {
-      await reviewSellerAuthority(vin, {
-        seller_user_id: review.seller_authority.seller_user_id,
-        decision: authorityDecision,
-        reason: authorityReason.trim(),
+      // Seller authority review is step-up gated (vehiclesRoutes) — recover, do not dead-end.
+      await runGuarded('Seller authority decision', async () => {
+        await reviewSellerAuthority(vin, {
+          seller_user_id: review.seller_authority!.seller_user_id,
+          decision: authorityDecision,
+          reason: authorityReason.trim(),
+        })
+        toast.success('Seller authority decision recorded')
+        setAuthorityReason('')
+        load()
       })
-      toast.success('Seller authority decision recorded')
-      setAuthorityReason('')
-      load()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Decision failed')
     } finally {
       setBusyId(null)
     }
@@ -260,6 +263,7 @@ export default function VehicleOperationsReview() {
 
   return (
     <div className="space-y-8 max-w-[1440px]" data-testid="vehicle-operations-review">
+      {stepUpDialog}
       {/* ── Header: vehicle identity + publication state ─────────────────── */}
       <div className="border-b border-gray-200 pb-5">
         <Link to="/admin/evidence" className="text-xs text-gray-500 inline-flex items-center gap-1 mb-2 hover:text-orange-700">

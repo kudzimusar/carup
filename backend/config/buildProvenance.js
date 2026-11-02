@@ -16,15 +16,30 @@
  * the revision makes that checkable instead of assumed.
  */
 
-/** Vercel injects these; they are present at runtime on every deployment. */
+/**
+ * Vercel injects the VERCEL_GIT_* variables on a Git-sourced deployment. OC-5R-REL-01: the CarUp
+ * projects have had no connected Git repository since OC-P0, so a governed release is a CLI upload of
+ * a clean worktree at the exact SHA, which carries none of them — the deployer states the revision
+ * explicitly (CARUP_BUILD_SHA / CARUP_BUILD_REF, deployment-scoped). `source` says which happened, and
+ * a runtime whose sources DISAGREE reports no revision at all (fail closed) rather than picking one.
+ */
 export function resolveBuildProvenance(env = process.env) {
-  const commitSha = env.VERCEL_GIT_COMMIT_SHA || env.GITHUB_SHA || env.CARUP_BUILD_SHA || null;
+  const vercelSha = env.VERCEL_GIT_COMMIT_SHA || null;
+  const inputSha = env.CARUP_BUILD_SHA || null;
+  const conflict = Boolean(vercelSha && inputSha && vercelSha !== inputSha);
+  const commitSha = conflict ? null : (vercelSha || env.GITHUB_SHA || inputSha || null);
+  const source = conflict ? 'conflict'
+    : vercelSha ? 'vercel_git'
+      : env.GITHUB_SHA ? 'github_actions'
+        : inputSha ? 'explicit_build_input'
+          : null;
   return {
     commit_sha: commitSha,
     commit_sha_short: commitSha ? String(commitSha).slice(0, 8) : null,
-    branch: env.VERCEL_GIT_COMMIT_REF || env.GITHUB_REF_NAME || null,
+    branch: env.VERCEL_GIT_COMMIT_REF || env.GITHUB_REF_NAME || env.CARUP_BUILD_REF || null,
     deployment_id: env.VERCEL_DEPLOYMENT_ID || null,
     environment: env.VERCEL_ENV || env.NODE_ENV || null,
+    source,
     // A runtime that cannot state its own revision cannot be certified against one. Reported
     // explicitly rather than left as a null that reads like "same as everything else".
     provenance_available: Boolean(commitSha),

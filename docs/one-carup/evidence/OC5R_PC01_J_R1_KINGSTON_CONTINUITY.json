@@ -1,0 +1,125 @@
+{
+ "schema": "oc5r-pc01-j-r1-kingston-continuity/v1",
+ "recorded_at": "2026-10-10T19:09:16Z",
+ "recorded_at_source": "the staging database's now() in the same read",
+ "source": "staging project eoyenigwevnxwwhyhaer only, through the project-pinned CarUp staging server (get_project_url → https://eoyenigwevnxwwhyhaer.supabase.co); default_transaction_read_only = on",
+ "excluded_from_every_read": "credentials, password hashes or anything derived from them, session tokens, IP addresses, user agents",
+ "account": {
+  "id": "u_66cace85fad949e4",
+  "platform_role": "owner",
+  "email_matches_the_brief": true,
+  "created_at": "2026-09-01T07:26:08Z"
+ },
+ "authentication": {
+  "login_attempts_since_2026_10_10": [
+   {
+    "attempted_at": "2026-10-10T15:43:36Z",
+    "success": false,
+    "method": "password"
+   },
+   {
+    "attempted_at": "2026-10-10T15:43:46Z",
+    "success": true,
+    "method": "password"
+   },
+   {
+    "attempted_at": "2026-10-10T17:07:35Z",
+    "success": true,
+    "method": "password"
+   }
+  ],
+  "sessions_since_2026_10_10": [
+   {
+    "created_at": "2026-10-10T15:43:44Z",
+    "expires_at": "2026-10-11T15:43:44Z",
+    "is_valid": true,
+    "active_role": "owner"
+   },
+   {
+    "created_at": "2026-10-10T17:07:34Z",
+    "expires_at": "2026-10-11T17:07:34Z",
+    "is_valid": true,
+    "active_role": "owner"
+   }
+  ],
+  "runtime": "observed in-session on the Checkpoint 1 backend (dpl_BRaaDMFZVr7wSKj6V8peiMpT8613) runtime logs, 2026-10-10 15:43–17:11Z: GET /api/vehicles/me answered 200 for this account's session every time (1.8–4.1 s). Not re-read for this receipt."
+ },
+ "vehicle": {
+  "identifier": "GFC27-027051",
+  "rows_for_identifier": 1,
+  "owner_is_account": true,
+  "current_seller_is_account": true,
+  "status": "Available",
+  "publication_status": "publishable",
+  "created_at": "2026-09-01T09:48:38Z",
+  "vehicles_of_account": 1
+ },
+ "publication_trail": {
+  "table": "trust_audit_events (vin = GFC27-027051)",
+  "by_this_account": {
+   "VEHICLE_LISTING_PUBLISHED": 27,
+   "VEHICLE_LISTING_UNPUBLISHED": 26,
+   "first": "2026-09-02T19:18:28Z",
+   "last": "2026-09-26T20:08:27Z",
+   "pattern": "26 unpublish → publish cycles about 10 s apart — consistent with the governed Serena staging UAT (tests/agents/43-operations-serena-staging.spec.ts signs in as this account and runs unpublish → republish); 66 runs of operations-serena-staging-uat.yml were created between 2026-09-02 and 2026-09-27 (30 success, 14 failure, 22 cancelled)"
+  },
+  "last_action_by_this_account": {
+   "at": "2026-09-26T20:08:27Z",
+   "event": "VEHICLE_LISTING_PUBLISHED",
+   "route": "/api/vehicles/:vin/publish"
+  },
+  "after_it": {
+   "at": "2026-10-06T23:32:43Z",
+   "event": "VEHICLE_LISTING_UNPUBLISHED",
+   "previous_value": "published",
+   "new_value": "publishable",
+   "actor_type": "system",
+   "actor_role": "system",
+   "source_route": "oc5r-db2b-1/staging-reconciliation-quarantine",
+   "reason": "Staging reconciliation quarantine (OC-5R-DB2B-1, moderator-authorised): listing removed from the public marketplace. Not a seller action. No row deleted.",
+   "rollback": "DB2B_ROLLBACK_01_quarantine (recovery point 2026-10-06T11:31:56Z)",
+   "batch": "88 events / 88 VINs in one transaction at 2026-10-06T23:32:43Z — every published vehicle at the time",
+   "classification": "in DB2B-1's classification (this lane's query) the Serena was one of two 'owner-review' vehicles (with UATP6TXN20260820A): not seed, not synthetic media, not a test fixture"
+  },
+  "since": "no publication event"
+ },
+ "why_publishable_is_not_public": "the Marketplace read path admits publication_status 'published' only (backend utils/vehicleStatus.js PUBLICLY_VISIBLE_PUBLICATION_STATUSES); 'publishable' = the gate passed, not live. POST /api/vehicles/:vin/publish re-runs the completeness gate.",
+ "staging_marketplace_context": "17 rows on staging are 'published'; all are Sold gate fixtures (PC01-J smoke), so the public Marketplace correctly shows 0 listings",
+ "defects": [
+  {
+   "id": "K1",
+   "where": "web /dashboard/sell-vehicle?vin=GFC27-027051",
+   "found": "a browser guest draft outranked the account listing: the first visit copied the listing into guest storage, so every later visit reopened it as 'Your guest preview has been restored' — without the account listing, its identity lock or publication readiness — and left engine, chassis and plate numbers in unscoped browser storage after sign-out",
+   "fixed_in": "2eed5387",
+   "tests": "web/src/pages/dashboard/owner/SellVehicle.accountListingAuthority.test.tsx (4 of 5 fail on the previous code)"
+  },
+  {
+   "id": "K2",
+   "where": "My Listings / My Garage",
+   "found": "'publishable' rendered as a status with no explanation of why buyers could not see the listing",
+   "fixed_in": "4e396f11 (publication_last_change on /api/vehicles/me, from the audit trail) + 2eed5387 (badge and explainer)",
+   "tests": "backend/tests/pc01-jr1-publication-last-change.test.js (real Serena trail rows); web MyListings.publicationExplainer.test.tsx"
+  },
+  {
+   "id": "K3",
+   "where": "GET /api/vehicles/:vin/passport",
+   "found": "measured anonymously on the Checkpoint 1 pair, 2026-10-10: /api/vehicles/passport/lookup/GFC27-027051 → 401 (policy), /api/vehicles/GFC27-027051/passport → 200 with the unpublished vehicle's full passport (claims, evidence timeline, ownership summary, finance block); /details and the listing → 404",
+   "fixed_in": "4e396f11 — the per-key route answers the 2026-08-17 lookup policy first; a frame/chassis/plate/temporary key resolves anonymously only while its vehicle is publicly listed; an ISO VIN stays public; signed-in callers unchanged (R27)",
+   "tests": "backend/tests/pc01-jr1-passport-key-access.test.js; r27-durable-history-survives-commerce.test.js R27-C2"
+  }
+ ],
+ "not_done": [
+  "no publish or unpublish",
+  "no inquiry",
+  "no fixture created, deleted, reset or edited",
+  "no second Serena, no duplicate ownership",
+  "no authority granted",
+  "no database write of any kind"
+ ],
+ "owner_actions_at_checkpoint_2": [
+  "sign in as this account",
+  "open My Listings (the explainer) and the Sell deep link (the account listing)",
+  "decide whether to publish — the DB2B-1 Q4 quarantine classed this listing 'owner-review'; re-publishing is the owner's call and re-runs CarUp's gate",
+  "if published: Marketplace card, public Passport and a buyer inquiry from a real second account"
+ ]
+}

@@ -1,0 +1,147 @@
+name: OC-5R REL-03A Source Certification
+
+on:
+  push:
+    branches:
+      - fix/oc5r-real-runtime-source-closure
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc5r-rel03a-source-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_ENV: test
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # Canonical CI test-only placeholders: static ESM imports reach backend/db/supabase.js
+      # before communication-engine.test.js can assign process.env inside its module body.
+      # These are inert local values, never staging/production credentials.
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+    steps:
+      - name: Checkout exact pushed SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+
+      - name: Assert exact checkout
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: REL-03A correlation, custody and mutation certification
+        run: |
+          node --test \
+            backend/tests/oc5r-rel03-communications-hardening.test.js \
+            backend/tests/oc5r-rel03b-local-custody-safety.test.js \
+            backend/tests/oc5r-rel02-uat-harness-contracts.test.js
+
+      - name: REL-03B-4 current-producer convergence
+        run: |
+          node --test \
+            backend/tests/oc5r-rel03b3-unhandled-event-truth.test.js \
+            backend/tests/oc5r-rel03b4-current-producer-contract.test.js \
+            backend/tests/outbox-dead-letter.test.js \
+            backend/tests/o2-x5-dealer-onboarding.test.js \
+            backend/tests/diaspora-payment-milestone.test.js \
+            backend/tests/diaspora-workflow.test.js
+
+      - name: REL-03B-5 quarantine contract
+        run: |
+          node --test \
+            backend/tests/oc5r-rel03b5-historical-quarantine.test.js \
+            backend/tests/outbox-dead-letter.test.js
+
+      - name: REL-03B-5 quarantine tooling syntax
+        run: |
+          node --check scripts/ci/lib/oc5r-rel03b5-quarantine-contract.mjs
+          node --check scripts/ci/oc5r-rel03b5-quarantine-historical-events.mjs
+          node --check scripts/ci/oc5r-rel03b5-restore-quarantined-events.mjs
+          grep -q "domain_events_quarantined_requires_provenance" database/migrations/20261009110000_oc5r_rel03b5_historical_event_quarantine.sql
+          grep -q "status <> 'quarantined'" database/migrations/20261009110000_oc5r_rel03b5_historical_event_quarantine.sql
+
+      - name: Affected Communications contracts
+        run: |
+          node --test \
+            backend/tests/communication-engine.test.js \
+            backend/tests/communication-event-coverage.test.js
+
+      - name: Trade OS D7 spec compiles and is discoverable
+        run: |
+          npx playwright test \
+            --config=playwright.staging.config.ts \
+            --project=chromium \
+            tests/agents/45-trade-os-container-demo-staging.spec.ts \
+            --list
+
+      - name: REL-03 observation tooling syntax
+        run: |
+          node --check scripts/ci/lib/oc5r-rel03-d7-correlation.mjs
+          node --check scripts/ci/lib/oc5r-rel03-db-readonly.mjs
+          node --check scripts/ci/lib/oc5r-rel03-subscriber-classifier.mjs
+          node --check scripts/ci/lib/oc5r-rel03-worker-custody.mjs
+          node --check scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs
+          node --check scripts/ci/oc5r-rel03-communications-snapshot.mjs
+          node --check scripts/ci/oc5r-rel03-communications-reconcile.mjs
+          node --check scripts/ci/lib/oc5r-rel03b5-quarantine-contract.mjs
+          node --check scripts/ci/oc5r-rel03b5-quarantine-historical-events.mjs
+          node --check scripts/ci/oc5r-rel03b5-restore-quarantined-events.mjs
+
+      - name: No synthetic runtime/auth bypass in REL-03 paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          paths=(
+            tests/agents/45-trade-os-container-demo-staging.spec.ts
+            scripts/ci/lib/oc5r-rel03-d7-correlation.mjs
+            scripts/ci/lib/oc5r-rel03-db-readonly.mjs
+            scripts/ci/lib/oc5r-rel03-subscriber-classifier.mjs
+            scripts/ci/lib/oc5r-rel03-worker-custody.mjs
+            scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs
+            scripts/ci/oc5r-rel03-communications-snapshot.mjs
+            scripts/ci/oc5r-rel03-communications-reconcile.mjs
+          )
+          if git grep -nE 'COMMUNICATION_FAKE_ADAPTERS_ENABLED|ALLOW_[A-Z0-9_]*MOCK|NODE_ENV.{0,20}test.{0,20}(auth|bypass)|mock.*\/internal\/events\/process' -- "${paths[@]}"; then
+            echo '::error::REL-03 path contains a synthetic-runtime or authentication bypass.'
+            exit 1
+          fi
+          echo 'REL-03 synthetic-runtime bypass scan clean.'
+
+      - name: Canonical worker-secret staging contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in             tests/agents/45-trade-os-container-demo-staging.spec.ts             .github/workflows/diaspora-deployed-staging-uat.yml             .github/workflows/diaspora-deployed-staging-shard.yml; do
+            grep -q 'COMMUNICATION_WORKER_SECRET' "$file"
+            if grep -q 'TRADEOS_WORKER_SECRET' "$file"; then
+              echo "::error file=$file::REL-03 certification path still references TRADEOS_WORKER_SECRET"
+              exit 1
+            fi
+          done
+
+      - name: Deployed-staging assertion guard
+        run: node scripts/ci/assert-gate-assertions-intact.mjs
+
+      - name: CR-1 credential scan
+        run: node scripts/cr1-secret-scan.mjs
+
+      - name: Whitespace and conflict-marker check
+        run: git diff --check 3fc022e9ca14ab4ddbd81f6442c9e7e46974c2e4 "$CANDIDATE_SHA"

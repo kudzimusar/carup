@@ -7,7 +7,8 @@ import { resolveWorkerSecret } from '../services/communication/communicationConf
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
 import { buildProviderTelemetry } from '../services/communication/communicationProviderTelemetry.js';
-import { sanitizeProviderError, trimmedEnvValue, MetaWhatsAppAdapter } from '../services/communication/adapters/providerAdapters.js';
+import { sanitizeProviderError, trimmedEnvValue } from '../services/communication/adapters/providerAdapters.js';
+import { OUTBOUND_DISABLED_CODE, OUTBOUND_KILL_SWITCH_ENV, isOutboundDisabled } from '../services/communication/outboundKillSwitch.js';
 import { isProductionDeployment, recentMetaWhatsAppWebhookReceipts } from '../services/communication/communicationWebhookDiagnostics.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
@@ -22,7 +23,16 @@ export function smokeTestBody(channel, correlationToken, message) {
 }
 
 // Channels a provider smoke test may target. Restricted to real external providers.
-const SMOKE_TEST_CHANNELS = new Set(['whatsapp', 'telegram', 'sms', 'email', 'facebook', 'instagram', 'push']);
+//
+// OC-EXPO-02R — push is NOT one of them. This endpoint sends to an arbitrary recipient string, and an
+// Expo token typed into it proves nothing about CarUp's push path: no authenticated registration, no
+// channel identity a person owns, no device. Expo is certified later from a real authenticated device
+// registration on a physical device, so push is refused here by name rather than left to look
+// certifiable.
+const SMOKE_TEST_CHANNELS = new Set(['whatsapp', 'telegram', 'sms', 'email', 'facebook', 'instagram']);
+const SMOKE_TEST_REFUSED_CHANNELS = Object.freeze({
+  push: 'Push is not certified by the generic provider smoke test. Expo delivery is certified from an authenticated device registration on a physical device.',
+});
 
 // The smoke test sends to an arbitrary external recipient, so it is restricted to genuine
 // platform admins — not the broader ADMIN_ROLES (which includes tenant-elevatable roles like
@@ -168,10 +178,24 @@ function requireDiagnosticAdminOrWorkerSecret(req, res, next) {
  */
 export async function sendProviderSmokeTest({ services, channel = 'whatsapp', to, message, actor = {}, clientMessageId = null } = {}) {
   const normalizedChannel = normalizeChannel(channel);
+  if (normalizedChannel && SMOKE_TEST_REFUSED_CHANNELS[normalizedChannel]) {
+    const err = new Error(SMOKE_TEST_REFUSED_CHANNELS[normalizedChannel]);
+    err.statusCode = 400;
+    err.code = 'push_smoke_test_refused';
+    throw err;
+  }
   if (!normalizedChannel || !SMOKE_TEST_CHANNELS.has(normalizedChannel)) {
     const err = new Error(`Unsupported smoke-test channel: ${channel}`);
     err.statusCode = 400;
     err.code = 'unsupported_channel';
+    throw err;
+  }
+  // OC-5R-REL-01: with the outbound kill switch on, refuse before a single row is created — a smoke
+  // test that cannot send must not leave an identity, thread, message or queue row behind.
+  if (isOutboundDisabled()) {
+    const err = new Error(`Refusing smoke test: outbound communications are disabled (${OUTBOUND_KILL_SWITCH_ENV}). Nothing was queued or sent.`);
+    err.statusCode = 503;
+    err.code = OUTBOUND_DISABLED_CODE;
     throw err;
   }
   const recipient = String(to || '').trim();
@@ -280,6 +304,10 @@ export async function sendProviderSmokeTest({ services, channel = 'whatsapp', to
       phone_number: recipient,
       to: recipient,
       address: recipient,
+      // G2: an Email producer must declare its canonical classification, or the renderer refuses it
+      // before any provider call. A provider smoke test is an operational SERVICE message, so it
+      // routes to Resend and can never ride the marketing transport (Brevo).
+      ...(normalizedChannel === 'email' ? { classification: 'service' } : {}),
     },
   });
 
@@ -337,7 +365,11 @@ export async function sendProviderSmokeTest({ services, channel = 'whatsapp', to
   };
 }
 
-function deliveryPayloadForIdentity(identity = {}) {
+export function deliveryPayloadForIdentity(identity = {}) {
+  // OC-EXPO-02R — a push identity's external_id IS the device's Expo token. The queued row keeps a
+  // reference to the identity only; the delivery worker resolves the token from channel_identities
+  // at dispatch, so it never lands in a durable notification_queue payload.
+  if (identity.channel === 'push') return { external_identity_id: identity.id };
   const address = identity.normalized_address || identity.external_id || '';
   const payload = {
     external_identity_id: identity.id,
@@ -354,9 +386,6 @@ function deliveryPayloadForIdentity(identity = {}) {
       break;
     case 'telegram':
       payload.telegram_chat_id = identity.external_id || address;
-      break;
-    case 'push':
-      payload.expo_push_token = identity.external_id || address;
       break;
     default:
       break;
@@ -1106,7 +1135,8 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
         event_type: COMMUNICATION_AUDIT_EVENTS.SMOKE_TEST,
         actor_type: actor.actor_type, actor_id: actor.actor_id,
         channel: req.body?.channel || 'whatsapp',
-        summary: `Provider smoke test → ${result.ok ? 'delivered' : 'failed'}`,
+        // Accepted by the provider is not delivered to the recipient (OC-5R-PROV-01 G6).
+        summary: `Provider smoke test → ${result.ok ? 'accepted by provider' : 'failed'}`,
         correlation_id: result?.delivery?.provider_message_id || null,
         metadata: { ok: Boolean(result.ok), provider: result?.provider || null },
       });
@@ -1124,8 +1154,13 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
 
   // Read-only Meta WhatsApp credential diagnostic (Phase 3). Verifies the configured token can access
   // the configured phone-number ID via a read-only Graph GET (sends NO message). Returns ONLY sanitized
-  // fields — never the token, auth header, or full phone number. An optional one-time POST probe (exact
-  // adapter shape) runs only when the read-only lookup succeeds AND { send_probe: true, to } is passed.
+  // fields — never the token, auth header, or full phone number. An optional one-time send probe runs
+  // only when the read-only lookup succeeds AND { send_probe: true, to } is passed.
+  //
+  // OC-5R-REL-01: that probe used to construct a raw MetaWhatsAppAdapter and send directly — no queue
+  // row, no delivery attempt, no consent or suppression check, no audit, and no kill switch. It now
+  // goes through the governed smoke path (identity → thread → message → queue → delivery worker →
+  // audited SMOKE_TEST event), which honours the outbound kill switch like every other send.
   router.post('/api/admin/communications/test/provider-credential-check', requireAdminOrWorkerSecret, asyncHandler(async (req, res) => {
     const channel = String(req.body?.channel || 'whatsapp').toLowerCase();
     if (channel !== 'whatsapp') return res.status(400).json({ ok: false, error: 'Only the whatsapp credential-check is supported.' });
@@ -1165,25 +1200,50 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       clearTimeout(timer);
     }
 
-    // 2) Optional one-time POST probe via the REAL adapter code path — only if read-only succeeded.
+    // 2) Optional one-time send probe — only if read-only succeeded — through the GOVERNED smoke path.
     let postProbe = null;
     const to = req.body?.to || req.body?.recipient || req.body?.phone_number;
     if (readOnly.phone_number_id_accessible && req.body?.send_probe === true && to) {
-      const adapter = new MetaWhatsAppAdapter({ env: process.env });
-      const sent = await adapter.send({ recipient: { phone_number: String(to) }, content: { body: `CarUp backend diagnostic — ${randomUUID().slice(0, 8)}` } });
-      postProbe = {
-        accepted: Boolean(sent.accepted),
-        provider_message_id: sent.providerMessageId || null,
-        error_code: sent.errorCode || null,
-        error_message: sent.errorMessage || null,
-        provider_http_status: sent.provider_http_status ?? null,
-        provider_error_code: sent.provider_error_code ?? null,
-        provider_error_subcode: sent.provider_error_subcode ?? null,
-        provider_error_type: sent.provider_error_type ?? null,
-        provider_error_message: sent.provider_error_message ?? null,
-        provider_trace_id: sent.provider_trace_id ?? null,
-        to_masked: `••••${String(to).slice(-4)}`,
-      };
+      const toMasked = `••••${String(to).slice(-4)}`;
+      try {
+        const smoke = await sendProviderSmokeTest({
+          services,
+          channel: 'whatsapp',
+          to: String(to),
+          message: `CarUp backend diagnostic — ${randomUUID().slice(0, 8)}`,
+          actor: req.userContext || {},
+        });
+        const actor = auditActorFromContext(req.userContext || {});
+        await logCommunicationAuditEvent(services.repository, {
+          tenant_id: req.userContext?.tenantId ?? null,
+          thread_id: smoke?.thread_id ?? null,
+          message_id: smoke?.message_id ?? null,
+          notification_id: smoke?.notification_id ?? null,
+          event_type: COMMUNICATION_AUDIT_EVENTS.SMOKE_TEST,
+          actor_type: actor.actor_type, actor_id: actor.actor_id,
+          channel: 'whatsapp',
+          summary: `Credential-check send probe → ${smoke.ok ? 'accepted by provider' : 'failed'}`,
+          correlation_id: smoke?.delivery?.provider_message_id || null,
+          metadata: { ok: Boolean(smoke.ok), provider: smoke?.provider || null, source: 'provider-credential-check' },
+        });
+        postProbe = {
+          governed: true,
+          accepted: Boolean(smoke.ok),
+          notification_id: smoke?.notification_id ?? null,
+          provider_message_id: smoke?.delivery?.provider_message_id || null,
+          error_code: smoke?.delivery?.error_code || null,
+          error_message: smoke?.delivery?.error_message || null,
+          provider_http_status: smoke?.delivery?.provider_http_status ?? null,
+          provider_error_code: smoke?.delivery?.provider_error_code ?? null,
+          provider_error_subcode: smoke?.delivery?.provider_error_subcode ?? null,
+          provider_error_type: smoke?.delivery?.provider_error_type ?? null,
+          provider_error_message: smoke?.delivery?.provider_error_message ?? null,
+          provider_trace_id: smoke?.delivery?.provider_trace_id ?? null,
+          to_masked: toMasked,
+        };
+      } catch (error) {
+        postProbe = { governed: true, accepted: false, error_code: error.code || 'smoke_test_failed', error_message: error.message, to_masked: toMasked };
+      }
     }
 
     return res.status(200).json({ ok: readOnly.phone_number_id_accessible, channel, version, present, whitespace, read_only: readOnly, post_probe: postProbe });

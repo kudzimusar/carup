@@ -1,0 +1,1139 @@
+name: O2 OCR Offline Hardening
+
+# This gate is deliberately safe to run on every OCR-lane hardening push.
+# It references no live-provider secret and never invokes the live accuracy workflow.
+on:
+  push:
+    branches:
+      - fix/o2-live-ocr-operationalization
+      - fix/o2-ocr-trade-os-convergence
+      - feat/ocr10-c1-trust-authority-convergence
+      - feat/ocr10-c2-identity-classifier-provider-convergence
+      - feat/ocr10-c3-garage-evidence-consumer-convergence
+      - fix/oc-2a-verification-authority-convergence
+      - fix/oc-3b-truthful-ai-ledger-containment
+      - feat/oc-3c-shared-cloudflare-ai-runtime
+      - feat/oc-3e-wave1-ai-consumer-convergence
+      - feat/oc-3d-ledger-hardening-offline
+      - feat/oc4a-evidence-store-completion
+      - feat/oc4b-ai-wave2-communications
+      - feat/oc4c-native-garage-ocr-convergence
+      - integration/oc4d-domain-lineage-convergence
+      - feat/oc4e-local-product-journeys
+      - integration/one-carup-source-rc1
+      # OC-5: every phase branch, and the RC2 assembly.
+      - 'fix/oc5*'
+      - 'feat/oc5*'
+      - integration/one-carup-source-rc2
+    paths:
+      - '.github/workflows/o2-ocr-hardening-offline.yml'
+      - 'backend/services/ai/aiServiceBus.js'
+      - 'backend/services/diaspora/diasporaDocumentService.js'
+      - 'backend/services/identity/verificationSessionService.js'
+      - 'backend/services/identity/documentClassifier.js'
+      - 'backend/services/document-intelligence/documentIntelligenceService.js'
+      - 'backend/services/trust-service/trustEnforcementEngine.js'
+      - 'backend/services/trustDecision/canonicalTrustService.js'
+      # The RETIRED reviewer OCR router (OC-2A). Kept as a filter so re-adding the file triggers
+      # this gate, whose suites require it to stay deleted.
+      - 'backend/services/document-intelligence/documentIntelligenceRouter.js'
+      # The routers that own the /api/verification prefix after OC-2A, and the real-mount-order
+      # suite that proves no prefix gate/limiter shadows them.
+      - 'backend/routes/trustFactRoutes.js'
+      - 'backend/routes/partsentryReviewRoutes.js'
+      - 'backend/tests/oc2a-verification-route-convergence.test.js'
+      - 'backend/tests/rate-limit-global-capacity.test.js'
+      - 'backend/services/evidence/vehicleDocumentOcrService.js'
+      - 'backend/routes/ocrConvergenceRoutes.js'
+      - 'backend/routes/identityVerificationRoutes.js'
+      - 'backend/tests/o2-ocr-three-problem-hardening.test.js'
+      - 'backend/tests/o2-ocr-path-convergence.test.js'
+      - 'backend/tests/o2-ocr-adversarial-hardening.test.js'
+      - 'backend/tests/o2-ocr-stakeholder-coverage.test.js'
+      - 'backend/tests/o2-live-ocr-operationalization.test.js'
+      - 'backend/tests/o2-cloudflare-ocr-provider.test.js'
+      - 'backend/tests/o2-ocr-accuracy-corpus.test.js'
+      - 'backend/tests/o2-x1-document-intelligence-authority.test.js'
+      # Remediation suites (reviewer OCR attribution + explicit image-quality policy).
+      - 'backend/tests/o2-verification-ocr-attribution.test.js'
+      - 'backend/tests/o2-reviewer-quality-policy.test.js'
+      # Startup OCR diagnostic truth + mock-reachability rule.
+      - 'backend/server.js'
+      - 'backend/tests/o2-ocr-startup-diagnostic.test.js'
+      # Directly-affected authority suites — they pin the retired approveDocumentVerification and
+      # the absent /api/verification mount (OC-2A). A change that touched them must trigger this gate.
+      - 'backend/tests/issue164-phase3-trust-authority.test.js'
+      - 'backend/tests/non-seller-authority-hardening.test.js'
+      # Both of these consume the RETIRED OCR symbols. They are not "OCR lane" files by name, which
+      # is exactly why they were invisible to this path filter while the retirement broke one of
+      # them. A path-filtered gate is only as honest as its list of dependants.
+      - 'backend/tests/diaspora-supabase-integration.test.js'
+      - 'backend/tests/diaspora-ocr-route.test.js'
+      - '.github/workflows/o2-ocr-hardening-offline.yml'
+      - 'backend/scripts/o2-ocr-stage4-staging-uat.mjs'
+      # Stage-4 certification policy (pure predicates) + its behavioral regression.
+      - 'backend/scripts/o2-ocr-stage4-policy.mjs'
+      - 'backend/tests/o2-ocr-stage4-policy.test.js'
+      - 'backend/tests/o2-ocr-c2-identity-provider-convergence.test.js'
+      - 'backend/tests/identity-document-classifier.test.js'
+      # OCR 1.0-C3 Garage evidence consumer convergence.
+      - 'backend/services/garageOnboarding/garageApplicationService.js'
+      - 'backend/services/garageOnboarding/garageEvidenceService.js'
+      - 'backend/routes/garageOnboardingRoutes.js'
+      - 'backend/tests/o2-ocr-c3-garage-consumer.test.js'
+      - 'database/migrations/20260918090000_ocr_c3_garage_applications.sql'
+      - 'database/migrations/20260918100000_ocr_c3_garage_application_evidence.sql'
+      - 'database/migrations/20260918110000_ocr_c3_garage_onboarding_rls.sql'
+      - 'database/migrations/20261003100000_ocr_c3_garage_evidence_lineage_reconciliation.sql'
+      - 'database/test/ocr_c3_garage_evidence_check.mjs'
+      - 'backend/tests/o2-ocr-c3-garage-security.test.js'
+      # Guards the OCR lineage itself re-pinned (A/B moved the structured write; C1 retired the DI
+      # vehicle-trust writer). They live outside the OCR files by name, so they must be listed here.
+      - 'backend/tests/trade-os-t12-registry-authority.test.js'
+      - 'backend/tests/v16-authority-hardening.test.js'
+      - 'web/src/config/featureRegistry.ts'
+      - 'web/src/pages/dashboard/garage/garageSetupRoute.test.tsx'
+      - 'web/src/lib/garageOnboarding.ts'
+      - 'web/src/pages/dashboard/garage/GarageEvidence.tsx'
+      - 'web/src/pages/dashboard/garage/GarageSetup.tsx'
+      - 'web/src/pages/dashboard/garage/garageEvidence.test.tsx'
+      - 'web/src/pages/dashboard/garage/garageSetupC3.test.tsx'
+      - 'web/src/hooks/useCarUpApi.ts'
+      - 'web/src/App.tsx'
+      # Seller OCR capability-truth UI + its vitest suite (exact-head CI, not local-only).
+      - 'web/src/components/sell/SellerDocumentAutofillNotice.tsx'
+      - 'web/src/components/sell/SellerDocumentAutofillNotice.test.tsx'
+      # The owner-surface availability test asserts the same badge. It was left on the legacy
+      # ocrProviders map when A/B made health.ocr the authority, and no gate ran it — now one does.
+      - 'web/src/pages/dashboard/owner/ownerSurfaces.truthStates.test.tsx'
+      - 'shared/navigation/feature-manifest.json'
+      - 'web/vite.config.ts'
+      - 'web/package.json'
+      # OC-3B truthful AI + ledger containment: the AI modules, the surfaces that republish or gate
+      # them, and the suites that pin the contract.
+      - 'backend/services/ai/**'
+      - 'backend/services/marketplace/marketplaceAiAssistantService.js'
+      - 'backend/services/evidence/evidenceService.js'
+      - 'backend/services/blockchain/ledgerIntegrityProjection.js'
+      - 'backend/services/blockchain/blockchainService.js'
+      - 'backend/middleware/vehicleObjectAuthority.js'
+      - 'backend/routes/vehiclesRoutes.js'
+      - 'backend/utils/publicVehicleProjection.js'
+      - 'backend/services/communication/communicationAiProviderFactory.js'
+      - 'backend/services/communication/communicationAiRuntimeService.js'
+      - 'backend/services/communication/communicationAiService.js'
+      - 'backend/tests/oc3b-ledger-integrity-containment.test.js'
+      - 'backend/tests/oc3b-truthful-ai-simulation.test.js'
+      - 'backend/tests/oc3b-ai-provider-failure-contract.test.js'
+      - 'backend/tests/oc3b-ai-authority-invariants.test.js'
+      - 'backend/tests/evidence-ai-fraud.test.js'
+      - 'backend/tests/d0-evidence-private-data-exposure.test.js'
+      - 'backend/tests/ocr-mock-guard.test.js'
+      # OC-3B-R: the ONE test-fixture guard every simulated-AI / OCR fixture path shares, its suite,
+      # and the mock-analysis consumer suite that ci.yml alone (main only) used to run.
+      - 'backend/config/testFixtureGuard.js'
+      - 'backend/tests/oc3b-r-simulation-steering-guard.test.js'
+      - 'backend/tests/ai-temporal-disclosure.test.js'
+      # OC-3C: the ONE Workers AI transport, the general gateway policy converged from PR #217, the
+      # OCR policy's env template, and the suites that pin both policies to the transport.
+      - 'backend/env.example'
+      - 'backend/tests/oc3c-cloudflare-ai-transport.test.js'
+      - 'backend/tests/ai01b-carup-ai-gateway.test.js'
+      # OC-3E wave 1: fraud, risk and the Marketplace assistant on the gateway; the public AI routes'
+      # paid-inference guard; the limiter's deployment-refused bypass; the buyer assistant's notice.
+      - 'backend/routes/marketplaceRoutes.js'
+      - 'backend/routes/marketplaceAdminRoutes.js'
+      - 'backend/middleware/securityMiddleware.js'
+      - 'backend/tests/oc3e-w1-ai-consumer-convergence.test.js'
+      - 'web/src/components/marketplace/BuyerAssistantDrawer.tsx'
+      - 'web/src/components/marketplace/BuyerAssistantDrawer.test.tsx'
+      - 'docs/ai/CARUP_AI_CONSUMER_MATRIX.md'
+      # OC-3D hash-chained audit ledger + evidence provenance: the services, the canonical
+      # serialization, the migration CANDIDATES (never applied by any workflow), the real migration
+      # chain the PGlite harness applies, and the suites that pin all of it.
+      - 'backend/services/blockchain/**'
+      - 'backend/services/evidence/provenanceService.js'
+      - 'backend/services/diaspora/diasporaOwnershipHandoffService.js'
+      - 'database/migration-candidates/**'
+      - 'database/migrations/supabase_schema.sql'
+      - 'database/migrations/014_passport_evidence_architecture.sql'
+      - 'database/migrations/015_vehicle_evidence_timeline.sql'
+      - 'database/migrations/20260621120000_vehicle_life_evidence_taxonomy_provenance.sql'
+      - 'database/migrations/20260809100000_trust_side_tables.sql'
+      - 'database/migrations/20260810120000_trust_side_convergence.sql'
+      - 'database/migrations/20260814080000_issue101_staging_parity.sql'
+      - 'database/migrations/20260828210000_issue158_private_key_custody.sql'
+      - 'database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'
+      - 'database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'
+      - 'database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'
+      - 'database/migrations/20260830060000_issue158_terminal_operation_identity.sql'
+      - 'backend/tests/helpers/pgliteLedgerHarness.js'
+      - 'backend/tests/oc3d-*.test.js'
+      - 'backend/tests/issue-158-private-key-custody.test.js'
+      - 'docs/ledger/**'
+      # OC-3 programme authority guards (AI cannot exercise an authority; the ledger records only).
+      - 'backend/tests/oc3-programme-authority.test.js'
+      - 'docs/one-carup/OC3_REMAINING_DEBT_INVENTORY.md'
+      - 'backend/services/identity/decisionRecorder.js'
+      - 'backend/services/trustDecision/canonicalTrustService.js'
+      - 'backend/services/trustGraph/trustGraphService.js'
+      - 'backend/services/marketplace/marketplaceModerationService.js'
+      - 'backend/services/finance/lenderWorkflow.js'
+      - 'backend/services/insurance/insurerWorkflow.js'
+      - 'backend/services/diaspora/safetrade/diasporaSafeTradeAvailableActions.js'
+      - 'backend/routes/evidenceCatalogRoutes.js'
+      - 'web/src/pages/dashboard/owner/PartSentry.tsx'
+      - 'web/src/pages/dashboard/owner/PartSentry.test.tsx'
+      - 'web/src/types/index.ts'
+      # OC-4A evidence-store completion: the history-protection and ai_fraud_scans CANDIDATES (under
+      # database/migration-candidates/**, never applied), provenance object authority, truthful audit
+      # writes, and migration hygiene — which scans the WHOLE migrations directory for SQLite-only SQL,
+      # so any migration change must run it. The root manifests pin PGlite.
+      - 'database/migrations/**'
+      - 'database/scripts/apply_migrations_staging.mjs'
+      - 'database/scripts/apply_migrations_production.mjs'
+      - 'backend/db/migrationParser.js'
+      - 'backend/db/migrate.js'
+      - 'backend/middleware/evidenceObjectAuthority.js'
+      - 'backend/services/auditLogger.js'
+      - 'backend/services/diaspora/diasporaServiceUtils.js'
+      - 'backend/services/diaspora/workbook/diasporaWorkbookDbExportService.js'
+      - 'backend/services/evidence/evidenceClassificationCorrectionService.js'
+      - 'backend/services/ingestion/ingestionService.js'
+      - 'backend/services/partsentry/partsentryService.js'
+      - 'backend/services/trustGovernance/partsentryReviewService.js'
+      - 'backend/services/auth/sessionRow.js'
+      - 'backend/tests/oc4a-*.test.js'
+      - 'backend/tests/audit-logger.test.js'
+      - 'backend/tests/verification-decision-policy.test.js'
+      - 'backend/tests/diaspora-workbook-db-export.test.js'
+      - 'backend/tests/evidence-catalog-routes.test.js'
+      - 'backend/tests/migration-integrity.test.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'docs/one-carup/OC4A_EVIDENCE_STORE_COMPLETION.md'
+      # OC-4B AI wave 2: Communications general text on the gateway (media MULTIMODAL DEFERRED), the
+      # retired Gemini comms provider and GeminiClient text path, the strict-OCR startup guard, and
+      # health truth (no vendor key-presence flags).
+      - 'backend/services/communication/communicationAiAssistProvider.js'
+      - 'backend/services/communication/communicationGroqProvider.js'
+      - 'backend/config/ocrStartupGuard.js'
+      - 'backend/services/metrics.js'
+      - '.env.example'
+      - 'backend/tests/oc4b-*.test.js'
+      - 'backend/tests/communications-2-ai-provider-neutrality.test.js'
+      - 'backend/tests/communications-2-product-capabilities.test.js'
+      - 'docs/one-carup/OC4B_AI_WAVE2_COMMUNICATIONS.md'
+      # OC-4C native Garage OCR convergence: the odometer schema, the vehicle-evidence OCR contract, the
+      # retired /api/ai/ocr, the native capture/queue/upload path and the contract both sides pin.
+      - 'backend/services/document-intelligence/documentSchemas.js'
+      - 'backend/services/evidence/uploadIdempotency.js'
+      - 'backend/tests/oc4c-*.test.js'
+      - 'shared/contracts/**'
+      - 'mobile/app/(tabs)/garage.tsx'
+      - 'mobile/utils/odometerCapture.ts'
+      - 'mobile/utils/uploadQueueDrain.ts'
+      - 'mobile/store/uploadQueueStore.ts'
+      - 'mobile/tests/garage-odometer-ocr.test.ts'
+      - 'mobile/tests/upload-queue-*.test.ts'
+      - 'mobile/package.json'
+      - 'docs/one-carup/OC4C_NATIVE_GARAGE_OCR.md'
+      # OC-4D domain lineage convergence: #208 People & Compliance (P2–P6) and governed Dealer
+      # authority (+ the two RC-only surfaces it found), #209 GMO-1 regression tests, #208 U1, and
+      # the earlier OC-4D absorptions (#218 release-only deployments, #211 Scenario Lab, #213 C/E).
+      - 'backend/services/dealer/**'
+      - 'backend/services/operations/**'
+      - 'backend/services/identity/caseWorkflow.js'
+      - 'backend/services/seller/sellerAuthorityService.js'
+      - 'backend/services/passport/passportOwnershipTransferService.js'
+      - 'backend/services/marketplace/marketplaceListingEligibility.js'
+      - 'backend/services/marketplace/marketplaceInquiryService.js'
+      - 'backend/services/storage/mediaRouter.js'
+      - 'backend/services/communication/communicationEventListeners.js'
+      - 'backend/services/communication/communicationNotificationService.js'
+      - 'backend/services/communication/communicationTemplateService.js'
+      - 'backend/routes/peopleOperationsRoutes.js'
+      - 'backend/routes/leadsRoutes.js'
+      - 'backend/routes/diasporaWorkbookRoutes.js'
+      - 'backend/services/diaspora/diasporaTradeScenarioService.js'
+      - 'backend/services/diaspora/diasporaWorkbookPersistenceService.js'
+      - 'backend/services/diaspora/diasporaWorkbookValidationService.js'
+      - 'backend/constants/diaspora/**'
+      - 'backend/fixtures/trade-os/**'
+      - 'backend/tests/o2-people-*.test.js'
+      - 'backend/tests/o2-responsibility-projection.test.js'
+      - 'backend/tests/oc4d-*.test.js'
+      - 'backend/tests/gmo-1-garage-application.test.js'
+      - 'backend/tests/communication-event-coverage.test.js'
+      - 'backend/tests/vehicle-create-eligibility.test.js'
+      - 'backend/tests/db-compat-legacy-scopes.test.js'
+      - 'backend/tests/issue164-d0-evidence-route-authorization.test.js'
+      - 'backend/tests/operations-seller-authority.test.js'
+      - 'backend/tests/issue164-phase4-seller-location.test.js'
+      - 'backend/tests/marketplace-v1-spine.test.js'
+      - 'backend/tests/diaspora-trade-scenarios.test.js'
+      - 'vercel.json'
+      - 'web/vercel.json'
+      - 'backend/vercel.json'
+      - 'web/src/lib/routeAccess.ts'
+      - 'web/src/lib/routeAccess*.test.ts'
+      - 'web/src/pages/dashboard/admin/PeopleComplianceReview*.tsx'
+      - 'web/src/pages/dashboard/admin/UserManagement.tsx'
+      - 'web/src/pages/dashboard/owner/Communications.tsx'
+      - 'web/src/pages/Landing.tsx'
+      - 'docs/one-carup/OC4D_DOMAIN_LINEAGE_CONVERGENCE.md'
+      # OC-4E local product-journey proof: the shipped app over an in-memory world, and the browser
+      # spec on a strict localhost port.
+      - 'backend/tests/oc4e-product-journeys.test.js'
+      - 'backend/tests/helpers/inMemorySupabaseWorld.js'
+      - 'playwright.oc4e-local.config.ts'
+      - 'tests/agents/50-oc4e-converged-journeys.spec.ts'
+      - 'backend/services/partsentry/partsentryService.js'
+      - 'web/src/components/marketplace/BuyerAssistantDrawer.tsx'
+      - 'docs/one-carup/OC4E_LOCAL_PRODUCT_JOURNEYS.md'
+      # OC-5 Phase 0: the evidence certification ladder, its guard and its manifest.
+      - 'scripts/ci/evidence-certification-guard.mjs'
+      - 'backend/tests/oc5-*.test.js'
+      # OC-5A: the three RC1 source P1s — tenant-role catalogue, PartSentry service authority, and the
+      # one-commit PartSentry record with its durable ledger intent.
+      - 'backend/tests/oc5a-*.test.js'
+      - 'backend/tests/helpers/oc5aPartSentryWorld.js'
+      - 'backend/tests/helpers/pgliteLedgerHarness.js'
+      - 'backend/middleware/authMiddleware.js'
+      - 'backend/middleware/vehicleObjectAuthority.js'
+      - 'backend/middleware/securityMiddleware.js'
+      - 'backend/services/auth/tenantRoleCatalogue.js'
+      - 'backend/services/partsentry/**'
+      - 'backend/services/blockchain/ledgerIntentService.js'
+      - 'backend/routes/workOrdersRoutes.js'
+      - 'backend/routes/ledgerIntentRoutes.js'
+      - 'backend/server.js'
+      - 'database/migrations/2026100416*.sql'
+      - 'web/src/lib/partsentry*.ts'
+      - 'web/src/components/owner/WorkOrderRequests*.tsx'
+      - 'web/src/pages/dashboard/owner/PartSentry*.tsx'
+      - 'web/src/pages/dashboard/mechanic/ServiceLogs*.tsx'
+      # OC-5B: evidence-image analysis — one selector, the simulator a test fixture only.
+      - 'backend/tests/oc5b-*.test.js'
+      - 'backend/services/ai/evidenceVisionProvider.js'
+      - 'backend/services/ai/aiVisionProvider.js'
+      - 'backend/services/ai/analysisProvider.js'
+      - 'backend/services/evidence/evidenceService.js'
+      - 'web/src/pages/dashboard/admin/EvidenceReview*.tsx'
+      # OC-5C: #208 People/Identity completion — X3 lifecycle + step-up (core, web, gates).
+      - 'backend/tests/o2-x3-*.test.js'
+      - 'backend/tests/o2-owner-uat-closure.test.js'
+      - 'backend/tests/oc5c-*.test.js'
+      - 'backend/middleware/stepUpMiddleware.js'
+      - 'backend/services/auth/**'
+      - 'backend/services/identity/**'
+      - 'backend/services/operations/**'
+      - 'backend/routes/authSecurityRoutes.js'
+      - 'backend/routes/identityLifecycleAdminRoutes.js'
+      - 'backend/routes/identityVerificationAdminRoutes.js'
+      - 'backend/routes/dealerRoutes.js'
+      - 'backend/routes/passportOwnershipTransferRoutes.js'
+      - 'backend/routes/vehiclesRoutes.js'
+      - 'database/migrations/2026100417*.sql'
+      - 'web/src/components/security/**'
+      - 'web/src/hooks/useStepUpGuard*.tsx'
+      - 'web/src/lib/apiClient*.ts'
+      - 'web/src/lib/stepUpFailure.ts'
+      - 'web/src/pages/dashboard/admin/**'
+      # OC-4F source RC1: the residual-scan guards (committed credentials; retired routes in the web
+      # client), the residual scan and the open-PR disposition, and every doc the RC carries.
+      - 'backend/tests/oc4f-*.test.js'
+      - 'backend/scripts/one-carup-provider-smoke.mjs'
+      - 'web/src/lib/retiredRoutes.test.ts'
+      - 'docs/one-carup/**'
+      - '**/*.md'
+      # OC-5D P7: the registry is read by every web surface, so any web or shared change re-runs the
+      # full web suite (job oc5d-web-surfaces), and the manifest generator is part of that gate.
+      - 'web/src/**'
+      - 'shared/**'
+      - 'scripts/generate-feature-manifest.mjs'
+      # OC-5E: garage onboarding completion (#209 GMO-3..7) — the reviewer, activation, invitations,
+      # membership; their migrations, PGlite world and suites.
+      - 'backend/services/garageOnboarding/**'
+      - 'backend/routes/garage*.js'
+      - 'backend/services/operations/operationsAuthorizationService.js'
+      - 'backend/tests/oc5e-*.test.js'
+      - 'backend/tests/helpers/gmoGarageWorld.js'
+      - 'database/migrations/2026100419*'
+      # OC-5F: seller intelligence (#213 A/B) — rollups, projections, KPI catalogue, the compare
+      # funnel migration. No OC-5 step ran an intelligence suite before this.
+      - 'backend/services/intelligence/**'
+      - 'backend/routes/intelligence*.js'
+      - 'backend/tests/intelligence-*.test.js'
+      - 'backend/tests/oc5f-*.test.js'
+      - 'database/migrations/2026100420*'
+      # OC-5F slice F: spec 48, its own config and gate, and the contracts its isolation rests on.
+      - 'tests/agents/48-seller-home-comms-lifecycle-staging.spec.ts'
+      - 'playwright.staging.config.ts'
+      - 'playwright.staging.seller-home.config.ts'
+      - '.github/workflows/seller-home-lifecycle-staging-uat.yml'
+      - 'scripts/ci/golden-seller-identity.mjs'
+      - 'backend/services/marketplace/listingSummaryService.js'
+      - 'backend/services/marketplace/marketplaceClassificationRules.js'
+      # OC-5G: notifications — the live path's channel cap, the six policy templates, the coverage gate.
+      - 'backend/services/communication/**'
+      - 'backend/tests/oc5g-*.test.js'
+      - 'backend/tests/communication-event-coverage.test.js'
+      - 'database/migrations/2026100421*'
+      # OC-5H: the RC2 product journeys, and the in-memory world they (and OC-4E) run on.
+      - 'backend/tests/oc5h-*.test.js'
+      - 'backend/tests/helpers/inMemorySupabaseWorld.js'
+      - 'backend/tests/helpers/gmoGarageWorld.js'
+      # OC-5J: RC2 residuals — issue-158 now writes its mutant copies outside the repository.
+      - 'backend/tests/issue-158-terminal-operation-identity.test.js'
+      - 'backend/tests/oc5j-*.test.js'
+      - 'backend/services/passport/passportOwnershipTransferService.js'
+  # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
+  # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
+  # it stays within this gate's credential-free contract. Push runs remain purely offline.
+  workflow_dispatch:
+    inputs:
+      deployed_expected_sha:
+        description: 'If set on manual dispatch, also probe the exact-head deployed preview for this SHA (provenance + route gating). Leave blank to skip.'
+        required: false
+        default: ''
+      stage4_authenticated:
+        description: 'Set true to run the AUTHENTICATED deployed Stage-4 product journeys (Person Identity, Diaspora, Owner/Seller Vehicle) against the exact-head preview. Consumes bounded Cloudflare/Qwen provider calls. Requires deployed_expected_sha. Manual dispatch only.'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: o2-ocr-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-ocr-regression:
+    name: Offline OCR regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'false'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          # v16-authority-hardening diffs two historical Seller-lane commits by SHA, exactly as it
+          # does under ci.yml (fetch-depth: 0). A shallow checkout fails it with "bad object".
+          fetch-depth: 0
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # backend/package.json currently contains dependencies added after backend/package-lock.json.
+      # Do not rewrite that unrelated lockfile from this OCR lane; install the declared package graph
+      # without scripts or lockfile mutation so these zero-network-provider unit guards can execute.
+      - name: Install backend dependencies for offline tests
+        run: npm install --prefix backend --ignore-scripts --no-save --package-lock=false --no-audit --no-fund
+
+      - name: Run OCR convergence and authority regression suites
+        run: |
+          node --test \
+            backend/tests/o2-ocr-three-problem-hardening.test.js \
+            backend/tests/o2-ocr-path-convergence.test.js \
+            backend/tests/o2-ocr-adversarial-hardening.test.js \
+            backend/tests/o2-ocr-stakeholder-coverage.test.js \
+            backend/tests/o2-live-ocr-operationalization.test.js \
+            backend/tests/o2-cloudflare-ocr-provider.test.js \
+            backend/tests/o2-ocr-accuracy-corpus.test.js \
+            backend/tests/o2-x1-document-intelligence-authority.test.js \
+            backend/tests/o2-verification-ocr-attribution.test.js \
+            backend/tests/o2-reviewer-quality-policy.test.js \
+            backend/tests/o2-ocr-startup-diagnostic.test.js \
+            backend/tests/o2-ocr-stage4-policy.test.js \
+            backend/tests/o2-ocr-c2-identity-provider-convergence.test.js \
+            backend/tests/identity-document-classifier.test.js \
+            backend/tests/o2-ocr-c3-garage-consumer.test.js \
+            backend/tests/o2-ocr-c3-garage-security.test.js \
+            backend/tests/trade-os-t12-registry-authority.test.js \
+            backend/tests/v16-authority-hardening.test.js \
+            backend/tests/issue164-phase3-trust-authority.test.js \
+            backend/tests/non-seller-authority-hardening.test.js \
+            backend/tests/diaspora-supabase-integration.test.js \
+            backend/tests/diaspora-ocr-route.test.js \
+            backend/tests/oc2a-verification-route-convergence.test.js \
+            backend/tests/rate-limit-global-capacity.test.js \
+            backend/tests/oc3b-ledger-integrity-containment.test.js \
+            backend/tests/oc3b-truthful-ai-simulation.test.js \
+            backend/tests/oc3b-ai-provider-failure-contract.test.js \
+            backend/tests/oc3b-ai-authority-invariants.test.js \
+            backend/tests/evidence-ai-fraud.test.js \
+            backend/tests/d0-evidence-private-data-exposure.test.js \
+            backend/tests/ocr-mock-guard.test.js \
+            backend/tests/oc3b-r-simulation-steering-guard.test.js \
+            backend/tests/ai-temporal-disclosure.test.js \
+            backend/tests/oc3c-cloudflare-ai-transport.test.js \
+            backend/tests/ai01b-carup-ai-gateway.test.js \
+            backend/tests/oc3e-w1-ai-consumer-convergence.test.js \
+            backend/tests/issue-158-private-key-custody.test.js \
+            backend/tests/oc3-programme-authority.test.js \
+            backend/tests/audit-logger.test.js \
+            backend/tests/verification-decision-policy.test.js \
+            backend/tests/diaspora-workbook-db-export.test.js \
+            backend/tests/evidence-catalog-routes.test.js \
+            backend/tests/migration-integrity.test.js \
+            backend/tests/oc4b-communications-ai-convergence.test.js \
+            backend/tests/communications-2-ai-provider-neutrality.test.js \
+            backend/tests/communications-2-product-capabilities.test.js \
+            backend/tests/oc4c-native-odometer-ocr.test.js
+
+  # ── Seller OCR capability-truth UI gate (exact-head, targeted) ──────────────
+  # Runs the bounded Seller autofill capability vitest suite so "OCR provider available" truth is
+  # GitHub-Actions evidence on the same candidate lineage, not a local-only pass. Credential-free,
+  # no provider call. Only the one suite runs — not the full browser QA suite.
+  seller-ui-capability:
+    name: Seller OCR capability UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Run Seller OCR capability suite (bounded)
+        run: npm run test:unit --workspace=web -- src/components/sell/SellerDocumentAutofillNotice.test.tsx src/pages/dashboard/owner/ownerSurfaces.truthStates.test.tsx
+
+  # ── OC-3B PartSentry ledger-integrity UI (exact-head, targeted) ──────────────
+  # The owner page consumes the verify-ledger safe projection; an EMPTY ledger must show no badge.
+  oc3b-ledger-ui:
+    name: OC-3B PartSentry ledger UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Run PartSentry ledger suite (bounded)
+        run: npm run test:unit --workspace=web -- src/pages/dashboard/owner/PartSentry.test.tsx
+
+  # ── OC-3D hash-chained audit ledger on real PostgreSQL (exact-head) ─────────
+  # The tamper reproductions, canonical hashing, the append-only/retention migration CANDIDATES
+  # (applied only to a disposable in-process database), evidence-provenance round trips and the single
+  # write boundary — against the repository's own migration SQL in PGlite. PGlite is a root workspace
+  # dependency (prisma → @prisma/dev), so this job installs the workspace. No network database, no
+  # credential, nothing deployed or applied anywhere.
+  oc3d-ledger-pglite:
+    name: OC-3D ledger hardening (PGlite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      JWT_SECRET: test-jwt-secret
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Run OC-3D ledger suites (real migration SQL in PGlite)
+        run: |
+          node --test \
+            backend/tests/oc3d-ledger-tamper-reproductions.test.js \
+            backend/tests/oc3d-ledger-canonical-hashing.test.js \
+            backend/tests/oc3d-ledger-append-only-candidates.test.js \
+            backend/tests/oc3d-evidence-provenance-canonical.test.js \
+            backend/tests/oc3d-ledger-write-boundary.test.js
+
+  # ── OC-4A evidence-store completion on real PostgreSQL (exact-head) ─────────
+  # The partsentry_logs / ocr_documents / financial_ledger history-protection CANDIDATE and the
+  # ai_fraud_scans truthfulness CANDIDATE (applied only to disposable in-process databases), provenance
+  # object authority through the shipped app with real session rows, failure-injected audit writes, and
+  # migration hygiene (SQLite-era files refused for PostgreSQL; PGlite declared). Real migration SQL in
+  # PGlite; no network database, no credential, nothing deployed or applied anywhere.
+  oc4a-evidence-store-pglite:
+    name: OC-4A evidence store (PGlite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'false'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Run OC-4A evidence-store suites (real migration SQL in PGlite)
+        run: |
+          node --test \
+            backend/tests/oc4a-evidence-history-protection.test.js \
+            backend/tests/oc4a-provenance-object-authority.test.js \
+            backend/tests/oc4a-truthful-audit-writes.test.js \
+            backend/tests/oc4a-ai-fraud-scans-candidate.test.js \
+            backend/tests/oc4a-migration-hygiene.test.js
+
+  # ── OC-4D domain lineage convergence (exact-head, targeted) ──────────────
+  # #208 People & Compliance: the who-must-act projections, the person review read model (fail-closed
+  # sections), the identity self-review guard, the dealer decision event (privacy-corrected) and its
+  # governed template. #208 Dealer authority: membership is not a dealership — candidate and resolver
+  # matrices on real PGlite rows, the real middleware, the surface register, and the BEHAVIOURAL
+  # matrix through the real routes. Plus the tests the port inverted, #209 GMO-1, #211 Scenario Lab
+  # and #218 release-only deployments; and the web halves (People & Compliance, U1 routing).
+  oc4d-domain-convergence:
+    name: OC-4D domain convergence
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'true'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: People & Compliance, Dealer authority and absorbed-PR suites
+        run: |
+          node --test \
+            backend/tests/o2-responsibility-projection.test.js \
+            backend/tests/o2-people-compliance-review.test.js \
+            backend/tests/o2-people-adversarial.test.js \
+            backend/tests/o2-people-review-fail-closed.test.js \
+            backend/tests/oc4d-dealer-decision-event-privacy.test.js \
+            backend/tests/communication-event-coverage.test.js \
+            backend/tests/oc4d-dealer-seller-authority.test.js \
+            backend/tests/vehicle-create-eligibility.test.js \
+            backend/tests/d0-evidence-private-data-exposure.test.js \
+            backend/tests/db-compat-legacy-scopes.test.js \
+            backend/tests/issue164-d0-evidence-route-authorization.test.js \
+            backend/tests/operations-seller-authority.test.js \
+            backend/tests/issue164-phase4-seller-location.test.js \
+            backend/tests/marketplace-v1-spine.test.js \
+            backend/tests/o2-ocr-adversarial-hardening.test.js \
+            backend/tests/gmo-1-garage-application.test.js \
+            backend/tests/diaspora-trade-scenarios.test.js \
+            backend/tests/oc4d-release-only-deployments.test.js \
+            backend/tests/migration-integrity.test.js
+      - name: Web halves (People & Compliance, U1 routing, owner surfaces)
+        run: npm run test:unit --workspace=web -- src/pages/dashboard/admin/PeopleComplianceReview src/lib/routeAccess src/pages/dashboard/owner src/config
+
+  # ── OC-4E local product journeys (exact-head, targeted) ───────────────────
+  # Eleven journeys through the SHIPPED app (real routes, real session auth, real services) over an
+  # in-memory world, with Cloudflare intercepted at fetch (Qwen OCR / Gemma advisory) — then the
+  # browser proof on a strict localhost port with the API mocked at the boundary (real CSRF flow).
+  # No live provider, no deployed backend, no database.
+  oc4e-local-product-journeys:
+    name: OC-4E local product journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'false'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Backend journeys through the shipped app
+        run: node --test backend/tests/oc4e-product-journeys.test.js
+      - name: Install Chromium for the localhost browser proof
+        run: npx playwright install --with-deps chromium
+      - name: Browser journeys on localhost (strict port, this tree's dev server)
+        env:
+          NODE_ENV: development
+        run: npx playwright test -c playwright.oc4e-local.config.ts --reporter=line
+
+  # ── OC-5 evidence certification ladder (exact-head) ───────────────────────
+  # No mocked/intercepted provider may be presented as live-provider, deployed or owner evidence;
+  # no localhost run as a deployment; no ladder PASS without a receipt of that exact level. Full
+  # history so every receipt's SHA is proven an ancestor of this head.
+  oc5-evidence-certification:
+    name: OC-5 evidence certification ladder
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NODE_ENV: test
+    steps:
+      - name: Checkout exact candidate (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Guard rejects every impossible promotion (positive and negative cases)
+        run: node --test backend/tests/oc5-evidence-certification-guard.test.js
+      - name: The programme's certification manifest
+        run: node scripts/ci/evidence-certification-guard.mjs
+
+  # ── OC-5A RC1 source P1 closure (exact-head) ──────────────────────────────
+  # P1-B: a tenant row is never platform authority (catalogue, cross-product, HTTP, PGlite migration).
+  # P1-A: PartSentry service authority through the shipped app on PGlite with the REAL ledger writer.
+  # P1-C: one commit boundary + durable ledger intent (ledger unavailable, retry, crash, concurrency).
+  # Plus every pre-existing suite whose premise OC-5A moved, and the web surfaces that show it.
+  oc5a-p1-closure:
+    name: OC-5 source closure (5A P1s, 5B simulator, 5C people/identity, 5D service network)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'true'
+    steps:
+      - name: Checkout exact candidate (full history — v16's trust-writer guard diffs historical commits)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: P1-B tenant-role catalogue · P1-A service authority · P1-C atomic record + ledger intent
+        run: node --test backend/tests/oc5a-*.test.js
+      - name: Suites whose premise OC-5A moved (re-pinned, never loosened)
+        run: >-
+          node --test
+          backend/tests/oc4a-provenance-object-authority.test.js
+          backend/tests/oc4a-evidence-history-protection.test.js
+          backend/tests/oc4d-dealer-seller-authority.test.js
+          backend/tests/oc4e-product-journeys.test.js
+          backend/tests/partsentry-write-truth.test.js
+          backend/tests/public-truth-hardening.test.js
+          backend/tests/v16-authority-hardening.test.js
+          backend/tests/issue-158-terminal-operation-identity.test.js
+          backend/tests/issue164-phase1-read-contract.test.js
+          backend/tests/diaspora-workflow.test.js
+          backend/tests/auth-middleware.test.js
+      - name: Web — the PartSentry contract, the custodian panel, owner and mechanic pages
+        run: >-
+          npm run test:unit --workspace=web --
+          src/lib/partsentry.test.ts
+          src/components/owner/WorkOrderRequests.test.tsx
+          src/pages/dashboard/owner/PartSentry.test.tsx
+          src/pages/dashboard/mechanic/ServiceLogs.test.tsx
+      - name: OC-5C — X3 identity lifecycle (PGlite) + authentication assurance, gates and the step-up UI
+        run: |
+          node --test backend/tests/o2-x3-*.test.js backend/tests/oc5c-*.test.js backend/tests/o2-owner-uat-closure.test.js backend/tests/dealer-routes.test.js backend/tests/verification-admin-review.test.js backend/tests/oc4e-product-journeys.test.js
+          npm run test:unit --workspace=web -- src/hooks/useStepUpGuard.test.tsx src/lib/apiClient.stepUpCode.test.ts src/components/security/StepUpDialog.test.tsx src/pages/dashboard/admin/PeopleComplianceReview.postready.test.tsx src/pages/dashboard/admin/PeopleComplianceReview.test.tsx
+      - name: OC-5C — X6 identity_assurance.v1 and the semantic People events (emit-only, registered, subject-safe)
+        run: >-
+          node --test
+          backend/tests/o2-x6-*.test.js
+          backend/tests/oc4d-dealer-decision-event-privacy.test.js
+          backend/tests/o2-people-review-fail-closed.test.js
+          backend/tests/o2-people-compliance-review.test.js
+          backend/tests/communication-event-coverage.test.js
+      - name: OC-5C — the applicant's own verification session never carries the reviewer's internal note (backend + mobile)
+        run: |
+          node --test backend/tests/verification-session-workflow.test.js backend/tests/verification-admin-review.test.js
+          cd mobile && npx tsc --noEmit && npx tsx tests/verification-api.test.ts && npx vitest run --config vitest.config.ts tests/verification-store-truthful-state.test.ts
+      - name: OC-5C — X2 registration journey (shipped app; subject-safe standing; fixed business identity) + the page
+        run: |
+          node --test backend/tests/o2-x2-*.test.js
+          npm run test:unit --workspace=web -- src/pages/onboarding/RegistrationJourney.test.tsx
+      - name: OC-5C — X5 dealer onboarding (applicant lane, private evidence, reviewer preview behind step-up) + the page
+        run: |
+          node --test backend/tests/o2-x5-*.test.js backend/tests/dealer-compliance.test.js backend/tests/dealer-routes.test.js
+          npm run test:unit --workspace=web -- src/pages/dealer/DealerOnboarding.test.tsx src/pages/onboarding/RegistrationJourney.test.tsx
+      - name: OC-5C — U2 passport latency (one wave, one ledger verdict, same answer) and the pins it moves
+        run: >-
+          node --test
+          backend/tests/o2-u2-passport-latency-architecture.test.js
+          backend/tests/issue164-phase5-listing-publication-gate.test.js
+          backend/tests/issue164-phase0-public-projection.test.js
+          backend/tests/trade-os-t12-registry-authority.test.js
+          backend/tests/oc3b-ai-authority-invariants.test.js
+      - name: OC-5C — X5A upload idempotency (actor-scoped, bound, PGlite race + candidate migration, shipped route)
+        run: node --test backend/tests/oc5c-upload-idempotency.test.js backend/tests/upload-idempotency.test.js backend/tests/differentiator-journey.test.js
+      - name: OC-5C — X4 biometrics, interface only (provider NOT SELECTED; nothing calls a provider; candidates only)
+        run: node --test backend/tests/o2-x4-biometric-interface.test.js backend/tests/verification-decision-policy.test.js
+      - name: OC-5D — P1 a verified, EXPLICIT active-tenant context (never guessed; re-verified every request; a failed read is 503) + web and native clients; P6 the owner service-history v1 contract (route + native renderer)
+        run: |
+          node --test backend/tests/oc5d-*.test.js backend/tests/oc5a-tenant-role-catalogue.test.js backend/tests/referral-uat-auth-guard.test.js backend/tests/feature-governance.test.js backend/tests/audit-logger.test.js backend/tests/auth-register-privilege.test.js backend/tests/auth-middleware.test.js backend/tests/diaspora-subscription-authz.test.js backend/tests/diaspora-subscription-routes.test.js backend/tests/referral-owner-dispute-visibility.test.js backend/tests/oc4d-dealer-seller-authority.test.js
+          npm run test:unit --workspace=web -- src/components/layout/OrganisationSwitcher.test.tsx src/lib/activeTenantClient.test.ts src/lib/authSession.test.ts src/lib/apiClient.stepUpCode.test.ts
+          cd mobile && npx tsc --noEmit && npx vitest run --config vitest.config.ts tests/oc5d-active-tenant.test.ts tests/gate2-session-validation.test.ts tests/garage-service-history-contract.test.ts
+      - name: OC-5D — P3 the Service Network migrations, re-timestamped (order + apply-twice + Down/Up proven on PGlite; work-order and PartSentry references; O4 REVOKE and superset; F3 template)
+        run: node --test backend/tests/service-network-s*-migration.test.js backend/tests/oc5d-service-network-migrations.test.js backend/tests/migration-integrity.test.js backend/tests/communication-event-coverage.test.js
+      - name: OC-5D — P4 the Service Network core (PR #197 S1–S10 + O1–O10, ported; every garage route on the VERIFIED active garage; §5 fixes; OC-5A authorization before any record)
+        run: >-
+          node --test
+          backend/tests/service-network-*.test.js
+          backend/tests/mock-supabase-partial-unique-index.test.js
+          backend/tests/oc5d-service-network-authority.test.js
+          backend/tests/intelligence-schema-contract.test.js
+          backend/tests/intelligence-service-mechanic-garage.test.js
+          backend/tests/issue164-lookup-policy.test.js
+          backend/tests/feature-governance.test.js
+      - name: OC-5E — GMO-3/4 the reviewer decides atomically and never sees a draft; activation builds one workspace, re-checks identity, and the founder is offered it (PGlite + shipped app)
+        run: >-
+          node --test
+          backend/tests/oc5e-*.test.js
+          backend/tests/o2-ocr-c3-garage-consumer.test.js
+          backend/tests/o2-ocr-c3-garage-security.test.js
+          backend/tests/gmo-1-garage-application.test.js
+          backend/tests/migration-integrity.test.js
+      - name: OC-5F — seller intelligence (#213 A/B) and spec 48's gate (F) — a refused rollup write fails the day; spec 48 stays out of the aggregate gates and its Communications test stays fixme
+        run: node --test backend/tests/intelligence-*.test.js backend/tests/oc5f-*.test.js backend/tests/migration-integrity.test.js
+
+      - name: OC-5G — notifications — the live path honours policyChannelsOnly; the six policy templates are registered and render on the channels their policies allow
+        run: >-
+          node --test backend/tests/oc5g-*.test.js
+          backend/tests/communication-event-coverage.test.js
+          backend/tests/communications-2-canonical-service-hardening.test.js
+          backend/tests/communications-2-governed-template-runtime.test.js
+          backend/tests/trade-os-t7-channel-and-action-contract.test.js
+          backend/tests/service-network-o1-o10-obligations.test.js
+          backend/tests/o2-x6-events.test.js
+          backend/tests/passport-v16-runtime-convergence.test.js
+          backend/tests/email-reference-r4-safetrade-transaction.test.js
+          backend/tests/email-reference-r5-vehicle-trust-update.test.js
+          backend/tests/migration-integrity.test.js
+
+      - name: OC-5H — RC2 product journeys through the shipped app (organisation choice, a car serviced, a garage born, a seller's numbers, a decision delivered) — AI NONE, asserted
+        run: node --test backend/tests/oc5h-*.test.js backend/tests/oc4e-product-journeys.test.js
+
+      - name: OC-5J — RC2 residuals — a governed ownership-transfer refusal is not a server error
+        run: node --test backend/tests/oc5j-*.test.js
+      - name: OC-5D — R14 a PRODUCTION web bundle carries no demo identity or password (real build, then scan)
+        run: |
+          npm run test:unit --workspace=web -- src/pages/auth/demoIdentityGuard.test.tsx
+          (cd web && VERCEL_ENV=production npx vite build --outDir ../.ci-dist-prod --emptyOutDir)
+          node scripts/ci/assert-no-demo-identities.mjs .ci-dist-prod
+      - name: OC-5B — no production-selectable simulator (both fixture modes), and the reviewer's view of it
+        run: |
+          node --test backend/tests/oc5b-*.test.js backend/tests/oc3b-truthful-ai-simulation.test.js backend/tests/oc3b-r-simulation-steering-guard.test.js backend/tests/oc3-programme-authority.test.js
+          ALLOW_OCR_MOCK=false node --test backend/tests/oc3b-truthful-ai-simulation.test.js backend/tests/oc3b-r-simulation-steering-guard.test.js
+          npm run test:unit --workspace=web -- src/pages/dashboard/admin/EvidenceReview.analysis.test.tsx
+
+  # ── OC-5D P7 — the web Service Network surfaces (exact-head, FULL web suite) ──
+  # A garage feature now declares a TENANT scope that only the session's selected, verified
+  # organisation satisfies; a platform role satisfies `roles` and nothing else. The route gate, the
+  # sidebar, the drawer, the compact bar and the operating home all read that one rule from the
+  # registry — and every other surface reads the same registry — so the whole web suite runs here,
+  # not a subset that happens to name the garage.
+  oc5d-web-surfaces:
+    name: OC-5D web surfaces (tenant scope; one rule for every gate; full web suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: The navigation manifest is the registry's (no drift)
+        run: node scripts/generate-feature-manifest.mjs --check
+      - name: The web app type-checks
+        run: npx tsc --noEmit -p web/tsconfig.app.json
+      - name: The full web suite
+        run: npm run test:unit --workspace=web
+
+  # ── OC-4F source RC1 residual guards (exact-head, targeted) ────────────────
+  # The credential tripwire walks the WHOLE tree, so any document change re-runs it (hence the
+  # '**/*.md' path above); the retired-route pin keeps the web client off /api/ai/ocr and the retired
+  # /api/verification router.
+  oc4f-rc1-residual-guards:
+    name: OC-4F RC1 residual guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: No credential committed anywhere in the tree
+        run: node --test backend/tests/oc4f-no-committed-credentials.test.js
+      - name: Provider smoke harness is safe by construction (plan default, production refused)
+        run: node --test backend/tests/oc4f-provider-smoke-harness.test.js
+      - name: RC1's new template migration on real PostgreSQL (Up, re-run, Down, Up)
+        run: node --test backend/tests/oc4f-dealer-template-migration.test.js
+      - name: Diff hygiene over the whole RC (the PR gates' own check)
+        # fetch-depth: 0 above already brought origin/main; a shallow re-fetch here would truncate
+        # the history the merge base needs.
+        run: git diff --check "$(git merge-base origin/main HEAD)" HEAD
+      - name: The web client calls no retired route
+        run: npm run test:unit --workspace=web -- src/lib/retiredRoutes.test.ts
+
+  # ── OC-4C native garage odometer capture (exact-head, targeted) ───────────
+  # The native side of the governed odometer path: capture-first durable queue, the upload body the
+  # server reads (pinned to shared/contracts/native-odometer-capture.contract.json), the OCR follow-up,
+  # truthful owner messages, and a source guard that the garage screen calls no retired/AI route.
+  oc4c-native-garage-ocr:
+    name: OC-4C native garage odometer (mobile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: TypeScript (mobile)
+        working-directory: mobile
+        run: npx tsc --noEmit
+      - name: Native queue + odometer suites
+        working-directory: mobile
+        run: |
+          npx tsx tests/upload-queue-store.test.ts
+          npx tsx tests/upload-queue-drain.test.ts
+          npx tsx tests/garage-odometer-ocr.test.ts
+
+  # ── OC-3E-W1 buyer assistant notice (exact-head, targeted) ──────────────────
+  # A signed-out visitor gets safe guidance with no paid inference; the drawer must say why.
+  oc3e-buyer-assistant-ui:
+    name: OC-3E-W1 buyer assistant UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Run buyer assistant suite (bounded)
+        run: npm run test:unit --workspace=web -- src/components/marketplace/BuyerAssistantDrawer.test.tsx
+
+  # ── OCR C3 Garage assistance UI gate (exact-head, targeted) ─────────────────
+  garage-c3-ui:
+    name: Garage OCR assistance UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Run Garage OCR assistance suites (bounded)
+        run: npm run test:unit --workspace=web -- src/pages/dashboard/garage/garageEvidence.test.tsx src/pages/dashboard/garage/garageSetupC3.test.tsx src/pages/dashboard/garage/garageSetupRoute.test.tsx
+      # The C3 migrations and the lineage reconciliation are executed by no other gate (ci.yml's
+      # NEW_MIGRATIONS list ends at 20260810120000). Real Postgres proves the #209-first lineage is
+      # reconciled, the CHECKs accept every consumer write, and no browser role reaches the tables.
+      - name: Garage evidence migrations (isolated PGlite Postgres)
+        run: node database/test/ocr_c3_garage_evidence_check.mjs
+
+  # ── Deployed exact-head provenance + route-gating probe ─────────────────────
+  # Runs ONLY on manual dispatch with a non-empty deployed_expected_sha input, so push runs stay
+  # purely offline. Network-only (public preview endpoints); no live-provider call, no secret. It
+  # proves the paired Vercel preview serves the exact candidate SHA (frontend unpaired=false + SHA;
+  # backend /api/health UP + SHA + supabase healthy) and that the deployed OCR routes fail closed.
+  deployed-provenance-probe:
+    name: Deployed exact-head provenance + OCR route gating
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deployed_expected_sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.inputs.deployed_expected_sha }}
+      CANDIDATE_BRANCH: ${{ github.ref_name }}
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const fe = (JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json','utf8')).branches||{})[branch];
+          const be = (JSON.parse(fs.readFileSync('web/preview-backend-pairing.json','utf8')).branches||{})[branch];
+          if (!fe || !be) { console.error(JSON.stringify({error:'preview pair not governed',branch,fe:Boolean(fe),be:Boolean(be)})); process.exit(1); }
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_WEB_URL=${fe}\nSTAGING_API_URL=${be.replace(/\/$/,'')}/api\n`);
+          console.log(JSON.stringify({branch, fe, be}));
+          NODE
+      - name: Prove exact-head frontend/backend provenance (pairing + health)
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.EXPECTED_HEAD_SHA, web = process.env.STAGING_WEB_URL, api = process.env.STAGING_API_URL;
+          const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+          for (let a=1;a<=72;a++){
+            try {
+              const [pR,hR] = await Promise.all([fetch(`${web}/carup-provenance.json?a=${a}`,{cache:'no-store'}), fetch(`${api}/health?a=${a}`,{cache:'no-store'})]);
+              const p = pR.ok? await pR.json():null; const h = hR.ok? await hR.json():null;
+              if (p?.commit_sha===expected && p?.unpaired===false && h?.status==='UP' && h?.build?.commit_sha===expected){
+                console.log('EXACT-HEAD DEPLOYED PAIR CONFIRMED');
+                console.log(JSON.stringify({frontend_sha:p.commit_sha, frontend_unpaired:p.unpaired, api_base_url:p.api_base_url, backend_sha:h.build.commit_sha, backend_branch:h.build?.branch, supabase:h.supabase?.status}, null, 2));
+                process.exit(0);
+              }
+              console.log(`attempt ${a}: fe=${p?.commit_sha||'n/a'} unpaired=${p?.unpaired} be=${h?.build?.commit_sha||'n/a'} supa=${h?.supabase?.status||'n/a'}`);
+            } catch(e){ console.log(`attempt ${a}: ${e.message}`); }
+            await sleep(5000);
+          }
+          console.error('Exact-head preview pair never reported the candidate SHA.'); process.exit(1);
+          NODE
+      - name: Probe deployed OCR route surface + provider config (no fabricated verdict)
+        run: |
+          node --input-type=module <<'NODE'
+          const api = process.env.STAGING_API_URL; const out = {};
+          try { const h = await (await fetch(`${api}/health`,{cache:'no-store'})).json();
+            // Canonical OCR readiness (continuation 6): read the authoritative health.ocr projection
+            // and ocrProviders.gemini so the readiness gate no longer depends on log interpretation.
+            out.health = { status:h.status, commit_sha:h.build?.commit_sha, branch:h.build?.branch, environment:h.environment, supabase:h.supabase?.status,
+              ocr: h.ocr || 'not_exposed_by_health', ocrProviders_gemini: h.ocrProviders?.gemini, ocrProviders_cloudflare: h.ocrProviders?.cloudflare };
+          } catch(e){ out.health_error = e.message; }
+          async function probe(method, path, body){ try { const res = await fetch(`${api}${path}`,{method,cache:'no-store',headers:body?{'content-type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined}); let code; try{code=(await res.json())?.code;}catch{} return {path,method,status:res.status,code}; } catch(e){ return {path,method,error:e.message}; } }
+          out.route_gating = [
+            await probe('POST','/ai/ocr',{docType:'national_id',base64Data:'x'}),
+            await probe('POST','/diaspora/documents/probe-doc/extractions',{extraction_provider:'forged'}),
+            await probe('POST','/vehicles/PROBEVIN0000000000/evidence/probe-ev/run-ocr',{}),
+          ];
+          console.log('DEPLOYED OCR ROUTE SURFACE:'); console.log(JSON.stringify(out,null,2));
+          const leak = out.route_gating.find(r=>r.status===200);
+          if (leak){ console.error('A deployed OCR route answered 200 without authentication:', JSON.stringify(leak)); process.exit(1); }
+          const legacy = out.route_gating.find(r=>r.path==='/ai/ocr');
+          if (legacy && ![410,401,403].includes(legacy.status)){ console.error('Legacy /api/ai/ocr neither retired nor gated:', JSON.stringify(legacy)); process.exit(1); }
+          NODE
+
+  # ── Authenticated deployed Stage-4 product journeys ─────────────────────────
+  # Manual-dispatch ONLY, with stage4_authenticated=true and a non-empty deployed_expected_sha. This
+  # is the SINGLE canonical Stage-4 execution authority (the standalone o2-ocr-stage4-staging-uat.yml
+  # was retired). It runs session-authenticated Person Identity, Diaspora and Owner/Seller Vehicle
+  # journeys against the exact-head Vercel preview with real Cloudflare/Qwen, proving OCR stays
+  # candidate-only. Never runs on push/pull_request/schedule/workflow_run.
+  stage4-authenticated-journeys:
+    name: OCR Stage-4 authenticated deployed journeys
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.stage4_authenticated == 'true' && github.event.inputs.deployed_expected_sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Share the deployed-UAT preview lock; never cancel an in-flight certification.
+    concurrency:
+      group: staging-preview-${{ github.ref_name }}
+      cancel-in-progress: false
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.inputs.deployed_expected_sha }}
+      CANDIDATE_BRANCH: ${{ github.ref_name }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      STAGE4_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      # The driver provisions its OWN isolated per-run owner + reviewer identities (scrypt) via the
+      # staging DB URL; it consumes no pre-provisioned UAT reviewer account, so no reviewer
+      # email/password secret is injected here (least-privilege: only DIASPORA_STAGING_DATABASE_URL).
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Require staging operator secret (approved project only)
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; authenticated Stage-4 cannot provision isolated staging fixtures.'
+            exit 1
+          fi
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo '::error::Refusing Stage-4: database URL is not the approved carup-staging project.'; exit 1 ;;
+          esac
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const fe = (JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json','utf8')).branches||{})[branch];
+          const be = (JSON.parse(fs.readFileSync('web/preview-backend-pairing.json','utf8')).branches||{})[branch];
+          if (!fe || !be) { console.error(JSON.stringify({error:'preview pair not governed',branch})); process.exit(1); }
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_WEB_URL=${fe}\nSTAGING_API_URL=${be.replace(/\/$/,'')}/api\n`);
+          console.log(JSON.stringify({branch, fe, be}));
+          NODE
+      - name: Install backend dependencies
+        run: npm install --prefix backend --ignore-scripts --no-save --package-lock=false --no-audit --no-fund
+      - name: Run authenticated Stage-4 deployed journeys
+        run: node backend/scripts/o2-ocr-stage4-staging-uat.mjs
+      - name: Upload sanitized Stage-4 certification artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: o2-ocr-stage4-${{ github.run_id }}
+          path: test-results/o2-ocr-stage4-*.json
+          retention-days: 14
+          if-no-files-found: warn

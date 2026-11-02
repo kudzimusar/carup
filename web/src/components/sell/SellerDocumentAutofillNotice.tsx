@@ -7,13 +7,21 @@ const API_BASE = resolveApiBaseUrl(
   typeof window !== 'undefined' ? window.location.hostname : undefined,
 )
 
-type OcrProviderMap = Record<string, boolean>
+// The canonical OCR runtime projection from /api/health. Availability is decided by the SELECTED
+// OCR provider being configured — NOT by whether some unrelated AI provider (gemini/groq/…) happens
+// to hold credentials. `ocrProviders.some(Boolean)` is no longer authoritative: with Cloudflare
+// selected but unconfigured and Gemini configured, that old check falsely rendered "available".
+type OcrHealth = {
+  selectedProvider?: string | null
+  selectedModel?: string | null
+  configured?: boolean
+  mockRuntimeAllowed?: boolean
+}
 
 export function SellerDocumentAutofillNotice() {
-  const [providers, setProviders] = useState<OcrProviderMap | null>(null)
-  // A FAILED health read is not an answer about provider availability. It used to be written as
-  // `setProviders({})`, which made `known` true and `enabled` false — so an unreachable backend
-  // rendered "Coming soon on this preview", a claim about the PRODUCT derived from a network fault.
+  const [ocr, setOcr] = useState<OcrHealth | null>(null)
+  // A FAILED health read is not an answer about provider availability — it renders as
+  // "Availability could not be checked", never as a product claim derived from a network fault.
   const [readFailed, setReadFailed] = useState(false)
 
   useEffect(() => {
@@ -25,7 +33,9 @@ export function SellerDocumentAutofillNotice() {
       })
       .then(body => {
         if (!active) return
-        setProviders(body?.ocrProviders && typeof body.ocrProviders === 'object' ? body.ocrProviders : {})
+        // Only the canonical `ocr` projection decides availability. A backend that does not expose
+        // it yields {} → not available (safe), never a false "available" from the legacy map.
+        setOcr(body?.ocr && typeof body.ocr === 'object' ? body.ocr : {})
       })
       .catch(() => {
         if (active) setReadFailed(true)
@@ -33,8 +43,10 @@ export function SellerDocumentAutofillNotice() {
     return () => { active = false }
   }, [])
 
-  const enabled = providers ? Object.values(providers).some(Boolean) : false
-  const known = providers !== null
+  // Available ONLY when the selected OCR provider is actually configured. Mock reachability never
+  // makes the product surface claim availability.
+  const enabled = ocr ? ocr.configured === true : false
+  const known = ocr !== null
 
   return (
     <section className="rounded-[2rem] border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-orange-50 p-5 sm:p-6" data-testid="seller-document-autofill">

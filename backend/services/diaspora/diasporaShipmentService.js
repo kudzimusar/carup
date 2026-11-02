@@ -4,7 +4,6 @@ import { DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '.
 import { validateShipmentPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
-import { emitDiasporaEvent } from './diasporaNotificationService.js';
 import { notifyShipmentException, isExceptionStage } from './shipmentExceptionNotifier.js';
 import { requireUserContext, canManageLogistics, assertCanReadImportOrder, isPlatformReviewer, isPlatformAdmin, isTenantAdminForRecord, isSailingOperator } from './diasporaAuthorization.js';
 
@@ -421,8 +420,12 @@ export async function updateShipmentStage(id, payload, userContext = {}, req = n
 
   const stageEvent = await writeShipmentStageEvent(id, nextStage, payload.notes || `Shipment moved to ${nextStage}`, userContext, req, { ...(payload.metadata || {}), event_time: observedAt });
   await writeDiasporaAudit({ importOrderId: data.import_order_id, tenantId: data.tenant_id, actorId: userContext?.id, action: 'SHIPMENT_STAGE_CHANGED', resourceType: 'diaspora_shipment', resourceId: id, previousState: { status: previous.status }, newState: { status: nextStage }, metadata: { stageEventId: stageEvent.id }, req });
-  await emitDiasporaEvent(`DIASPORA_SHIPMENT_${nextStage}`, { shipmentId: id, importOrderId: data.import_order_id, stage: nextStage }, data.tenant_id);
 
+  // The shipment row, stage-event row and audit are the durable workflow authority. The historical
+  // DIASPORA_SHIPMENT_<STAGE> outbox signal had no current subscriber and duplicated later
+  // customer-facing paths. Do not recreate it: exception delivery is the governed lower-case event
+  // below, while IN_TRANSIT/ARRIVED may project the import order and use its existing direct notice.
+  //
   // T7.5 — the customer-facing half. After the audited authoritative change, never before it, and
   // never in a way that can alter it: an exception the customer is not told about is the one stage
   // that most needs saying.

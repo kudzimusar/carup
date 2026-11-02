@@ -21,7 +21,7 @@ export default function MainLayout({ hideNav = false }: { hideNav?: boolean }) {
           <Outlet />
         </RegistryRouteBoundary>
       </main>
-      {!isAuthPage && <div className="hidden lg:block"><Footer /></div>}
+      {!isAuthPage && <div className="pb-20 lg:pb-0"><Footer /></div>}
       <CompactBottomNav />
     </div>
   )

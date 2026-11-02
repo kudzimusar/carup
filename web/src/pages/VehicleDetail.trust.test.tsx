@@ -59,6 +59,11 @@ vi.mock('@/hooks/useCarUpApi', () => ({
     unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy,
     fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport,
     generateReportVersion, createReportShareLink, fetchVehicleTrustDecision, fetchVehicleEvidence,
+    // R4 — VehicleProfile now reads the GOVERNED service history (/api/service-history/me) rather
+    // than deriving services from the passport timeline, so the two owner surfaces cannot drift.
+    // This suite is about the trust claim and does not exercise services; an empty read keeps the
+    // page mounting without asserting anything about them.
+    fetchServiceHistory: vi.fn().mockResolvedValue([]),
   }),
 }))
 
@@ -518,7 +523,10 @@ describe('VehicleDetail — absent passport signals claim nothing in either dire
     })
     const container = await openVerificationTab()
 
-    expect(container.textContent || '').toContain('Vehicle registered in Central Vehicle Registry')
+    expect(container.textContent || '').toContain('Registration evidence is recorded in this Passport')
+    expect(container.textContent || '').toContain('CarUp does not query the Central Vehicle Registry')
+    expect(container.textContent || '').not.toContain('confirmed via ZIMRA registry')
+    expect(container.textContent || '').not.toContain('CID check passed')
   })
 })
 

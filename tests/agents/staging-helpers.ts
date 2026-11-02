@@ -182,6 +182,71 @@ export async function signInViaUi(page: Page, role: Role): Promise<void> {
   throw new Error(`${id.envPassword} not set and ${id.state} missing — run backend/scripts/staging-create-test-identities.mjs first.`);
 }
 
+/**
+ * OC-5D / OC-5R-REL-02 C — choose the organisation a session acts for, THE WAY A PERSON DOES.
+ *
+ * The server never picks an organisation: login lists the memberships, and a session gains one only
+ * when the person selects it (PUT /api/auth/active-tenant) — one tap, even where exactly one
+ * membership is selectable. A journey that works for an organisation therefore has to ask for it
+ * through the real prompt or switcher, then wait for the server-verified selection to land.
+ *
+ * This helper is bounded and honest about what it does NOT do: it never writes localStorage, never
+ * sets a tenant header, never calls the active-tenant endpoint itself and never weakens a tenant
+ * assertion. It observes the product's OWN request on the wire and the product's own UI state.
+ *
+ *   1. open the dashboard shell (it hosts both the organisation badge and the "Choose an
+ *      organisation" prompt);
+ *   2. read who the session acts for from the badge's accessible name;
+ *   3. already that organisation → continue ('already_acting');
+ *   4. otherwise click the real "Act for …" control — the prompt's button, or the badge's menu item
+ *      when the prompt is not showing — and wait for PUT /api/auth/active-tenant to be accepted;
+ *   5. prove the new context in the UI (badge names the organisation, the prompt is gone) before the
+ *      caller touches any organisation-scoped workspace.
+ */
+export interface OrganisationSelection {
+  outcome: 'already_acting' | 'selected';
+  /** The badge's accessible name once the context held: "Acting for <organisation>. Change organisation". */
+  badge: string;
+  /** For 'selected': the organisation id the product's own control sent, observed on the wire. */
+  tenantId: string | null;
+}
+
+export async function ensureActingForOrganisation(page: Page, organisation: RegExp, timeoutMs = 30_000): Promise<OrganisationSelection> {
+  await page.goto('/dashboard');
+  await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
+
+  const badge = page.getByTestId('organisation-badge');
+  await expect(badge, 'the dashboard header shows which organisation the session acts for').toBeVisible({ timeout: timeoutMs });
+  const actingForName = new RegExp(`^Acting for .*(?:${organisation.source}).*\\. Change organisation$`, organisation.flags);
+  const before = (await badge.getAttribute('aria-label')) ?? '';
+  if (actingForName.test(before)) return { outcome: 'already_acting', badge: before, tenantId: null };
+
+  const actFor = new RegExp(`Act for .*(?:${organisation.source})`, organisation.flags);
+  const prompt = page.getByTestId('organisation-prompt');
+  let control = prompt.getByRole('button', { name: actFor });
+  if (!(await control.isVisible().catch(() => false))) {
+    // The prompt is not showing (dismissed, or the session already names a different organisation):
+    // use the switcher, which is always one click away in the header.
+    await badge.click();
+    control = page.getByRole('menuitem', { name: actFor });
+  }
+  await expect(control, `no real "Act for …" control offers an organisation matching ${organisation}`).toBeVisible({ timeout: timeoutMs });
+
+  const selection = page.waitForResponse(
+    (response) => response.request().method() === 'PUT' && /\/api\/auth\/active-tenant(?:\?|$)/.test(response.url()),
+    { timeout: 20_000 },
+  );
+  await control.click();
+  const response = await selection;
+  expect(response.ok(), `PUT /api/auth/active-tenant answered HTTP ${response.status()}`).toBe(true);
+  const sent = response.request().postDataJSON() as { tenantId?: string | null } | null;
+  expect(sent?.tenantId, 'the product selected a real organisation, not "yourself"').toBeTruthy();
+
+  await expect(badge, 'the session context did not update to the chosen organisation').toHaveAttribute('aria-label', actingForName, { timeout: timeoutMs });
+  await expect(prompt, 'the "Choose an organisation" prompt must be gone once an organisation is chosen').toHaveCount(0);
+  return { outcome: 'selected', badge: (await badge.getAttribute('aria-label')) ?? '', tenantId: sent?.tenantId ?? null };
+}
+
 function readSavedPassword(): string | undefined {
   try { return readFileSync('.staging-auth/.password', 'utf8').trim() || undefined; } catch { return undefined; }
 }

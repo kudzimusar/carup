@@ -1,4 +1,10 @@
 import crypto from 'crypto';
+import {
+  isLegacySessionTestAdapterAllowed,
+  insertAuthActionToken,
+  consumeAuthActionToken,
+  revokeAuthActionTokens,
+} from './sessionAuthority.js';
 
 /**
  * SA1C — secure auth action tokens for CarUp's own auth (password reset, email verification).
@@ -78,30 +84,30 @@ export class AuthActionTokenService {
       throw new Error(`authActionToken.issue: unsupported purpose '${purpose}'`);
     }
 
-    await this.revokeLiveTokens({ userId, purpose });
+    // Local/unit fixtures keep the exact historical direct-store behavior. Every deployed runtime
+    // uses the dedicated authentication authority, whose single DB function supersedes older live
+    // tokens and inserts the new hash atomically.
+    if (isLegacySessionTestAdapterAllowed()) {
+      await this.revokeLiveTokens({ userId, purpose });
+    }
 
     const rawToken = generateRawAuthToken();
     const minutes = ttlMinutes || AUTH_TOKEN_TTL_MINUTES[purpose] || 60;
     const expiresAt = new Date(this.now().getTime() + minutes * 60_000).toISOString();
 
-    const { data, error } = await this.supabase
-      .from('auth_action_tokens')
-      .insert({
-        user_id: userId,
-        purpose,
-        token_hash: hashAuthToken(rawToken),
-        expires_at: expiresAt,
-        requested_ip: requestedIp,
-        user_agent: userAgent,
-        metadata,
-        created_by: createdBy,
-        source,
-      })
-      .select('id, user_id, purpose, expires_at, created_at')
-      .single();
+    const record = await insertAuthActionToken({
+      userId,
+      purpose,
+      tokenHash: hashAuthToken(rawToken),
+      expiresAt,
+      requestedIp,
+      userAgent,
+      metadata,
+      createdBy,
+      source,
+    }, { legacyTestClient: this.supabase });
 
-    if (error) throw new Error(`Failed to issue auth action token: ${error.message}`);
-    return { rawToken, record: data };
+    return { rawToken, record };
   }
 
   /**
@@ -119,8 +125,13 @@ export class AuthActionTokenService {
     if (!Object.values(AUTH_TOKEN_PURPOSES).includes(purpose)) return { ok: false, reason: 'unsupported_purpose' };
 
     const tokenHash = hashAuthToken(rawToken);
-    const nowIso = this.now().toISOString();
 
+    if (!isLegacySessionTestAdapterAllowed()) {
+      return consumeAuthActionToken({ tokenHash, purpose }, { legacyTestClient: this.supabase });
+    }
+
+    // Preserve the deterministic injected clock used by the existing local/unit test harness.
+    const nowIso = this.now().toISOString();
     const { data, error } = await this.supabase
       .from('auth_action_tokens')
       .update({ used_at: nowIso })
@@ -134,7 +145,6 @@ export class AuthActionTokenService {
 
     if (error) return { ok: false, reason: `consume_failed:${error.message}` };
     if (!data) {
-      // Distinguish "never existed" from "already used/expired/revoked" for audit only.
       const { data: existing } = await this.supabase
         .from('auth_action_tokens')
         .select('id, used_at, revoked_at, expires_at, purpose')
@@ -152,6 +162,11 @@ export class AuthActionTokenService {
 
   /** Revoke every live token for a user+purpose (used when superseding or after a reset). */
   async revokeLiveTokens({ userId, purpose = null }) {
+    if (!isLegacySessionTestAdapterAllowed()) {
+      await revokeAuthActionTokens({ userId, purpose }, { legacyTestClient: this.supabase });
+      return;
+    }
+
     const nowIso = this.now().toISOString();
     let query = this.supabase
       .from('auth_action_tokens')

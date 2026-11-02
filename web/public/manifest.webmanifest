@@ -1,0 +1,13 @@
+{
+  "id": "/",
+  "name": "CarUp",
+  "short_name": "CarUp",
+  "description": "Know the car. Trust the journey.",
+  "lang": "en",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1628",
+  "theme_color": "#0b1628",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

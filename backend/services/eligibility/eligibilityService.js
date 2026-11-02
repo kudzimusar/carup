@@ -8,7 +8,7 @@
 import { supabase } from '../../db/supabase.js';
 import crypto from 'crypto';
 import { CAPABILITIES, evaluateGates, buildSandboxEligibilityProvider } from './eligibilityContract.js';
-import { verifyWebhook } from './webhookSecurity.js';
+import { verifyRouteWebhook } from './webhookSecurity.js';
 
 const providers = new Map(); // `${capability}` -> provider
 
@@ -117,8 +117,14 @@ export async function getLatestStatus(capability, vin) {
  * append a decision + update the request status. Always records the webhook attempt
  * (append-only) including failed/replayed ones.
  */
-export async function ingestWebhook(capability, { providerId, payloadString, signature, timestamp, idempotencyKey, body }, now = Date.now()) {
-  const verdict = verifyWebhook(providerId, payloadString, signature, timestamp, now);
+// The webhook signing identity per capability is SERVER-OWNED (OC-5R-PROV-01 B5). The route's
+// capability selects it; a caller-supplied provider id is only ever checked against it.
+export const ELIGIBILITY_WEBHOOK_PROVIDERS = Object.freeze({ insurance: 'insurance_sandbox', finance: 'finance_sandbox' });
+
+export async function ingestWebhook(capability, { providerId = null, payloadString, signature, timestamp, idempotencyKey, body }, now = Date.now()) {
+  const serverProviderId = ELIGIBILITY_WEBHOOK_PROVIDERS[capability] || null;
+  if (!serverProviderId) return { applied: false, reason: 'unknown_capability', signature_valid: false };
+  const verdict = verifyRouteWebhook(serverProviderId, providerId, payloadString, signature, timestamp, now);
 
   // Dedup: a repeated idempotency key is recorded but not re-applied.
   let duplicate = false;
@@ -129,7 +135,7 @@ export async function ingestWebhook(capability, { providerId, payloadString, sig
   }
 
   await supabase.from('eligibility_webhook_events').insert({
-    request_id: body?.request_id || null, capability, provider_id: providerId,
+    request_id: body?.request_id || null, capability, provider_id: serverProviderId,
     event_type: body?.event_type || 'decision', signature_valid: verdict.valid,
     replay_detected: verdict.replay, idempotency_key: idempotencyKey || null, payload: body || null,
   }).select().single().then(() => {}, () => {}); // best-effort; unique-key clash => already recorded
@@ -138,10 +144,18 @@ export async function ingestWebhook(capability, { providerId, payloadString, sig
   if (duplicate) return { applied: false, reason: 'duplicate', signature_valid: true };
   if (!body?.request_id || !body?.status) return { applied: false, reason: 'missing_fields', signature_valid: true };
 
+  // A signature valid for THIS capability authorises THIS capability's requests only: an
+  // insurance-signed delivery can never move a finance request.
+  const { data: target } = await supabase.from('eligibility_requests')
+    .select('id, capability').eq('id', body.request_id).maybeSingle();
+  if (!target || target.capability !== capability) {
+    return { applied: false, reason: 'request_not_found_for_capability', signature_valid: true };
+  }
+
   await supabase.from('eligibility_requests')
     .update({ status: body.status, conditions: body.conditions || [], response_reference: body.response_reference || null, updated_at: new Date().toISOString() })
-    .eq('id', body.request_id);
-  await appendDecision(body.request_id, body.status, body.conditions || [], body.response_reference || null, `webhook:${providerId}`, 'provider_webhook');
+    .eq('id', target.id).eq('capability', capability);
+  await appendDecision(target.id, body.status, body.conditions || [], body.response_reference || null, `webhook:${serverProviderId}`, 'provider_webhook');
   return { applied: true, reason: 'ok', signature_valid: true };
 }
 

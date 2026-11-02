@@ -1,0 +1,117 @@
+name: OC-5R Live provider smoke — manual, non-writing
+
+# OC-5R-PROV-01 D2. One governed, minimal live request per provider, so LIVE-PROVIDER evidence is a
+# real answer from the provider rather than an inference from a variable:
+#
+#   gemma          one fixed advisory completion through CarUp's own Workers AI gateway client
+#   ecb            one read of the ECB daily reference feed (keyless)
+#   resend         a read of the sending domains — no email is sent
+#   telegram       getMe — no message is sent
+#   meta_whatsapp  phone-number and message-template status reads — nothing is sent
+#
+# What this workflow will never do: run without a human dispatching it; run in or against the
+# production environment; write business data (there is no database credential in this job — the
+# Supabase variables below are inert placeholders); message a user; take an authority decision;
+# print a credential. A provider whose credential is not available to this job is classified
+# NOT_CONFIGURED (exit 2) — never a simulated success.
+#
+# MANUAL DISPATCH ONLY. Live provider calls cost money and can reach real accounts, so they are an
+# explicit owner decision: do not add push, pull_request, schedule or workflow_run triggers. A
+# permanent guard in backend/tests/oc5r-prov01-live-provider-smoke.test.js fails the suite if one
+# appears, if a job gains an `environment:`, or if the exact-SHA assertion is removed.
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Which provider to smoke (one per run)
+        required: true
+        type: choice
+        options:
+          - gemma
+          - ecb
+          - resend
+          - telegram
+          - meta_whatsapp
+
+concurrency:
+  group: oc5r-live-provider-smoke-${{ github.event.inputs.provider }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Live smoke — ${{ github.event.inputs.provider }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.sha }}
+      SMOKE_PROVIDER: ${{ github.event.inputs.provider }}
+      # No simulator may stand in for the provider.
+      ALLOW_OCR_MOCK: 'false'
+      NODE_ENV: production
+      # Inert placeholders so modules that read env at import do not crash. NOT credentials, and
+      # nothing listens on this address: any accidental database write fails rather than lands.
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: smoke-local-placeholder
+      SUPABASE_ANON_KEY: smoke-local-placeholder
+      JWT_SECRET: smoke-local-placeholder
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          echo "candidate SHA: $EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      # Only the SELECTED provider's credentials are injected; every other one is an empty string.
+      - name: Run the smoke (credentials injected into this step only, never printed)
+        id: smoke
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ github.event.inputs.provider == 'gemma' && secrets.CLOUDFLARE_ACCOUNT_ID || '' }}
+          CLOUDFLARE_API_TOKEN: ${{ github.event.inputs.provider == 'gemma' && secrets.CLOUDFLARE_API_TOKEN || '' }}
+          RESEND_API_KEY: ${{ github.event.inputs.provider == 'resend' && secrets.RESEND_API_KEY || '' }}
+          CARUP_TELEGRAM_BOT_TOKEN: ${{ github.event.inputs.provider == 'telegram' && secrets.CARUP_TELEGRAM_BOT_TOKEN || '' }}
+          CARUP_META_ACCESS_TOKEN: ${{ github.event.inputs.provider == 'meta_whatsapp' && secrets.CARUP_META_ACCESS_TOKEN || '' }}
+          CARUP_META_PHONE_NUMBER_ID: ${{ github.event.inputs.provider == 'meta_whatsapp' && secrets.CARUP_META_PHONE_NUMBER_ID || '' }}
+          CARUP_META_WABA_ID: ${{ github.event.inputs.provider == 'meta_whatsapp' && secrets.CARUP_META_WABA_ID || '' }}
+        run: |
+          set -o pipefail
+          node backend/tests/tools/oc5r-live-provider-smoke.mjs --provider "$SMOKE_PROVIDER" --out "$GITHUB_WORKSPACE/smoke" 2>&1 | tee smoke-console.txt
+
+      - name: Publish the evidence to the job summary
+        if: always()
+        run: |
+          {
+            echo "## Live provider smoke — \`$SMOKE_PROVIDER\` at \`$EXPECTED_HEAD_SHA\`"
+            echo
+            if [ -f "smoke/$SMOKE_PROVIDER.json" ]; then
+              echo '```json'
+              cat "smoke/$SMOKE_PROVIDER.json"
+              echo '```'
+            else
+              echo 'No evidence file was produced.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the evidence (contains no credential)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-provider-smoke-${{ github.event.inputs.provider }}
+          path: smoke/
+          if-no-files-found: warn
+          retention-days: 30

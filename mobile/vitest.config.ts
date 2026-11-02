@@ -22,7 +22,9 @@ export default defineConfig({
       // scripts with their own runner (scripts/mobile-cert/*, `npx tsx`).
       'tests/certification/**',
       'tests/communication-api.test.ts',
+      'tests/garage-odometer-ocr.test.ts',
       'tests/login-submit-button.test.ts',
+      'tests/marketplace-media-contract.test.ts',
       'tests/native-analytics.test.ts',
       'tests/native-boundary-audit.test.ts',
       'tests/native-dashboard-bootstrap.test.ts',
@@ -30,6 +32,7 @@ export default defineConfig({
       'tests/native-governance-refresh.test.ts',
       'tests/native-navigation.test.ts',
       'tests/native-tabs.test.ts',
+      'tests/push-registration.test.ts',
       'tests/start-verification-flow.test.ts',
       'tests/tab-stability-guard.test.ts',
       'tests/upload-queue-drain.test.ts',

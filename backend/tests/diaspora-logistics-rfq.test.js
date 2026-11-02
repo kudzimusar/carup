@@ -234,15 +234,29 @@ test('CONTAINER AUTH: tenant admin may attach own open sailing but it remains on
 });
 
 test('SAILING MATCH: route and actual approved capacity are used; matching does not approve anything', async () => {
+  // One CarUp RC1 (OC-4F): this fixture used literal dates (booking deadline 2026-10-01), and
+  // matching keeps a sailing only while its deadline is still ahead of NOW — the correct product
+  // rule. The test therefore began failing on 2026-10-01 with no code change. Dates are now relative
+  // to the run, and a sailing whose deadline has passed is in the fixture, so the deadline rule
+  // stays pinned instead of silently ageing out again.
+  const DAY = 24 * 3600 * 1000;
+  const at = (days) => new Date(Date.now() + days * DAY).toISOString();
+  const sailing = (overrides) => ({
+    tenant_id: TENANT_B, coordinator_id: 'provider-b', status: 'BOOKING_OPEN',
+    origin_country: 'Japan', origin_city: 'Yokohama', destination_country: 'Zimbabwe', destination_city: 'Harare',
+    container_type: '40HC', total_capacity_volume: 60, deleted_at: null, ...overrides,
+  });
   const c = createMockSupabase(seed({
     diaspora_logistics_requests: [requestRow()],
     diaspora_logistics_request_items: [itemRow({ estimated_volume_cbm: 10 })],
-    diaspora_container_shipments: [{
-      id: 'container-1', tenant_id: TENANT_B, coordinator_id: 'provider-b', status: 'BOOKING_OPEN',
-      origin_country: 'Japan', origin_city: 'Yokohama', destination_country: 'Zimbabwe', destination_city: 'Harare',
-      departure_date: '2026-10-15T00:00:00Z', booking_deadline: '2026-10-01T00:00:00Z', container_type: '40HC',
-      total_capacity_volume: 60, used_capacity_volume: 999, available_capacity_volume: 0, deleted_at: null,
-    }],
+    diaspora_container_shipments: [
+      sailing({
+        id: 'container-1', departure_date: at(45), booking_deadline: at(30),
+        used_capacity_volume: 999, available_capacity_volume: 0,
+      }),
+      // Same route, ample capacity — but its booking deadline passed yesterday.
+      sailing({ id: 'container-closed', departure_date: at(14), booking_deadline: at(-1) }),
+    ],
     diaspora_cargo_reservations: [
       { id: 'approved', container_id: 'container-1', reservation_status: 'APPROVED', estimated_volume: 22, deleted_at: null },
       { id: 'pending', container_id: 'container-1', reservation_status: 'REQUESTED', estimated_volume: 30, deleted_at: null },
@@ -251,6 +265,7 @@ test('SAILING MATCH: route and actual approved capacity are used; matching does 
 
   const matches = await logistics.findCompatibleSailings('ship-open', requester, { supabaseClient: c });
   assert.equal(matches.length, 1);
+  assert.equal(matches.some((m) => (m.container_id ?? m.id) === 'container-closed'), false, 'a sailing past its booking deadline is never offered');
   assert.equal(matches[0].available_capacity_cbm, 38, 'capacity must be recomputed from APPROVED reservations, not cached values');
   assert.equal(matches[0].capacity_match, true);
   assert.equal(matches[0].requires_operator_confirmation, true);

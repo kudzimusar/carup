@@ -1,0 +1,28 @@
+{
+  "at": "2026-10-24T20:23:12Z",
+  "source_sha": "8353dbdd7eb9382d210d8f9eff48a7300ec36224",
+  "source_ref": "feat/garage-1.0-final-business-os-completion",
+  "backend": {
+    "url": "https://carup-backend-staging-3wrssvns0-11-11.vercel.app",
+    "host": "carup-backend-staging-3wrssvns0-11-11.vercel.app",
+    "deployment_id": "dpl_76Zt2nhwLD7HDs94QfDBEuJxNxxH",
+    "health": {
+      "sha": "8353dbdd7eb9382d210d8f9eff48a7300ec36224",
+      "kill_switch": "active",
+      "external_sends": "disabled",
+      "supabase_project_ref": "eoyenigwevnxwwhyhaer",
+      "database_consistent": "True"
+    },
+    "cli_exit": 0
+  },
+  "web": {
+    "url": "https://carup-staging-4xj9p054l-11-11.vercel.app",
+    "host": "carup-staging-4xj9p054l-11-11.vercel.app",
+    "api_base_url": "https://api-staging.carup.dev/api",
+    "provenance_sha": "8353dbdd7eb9382d210d8f9eff48a7300ec36224",
+    "unpaired": "False",
+    "cli_exit": 0
+  },
+  "candidates_prove_exact_build_on_staging": true,
+  "target": "production target of the staging projects (--skip-domain)"
+}

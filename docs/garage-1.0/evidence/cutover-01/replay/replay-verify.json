@@ -1,0 +1,231 @@
+{
+  "mode": "verify",
+  "at": "2026-10-24T20:44:23.421Z",
+  "replay_started_at": "2026-10-24 20:42:05.030661+00",
+  "total": 27,
+  "by_status": {
+    "processed": 27
+  },
+  "delivered": {
+    "notification_queue_since_replay": 27,
+    "messages_since_replay": 27
+  },
+  "rows": [
+    {
+      "id": "eb627a80-a2e3-4bb5-89ca-3e6d0c378ba6",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "14ec7eac-dfcd-46df-9690-66b04e0d1af4",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "11a0dd4e-3e14-4bb2-8b33-5ac088ddf3eb",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "f9282026-5b5a-4471-bbeb-890aed14c3c2",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "03de5e4d-b958-42d7-8977-46b053cc141b",
+      "event_type": "garage.invoice.issued",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "3366d731-0bd7-4155-8225-3b18237d414f",
+      "event_type": "garage.payment.recorded",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "d0250773-5468-4256-8c32-46afe839dfad",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "bbf3c9d7-1203-49e2-b136-13ed32812362",
+      "event_type": "garage.invoice.issued",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "f6c76743-7afb-4b78-a00a-38eb2681837c",
+      "event_type": "garage.payment.recorded",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "a02d26a9-e37b-462d-9ae9-06294feca201",
+      "event_type": "garage.payment.recorded",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "d83c8945-76f4-4735-8f3c-0ca1521c3838",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "e4ba6d82-d7e4-450b-8115-756a2233f341",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "333d195b-4a60-461f-9229-5b67a7658398",
+      "event_type": "garage.invoice.issued",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "02fc24eb-882f-44b2-b494-3d753a875c85",
+      "event_type": "garage.payment.recorded",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "209cdef6-1194-4034-834d-b66cd65e3c85",
+      "event_type": "garage.payment.recorded",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "98aee1bf-12dd-44ce-b51b-200e05c9a364",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "4ac6f94f-de93-44c4-b36b-4fc0ca3a0132",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "174ac81d-be7e-419e-8a2d-c9411d4a7845",
+      "event_type": "garage.invoice.issued",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "7886f5f6-4e65-4347-918e-55bd9ca016da",
+      "event_type": "garage.payment.recorded",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "af567502-b5b6-4822-9da0-14b0fa714202",
+      "event_type": "garage.payment.recorded",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "705b3148-76d1-4b45-b5fc-cb9b26b45e8b",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "4471d433-61ce-40ca-b78d-646462b0cdf9",
+      "event_type": "garage.appointment.confirmed",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "a4c4bf01-34be-49ff-aab0-4d625166806f",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "035cfb23-1e30-4ea9-829f-75365f206958",
+      "event_type": "garage.invoice.issued",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "287438a6-2d0e-4851-82ff-af48fc9783b6",
+      "event_type": "garage.payment.recorded",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "335ddad9-e737-48bc-a784-5740f2f59f2f",
+      "event_type": "garage.payment.recorded",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    },
+    {
+      "id": "3c8cb7d0-c84a-47d6-9183-f1c6fc31bdb6",
+      "event_type": "garage.estimate.sent",
+      "status": "processed",
+      "attempts": 1,
+      "processed_at": null,
+      "error": ""
+    }
+  ]
+}

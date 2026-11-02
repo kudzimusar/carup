@@ -139,8 +139,16 @@ export type NavigationSurface =
 export interface NavigationContext {
   /** Whether a user is authenticated */
   isAuthenticated?: boolean
-  /** Authenticated role, if any */
+  /** Authenticated PLATFORM role, if any */
   role?: UserRole | null
+  /**
+   * OC-5D (F4) — the VERIFIED active organisation (`AuthUser.active_tenant`): its type and the person's
+   * role inside it. It satisfies ONLY a feature's tenant scope (`tenantTypes` / `tenantRoles`), never its
+   * platform `roles`. #197 let a tenant role satisfy the platform list, so a garage's own admin was
+   * offered platform-admin navigation. A garage employee who signed up through the product is an
+   * `owner` platform-wide and a `mechanic` in their garage — both facts are true, in two namespaces.
+   */
+  activeTenant?: ActiveTenantScope | null
   /** Tenant id, when multi-tenant scoping applies */
   tenantId?: string | null
   /** Deployment environment */
@@ -151,6 +159,12 @@ export interface NavigationContext {
   coverage?: MarketplaceCoverageResponse | null
   /** Current time (only needed when time-windowed overrides are active) */
   now?: number
+}
+
+/** The verified active organisation, as eligibility needs it (OC-5D). */
+export interface ActiveTenantScope {
+  type: string | null
+  role: string | null
 }
 
 /** Minimal shape of the Marketplace coverage response consumed by nav. */
@@ -234,12 +248,27 @@ export interface FeatureRegistryItem {
   id: string
   /** Display label in navigation */
   label: string
+  /**
+   * A shorter label for space-constrained navigation (the compact bottom bar).
+   *
+   * Optional, and it lives HERE rather than in the bar, because a second place deciding what a
+   * feature is called is how "Garage Customers" and "Customers" become two different features in
+   * someone's head. Absent means the full label is already short enough.
+   */
+  shortLabel?: string
   /** Route path */
   route: string
   /** Product domain this feature belongs to */
   domain: FeatureDomain
-  /** Which roles can access this feature */
+  /** Which PLATFORM roles can access this feature */
   roles: UserRole[]
+  /**
+   * OC-5D — an ORGANISATION's feature: the person's verified active organisation must be one of these
+   * types (e.g. 'garage')… Satisfied only by `NavigationContext.activeTenant`, never by `roles`.
+   */
+  tenantTypes?: readonly string[]
+  /** …and their role inside it one of these (e.g. 'admin', 'mechanic'). Never a platform role. */
+  tenantRoles?: readonly string[]
   /** Where this feature appears in the UI */
   placements: NavPlacement[]
   /** Whether authentication is required */
@@ -328,6 +357,38 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     badge: 'Upload',
     description: 'Upload and manage vehicle evidence photos and documents',
     lifecycle: 'active',
+  },
+  {
+    // OCR 1.0-C3 — the Garage applicant surface. Without this entry the registry-driven route
+    // boundary sends every visitor of /dashboard/garage-setup to /login, so the page exists in
+    // App.tsx but can never render. Same id, label, route and role as PR #209's entry, so the two
+    // lanes converge on one feature rather than two.
+    //
+    // Deliberately NOT "Set Up My Garage": the owner sidebar already carries "My Garage", and a
+    // label containing another label's full text makes every by-text locator in the navigation
+    // suite ambiguous. Named for what the page itself says — "Finish setting up your garage".
+    id: 'owner.garage-setup',
+    label: 'Finish Garage Setup',
+    route: '/dashboard/garage-setup',
+    domain: 'service',
+    roles: ['owner'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Building2',
+    description: 'Apply to operate a garage on CarUp',
+  },
+  {
+    // R3 (PR #197, ported by OC-5D) — the owner must be able to reach a request they made without a
+    // deep link.
+    id: 'owner.service-requests',
+    label: 'My Service Requests',
+    shortLabel: 'Requests',
+    route: '/dashboard/service-requests',
+    domain: 'service',
+    roles: ['owner'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
   },
   {
     id: 'owner.service-history',
@@ -437,6 +498,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'owner.communications',
     label: 'Communications',
+    shortLabel: 'Messages',
     route: '/dashboard/communications',
     domain: 'info',
     roles: ['owner'],
@@ -461,6 +523,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'dealer.inventory',
     label: 'Inventory',
+    shortLabel: 'Inventory',
     route: '/dealer/inventory',
     domain: 'commerce',
     roles: ['dealer'],
@@ -525,6 +588,151 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     owner: 'payments',
   },
 
+  // ─── Garage operator workspace (R5) ────────────────────────────────────
+  // The queue, cases, job cards, assignment and service records were all certified in Service
+  // Network Foundation 1.0 and none had a screen: a garage tenant-member signed in and saw the
+  // OWNER dashboard. OC-5D: these are an ORGANISATION's features — no platform role opens them
+  // (`roles: []`); the verified active garage does, in exactly the roles the backend routes accept
+  // (requireActiveTenant: workspace {admin, mechanic}; the public profile {admin}).
+  {
+    id: 'garage.workshop',
+    label: 'Workshop',
+    route: '/garage',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin', 'mechanic'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
+    description: 'Service requests and jobs for your garage',
+  },
+  {
+    id: 'garage.schedule',
+    label: 'Schedule',
+    route: '/garage/schedule',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin', 'mechanic'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'ClipboardList',
+    description: 'Appointments, workshop capacity and planned workforce availability',
+  },
+  {
+    id: 'garage.customers',
+    label: 'Garage Customers',
+    shortLabel: 'Customers',
+    route: '/garage/customers',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin', 'mechanic'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Users',
+    description: 'Real service customers and Garage relationship metadata',
+  },
+  {
+    id: 'garage.customer-detail',
+    label: 'Garage Customer Detail',
+    route: '/garage/customers/:customerId',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin', 'mechanic'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Users',
+    description: 'Customer relationship and canonical service history',
+  },
+  {
+    id: 'garage.sites',
+    label: 'Sites',
+    route: '/garage/sites',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Building2',
+    description: 'Operating sites, hours and branch responsibility',
+  },
+  {
+    id: 'garage.workforce',
+    label: 'Workforce',
+    route: '/garage/workforce',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Users',
+    description: 'Staff profiles, departments, sites, skills and qualifications',
+  },
+  {
+    // GARAGE-1.0: the garage's parts and stock. Reading is the workspace's (admin + mechanic); managing
+    // stock is the admin's, enforced by the server and by the page.
+    id: 'garage.stock',
+    label: 'Parts and Stock',
+    shortLabel: 'Stock',
+    route: '/garage/stock',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin', 'mechanic'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Package',
+    description: 'Parts on the shelf, counted quantities and the stock history',
+  },
+  {
+    // GARAGE-1.0: the operating view — requireActiveTenant({ types: ['garage'], roles: ['admin'] }).
+    id: 'garage.operations',
+    label: 'Operations',
+    route: '/garage/operations',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'BarChart3',
+    description: 'How the workshop is running, counted from your own records',
+  },
+  {
+    // GMO-6/7 (OC-5E): who works in the garage — invitations, roles, removal. The server's gate is
+    // requireActiveTenant({ types: ['garage'], roles: ['admin'] }); this scope says the same.
+    id: 'garage.team',
+    label: 'Your Team',
+    shortLabel: 'Team',
+    route: '/garage/team',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Users',
+    description: 'Invite the people who work with you, and manage what they can do',
+  },
+  {
+    id: 'garage.profile',
+    label: 'My Garage Page',
+    route: '/garage/profile',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Building2',
+    description: 'What customers see when they find you on CarUp',
+  },
+
   // ─── Mechanic Dashboard ────────────────────────────────────────────────
   {
     id: 'mechanic.overview',
@@ -539,13 +747,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'mechanic.work-orders',
     label: 'Work Orders',
+    shortLabel: 'Jobs',
     route: '/mechanic/work-orders',
     domain: 'service',
     roles: ['mechanic'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ClipboardList',
-    badge: 8,
+    // No badge. This read `badge: 8` — a constant shown to every mechanic on every account,
+    // including one with no work orders at all. Nothing counts work orders for the sidebar, so
+    // the honest number is no number.
   },
   {
     id: 'mechanic.service-logs',
@@ -803,6 +1014,21 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Composed reviewer workspace: evidence classification, seller authority, registration readiness, trust/governance/risk context and the publication requirement matrix for one vehicle.',
   },
   {
+    // O2/P3 — person-centered People & Compliance workspace. A parameterized
+    // route cannot be a sidebar link; it is reached from User Management and
+    // the Identity Verification queue (per-person "Open People Review" link).
+    id: 'admin.people-operations',
+    label: 'People & Compliance',
+    route: '/admin/people/:userId/review',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'UserCog',
+    sidebarGroup: 'People & Compliance',
+    description: 'Composed reviewer workspace: identity verification state, per-vehicle seller authority, ownership and transfers, dealer compliance and the authority decision history for one person — separate facts, never one verified badge.',
+  },
+  {
     id: 'admin.verification',
     label: 'Verification Cases',
     route: '/admin/verification',
@@ -841,6 +1067,22 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'ShieldAlert',
     sidebarGroup: 'Vehicles & Trust',
     description: 'Review and resolve open fraud cases',
+  },
+  {
+    // GMO-3/4 (OC-5E): deciding garage applications and building the workspace of an approved one.
+    // The server's capability is platform administration only (OC-5E owner decision), so the
+    // registry offers it to the platform admin role and nobody else.
+    id: 'admin.garage-applications',
+    label: 'Garage Applications',
+    shortLabel: 'Garages',
+    route: '/admin/garage-applications',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
+    sidebarGroup: 'People',
+    description: 'Review garage applications and create the workspace of an approved one',
   },
   {
     id: 'admin.dealer-compliance',
@@ -1621,6 +1863,12 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['footer'],
     requiresAuth: false,
     icon: 'BookOpen',
+    // PC01-J-R1: the page documents `https://api.carup.dev/v1/vehicles/valuations`, `/v1/inspections`
+    // and `/v1/dealers`. None exists — the partner API is `/api/partner/v1/vehicles/:vin/identity`,
+    // `/trust-summary`, `/source-coverage`, `/dealers/:id/summary` and the rest in
+    // backend/routes/partnerApiRoutes.js. Documentation for endpoints that do not exist is planned,
+    // not active, until it describes the real API.
+    lifecycle: 'planned',
   },
 
   // ─── Auth / Registration Flow Routes ─────────────────────────────────
@@ -1780,6 +2028,67 @@ export function getFeaturesByDomain(domain: FeatureDomain): FeatureRegistryItem[
 export function getDashboardItems(role: UserRole): FeatureRegistryItem[] {
   return FEATURE_REGISTRY.filter(
     f => f.roles.includes(role) && f.placements.includes('dashboard_sidebar')
+  )
+}
+
+/**
+ * OC-5D (F4) — the ONE eligibility rule, shared by visibility, the route gate, the sidebar and the
+ * compact bar: the PLATFORM role satisfies `roles`; the verified active organisation satisfies
+ * `tenantTypes` + `tenantRoles`. Never across the two. Mirrors the backend
+ * (featureGovernanceService.evaluateEffectiveState) — which, with every API route, stays the authority.
+ */
+export function isFeatureRoleEligible(
+  feature: Pick<FeatureRegistryItem, 'roles' | 'tenantTypes' | 'tenantRoles'>,
+  { role, activeTenant }: { role?: UserRole | null; activeTenant?: ActiveTenantScope | null },
+): boolean {
+  if (role && feature.roles.includes(role)) return true
+  const tenantRoles = feature.tenantRoles ?? []
+  if (tenantRoles.length === 0 || !activeTenant?.role) return false
+  if (!tenantRoles.includes(activeTenant.role)) return false
+  const tenantTypes = feature.tenantTypes ?? []
+  return tenantTypes.length === 0 || (activeTenant.type != null && tenantTypes.includes(activeTenant.type))
+}
+
+/** The verified active organisation of a signed-in user, as eligibility reads it (OC-5D). */
+export function activeTenantScopeOf(
+  user?: { active_tenant?: { type?: string | null; role?: string | null } | null } | null,
+): ActiveTenantScope | null {
+  const tenant = user?.active_tenant
+  return tenant ? { type: tenant.type ?? null, role: tenant.role ?? null } : null
+}
+
+/**
+ * Where a person OPERATES (OC-5D): the workspace of the organisation they selected, when the registry
+ * admits them to it; otherwise their platform role's dashboard. One answer for the compact bar and the
+ * mobile drawer — never a tenant role read as a platform role.
+ */
+export function resolveOperatingHome(
+  { role, activeTenant }: { role?: UserRole | null; activeTenant?: ActiveTenantScope | null },
+): string | null {
+  const workshop = FEATURE_REGISTRY.find((f) => f.id === 'garage.workshop')
+  if (workshop && activeTenant && isFeatureRoleEligible({ ...workshop, roles: [] }, { activeTenant })) return workshop.route
+  return role ? getDashboardRoute(role) : null
+}
+
+/** Sidebar items for a person: their platform role's, plus their active organisation's (OC-5D). */
+export function getDashboardItemsFor(
+  { role, activeTenant }: { role: UserRole; activeTenant?: ActiveTenantScope | null },
+): FeatureRegistryItem[] {
+  return FEATURE_REGISTRY.filter(
+    f => f.placements.includes('dashboard_sidebar') && isFeatureRoleEligible(f, { role, activeTenant })
+  )
+}
+
+/**
+ * PC01-K1 — the account menu's destinations, from the registry's `user_menu` placement and the same
+ * role/tenant eligibility as the sidebar. The menu used to hard-code "My Garage" and "Gutu AI" for
+ * every role, so an admin was offered owner pages the route boundary then bounced them away from.
+ */
+export function getUserMenuItemsFor(
+  { role, activeTenant }: { role: UserRole; activeTenant?: ActiveTenantScope | null },
+): FeatureRegistryItem[] {
+  return FEATURE_REGISTRY.filter(
+    f => f.placements.includes('user_menu') && isFeatureRoleEligible(f, { role, activeTenant })
   )
 }
 
@@ -1975,7 +2284,7 @@ export function resolveFeatureVisibility(
   } else if (!ctx.isAuthenticated || !ctx.role) {
     roleEligible = false
   } else {
-    roleEligible = feature.roles.includes(ctx.role)
+    roleEligible = isFeatureRoleEligible(feature, { role: ctx.role, activeTenant: ctx.activeTenant })
   }
 
   const lifecycleVisible = isLifecycleVisible(state)
@@ -2019,6 +2328,9 @@ export interface FeatureManifestEntry {
   requiresAuth: boolean
   betaCapable: boolean
   deprecatedTo?: string
+  /** OC-5D — an organisation's feature: evaluated by the backend against the verified active tenant. */
+  tenantTypes?: string[]
+  tenantRoles?: string[]
 }
 
 /** Build the deterministic, sorted governance manifest from the registry. */
@@ -2036,6 +2348,9 @@ export function buildFeatureManifest(): FeatureManifestEntry[] {
         betaCapable: true,
       }
       if (f.deprecatedTo) entry.deprecatedTo = f.deprecatedTo
+      // OC-5D: the tenant scope travels with the manifest so the backend evaluates the same rule.
+      if (f.tenantTypes?.length) entry.tenantTypes = [...f.tenantTypes].sort()
+      if (f.tenantRoles?.length) entry.tenantRoles = [...f.tenantRoles].sort()
       return entry
     })
     .sort((a, b) => a.id.localeCompare(b.id))

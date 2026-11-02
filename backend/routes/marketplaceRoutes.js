@@ -22,12 +22,8 @@ import {
   emitSearchPerformed,
   emitListingOpened,
 } from '../services/intelligence/marketplaceActivityEmitters.js';
-import {
-  listingDraft,
-  buyerAssistant,
-  priceEstimate,
-  shareCopy,
-} from '../services/marketplace/marketplaceAiAssistantService.js';
+import { listingDraft, buyerAssistant, priceEstimate, shareCopy, NO_PAID_INFERENCE } from '../services/marketplace/marketplaceAiAssistantService.js';
+import { isFixtureRuntime } from '../utils/runtimeEnvironment.js';
 
 const router = express.Router();
 
@@ -38,11 +34,11 @@ const asyncHandler = (fn) => (req, res, next) => {
 const aiLimiter = rateLimiter({ max: 20, windowMs: 60 * 1000, isSensitive: true });
 const inquiryLimiter = rateLimiter({ max: 15, windowMs: 60 * 1000, isSensitive: true });
 
-/** Explicit Seller automation fixture scope for PREVIEW/TEST traffic only. */
-function sellerAutomationFixtureScope(req) {
+/** Explicit Seller automation fixture scope for PREVIEW/TEST traffic only. Exported for the B1 boundary test. */
+export function sellerAutomationFixtureScope(req) {
   const scope = String(req.query?.fixture_scope ?? '').trim();
   if (!scope || !/^seller-[0-9]+-[0-9]+$/.test(scope)) return null;
-  const previewLike = process.env.NODE_ENV === 'test' || process.env.VERCEL_ENV === 'preview';
+  const previewLike = isFixtureRuntime(process.env) || process.env.VERCEL_ENV === 'preview';
   return previewLike ? scope : null;
 }
 
@@ -200,21 +196,34 @@ async function resolveSummaryForAi(body) {
   return body || {};
 }
 
-router.post('/api/marketplace/ai/listing-draft', aiLimiter, asyncHandler(async (req, res) => {
-  res.json(await listingDraft(req.body || {}));
+/**
+ * Paid inference needs a PROVEN caller (OC-3E-W1). These four routes are public — the buyer
+ * assistant sits on the Landing page — so an anonymous request, or one whose identity is only
+ * asserted (the dev/test x-user-id fallback), gets the deterministic answer each route already gives
+ * when AI is unavailable, marked ai_reason='sign_in_required', and spends no provider capacity.
+ * A session-proven caller gets advisory AI through the canonical gateway, still rate limited.
+ */
+function inferenceDepsFor(req) {
+  return req.userContext?.authenticationMethod === 'session' ? {} : NO_PAID_INFERENCE;
+}
+
+router.post('/api/marketplace/ai/listing-draft', aiLimiter, optionalAuth(), asyncHandler(async (req, res) => {
+  res.json(await listingDraft(req.body || {}, inferenceDepsFor(req)));
 }));
 
-router.post('/api/marketplace/ai/buyer-assistant', aiLimiter, asyncHandler(async (req, res) => {
-  res.json(await buyerAssistant(req.body || {}));
+router.post('/api/marketplace/ai/buyer-assistant', aiLimiter, optionalAuth(), asyncHandler(async (req, res) => {
+  res.json(await buyerAssistant(req.body || {}, inferenceDepsFor(req)));
 }));
 
-router.post('/api/marketplace/ai/price-estimate', aiLimiter, asyncHandler(async (req, res) => {
+// OC-5R-REL-01: no valuation provider exists, so this route spends no inference for ANY caller —
+// it returns the deterministic cost estimate with valuation_status 'not_configured'.
+router.post('/api/marketplace/ai/price-estimate', aiLimiter, optionalAuth(), asyncHandler(async (req, res) => {
   const listingSummary = await resolveSummaryForAi(req.body);
   res.json(await priceEstimate({ listingSummary, listingType: req.body?.listingType || 'vehicle' }));
 }));
 
-router.post('/api/marketplace/ai/share-copy', aiLimiter, asyncHandler(async (req, res) => {
-  res.json(await shareCopy(req.body || {}));
+router.post('/api/marketplace/ai/share-copy', aiLimiter, optionalAuth(), asyncHandler(async (req, res) => {
+  res.json(await shareCopy(req.body || {}, inferenceDepsFor(req)));
 }));
 
 export default router;

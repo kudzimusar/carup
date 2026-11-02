@@ -147,6 +147,21 @@ describe('VehicleSearch de-mock (no fabricated inventory)', () => {
     expect(screen.queryAllByTestId('vehicle-search-result')).toHaveLength(0)
   })
 
+  it('never reports a failed search as zero results, and retries the same search (OC-LAUNCH R1)', async () => {
+    fetchMarketplaceListings.mockRejectedValueOnce(new Error('backend down'))
+    renderSearch()
+    await waitFor(() => expect(screen.getByTestId('vehicle-search-error')).toBeTruthy(), SETTLE)
+    expect(document.body.textContent || '').not.toMatch(/\b0 vehicles found/)
+    expect(screen.queryByTestId('vehicle-search-empty')).toBeNull()
+    const firstQuery = fetchMarketplaceListings.mock.calls.at(-1)?.[0]
+
+    fetchMarketplaceListings.mockResolvedValue({ listings: [liveListing], total: 1, limit: 60 })
+    fireEvent.click(screen.getByTestId('vehicle-search-retry'))
+    await waitFor(() => expect(screen.getByTestId('vehicle-search-result')).toBeTruthy(), SETTLE)
+    expect(fetchMarketplaceListings.mock.calls.at(-1)?.[0]).toEqual(firstQuery)
+    expect(screen.queryByTestId('vehicle-search-error')).toBeNull()
+  })
+
   it('tries the passport lookup for identifier-shaped queries and deep-links a publicly listed match', async () => {
     lookupVehiclePassport.mockResolvedValue({
       vehicle: { vin: 'JH4KA8260MC000000', make: 'Honda', model: 'Legend', year: 1991 },
@@ -213,5 +228,28 @@ describe('looksLikeIdentifier heuristic', () => {
     expect(looksLikeIdentifier('toyota corolla')).toBe(false)
     expect(looksLikeIdentifier('AE123')).toBe(false)
     expect(looksLikeIdentifier('')).toBe(false)
+  })
+})
+
+describe('PC01-J-R1 — a refused restricted lookup is answered, not swallowed', () => {
+  it('tells a guest that a frame-number search needs sign-in, with a way back here', async () => {
+    lookupVehiclePassport.mockRejectedValue(Object.assign(new Error('Sign in to look up a vehicle by plate…'), { status: 401, code: 'LOOKUP_REQUIRES_AUTHENTICATION' }))
+    renderSearch()
+    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled(), SETTLE)
+
+    fireEvent.change(screen.getByTestId('vehicle-search-input'), { target: { value: 'GFC27-027051' } })
+
+    const prompt = await screen.findByTestId('vehicle-search-signin-required', {}, SETTLE)
+    expect(prompt).toHaveTextContent('needs a CarUp account')
+    expect(prompt.querySelector('a')?.getAttribute('href')).toBe('/login?returnTo=%2Fsearch')
+  })
+
+  it('says nothing about sign-in when a lookup simply finds no record', async () => {
+    renderSearch()
+    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled(), SETTLE)
+    fireEvent.change(screen.getByTestId('vehicle-search-input'), { target: { value: 'JH4KA8260MC000009' } })
+    await waitFor(() => expect(lookupVehiclePassport).toHaveBeenCalledWith('JH4KA8260MC000009'), SETTLE)
+    await waitFor(() => expect(fetchMarketplaceListings.mock.calls.length).toBeGreaterThan(1), SETTLE)
+    expect(screen.queryByTestId('vehicle-search-signin-required')).toBeNull()
   })
 })

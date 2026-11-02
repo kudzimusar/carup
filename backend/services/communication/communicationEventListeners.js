@@ -21,6 +21,13 @@ export const COMMUNICATION_EVENT_TYPES = [
   'evidence.review.decided',
   // Operations M2 — governed Seller Authority decisions reach the seller.
   'seller.authority.decided',
+  // O2/P5 — governed Dealer Compliance decisions reach the dealer (ported by OC-4D from #208; the
+  // payload is the privacy-corrected O2-X6 shape — no reviewer free text).
+  'dealer.compliance.decided',
+  // O2-X6 (ported by OC-5C) — semantic People events: domains emit, Communications owns delivery.
+  'identity.lifecycle.changed',
+  'dealer.compliance.evidence_required',
+  'seller.authority.superseded',
   // R4 — the marketplace transaction stages. Emitted by `issue164_transition_session_atomic` into
   // `domain_events` since Issue #164 Phase 6, and never subscribed until now: the transitions
   // happened and the customer was never told. These are the CURRENT canonical authority's events,
@@ -90,6 +97,30 @@ export const COMMUNICATION_EVENT_TYPES = [
   // inline in the verification route and its failure swallowed, which permanently lost the welcome
   // for that account because the verification token is single-use and already consumed.
   'user.email.verified',
+  // Service Network O5 — the garage-side decisions the CUSTOMER is waiting on. Each is a governed
+  // transition on a case the recipient opened, addressed to `requester_user_id`, delivered through
+  // this canonical pipeline rather than any Service-Network-specific channel.
+  //
+  // 'service.case.requested' and 'service.case.cancelled' are intentionally ABSENT. Their audience
+  // is the garage tenant, and Communications addresses a user rather than a tenant; picking a
+  // member to stand in for the organization would be a guess. They stay emitted and unsubscribed
+  // until a governed tenant-recipient model exists — the same discipline the ESCROW_* note above
+  // records, and the reason this list is a deliberate registry rather than a wildcard.
+  'service.case.accepted',
+  'service.case.declined',
+  'service.work.started',
+  'service.case.completed',
+  // GARAGE-1.0 — the customer-facing steps of the garage's commercial lifecycle, through the same
+  // canonical pipeline. Audience: the person the work is for. The garage-side counterparts (a customer
+  // accepting an estimate, a payment received) are deliberately NOT subscribed: their audience is the
+  // garage tenant, and Communications addresses a user, not a tenant.
+  'garage.estimate.sent',
+  'garage.invoice.issued',
+  'garage.payment.recorded',
+  'garage.appointment.confirmed',
+  'garage.appointment.rescheduled',
+  'garage.appointment.declined',
+  'garage.appointment.cancelled',
 ];
 
 let registered = false;

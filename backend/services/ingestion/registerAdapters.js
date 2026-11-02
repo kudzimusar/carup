@@ -6,11 +6,14 @@
  */
 import { registerProvider } from './sourceProvider.js';
 import { sandboxJpAuctionAdapter } from './adapters/sandboxJpAuctionAdapter.js';
+import { isProductionLikeRuntime } from '../../utils/runtimeEnvironment.js';
 
 let registered = false;
 export function registerAllAdapters() {
   if (registered) return;
-  registerProvider(sandboxJpAuctionAdapter);
+  // Fixture ingestion is local/test only. A deployed runtime reports the provider unavailable until
+  // a real authenticated auction adapter is selected.
+  if (!isProductionLikeRuntime(process.env)) registerProvider(sandboxJpAuctionAdapter);
   registered = true;
 }
 

@@ -3,11 +3,19 @@ import { View, Text, Pressable, ActivityIndicator, FlatList, RefreshControl, Scr
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
 import { useRouter } from 'expo-router';
-import { captureOdometerPhoto, formatFileSize } from '../../utils/camera';
-import { apiUrl } from '../../utils/apiBase';
+import { captureOdometerPhoto } from '../../utils/camera';
+import { apiUrl, resolveApiBaseUrl } from '../../utils/apiBase';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 import { useUploadQueueStore } from '../../store/uploadQueueStore';
 import { drainUploadQueue, makeHttpUploader } from '../../utils/uploadQueueDrain';
+import type { OwnerServiceHistoryEntry } from '@shared/types';
+import { toServiceLogView } from '../../utils/serviceHistoryView';
+import {
+  ODOMETER_NATIVE_EVIDENCE_TYPE,
+  odometerOutcomeMessage,
+  requestOdometerReading,
+  type OdometerReadingOutcome,
+} from '../../utils/odometerCapture';
 
 interface Vehicle {
   vin: string;
@@ -24,18 +32,8 @@ interface Vehicle {
   currency: string;
 }
 
-interface ServiceLog {
-  id: string;
-  vin: string;
-  description: string;
-  cost: number;
-  mileage: number;
-  status: string;
-  created_at: string;
-  mechanic_id: string;
-  work_type?: string;
-  parts_replaced?: string;
-}
+// OC-5D (P6): GET /api/service-history/me, held to shared/contracts/owner-service-history.v1.contract.json.
+type ServiceLog = OwnerServiceHistoryEntry;
 
 function GarageScreenInner() {
   const router = useRouter();
@@ -46,18 +44,21 @@ function GarageScreenInner() {
   const [activeTab, setActiveTab] = useState<'vehicles' | 'history'>('vehicles');
   const [scanningVin, setScanningVin] = useState<string | null>(null);
 
-  // Restore any durable offline queue on mount, then attempt to drain it (best-effort).
+  // Restore any durable offline queue on mount, then attempt to drain it (best-effort). A queued
+  // odometer capture that uploads now also gets its governed OCR read (OC-4C).
   useEffect(() => {
     let cancelled = false;
     (async () => {
       await hydrateQueue();
       if (cancelled || !user?.id) return;
       try {
-        const { resolveApiBaseUrl } = await import('../../utils/apiBase');
         const base = resolveApiBaseUrl();
         await drainUploadQueue({
           resolvePayload: async (item) => item.localFileRef || null,
           uploadOne: makeHttpUploader(base, token),
+          onUploaded: async (item, evidenceId) => {
+            if (item.evidenceType === ODOMETER_NATIVE_EVIDENCE_TYPE) await requestOdometerReading(base, token, item.vin, evidenceId);
+          },
         });
       } catch { /* offline / unconfigured — items remain queued for the next attempt */ }
     })();
@@ -110,6 +111,10 @@ function GarageScreenInner() {
     }
   };
 
+  // OC-4C: capture → durable queue FIRST → idempotent evidence upload → governed vehicle-evidence OCR
+  // (Document Intelligence → Qwen) → a candidate reading pending review. It used to POST the photo to the
+  // retired /api/ai/ocr (a 410) and then tell the owner the image had been "saved for manual review",
+  // which it had not. The reading never changes the vehicle's mileage; the app never calls a model.
   const handleOdometerScan = useCallback(async (vin: string) => {
     if (scanningVin) return; // Prevent double-tap
 
@@ -125,73 +130,50 @@ function GarageScreenInner() {
         return;
       }
 
-      // Submit captured odometer image to the backend OCR service
-      try {
-        const response = await fetch(apiUrl('/api/ai/ocr'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': 'true',
-            ...(token ? { 'x-session-token': token } : {}),
-          },
-          body: JSON.stringify({
-            docType: 'odometer_reading',
-            base64Data: asset.dataUri,
-          }),
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          const extractedMileage = result.extractedData?.mileage || 'N/A';
-
-          Alert.alert(
-            'Odometer Scan Complete',
-            `VIN: ${vin}\nExtracted Mileage: ${extractedMileage}\nImage Size: ${formatFileSize(asset.fileSizeBytes)}`,
-            [
-              {
-                text: 'View Trust Passport',
-                onPress: () => router.push(`/vehicle/${vin}`),
-              },
-              { text: 'Done', style: 'cancel' },
-            ]
-          );
-        } else {
-          // Backend error — show manual entry fallback
-          Alert.alert(
-            'OCR Processing Error',
-            'The odometer reading could not be extracted automatically. The image has been saved for manual review.',
-            [{ text: 'OK' }]
-          );
-        }
-      } catch (networkErr) {
-        // Network failure — persist the capture to the durable offline queue so it survives
-        // app restart and is uploaded once (server-side idempotent) when connectivity returns.
-        let queuedNote = '';
-        if (user?.id) {
-          const checksum = `${asset.fileSizeBytes}:${(asset.dataUri || '').slice(-32)}`;
-          enqueueUpload({
-            userId: user.id,
-            tenantId: (user as { tenantId?: string }).tenantId || 'default',
-            vin,
-            evidenceType: 'odometer_reading',
-            localFileRef: asset.dataUri,
-            checksum,
-          });
-          queuedNote = ' It is saved to your device and will upload once, automatically, when you are back online.';
-        }
-        Alert.alert(
-          'Offline Mode',
-          `Odometer image captured (${formatFileSize(asset.fileSizeBytes)}) and queued for upload.${queuedNote}`,
-          [{ text: 'OK' }]
-        );
+      if (!user?.id) {
+        Alert.alert('Sign in required', 'Sign in to save an odometer photo to your vehicle.', [{ text: 'OK' }]);
+        return;
       }
+
+      // Capture-first: the photo is queued durably BEFORE any network call, so it survives a failed
+      // request, an app restart or no signal at all. The queue dedupes the same capture.
+      const queued = enqueueUpload({
+        userId: user.id,
+        tenantId: (user as { tenantId?: string }).tenantId || 'default',
+        vin,
+        evidenceType: ODOMETER_NATIVE_EVIDENCE_TYPE,
+        localFileRef: asset.dataUri,
+        checksum: `${asset.fileSizeBytes}:${(asset.dataUri || '').slice(-32)}`,
+      });
+
+      let outcome: OdometerReadingOutcome = { kind: 'queued' };
+      try {
+        const base = resolveApiBaseUrl();
+        await drainUploadQueue({
+          resolvePayload: async (item) => item.localFileRef || null,
+          uploadOne: makeHttpUploader(base, token),
+          onUploaded: async (item, evidenceId) => {
+            if (item.evidenceType !== ODOMETER_NATIVE_EVIDENCE_TYPE) return;
+            const read = await requestOdometerReading(base, token, item.vin, evidenceId);
+            if (item.localId === queued.localId) outcome = read;
+          },
+        });
+      } catch {
+        // Offline or unconfigured: the capture stays queued and uploads on the next drain.
+      }
+
+      const message = odometerOutcomeMessage(outcome);
+      Alert.alert(message.title, `VIN: ${vin}\n${message.body}`, [
+        { text: 'View Trust Passport', onPress: () => router.push(`/vehicle/${vin}`) },
+        { text: 'Done', style: 'cancel' },
+      ]);
     } catch (err) {
       console.error('[Garage] Odometer scan error:', err);
       Alert.alert('Camera Error', 'Could not launch camera. Please try again.', [{ text: 'OK' }]);
     } finally {
       setScanningVin(null);
     }
-  }, [scanningVin, token, router]);
+  }, [scanningVin, token, router, user, enqueueUpload]);
 
   const handleKycScan = () => {
     // Navigate to introductory KYC flow
@@ -268,30 +250,40 @@ function GarageScreenInner() {
   };
 
   const renderServiceLog = ({ item }: { item: ServiceLog }) => {
+    // Everything shown comes from the contract through one null-safe view (F1: `item.cost` never existed).
+    const view = toServiceLogView(item);
     return (
       <View className="bg-white border border-slate-100 rounded-2xl p-5 mb-4 shadow-sm">
         <View className="flex-row justify-between items-start">
           <View className="flex-1 pr-4">
-            <Text className="text-slate-400 text-xxs font-bold uppercase">VIN: {item.vin.slice(0, 8)}</Text>
-            <Text className="text-slate-900 text-base font-bold mt-0.5">{item.description}</Text>
-            <Text className="text-slate-400 text-xxs mt-0.5">{new Date(item.created_at).toLocaleDateString()}</Text>
+            <Text className="text-slate-400 text-xxs font-bold uppercase">{view.vinLabel}</Text>
+            <Text className="text-slate-900 text-base font-bold mt-0.5">{view.title}</Text>
+            <Text className="text-slate-400 text-xxs mt-0.5">{view.dateLabel}</Text>
           </View>
-          <View className="bg-slate-900 px-3 py-1 rounded-full">
-            <Text className="text-white text-xxs font-bold">${item.cost.toLocaleString()}</Text>
+          <View className={view.costRecorded ? 'bg-slate-900 px-3 py-1 rounded-full' : 'bg-slate-100 px-3 py-1 rounded-full'}>
+            <Text className={view.costRecorded ? 'text-white text-xxs font-bold' : 'text-slate-500 text-xxs font-semibold'}>{view.costLabel}</Text>
           </View>
         </View>
 
         <View className="h-px bg-slate-100 my-3" />
 
         <View className="space-y-1.5 bg-slate-50 p-3 rounded-xl">
-          <View className="flex-row justify-between">
-            <Text className="text-slate-400 text-xxs font-semibold">Replaced Parts</Text>
-            <Text className="text-slate-700 text-xs font-medium">{item.parts_replaced || 'General Maintenance'}</Text>
-          </View>
+          {view.detail ? (
+            <View className="flex-row justify-between">
+              <Text className="text-slate-400 text-xxs font-semibold">{view.detail.label}</Text>
+              <Text className="text-slate-700 text-xs font-medium">{view.detail.value}</Text>
+            </View>
+          ) : null}
           <View className="flex-row justify-between mt-1">
-            <Text className="text-slate-400 text-xxs font-semibold">Log State</Text>
-            <Text className="text-emerald-600 text-xs font-bold uppercase tracking-wider">{item.status || 'Verified'}</Text>
+            <Text className="text-slate-400 text-xxs font-semibold">Status</Text>
+            <Text className="text-slate-700 text-xs font-bold uppercase tracking-wider">{view.statusLabel}</Text>
           </View>
+          {view.authorizationLabel ? (
+            <View className="flex-row justify-between mt-1">
+              <Text className="text-slate-400 text-xxs font-semibold">Authorization</Text>
+              <Text className="text-slate-700 text-xs font-medium">{view.authorizationLabel}</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     );

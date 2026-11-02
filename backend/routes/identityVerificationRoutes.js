@@ -1,5 +1,6 @@
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
+import ocrConvergenceRouter from './ocrConvergenceRoutes.js';
 import {
   createVerificationSession,
   getLatestVerificationSessionForUser,
@@ -9,6 +10,14 @@ import {
 } from '../services/identity/verificationSessionService.js';
 
 const router = express.Router();
+
+// OCR Path Convergence. This router carries absolute paths and is mounted (prefix-less, via
+// app.use(identityVerificationRouter)) ahead of both the generic /api/ai router and the Diaspora
+// router, so the two retired endpoints fail closed with 410 before their historical handlers can
+// run, and the governed vehicle-evidence run-ocr entry point is exposed. Route ordering is only
+// the outer layer of that defence: runOcrParsing() and recordDocumentExtraction() also fail
+// closed at the service level, so there is no callable backdoor even if a route were reordered.
+router.use(ocrConvergenceRouter);
 
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);

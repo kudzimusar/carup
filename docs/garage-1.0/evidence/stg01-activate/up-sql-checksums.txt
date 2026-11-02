@@ -1,0 +1,5 @@
+1c2a00ce5f736e57  39336 20261024100000_garage_ops04_estimates_and_authorization.sql
+e8cb75d15deea7b1  10913 20261024110000_garage_ops05_workshop_execution_gates.sql
+a9d01375bde63c89  34871 20261024120000_garage_ops06_parts_stock.sql
+fcd4cac3a1c58a94  35882 20261024130000_garage_ops07_invoice_payment_receipt.sql
+3f6f8f653dc26019   5144 20261024140000_garage_communications_events_and_template.sql

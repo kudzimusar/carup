@@ -1,68 +1,53 @@
-import { CommunicationGeminiProvider } from './communicationGeminiProvider.js';
+import { CommunicationAiAssistProvider } from './communicationAiAssistProvider.js';
 import { CommunicationGroqProvider } from './communicationGroqProvider.js';
 
 /**
- * Choose the Communications AI provider explicitly.
+ * Build the Communications AI provider (OC-4B, AI wave 2).
  *
- * The canonical plan is provider-neutral: it requires a real provider, labelled derivations,
- * preserved originals and governed high-risk decisions — not one named vendor. Wiring
- * `new CommunicationGeminiProvider()` straight into the service factory made one vendor a release
- * dependency, which is what this boundary removes.
+ * GENERAL TEXT always runs on the CarUp AI gateway (Cloudflare Gemma) through the domain adapter.
+ * No environment variable selects another text vendor: the general model is a platform decision
+ * (aiRuntimeConfig), not a per-domain one.
  *
- * Selection is explicit and never silently substituted. If the configured provider is unavailable,
- * health().available is false and the AI endpoints fail closed with the existing governed 503 —
- * falling back to a different vendor would quietly send content to a service the operator did not
- * choose, and would make an outage look like a success.
+ * COMMUNICATION_AI_PROVIDER now selects only the MEDIA provider — the one capability that is
+ * genuinely multimodal (MULTIMODAL DEFERRED: it has not converged on the gateway yet):
+ *   groq    the default, and the provider Communications 2.0 certified on staging (Whisper audio;
+ *           vision only where the account has a vision model).
+ *   gemini  RETIRED. Communications 2.0 shipped with "Gemini = NOT REQUIRED"; general text now runs on
+ *           the gateway, so it has no remaining role, and a key becoming available must not quietly
+ *           bring it back.
+ * Selection is explicit and never silently substituted: an unknown or retired value leaves media
+ * analysis unavailable (governed 503) and says why in health().media.reason. Text is unaffected.
  */
 
-const PROVIDERS = {
+const MEDIA_PROVIDERS = {
   groq: (options) => new CommunicationGroqProvider(options),
-  gemini: (options) => new CommunicationGeminiProvider(options),
 };
 
-export const SUPPORTED_AI_PROVIDERS = Object.keys(PROVIDERS);
+const RETIRED_MEDIA_PROVIDERS = {
+  gemini: 'COMMUNICATION_AI_PROVIDER="gemini" is retired (OC-4B): Communications general text runs on the CarUp AI ' +
+    'gateway, and media analysis runs on the explicitly configured media provider (groq).',
+};
 
-/**
- * An unconfigured provider still has to answer health() and fail closed on generate(), because the
- * health endpoint must be able to report "unconfigured" rather than throw, and every AI route must
- * refuse rather than fabricate.
- */
-class UnconfiguredCommunicationAiProvider {
-  constructor(reason) {
-    this.provider = null;
-    this.model = null;
-    this.reason = reason;
-  }
+/** The supported MEDIA providers. General text has exactly one route: the CarUp AI gateway. */
+export const SUPPORTED_AI_PROVIDERS = Object.keys(MEDIA_PROVIDERS);
 
-  health() {
-    return { provider: null, model: null, available: false, mode: 'unconfigured', multimodal: false, reason: this.reason };
-  }
-
-  async generate() {
-    const error = new Error(this.reason);
-    error.statusCode = 503;
-    error.code = 'communication_ai_provider_unavailable';
-    throw error;
-  }
-}
-
-export function createCommunicationAiProvider({ env = process.env, ...options } = {}) {
+export function createCommunicationAiProvider({ env = process.env, gateway = null, ...options } = {}) {
   const configured = String(env.COMMUNICATION_AI_PROVIDER || '').trim().toLowerCase();
-
-  // Default only when nothing is configured, and default to the provider this release certifies.
-  // An unrecognised value is a configuration error, not an invitation to guess.
   const name = configured || 'groq';
-  const build = PROVIDERS[name];
-  if (!build) {
-    return new UnconfiguredCommunicationAiProvider(
-      `COMMUNICATION_AI_PROVIDER="${configured}" is not a supported Communications AI provider (${SUPPORTED_AI_PROVIDERS.join(', ')}).`,
-    );
+
+  let mediaProvider = null;
+  let mediaUnavailableReason = null;
+  if (RETIRED_MEDIA_PROVIDERS[name]) {
+    mediaUnavailableReason = RETIRED_MEDIA_PROVIDERS[name];
+  } else if (!MEDIA_PROVIDERS[name]) {
+    mediaUnavailableReason = `COMMUNICATION_AI_PROVIDER="${configured}" is not a supported Communications media provider (${SUPPORTED_AI_PROVIDERS.join(', ')}).`;
+  } else {
+    // Constructed but keyless is still a real configuration answer: its health() reports
+    // available:false and generate() throws the governed 503. Reported, never swapped.
+    mediaProvider = MEDIA_PROVIDERS[name](options);
   }
 
-  const provider = build(options);
-  // Constructed but keyless is still a real configuration answer: health() reports available:false
-  // and generate() throws the governed 503. Reported here rather than swapped for another vendor.
-  return provider;
+  return new CommunicationAiAssistProvider({ gateway, mediaProvider, mediaUnavailableReason });
 }
 
 export default createCommunicationAiProvider;

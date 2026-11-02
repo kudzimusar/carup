@@ -1,0 +1,97 @@
+[
+ {
+  "name": "estimates: every accepted one is the customer owner-decision and its work order is authorized",
+  "pass": true,
+  "detail": "1 accepted"
+ },
+ {
+  "name": "estimates: every declined one left its work order declined",
+  "pass": true,
+  "detail": "1 declined"
+ },
+ {
+  "name": "estimates: frozen sent total == sum of stored lines (server-derived), all sent versions",
+  "pass": true,
+  "detail": "2 sent versions"
+ },
+ {
+  "name": "service records: each was written after the customer authorized its work order",
+  "pass": true,
+  "detail": "1 records"
+ },
+ {
+  "name": "declined jobs: no service record exists on any declined work order",
+  "pass": true,
+  "detail": "1 declined work orders"
+ },
+ {
+  "name": "declined jobs: no invoice exists on any declined work order",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "name": "stock: every movement is balance_before + delta = balance_after",
+  "pass": true,
+  "detail": "3 movements"
+ },
+ {
+  "name": "stock: each part ledger is a continuous chain (no gaps, no overwrite)",
+  "pass": true,
+  "detail": "1 parts"
+ },
+ {
+  "name": "parts used: each usage row is backed by a matching consume movement",
+  "pass": true,
+  "detail": "1 usages"
+ },
+ {
+  "name": "stock: the golden parts end at 11 (10 opening + 5 received − 4 used)",
+  "pass": true,
+  "detail": "final balances: 11"
+ },
+ {
+  "name": "invoices: total == sum of lines",
+  "pass": true,
+  "detail": "1 invoices"
+ },
+ {
+  "name": "payments: every one is labelled garage_recorded_external (never CarUp-processed)",
+  "pass": true,
+  "detail": "2 payments"
+ },
+ {
+  "name": "payments: none exceeds its invoice total",
+  "pass": true,
+  "detail": ""
+ },
+ {
+  "name": "receipts: exactly one per payment, same amount, same source",
+  "pass": true,
+  "detail": "2 receipts"
+ },
+ {
+  "name": "numbering: invoice numbers are consecutive with no gaps",
+  "pass": true,
+  "detail": "INV-000006"
+ },
+ {
+  "name": "numbering: receipt numbers are consecutive with no gaps",
+  "pass": true,
+  "detail": "RCT-000010 RCT-000011"
+ },
+ {
+  "name": "counters: stored counters equal the highest issued number",
+  "pass": true,
+  "detail": "[[\"invoice\",6],[\"receipt\",11]]"
+ },
+ {
+  "name": "completed jobs: each has a service record and an assignment",
+  "pass": true,
+  "detail": "1 completed"
+ },
+ {
+  "name": "outbox: every Garage event carries a dedupe key",
+  "pass": true,
+  "detail": "6 events"
+ }
+]

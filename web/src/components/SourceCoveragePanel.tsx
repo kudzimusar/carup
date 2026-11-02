@@ -36,13 +36,16 @@ export function SourceCoveragePanel({ vin, initialData }: { vin: string; initial
   const { fetchVehicleSourceCoverage } = useCarUpApi()
   const [data, setData] = useState<SourceCoverageEntry[] | null>(initialData ?? null)
   const [loading, setLoading] = useState(!initialData)
+  // A failed read is not an empty result. Turning it into `[]` rendered all five sources as
+  // "Not yet checked" — a statement about the vehicle that nobody made (PC01-J-R1).
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     if (initialData) return
     let cancelled = false
     fetchVehicleSourceCoverage(vin)
       .then((r) => { if (!cancelled) setData(r.coverage || []) })
-      .catch(() => { if (!cancelled) setData([]) })
+      .catch(() => { if (!cancelled) setFailed(true) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [vin, fetchVehicleSourceCoverage, initialData])
@@ -52,6 +55,17 @@ export function SourceCoveragePanel({ vin, initialData }: { vin: string; initial
       <Card className="border-0 card-shadow" data-testid="source-coverage-loading">
         <CardHeader className="pb-2"><Skeleton className="h-5 w-56" /></CardHeader>
         <CardContent className="space-y-2">{[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-10 w-full" />)}</CardContent>
+      </Card>
+    )
+  }
+
+  if (failed) {
+    return (
+      <Card className="border-0 card-shadow py-0" data-testid="source-coverage-unavailable">
+        <CardContent className="p-5 text-sm text-gray-600">
+          CarUp could not load its government and partner source checks for this vehicle just now. This is
+          not a result about the vehicle.
+        </CardContent>
       </Card>
     )
   }

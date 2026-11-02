@@ -650,15 +650,21 @@ export function toListingMediaBlock(rows) {
       unpublishable += 1;
       return;
     }
+    // Historical reference/demo assets are not publishable product truth. Keep the row counted as
+    // unpublishable so callers can distinguish "no media published" from "no row existed", but
+    // never emit the synthetic URL on a marketplace, passport or owner-runtime projection.
+    if (String(row.image_url).includes('/marketplace-reference-synthetic/')) {
+      unpublishable += 1;
+      return;
+    }
+
     identitiesTaken.add(mediaId);
     candidates.push({
       mediaId,
       url: String(row.image_url).trim(),
       form,
       claimsPrimary: row?.is_primary === true,
-      // Synthetic reference media lives under a dedicated CarUp storage prefix. This marker is
-      // presentation provenance only; it confers no verification status and is never a Trust input.
-      syntheticDemo: String(row.image_url).includes('/marketplace-reference-synthetic/'),
+      syntheticDemo: false,
       // Seller-authored presentation metadata only. A label is not evidence, verification or Trust.
       photoLabel: typeof row?.photo_label === 'string' && row.photo_label.trim() !== ''
         ? row.photo_label.trim().slice(0, 80)

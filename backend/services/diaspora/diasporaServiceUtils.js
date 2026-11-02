@@ -8,6 +8,7 @@
  */
 import { buildAuditSeal } from './diasporaAuditService.js';
 import { DatabaseError } from '../../utils/errors.js';
+import { logger } from '../../utils/logger.js';
 
 export async function resolveClient(options = {}) {
   if (options.supabaseClient) return options.supabaseClient;
@@ -77,13 +78,20 @@ export async function appendCriticalAudit(client, fields) {
   return data;
 }
 
-/** Best-effort audit — never throws; used for telemetry / descriptive create/update. */
+/**
+ * Best-effort audit — never throws; used for telemetry / descriptive create/update and read audits.
+ *
+ * OC-4A: best effort is not the same as silent. The failure used to be logged everywhere EXCEPT
+ * production (the warning was gated on the environment), so in the one environment where an audit row
+ * matters a failed write vanished without a trace. It is now a structured warning in every environment, with the
+ * action and resource type only (no row data, no PII).
+ */
 export async function appendBestEffortAudit(client, fields) {
   const { data, error } = await writeAuditRow(client, fields);
   if (error) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn(`[diaspora audit] best-effort write failed for ${fields.action}: ${error.message}`);
-    }
+    logger.warn('AUDIT', 'best-effort diaspora audit write failed', {
+      action: fields.action, resource_type: fields.resourceType ?? null, code: error.code ?? null, error_message: error.message,
+    });
     return null;
   }
   return data;

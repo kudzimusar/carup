@@ -31,7 +31,49 @@ const DETERMINISTIC_EVENT_IDENTITY_FIELDS = Object.freeze({
   // run again; the key is built by the notifier and derived by the same rule in the SQL trigger.
   'diaspora.journey.alert': ['alertKey'],
   'diaspora.journey.exception': ['alertKey'],
+  // Service Network (O4). Each of these is a ONCE-PER-CASE state transition: a case is requested
+  // once, accepted once, completed once. The identity is therefore the case itself, scoped by the
+  // event type, so `service.case.accepted` and `service.case.completed` for the same case remain
+  // distinct rows while a replay of either recovers the one that exists.
+  //
+  // A payload comparison could not do this job: eventPayload() stamps a fresh `occurredAt` on
+  // every emit, so a replayed event is never byte-identical to the original.
+  'service.case.requested': ['serviceCaseId', 'service_case_id'],
+  'service.case.accepted': ['serviceCaseId', 'service_case_id'],
+  'service.case.declined': ['serviceCaseId', 'service_case_id'],
+  'service.case.cancelled': ['serviceCaseId', 'service_case_id'],
+  'service.case.completed': ['serviceCaseId', 'service_case_id'],
+  'service.work.started': ['serviceCaseId', 'service_case_id'],
+  // Garage 1.0: once per (entity, recipient). The producer builds `notificationKey` as
+  // `<entity id>:<recipient>` because one estimate may notify two people (the registered owner and the
+  // person who asked) and those must remain two notifications.
+  'garage.estimate.sent': ['notificationKey'],
+  'garage.invoice.issued': ['notificationKey'],
+  'garage.payment.recorded': ['notificationKey'],
+  'garage.appointment.confirmed': ['notificationKey'],
+  'garage.appointment.declined': ['notificationKey'],
+  'garage.appointment.cancelled': ['notificationKey'],
 });
+
+/** The Service Network event types registered above, for the migration-agreement test. */
+export const SERVICE_NETWORK_DEDUPED_EVENTS = Object.freeze([
+  'service.case.requested',
+  'service.case.accepted',
+  'service.case.declined',
+  'service.case.cancelled',
+  'service.case.completed',
+  'service.work.started',
+]);
+
+/** The Garage 1.0 customer-notification event types deduped above, for the migration-agreement test. */
+export const GARAGE_DEDUPED_EVENTS = Object.freeze([
+  'garage.estimate.sent',
+  'garage.invoice.issued',
+  'garage.payment.recorded',
+  'garage.appointment.confirmed',
+  'garage.appointment.declined',
+  'garage.appointment.cancelled',
+]);
 
 /**
  * The deterministic identity of an event, or null when the type has none.

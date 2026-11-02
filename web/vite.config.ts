@@ -1,8 +1,9 @@
 import path from "path"
+import { launchDistribution } from "./build/launchDistribution"
+import { isIndexableDeployment } from "./src/config/publicPageMetadata"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
-import { loadPairingFile, resolvePreviewApiUrl } from "./build/previewPairing"
-import { resolveCommitSha, resolveGitRef } from "./build/commitIdentity"
+import { loadPairingFile, resolveBuildIdentity, resolvePreviewApiUrl } from "./build/previewPairing"
 
 // ── Candidate provenance (Issue #164 Phase 8, Cluster I) ────────────────────────────────────────
 // A per-branch preview must be built against ITS OWN backend preview. The first Phase 8 physical UAT
@@ -13,19 +14,32 @@ import { resolveCommitSha, resolveGitRef } from "./build/commitIdentity"
 // `VITE_`-prefixed process env var through `import.meta.env` during config resolution. `define` would
 // have to match the source text `import.meta.env?.VITE_API_URL` (with the optional chain) exactly, and
 // silently no-ops when it does not.
+//
+// OC-5R-REL-01: the revision and branch come from `resolveBuildIdentity` — Vercel's Git variables for
+// a Git-sourced deployment, the deployer's explicit CARUP_BUILD_SHA / CARUP_BUILD_REF for a CLI upload
+// (the projects have no connected Git repository), and a refusal when the two disagree.
+const build = resolveBuildIdentity(process.env)
 const pairing = resolvePreviewApiUrl({
   configuredApiUrl: process.env.VITE_API_URL,
   vercelEnv: process.env.VERCEL_ENV,
-  gitRef: process.env.VERCEL_GIT_COMMIT_REF,
+  gitRef: build.ref,
   pairing: loadPairingFile(),
 })
 if (pairing.apiUrl) process.env.VITE_API_URL = pairing.apiUrl
 // The SHA this bundle was built from, so the running app can prove which candidate it is and compare
 // itself against the backend's `/api/health`. Empty when built outside Vercel (local/dev).
-// A CLI upload has no Git variables; the deployer's explicit CARUP_BUILD_SHA / CARUP_BUILD_REF stand in for them,
-// and a disagreement between the two sources stops the build (web/build/commitIdentity.ts).
-process.env.VITE_COMMIT_SHA = resolveCommitSha(process.env)
-process.env.VITE_GIT_REF = resolveGitRef(process.env)
+// R14 (#197, ported by OC-5D) — demo identities must never reach a production build. The login page
+// shipped three named demo accounts and a hard-coded password, rendered unconditionally. The BUILD
+// decides, and it FAILS CLOSED: the flag is set only for a Vercel environment that positively
+// identifies itself as non-production; every other build — production, a local build, any build that
+// cannot say what it is — gets '' and the demo identities are folded out of the bundle.
+process.env.VITE_ALLOW_DEMO_LOGINS =
+  process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' ? 'true' : ''
+process.env.VITE_DEPLOYMENT_ENV = process.env.VERCEL_ENV || 'development'
+// The single indexing rule (CarUp production project only) — the client reads the same answer.
+process.env.VITE_SEARCH_INDEXABLE = isIndexableDeployment(process.env) ? 'true' : ''
+process.env.VITE_COMMIT_SHA = build.sha
+process.env.VITE_GIT_REF = build.ref
 // Surfaced in the build log so a mis-paired preview is visible in CI output, not only at runtime.
 console.log(
   `[carup] API base for this build: ${pairing.apiUrl ?? '(runtime host resolution)'} — ${pairing.reason}`,
@@ -57,6 +71,8 @@ function provenanceManifest() {
         source: JSON.stringify({
           commit_sha: process.env.VITE_COMMIT_SHA || null,
           git_ref: process.env.VITE_GIT_REF || null,
+          // How the revision above was stated: Vercel's Git variables, or the deployer's explicit input.
+          provenance_source: build.source,
           api_base_url: process.env.VITE_API_URL || null,
           api_base_source: pairing.reason,
           unpaired: pairing.unpaired,
@@ -69,7 +85,7 @@ function provenanceManifest() {
 // https://vite.dev/config/
 export default defineConfig({
   base: '/',
-  plugins: [react(), provenanceManifest()],
+  plugins: [react(), provenanceManifest(), launchDistribution()],
   server: {
     port: 5173,
     proxy: {

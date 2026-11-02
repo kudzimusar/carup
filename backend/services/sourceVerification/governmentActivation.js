@@ -15,7 +15,12 @@
  *      are a stub that returns 'credential_pending' -> 'unavailable' until wired.
  *   2. The framework's activation_mode is carried through to the persisted honesty MODE
  *      (sandbox/partner_file/manual_verification/live/unavailable). A sandbox result can
- *      never be relabelled as a live government confirmation.
+ *      never be relabelled as a live government confirmation. This AUTOMATED path persists
+ *      only sandbox, live or unavailable: partner_file and manual_verification provenance
+ *      belongs to an actual partner-file import and an authenticated reviewer
+ *      (sourceVerificationService.recordManualVerification). It has neither, so a provider in
+ *      partner_file/manual mode fails closed here instead of minting synthetic
+ *      "reviewed" evidence that Trust would read as a source.
  *   3. Results are normalized through the EXISTING verificationContract honesty guards and
  *      written as an APPEND-ONLY source_verification_results row (same table + shape the
  *      orchestrator uses), so provenance, the coverage view, and RLS all apply unchanged.
@@ -207,8 +212,9 @@ export const GOVERNMENT_FIELD_MAPS = {
 
 // ── sandbox transport payloads (HONESTLY tagged, never real registry data) ───────
 // Source-specific, scenario-keyed synthetic payloads that exercise the §76-80 field maps.
-// Used ONLY for sandbox/partner_file/manual transports. Live/pilot transports NEVER read
-// these — they return credential_pending until a real transport is wired.
+// Used ONLY for the sandbox transport. Live/pilot transports NEVER read these — they return
+// credential_pending until a real transport is wired — and partner_file/manual transports fail
+// closed (see makeGovernmentInvoke).
 const SANDBOX_PAYLOADS = {
   zimra: {
     match: { customs_ref_number: 'ZIMRA-CE-SANDBOX-44021', import_date: '2024-03-11', port_of_entry: 'Beitbridge', declared_make: 'Toyota', declared_model: 'Hilux', declared_year: 2018, duty_status: 'paid' },
@@ -243,12 +249,19 @@ const SANDBOX_PAYLOADS = {
 };
 
 const SANDBOX_CONFIDENCE = { match: 0.85, mismatch: 0.65, high_risk: 0.9, no_record: 0.2 };
+const NOT_AUTOMATED = 'NOT_AUTOMATED';
+// The only honesty modes the automated path may persist. partner_file and manual_verification
+// are written by their own provenance paths, never here.
+const AUTOMATED_MODES = new Set(['sandbox', 'live']);
 
 /**
  * Build the injectable `invoke` transport for a government source.
- *   - sandbox / partner_file / manual : deterministic source-specific SYNTHETIC payload,
- *     honestly tagged 'SANDBOX'; scenario chosen from the VIN (STOLEN/MISMATCH/NORECORD/…).
- *   - pilot_live / live               : LIVE STUB — returns 'unavailable' + 'credential_pending'.
+ *   - sandbox                  : deterministic source-specific SYNTHETIC payload, honestly
+ *     tagged 'SANDBOX'; scenario chosen from the VIN (STOLEN/MISMATCH/NORECORD/…).
+ *   - partner_file / manual    : NOT AUTOMATED — returns 'unavailable'. A partner-file result
+ *     comes from importing the partner's file and a manual result from an authenticated
+ *     reviewer; an automated call has neither, so it must not invent one.
+ *   - pilot_live / live        : LIVE STUB — returns 'unavailable' + 'credential_pending'.
  *     No real endpoint is invented; never fabricates a verdict.
  */
 export function makeGovernmentInvoke(sourceKey) {
@@ -261,6 +274,16 @@ export function makeGovernmentInvoke(sourceKey) {
         scenario: 'unavailable', outcome: 'unavailable', retryable: false, confidence: null,
         error_category: 'credential_pending',
         data: { tag: 'LIVE_STUB', provider: sourceKey, note: 'live transport not yet wired — credential_pending' },
+      };
+    }
+
+    // Partner-file / manual have no automated transport. The `mode_` prefix marks the row as a
+    // gate block, so it never counts toward the provider's circuit breaker.
+    if (mode !== 'sandbox') {
+      return {
+        scenario: 'unavailable', outcome: 'unavailable', retryable: false, confidence: null,
+        error_category: `mode_${mode}_not_automated`,
+        data: { tag: NOT_AUTOMATED, provider: sourceKey, note: `${mode} results are imported or reviewed, never produced by an automated call` },
       };
     }
 
@@ -307,6 +330,33 @@ function legalBasisFor(sourceKey, svrMode) {
 }
 
 /**
+ * The honest (mode, result, error_class) a framework result may be persisted under. Pure, so the
+ * boundary is testable without a store. Only a real verdict keeps a mode; only a mode this
+ * automated path can claim (sandbox, live) survives — never partner_file/manual_verification
+ * provenance; and a SANDBOX-tagged payload is only ever sandbox. Everything else is 'unavailable'.
+ */
+export function resolvePersistableVerdict(fw) {
+  const map = OUTCOME_MAP[fw.outcome] || OUTCOME_MAP.error;
+  let result = map.result;
+  let error_class = map.error_class;
+
+  // A governance block (kill switch / uncontracted / capability off) is 'not_contracted', and so
+  // is a mode with no automated transport.
+  if (fw.blocked_reason) error_class = errorClassForBlock(fw.blocked_reason);
+  if (fw.data && fw.data.tag === NOT_AUTOMATED) error_class = 'not_contracted';
+
+  let svrMode = 'unavailable';
+  if (result !== 'unavailable') {
+    svrMode = MODE_MAP[fw.mode] || 'unavailable';
+    if (!AUTOMATED_MODES.has(svrMode)) svrMode = 'unavailable';
+    if (fw.data && fw.data.tag === 'SANDBOX' && svrMode !== 'sandbox') svrMode = 'unavailable';
+    // A "verdict" under a mode this path cannot claim is downgraded, never relabelled.
+    if (svrMode === 'unavailable') { result = 'unavailable'; error_class = error_class || 'not_contracted'; }
+  }
+  return { svrMode, result, error_class };
+}
+
+/**
  * Map a governed framework result into an honest source-verification row and persist it
  * append-only. Returns the persisted, public-safe row (raw_payload stripped).
  *
@@ -316,22 +366,7 @@ function legalBasisFor(sourceKey, svrMode) {
  * @param {object} opts
  */
 async function persistMappedResult(sourceKey, vehicle, fw, opts = {}) {
-  const map = OUTCOME_MAP[fw.outcome] || OUTCOME_MAP.error;
-  let result = map.result;
-  let error_class = map.error_class;
-
-  // A governance block (kill switch / uncontracted / capability off) is 'not_contracted'.
-  if (fw.blocked_reason) error_class = errorClassForBlock(fw.blocked_reason);
-
-  // Honest MODE: only a real verdict keeps the provider mode; anything unavailable is 'unavailable'.
-  let svrMode;
-  if (result === 'unavailable') {
-    svrMode = 'unavailable';
-  } else {
-    svrMode = MODE_MAP[fw.mode] || 'unavailable';
-    // Defensive: a non-mapped/blocked mode with a "verdict" is downgraded to unavailable.
-    if (svrMode === 'unavailable') { result = 'unavailable'; error_class = error_class || 'not_contracted'; }
-  }
+  const { svrMode, result, error_class } = resolvePersistableVerdict(fw);
 
   // Extract the raw provider fields (sandbox payload lives under data.fields).
   const rawFields = (fw.data && fw.data.fields) ? fw.data.fields : {};
@@ -598,6 +633,7 @@ export default {
   SOURCE_KEYS,
   GOVERNMENT_FIELD_MAPS,
   makeGovernmentInvoke,
+  resolvePersistableVerdict,
   runGovernmentCheck,
   projectResultForAudience,
   recordBatchImport,

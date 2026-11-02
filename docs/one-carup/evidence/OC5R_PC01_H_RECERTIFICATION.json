@@ -1,0 +1,122 @@
+{
+ "schema": "oc5r-pc01-h-recertification/v1",
+ "staging_project_ref": "eoyenigwevnxwwhyhaer",
+ "step1_remeasure": {
+  "at": "2026-10-10T13:31:09.419611+00:00",
+  "identical_to_measurement_at": "2026-10-10T10:49:41.837851+00:00",
+  "seven_present": true
+ },
+ "step2_no_additional_drift": {
+  "measurement_capture": {
+   "at": "2026-10-10T10:56:01.451498+00:00",
+   "sha256": "ec1647167a82fd7467a29ac26047e8f567f9a91e8ee590442d679a5a048feb19"
+  },
+  "pre_correction_capture": {
+   "at": "2026-10-10T13:31:23.580900+00:00",
+   "sha256": "ceed2a611d86043bb8775dde52550ffe834da1b0c7eab938cc74f7afd7042e99"
+  },
+  "identical_sections": [
+   "tables",
+   "idx",
+   "trg",
+   "pol",
+   "con",
+   "funcs",
+   "cols",
+   "coldefs",
+   "fsrc",
+   "privs",
+   "routine_privs",
+   "rls",
+   "ledger",
+   "cron",
+   "templates"
+  ]
+ },
+ "step3_4_dry_run": "OC5R_PC01_H_DRY_RUN_RECEIPT.json (committed=false, pre 13/13, post 14/14, clean_source.equal=true)",
+ "step5_apply": "OC5R_PC01_H_APPLY_RECEIPT.json (committed=true, pre 13/13, post 14/14, clean_source.equal=true)",
+ "step6_7_exactness": "OC5R_PC01_H_EXACTNESS.json (20/20; the whole catalog changed only by +2 CHECKs, dealer_id/tenant_id NOT NULL, two function configs, one body)",
+ "post_correction_capture": {
+  "at": "2026-10-10T13:34:47.641394+00:00",
+  "sha256": "a85dce592056c735c7fb4c35ef5ffcc1be534020b0cc06d48286f63a7e9baca1"
+ },
+ "step8_ledger": {
+  "manifest_counts": {
+   "NEVER_APPLY": 7,
+   "RECORDED_AND_PRESENT": 208,
+   "RECORDED_ONE_TIME_DATA_MIGRATION_NEVER_REPLAY": 1,
+   "UNPROBEABLE": 1
+  },
+  "ledger_rows": 265,
+  "orphan_ledger_rows": 38,
+  "double_recorded_files": 17,
+  "unprobeable_note": "20261009090000 (template data) was probed exact by hand: 3/3 templates and their approved v1 versions",
+  "strict_lineage": {
+   "live_objects": 7709,
+   "unexplained_outside_custody": 0,
+   "held_under_custody": {
+    "PR208-DEALER-DOCUMENT-EXTRACTION": [
+     "dealer_compliance_documents.extracted_at",
+     "dealer_compliance_documents.extraction_candidates",
+     "dealer_compliance_documents.extraction_confidence",
+     "dealer_compliance_documents.extraction_provider"
+    ],
+    "X4-BIOMETRIC-CONSENT-LEDGER": 36
+   }
+  },
+  "function_equivalence": {
+   "EXACT": 92,
+   "CANONICAL": 10,
+   "ABSENT": 1,
+   "absent_note": "carup_ts_deterministic is a pg_temp helper used only inside its migration"
+  }
+ },
+ "step9_10_integrity": {
+  "foreign_keys": 509,
+  "foreign_keys_not_valid": 0,
+  "anomalies": [],
+  "counts": {
+   "fk": 509,
+   "not_valid_check": 1
+  }
+ },
+ "step11": {
+  "rls_flags_all_297_tables_unchanged": true,
+  "tables_without_rls": [
+   "blockchain_custody_rollout",
+   "blockchain_signing_watermarks"
+  ],
+  "tables_without_rls_note": "Issue-158 custody tables, grant-isolated by design (REVOKE ALL ON TABLE in 20260828210000 / 20260829020000); 0 anon/authenticated privileges",
+  "public_truth": {
+   "retired_rows_present": 0,
+   "by_table": null,
+   "synthetic_reference_objects": 0,
+   "synthetic_reference_listing_images": 0,
+   "u3_present": 1,
+   "escrow_present": 1
+  },
+  "queue_state": {
+   "totals": {
+    "eligible_pending": 0,
+    "dead_letter": 0,
+    "processed": 1457,
+    "quarantined": 285
+   },
+   "schedulers": [
+    {
+     "job": "carup-communication-worker-every-minute",
+     "active": false
+    },
+    {
+     "job": "carup-events-outbox-every-minute",
+     "active": false
+    },
+    {
+     "job": "issue164-reservation-expiry-reconcile",
+     "active": false
+    }
+   ],
+   "tables_without_rls": 2
+  }
+ }
+}

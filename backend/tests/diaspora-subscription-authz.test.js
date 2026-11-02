@@ -63,7 +63,9 @@ function resolveAuth(state) {
     case 'users': return authDb.users[state.filters.id] ? ok(authDb.users[state.filters.id]) : missing('no user');
     case 'tenant_users': {
       const key = `${state.filters.tenant_id}|${state.filters.user_id}`;
-      return authDb.tenantUsers[key] ? ok(authDb.tenantUsers[key]) : missing('no membership');
+      // PostgREST's real zero-row answer to .single() (PGRST116). A membership read that FAILS is a 503 since
+      // OC-5D, so a double must not spell "not a member" as a code-less error (that is a network failure).
+      return authDb.tenantUsers[key] ? ok(authDb.tenantUsers[key]) : { data: null, error: { code: 'PGRST116', message: 'no membership' } };
     }
     default: return ok([]);
   }
