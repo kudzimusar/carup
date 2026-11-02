@@ -41,6 +41,51 @@ beforeEach(() => {
 /** What useCarUpApi throws for an HTTP refusal: the server's code as the message, with its status and code. */
 const apiFailure = (code: string, status: number) => Object.assign(new Error(code), { status, code })
 
+describe('Paynow operator panel — words (W10)', () => {
+  it('names each key check in words; CarUp’s own trouble is never put in Paynow’s mouth', async () => {
+    api.fetchPaynowMerchants.mockResolvedValue({ merchants: [{ ...merchant, integrations: [
+      { ...merchant.integrations[0], probe: { result: 'refused', probed_at: '2026-11-02T10:00:00Z' } },
+      { ...merchant.integrations[0], id: 'i2', currency: 'ZWG', integration_id: '20002', probe: { result: 'unavailable', probed_at: '2026-11-02T10:00:00Z' } },
+    ] }], availability: { available: true, simulator_enabled: true, real_enabled: false, note: null, updated_at: null, updated_by: null } })
+    render(<PaynowOperatorPanel />)
+    const card = await screen.findByTestId('paynow-op-merchant')
+    expect(card).toHaveTextContent('key check: Paynow refused this key')
+    expect(card).toHaveTextContent('key check: CarUp could not check this key with Paynow')
+    expect(card).not.toHaveTextContent(/key check: (refused|unavailable)\b/)
+  })
+
+  it('a refused verification says each key check in words, by currency', async () => {
+    api.verifyPaynowMerchant.mockRejectedValue(Object.assign(new Error('PAY05_VERIFICATION_EVIDENCE_INCOMPLETE'), {
+      status: 422, code: 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE', data: { error: 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE', details: { probes: { i1: 'refused' } } } }))
+    render(<PaynowOperatorPanel />)
+    fireEvent.click(await screen.findByTestId('paynow-op-legal'))
+    fireEvent.click(screen.getByTestId('paynow-op-settlement'))
+    fireEvent.click(screen.getByTestId('paynow-op-currency'))
+    fireEvent.change(screen.getByTestId('paynow-op-note'), { target: { value: 'Legal name and settlement account match.' } })
+    fireEvent.click(screen.getByTestId('paynow-op-verify'))
+    expect(await screen.findByTestId('paynow-op-message')).toHaveTextContent('US dollars (USD): Paynow refused this key')
+  })
+
+  it('reads a held request’s Paynow status about the customer', async () => {
+    render(<PaynowOperatorPanel />)
+    const row = await screen.findByTestId('paynow-op-held')
+    expect(row).toHaveTextContent('Waiting for the customer to approve on their phone')
+    expect(row).not.toHaveTextContent(/Waiting for you/)
+  })
+
+  it('shows each merchant’s history: what happened, who did it, and when', async () => {
+    api.fetchPaynowMerchants.mockResolvedValue({ merchants: [{ ...merchant, history: [
+      { seq: 2, event_type: 'integration_registered', actor: 'u1', actor_role: 'garage_admin', detail: {}, created_at: '2026-11-02T09:01:00Z' },
+      { seq: 1, event_type: 'merchant_registered', actor: 'u1', actor_role: 'garage_admin', detail: {}, created_at: '2026-11-02T09:00:00Z' },
+    ] }], availability: { available: true, simulator_enabled: true, real_enabled: false, note: null, updated_at: null, updated_by: null } })
+    render(<PaynowOperatorPanel />)
+    const rows = await screen.findAllByTestId('paynow-op-history-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toHaveTextContent(`${dateTimeLabel('2026-11-02T09:01:00Z')} · The garage added a Paynow integration · garage administrator u1`)
+    expect(rows[1]).toHaveTextContent('The garage connected its Paynow account')
+  })
+})
+
 describe('Paynow operator panel', () => {
   it('W11: with PAY-05 switched off the panel is a neutral note, not an alert', async () => {
     for (const fetch of [api.fetchPaynowMerchants, api.fetchPaynowHeldCollections, api.fetchPaynowProviderErrors]) {
