@@ -52,6 +52,19 @@ export const PROVIDER_STATUS_LABELS = Object.freeze({
   unrecognized: 'Paynow reported a status CarUp does not recognise — under review (not counted)',
 });
 
+/**
+ * A request Paynow accepted but has not reported on yet — or reports as Created, as real Express polling may — reads as
+ * what the customer must do with it (physical rehearsal, HTTP case E1): the hosted-page words "pay on Paynow" are wrong for
+ * a phone prompt, an InnBucks code or an O'mari one-time code. None of these words claim money.
+ */
+const WAITING_BY_METHOD = Object.freeze({
+  web: PROVIDER_STATUS_LABELS.created,
+  ecocash: PROVIDER_STATUS_LABELS.sent,
+  onemoney: PROVIDER_STATUS_LABELS.sent,
+  innbucks: 'Waiting for you to pay with the InnBucks code (not counted yet)',
+  omari: 'Waiting for the one-time code sent to your phone (not counted yet)',
+});
+
 export async function transactionOf(db, collectionId) {
   return one(await read(db.from('pay05_paynow_transactions').select('*').eq('collection_id', collectionId).limit(1)));
 }
@@ -139,7 +152,8 @@ export function paynowView(tx, { customer = false } = {}) {
     method: tx.method,
     initiation: tx.initiation_state,
     provider_status: status,
-    provider_status_label: status ? PROVIDER_STATUS_LABELS[status] : (tx.initiation_state === 'attached' ? PROVIDER_STATUS_LABELS.created
+    provider_status_label: status && status !== 'created' ? PROVIDER_STATUS_LABELS[status]
+      : (tx.initiation_state === 'attached' ? (WAITING_BY_METHOD[tx.method] ?? PROVIDER_STATUS_LABELS.created)
       : tx.initiation_state === 'refused' ? 'Paynow refused the payment request — nothing was charged'
         : 'CarUp is confirming with Paynow whether the payment request was received (not counted)'),
     checkout_url: customer && tx.method === 'web' && tx.initiation_state === 'attached' && (!status || status === 'created') ? tx.browser_url : null,

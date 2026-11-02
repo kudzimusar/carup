@@ -76,7 +76,7 @@ jobs:
           for f in $(git diff --name-only --diff-filter=A "$PAY04_RECONCILED_HEAD" HEAD -- database/migrations); do
             name="$(basename "$f")"
             [[ "$name" > "$tip" ]] || { echo "$name sorts before $tip"; exit 1; }
-            grep -q -- '-- +migrate Up' "$f" && grep -q -- '-- +migrate Down' "$f" || { echo "$name lacks markers"; exit 1; }
+            if ! { grep -q -- '-- +migrate Up' "$f" && grep -q -- '-- +migrate Down' "$f"; }; then echo "$name lacks markers"; exit 1; fi
             echo "ok: $name"
           done
       - name: Diff hygiene
@@ -139,7 +139,7 @@ jobs:
         run: |
           node --test backend/tests/pay05-paynow-protocol.test.js backend/tests/pay05-credential-vault.test.js \
             backend/tests/pay05-paynow-adapter.test.js backend/tests/pay05-pay04-function-drift.test.js \
-            backend/tests/pay05-product-coverage.test.js backend/tests/pay05-route-hardening.test.js \
+            backend/tests/pay05-product-coverage.test.js backend/tests/pay05-route-hardening.test.js backend/tests/pay05-paynow-views.test.js \
             backend/tests/ci-workflow-secret-isolation.test.js backend/tests/oc5r-rel01-deployed-provider-proof.test.js \
             backend/tests/oc4f-no-committed-credentials.test.js
       - name: PAY-04 static contracts

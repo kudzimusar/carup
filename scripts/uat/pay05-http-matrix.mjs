@@ -189,7 +189,7 @@ await step('M4', 'An independent operator verifies; the SERVER proves every key 
   const option = (await paymentView(INV_A1.id)).json?.online_payment;
   const pass = ok(r, 200) && merchantOf(accounts.garageA).status === 'verified' && rows.every((x) => x.status === 'verified' && x.probe === 'authenticated' && x.fp_matches && x.verified_by === accounts.ops.userId)
     && /registered/.test(audit) && /verified/.test(audit) && option?.available === true && option.provider === 'paynow' && option.simulated === true
-    && option.currency === 'USD' && option.methods.join(',') === 'ecocash,innbucks,omari,onemoney,web' && /redirect/i.test(option.notices?.no_redirect_proof || '');
+    && option.currency === 'USD' && option.methods.join(',') === 'ecocash,innbucks,omari,onemoney,web' && /not proof of payment/i.test(option.notices?.no_redirect_proof || '');
   facts.simTransactionsAfterProbe = traces;
   return { pass, detail: { status: r.status, integrations: rows, audit, option } };
 });
@@ -288,7 +288,8 @@ await step('E1', 'EcoCash (Paynow test number 0771111111): pending "approve on y
   const pending = r.json?.paynow;
   const paid = await waitFor(() => payStatus(E1.collection) === 'paid', { timeoutMs: 40_000 });
   const v = await verify(E1.collection);
-  return { pass: r.status === 201 && pending?.provider_status === 'sent' && /approve the payment on your phone/.test(pending?.provider_status_label || '')
+  // before CarUp's first read the request is described by how the customer pays — never as paid
+  return { pass: r.status === 201 && pending?.provider_status !== 'paid' && /approve the payment on your phone/.test(pending?.provider_status_label || '')
     && pending?.phone === '077*****11' && paid && v.json?.collection?.state === 'confirmed' && Number(money(inv.id).provider_paid) === 50,
   detail: { start: r.status, pending, paid, state: v.json?.collection?.state, money: money(inv.id) } };
 });
@@ -370,7 +371,7 @@ await step('Z2', 'Currency mismatch: garage B has no ZWG integration — no ZWG 
 
 // ───────────────────────────── F: forged, tampered, unsigned, cross-garage, cross-collection ─────────────────────────────
 let PEND;
-await step('S1', 'A status update signed with the WRONG key is refused (401), recorded, and changes nothing', async () => {
+await step('S1', 'A status update signed with the WRONG key is refused (the one identical answer), recorded for the operator, and changes nothing', async () => {
   const inv = await invoice('A', { cost: '65.00', sellPrice: '5.00' });
   const r = await start(inv.id, { method: 'ecocash', phone: '0779000003' });
   PEND = { invoice: inv, collection: r.json?.collection_id };
