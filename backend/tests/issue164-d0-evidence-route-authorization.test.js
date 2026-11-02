@@ -65,8 +65,8 @@ test('x-user-id is gated by the governed fallback policy, not trusted outright',
 
 test('the x-user-id read is ordered AFTER the session and cannot override a real session', () => {
   const idx = EVIDENCE_ROUTE.indexOf("req.headers['x-user-id']");
-  const sess = EVIDENCE_ROUTE.indexOf('user_sessions');
-  assert.ok(idx > -1 && sess > -1, 'both the session lookup and the fallback must be present');
+  const sess = EVIDENCE_ROUTE.indexOf('resolveSessionByToken');
+  assert.ok(idx > -1 && sess > -1, 'both the exact-token session resolver and the fallback must be present');
   assert.ok(sess < idx, 'the session must be resolved before the fallback is even considered');
   assert.match(
     EVIDENCE_ROUTE,
@@ -111,11 +111,16 @@ test('tenancy is derived from the tenant_users membership table for the authenti
 
 test('a vehicle with a NULL tenant_id cannot be unlocked by tenancy', () => {
   // `null === null` would otherwise authorize every caller carrying no tenant at all.
-  assert.match(
-    EVIDENCE_ROUTE,
-    /Boolean\(vehicle\.tenant_id\s*&&\s*activeTenantIds\.includes\(vehicle\.tenant_id\)\)/,
-    'the vehicle tenant must be truthy before membership can grant access',
-  );
+  // M — the truthiness guard is unchanged (`null === null` must never authorize a caller with no
+  // tenant); what changed is that membership alone no longer completes the grant. Asserted as two
+  // separate facts so neither can be lost while the other still passes.
+  assert.match(EVIDENCE_ROUTE, /Boolean\(vehicle\.tenant_id\s*&&/,
+    'the vehicle tenant must be truthy before membership can be considered at all');
+  assert.match(EVIDENCE_ROUTE, /activeTenantIds\.includes\(vehicle\.tenant_id\)/,
+    'membership remains the authentic tenant source');
+  assert.match(EVIDENCE_ROUTE, /hasGovernedDealerVehicleAuthority/,
+    'and membership alone no longer unlocks private evidence — the governed Dealer decision does');
+
 });
 
 // ── The private artifact ─────────────────────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ concurrency:
 jobs:
   canonical-staging-uat:
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 35
     env:
       STAGING_WEB_URL: https://staging.carup.dev

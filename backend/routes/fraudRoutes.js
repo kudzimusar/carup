@@ -13,6 +13,9 @@ import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { evaluateAndPersist } from '../services/fraud/fraudEngine.js';
 import { listOpenCases, getCase, resolveCase } from '../services/fraud/fraudCaseService.js';
+import { supabase } from '../db/supabase.js';
+import { summarizeProvenance } from '../services/provenance/recordProvenance.js';
+import { loadProvenanceIndex } from '../services/provenance/provenanceContext.js';
 
 const router = express.Router();
 
@@ -44,7 +47,17 @@ router.get('/api/fraud/cases', authorizeRole(QUEUE_ROLES), async (req, res, next
       status: req.query.status,
       tenant_id: req.query.tenant_id,
     });
-    res.json({ cases });
+    // PC01-K2B: the queue is operational truth by default. A case raised on a certification / UAT
+    // vehicle is set aside and counted by class, never deleted or hidden from existence.
+    const index = await loadProvenanceIndex(supabase, { vins: cases.map((c) => c.vin) });
+    const classified = cases.map((c) => ({ c, provenance: index.vehicle(c.vin) || { class: 'unknown_requires_review', operational: false } }));
+    const showAll = req.query.view === 'all';
+    res.json({
+      cases: classified
+        .filter((x) => showAll || x.provenance.operational)
+        .map((x) => (showAll ? { ...x.c, provenance_class: x.provenance.class } : x.c)),
+      provenance: { ...summarizeProvenance(classified.map((x) => x.provenance)), view: showAll ? 'all_records' : 'operational_only' },
+    });
   } catch (err) {
     next(err);
   }

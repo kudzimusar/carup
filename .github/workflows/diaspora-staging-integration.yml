@@ -1,0 +1,100 @@
+name: Diaspora staging integration (governed)
+
+# The shared-staging integration suite (backend/tests/staging/diaspora-staging-integration.test.js) writes, then
+# deletes, synthetic rows on SHARED staging: stock reservations, RFQ acceptance and container capacity approval.
+# It used to run inside diaspora-phases-3-7-validation on every matching pull request; 54 of 54 Payments
+# pull-request runs executed it (2026-10-29 … 2026-11-02) although no Payments package held staging authority.
+# CARUP-PAY-05 Checkpoint A moved it here, behind four controls:
+#   • workflow_dispatch only — no pull request, push or schedule can start it;
+#   • environment: staging — the environment's required reviewers approve every run before a secret is readable;
+#   • authorization_ref — the Owner's written authorization for THIS run (a comment URL on this repository),
+#     recorded in the run summary with the actor and the exact commit: every staging write has scoped evidence;
+#   • expected_sha — the exact commit under test; any other checkout is refused.
+# Do not add a trigger: scripts/ci/workflow-secret-isolation.mjs and its test fail on any other event.
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization_ref:
+        description: "URL of the Owner's written authorization comment for this exact staging run"
+        required: true
+        type: string
+      expected_sha:
+        description: 'Full 40-character commit SHA to test'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shared-staging-diaspora-integration
+  cancel-in-progress: false
+
+jobs:
+  staging-integration:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    steps:
+      - name: Refuse an unscoped authorization or candidate
+        env:
+          AUTHORIZATION_REF: ${{ inputs.authorization_ref }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$AUTHORIZATION_REF" | grep -Eq '^https://github\.com/kudzimusar/carup/(issues|pull)/[0-9]+#(issuecomment|discussion_r)-?[0-9]+$'; then
+            echo "::error::authorization_ref must be the URL of the Owner's authorization comment on a kudzimusar/carup issue or pull request"
+            exit 1
+          fi
+          if ! printf '%s' "$EXPECTED_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo '::error::expected_sha must be a full 40-character commit SHA'
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
+
+      - name: Assert the exact candidate
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Record the Owner-scoped authorization
+        env:
+          AUTHORIZATION_REF: ${{ inputs.authorization_ref }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          {
+            echo '### Shared-staging write — authorization record'
+            echo "- authorization: $AUTHORIZATION_REF"
+            echo "- candidate: $EXPECTED_SHA"
+            echo "- dispatched by: $ACTOR (triggering actor $TRIGGERING_ACTOR)"
+            echo "- run: $RUN_URL attempt $RUN_ATTEMPT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies (lockfile)
+        run: npm ci
+
+      - name: Staging integration
+        env:
+          STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured'
+            exit 1
+          fi
+          RUN_DIASPORA_STAGING_INTEGRATION=true DATABASE_URL="$STAGING_DATABASE_URL" \
+            node --test backend/tests/staging/diaspora-staging-integration.test.js

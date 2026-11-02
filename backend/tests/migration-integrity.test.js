@@ -30,6 +30,7 @@ import {
   isNonMigrationFile,
   isProvenancePinned,
   isRetiredMigration,
+  isSqliteDialectOnly,
   RETIRED_UNAPPLIABLE,
   parseMigrationSource,
 } from '../db/migrationParser.js';
@@ -150,7 +151,10 @@ test('EVERY executable migration in database/migrations parses cleanly', () => {
   for (const file of files) {
     if (isNonMigrationFile(file) || isRetiredMigration(file)) continue;
     try {
-      const { up } = parseMigrationSource(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), file);
+      // OC-4A: an enumerated SQLite-only file is parsed for ITS dialect (and is refused for PostgreSQL —
+      // proven in oc4a-migration-hygiene.test.js); every other file is parsed for PostgreSQL.
+      const dialect = isSqliteDialectOnly(file) ? 'sqlite' : 'postgres';
+      const { up } = parseMigrationSource(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), file, { dialect });
       assert.ok(up.length > 0);
       parsed += 1;
     } catch (err) {

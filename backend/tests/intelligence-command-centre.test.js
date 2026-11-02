@@ -59,10 +59,19 @@ function createClient(tables = {}, failTable = null) {
   return { from: (t) => build(t, tables[t] ?? []) };
 }
 
+// PC01-K2B: fixtures carry the real row shapes — product-issued user ids with a deliverable address
+// (the seed ids `u1`/`u2` are themselves non-operational), and vehicles keyed by `vin`, which is the
+// canonical identifier (the old `id` here is how the nonexistent-column defect went unnoticed).
 const fullTables = {
-  users: [row({ id: 'u1' }), row({ id: 'u2' })],
-  organizations: [row({ id: 'o1' })],
-  vehicles: [row({ id: 'v1', publication_status: 'published' }), row({ id: 'v2', publication_status: 'draft' })],
+  users: [
+    row({ id: 'u_0a1b2c3d4e5f6a7b', email: 'buyer.one@gmail.com', name: 'Rudo Moyo' }),
+    row({ id: 'u_1a2b3c4d5e6f7a8b', email: 'seller.two@gmail.com', name: 'Tendai Ncube' }),
+  ],
+  organizations: [],
+  vehicles: [
+    { vin: 'JTDKARFP0H3100001', owner_id: 'u_1a2b3c4d5e6f7a8b', publication_status: 'published', created_at: today },
+    { vin: 'JTDKARFP0H3100002', owner_id: 'u_1a2b3c4d5e6f7a8b', publication_status: 'draft', created_at: today },
+  ],
   marketplace_inquiries: [row({ id: 'i1' })],
   marketplace_activity_events: [],
   saved_vehicles: [row({ id: 's1' })],

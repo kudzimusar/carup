@@ -60,6 +60,16 @@ function makeFakeClient(seed = {}, opts = {}) {
       insert(p) { ctx.op = 'insert'; ctx.payload = p; return builder; },
       update(p) { ctx.op = 'update'; ctx.payload = p; return builder; },
       delete() { ctx.op = 'delete'; return builder; },
+      // PostgREST's .single(): exactly one row, else PGRST116 (none or several). OC-5D routes the
+      // session's organisation through the shared verifier, which reads membership this way.
+      single() {
+        const r = execute();
+        if (r.error) return Promise.resolve(r);
+        const found = r.data || [];
+        return Promise.resolve(found.length === 1
+          ? { data: found[0], error: null }
+          : { data: null, error: { code: 'PGRST116', message: `${found.length} rows` } });
+      },
       then(resolve) { resolve(execute()); },
     };
     return builder;

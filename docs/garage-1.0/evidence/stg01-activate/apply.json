@@ -1,0 +1,41 @@
+{
+  "at": "2026-10-24T11:04:01.633Z",
+  "product_sha": "368d572772ed7d1de674d8568fff171b1eb9930d",
+  "applied": [
+    {
+      "version": "20261024100000",
+      "action": "applied",
+      "ms": 1607,
+      "up_sha256": "1c2a00ce5f736e57522d114c9362c77a3fae5d306370f6e7bafd5a47aea04ab1",
+      "blob": "931243a3279372828a4527e5f2989c992c2d8130"
+    },
+    {
+      "version": "20261024110000",
+      "action": "applied",
+      "ms": 925,
+      "up_sha256": "e8cb75d15deea7b1e98286aa8d4bc9db48760de139aca31e7daeee9939206a61",
+      "blob": "57e431102bb009759076187b9b5e5d8b6dfe308f"
+    },
+    {
+      "version": "20261024120000",
+      "action": "applied",
+      "ms": 1206,
+      "up_sha256": "a9d01375bde63c89abd8072874c0807c62015124c26ccf24cd660349c1a30559",
+      "blob": "23a19fcb33eb0c9c8c791961f236570a664a46ee"
+    },
+    {
+      "version": "20261024130000",
+      "action": "applied",
+      "ms": 1052,
+      "up_sha256": "fcd4cac3a1c58a941285bde95c486a840744dda09228ff5e9fbeb774b823b36a",
+      "blob": "938d1d64e3e5a57202c1d54c46059578443656da"
+    },
+    {
+      "version": "20261024140000",
+      "action": "applied",
+      "ms": 942,
+      "up_sha256": "3f6f8f653dc260194f4f6ce9aa242acfeefc8a1b1470b6fbcc9da12efe280bf3",
+      "blob": "cca41ce14c6efa76df82c7de2ba054a1e7d2e824"
+    }
+  ]
+}

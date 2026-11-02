@@ -101,8 +101,11 @@ describe('/blog publishes no fabricated engagement or personas', () => {
   it('seeds no reader comments', () => {
     // Three invented comments attributed to named individuals were hardcoded into useState.
     expect(BLOG_CODE).not.toMatch(/zinara-guide-2026'\s*:\s*\[/)
-    expect(BLOG_CODE, 'the comment store must initialise empty')
-      .toMatch(/setComments\] = useState<[\s\S]*?>\(\{\}\)/)
+    // OC-LAUNCH R1: the local-only comment store (which "posted" nothing yet toasted success) was
+    // retired. Any store that returns must start empty, and no surface may claim a comment was posted.
+    const store = BLOG_CODE.match(/setComments\] = useState<[\s\S]*?>\(([\s\S]*?)\)/)
+    if (store) expect(store[1].trim(), 'the comment store must initialise empty').toBe('{}')
+    expect(BLOG_CODE).not.toMatch(/comment added successfully/i)
   })
 
   it('claims no subscriber count and no unexplained compliance standard', () => {
@@ -125,9 +128,13 @@ describe('/press names no invented people and promises no service level', () => 
   // Two named "PR officers" carried real-format @carup.co.zw addresses, direct mobile numbers and a
   // green "Online / Direct" presence dot, behind a form that transmits nothing.
   it('publishes only a role-based press address', () => {
-    const personalAddresses = PRESS_CODE.match(/[a-z]+\.[a-z]+@carup\.co\.zw/gi) || []
-    expect(personalAddresses, 'no individual @carup.co.zw identities may be published').toEqual([])
-    expect(PRESS_CODE).toMatch(/press@carup\.co\.zw/)
+    const personalAddresses = PRESS_CODE.match(/[a-z]+\.[a-z]+@carup\.(co\.zw|dev)/gi) || []
+    expect(personalAddresses, 'no individual identities may be published').toEqual([])
+    // PC01-J-R1: the role-based address is the certified press@carup.dev, read from the frozen
+    // identity (config/publicIdentity.ts). This used to require press@carup.co.zw — a domain CarUp
+    // does not use — so it pinned the stale address instead of the role-based one.
+    expect(PRESS_CODE).not.toMatch(/carup\.co\.zw/)
+    expect(PRESS_CODE).toMatch(/PUBLIC_CONTACTS\.press/)
   })
 
   it('shows no presence indicator for people who are not there', () => {
@@ -168,7 +175,9 @@ describe('the surfaces stay live and keep their design', () => {
   })
 
   it('/press still renders the media hub, asset vault and contact surfaces', () => {
-    for (const marker of ['handleDownload', 'press-contact', 'Brand asset', 'handleFormSubmit']) {
+    // PC01-J-R1: the media-inquiry form (handleFormSubmit) could not send; the press office's email
+    // card `press-write-to-us` replaced it, so that is the contact surface this keeps alive.
+    for (const marker of ['handleDownload', 'press-contact', 'Brand asset', 'press-write-to-us']) {
       expect(PRESS, `PressKit must keep ${marker}`).toContain(marker)
     }
   })

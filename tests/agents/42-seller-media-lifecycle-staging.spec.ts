@@ -133,7 +133,14 @@ async function press(page: Page, locator: ReturnType<Page['locator']>, what: str
   });
   await expect.poll(async () => locator.evaluate((el: HTMLElement) => {
     const r = el.getBoundingClientRect();
-    if (r.bottom > innerHeight || r.top < 0) return `outside-viewport(top=${Math.round(r.top)})`;
+    if (r.bottom > innerHeight || r.top < 0) {
+      // Content above can still be settling (the seller's inquiries arrive after render). Re-centre
+      // and measure again on the next poll; the hit-target guard below is unchanged, so a control
+      // that is genuinely covered still never converges and the failure names what is on top.
+      const se = document.scrollingElement!;
+      se.scrollTop = Math.max(0, se.scrollTop + r.top - se.clientHeight / 2);
+      return `outside-viewport(top=${Math.round(r.top)})`;
+    }
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     if (!hit) return 'nothing-at-centre';
     if (hit === el || el.contains(hit)) return 'ready';
@@ -332,7 +339,36 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     // the server now refuses an uploader-requested widening regardless of what the form sends.
     await page.locator('#visibility').selectOption('restricted');
     await page.locator('input[type="file"]').first().setInputFiles(FIXTURES + PHOTOS[0].file);
+
+    // Let the PRODUCT's own upload settle before anyone reads the result. Submit starts a POST that
+    // decodes the file, writes it to storage and only then inserts the evidence row (~2.7 s on the
+    // deployed backend). This step used to click Submit and go straight to the reviewer's read, so
+    // the outcome depended on which finished first. On the tablet shard of run 37723228342 the
+    // reviewer's list ran 04:12:14.2–04:12:15.5 INSIDE the upload's flight (04:12:13.8–04:12:16.5,
+    // HTTP 201) and the row was created at 04:12:15.6 — the product was right and the test was early.
+    // Observe the upload exactly as the organisation helper observes `PUT /auth/active-tenant`:
+    // register BEFORE the click, then assert the product accepted it. No route is called here.
+    const uploadSettled = page.waitForResponse(
+      (response) => response.request().method() === 'POST'
+        && new URL(response.url()).pathname.endsWith(`/vehicles/${VIN}/evidence/upload`),
+      { timeout: 60_000 },
+    );
     await press(page, page.getByRole('button', { name: 'Submit Evidence' }), 'Submit Evidence');
+    const upload = await uploadSettled.catch(async (error: unknown) => {
+      // The POST never left the browser: say what the uploader itself is showing, not a bare timeout.
+      const shown = await page.getByRole('dialog').first().innerText().catch(() => '');
+      throw new Error(
+        `the seller's evidence upload never reached the API; the uploader shows: `
+        + `"${shown.replace(/\s+/g, ' ').trim().slice(0, 300)}" (${String(error).split('\n')[0]})`,
+      );
+    });
+    expect(upload.ok(), `the product must accept the seller's evidence upload (HTTP ${upload.status()})`).toBe(true);
+    // The uploader closes itself ONLY on success (EvidenceUploadModal: onSuccess → handleReset → onClose);
+    // a refused upload leaves it open with its error. This is the product's own "done".
+    await expect(
+      page.getByRole('dialog', { name: /Upload Vehicle Evidence/i }),
+      'the evidence uploader must close once the upload is accepted',
+    ).toHaveCount(0, { timeout: 30_000 });
 
     // ── the ONE permitted API step: a back-office reviewer with no seller UI ──────────────────
     const reviewer = await reviewerAuth(request);

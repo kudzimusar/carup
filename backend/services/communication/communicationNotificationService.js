@@ -1,6 +1,7 @@
 import { CommunicationTemplateService } from './communicationTemplateService.js';
 import { CommunicationPreferenceService } from './communicationPreferenceService.js';
 import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.js';
+import { withoutPushRouting } from './pushRouting.js';
 import { CLASSIFICATION_SOURCES } from './emailExperience/emailClassification.js';
 
 /**
@@ -209,7 +210,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'shipment_exception_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -249,7 +250,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'warehouse_intake_update_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -262,7 +263,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'warehouse_intake_update_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -275,7 +276,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'warehouse_intake_update_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -287,7 +288,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'container_loading_update_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -300,7 +301,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'container_loading_update_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -385,6 +386,159 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     transactional: true,
   },
 
+  // Service Network O5 — governed service-case transitions, addressed to the customer who opened
+  // the case. Deliberately LOW NOISE: in_app only, with `policyChannelsOnly` so a user's default
+  // fallback channels cannot re-add email or push. A garage accepting a job is worth a badge in the
+  // app; it is not worth an email or an SMS, and no other channel is governed for this audience yet.
+  'service.case.accepted': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'service.case.declined': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'service.work.started': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'service.case.completed': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
+  // GARAGE-1.0 — customer-facing steps of the garage's commercial lifecycle (estimate sent, invoice issued,
+  // payment recorded by the garage, appointment decisions). In-app only and `policyChannelsOnly`, exactly like
+  // the Service Network transitions above: a badge in the app, never an email, SMS or push a user preference
+  // could re-add. The copy is a bounded factual headline — no amount, no promise, no private note.
+  'garage.estimate.sent': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'garage_commercial_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'garage.invoice.issued': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'garage_commercial_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'garage.payment.recorded': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'garage_commercial_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'garage.payment.confirmed': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'garage_commercial_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'garage.payment.refunded': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'garage_commercial_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'garage.appointment.confirmed': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'garage_commercial_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'garage.appointment.rescheduled': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'garage_commercial_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'garage.appointment.declined': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'garage_commercial_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'garage.appointment.cancelled': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'garage_commercial_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
   // Operations M2 — governed Seller Authority review outcome for the seller.
   'seller.authority.decided': {
     notificationType: 'seller_authority',
@@ -394,6 +548,56 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     fallbackChannels: [],
     policyChannelsOnly: true,
     templateKey: 'seller_authority_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2/P5 — Dealer Compliance decisions reach the dealer (OC-4D port of #208; policy and template
+  // as O2-X6 wired them). The emitter carries safe structured facts only — no reviewer free text.
+  'dealer.compliance.decided': {
+    notificationType: 'dealer_compliance',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'dealer_compliance_decision_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 (ported by OC-5C) — the person's identity status changed (a governed lifecycle transition).
+  // The payload carries a subject-safe status label and the reason's applicant guidance only.
+  'identity.lifecycle.changed': {
+    notificationType: 'identity_lifecycle',
+    threadType: 'account',
+    priority: 'high',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'identity_lifecycle_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 §15 — ONE batched "we still need" message instead of drip-fed refusals.
+  'dealer.compliance.evidence_required': {
+    notificationType: 'dealer_evidence_required',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'dealer_evidence_required_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 — a completed ownership transfer ended this person's seller authority.
+  'seller.authority.superseded': {
+    notificationType: 'seller_authority',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'seller_authority_superseded_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -595,6 +799,43 @@ export function projectAccountSecurityActivity(row = {}) {
   };
 }
 
+const STRICT_TRADE_EVENT = /^(?:diaspora\.(?:rfq|logistics|container_booking|warehouse|loading)\.|diaspora\.shipment\.exception$)/;
+
+/**
+ * Project only durable event facts into governed template variables.
+ *
+ * Trade OS lifecycle templates fail closed when their own event omitted a required fact. The
+ * generic compatibility labels used by older notification families (`CarUp`, `updated`) are not
+ * facts from a durable Trade OS event and must never make a malformed T3/T7/T9/T10/D7 row look
+ * renderable during runtime or backlog custody.
+ */
+export function templateVariablesForEvent(eventType, payload = {}) {
+  const strictTradeEvent = STRICT_TRADE_EVENT.test(String(eventType || ''));
+  return {
+    topic: payload.topic || payload.intent || eventType,
+    listing_id: payload.listingId || payload.listing_id || payload.vin || 'listing',
+    escrow_id: payload.escrowId || payload.escrow_id || 'escrow',
+    status: payload.transfer_state || payload.currentStatus || payload.status || payload.current_status || (strictTradeEvent ? '' : 'updated'),
+    application_id: payload.applicationId || payload.application_id || payload.id || 'application',
+    reference: payload.publicReference || payload.reference || payload.transferId || payload.transfer_id || payload.escrowId || payload.applicationId || payload.inquiryId || payload.sessionId || payload.evidenceId || (strictTradeEvent ? '' : 'CarUp'),
+    decision: payload.decision || payload.action || '',
+    reason: payload.reason || '',
+    summary: payload.summary || '',
+    team: payload.team || 'support',
+    share_text: payload.shareText || payload.share_text || 'View this CarUp listing:',
+    share_url: payload.shareUrl || payload.share_url || '',
+    failed_channel: payload.failedChannel || '',
+    // T9/T10 event producers persist a bounded factual headline. The template repeats that fact;
+    // it does not infer a route, price, departure, customs state or Trust conclusion.
+    headline: payload.headline || '',
+    // T7 shipment exceptions persist the authoritative stage. Notes are deliberately not projected
+    // into the template contract because they are optional operator text.
+    stage: payload.stage || '',
+    // T2/T3/D7 legitimately require route. Empty is intentional and fail-closed.
+    route: payload.route || '',
+  };
+}
+
 export class CommunicationNotificationService {
   constructor({ repository, threadService, templateService = null, preferenceService = null } = {}) {
     this.repository = repository;
@@ -623,24 +864,7 @@ export class CommunicationNotificationService {
   }
 
   variablesForEvent(eventType, payload = {}) {
-    return {
-      topic: payload.topic || payload.intent || eventType,
-      listing_id: payload.listingId || payload.listing_id || payload.vin || 'listing',
-      escrow_id: payload.escrowId || payload.escrow_id || 'escrow',
-      status: payload.transfer_state || payload.currentStatus || payload.status || payload.current_status || 'updated',
-      application_id: payload.applicationId || payload.application_id || payload.id || 'application',
-      reference: payload.publicReference || payload.reference || payload.transferId || payload.transfer_id || payload.escrowId || payload.applicationId || payload.inquiryId || payload.sessionId || payload.evidenceId || 'CarUp',
-      decision: payload.decision || payload.action || '',
-      reason: payload.reason || '',
-      summary: payload.summary || '',
-      team: payload.team || 'support',
-      share_text: payload.shareText || payload.share_text || 'View this CarUp listing:',
-      share_url: payload.shareUrl || payload.share_url || '',
-      failed_channel: payload.failedChannel || '',
-      // Trade OS D7 — required by the governed container_booking_update template. Container
-      // booking emitters always supply it; other events simply carry an unused empty string.
-      route: payload.route || '',
-    };
+    return templateVariablesForEvent(eventType, payload);
   }
 
   async queueFromDomainEvent(event = {}) {
@@ -921,6 +1145,12 @@ export class CommunicationNotificationService {
   }
 
   async insertNotificationIdempotently(notificationRow) {
+    // OC-EXPO-02R — the one door into notification_queue. A push row never stores a routing
+    // credential, whichever producer built it: the worker resolves the Expo token from
+    // channel_identities at dispatch.
+    if (normalizeChannel(notificationRow?.channel) === 'push') {
+      notificationRow = { ...notificationRow, payload: withoutPushRouting(notificationRow.payload) };
+    }
     try {
       return await this.repository.insert('notification_queue', notificationRow);
     } catch (error) {

@@ -1,14 +1,25 @@
 import { useState, useCallback, useMemo } from 'react'
-import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
+import type {
+  CaseEstimatesResponse, CaseHub, Closeout, CreatePartInput, CustomerEstimate, CustomerInvoice, Decimal,
+  EstimateDecisionResult, EstimateDraftInput, GarageEstimate, GarageInvoice, InvoiceLineInput, NotificationOutcome,
+  OperationsSummary, PartUsage, PaymentRecord, PaymentStatus, StockListResponse, StockPartResponse,
+} from '@/lib/garageBusiness'
+import type {
+  CollectionOutcome, CustomerInvoicePayment, GarageFinancialOverview, GarageMerchantAccount, GaragePaymentExceptions,
+  GaragePaymentInstructionsView, StartPaymentResult,
+} from '@/lib/pay04GaragePayments'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
 import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
 import type { SharedChargeSet } from '@/pages/diaspora/SharedChargeAllocation'
 import type { DocumentWorkspace } from '@/pages/diaspora/TradeDocumentsWorkspace'
 import { useAuth } from '@/context/AuthContext'
+import type { ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
+import type { PartSentryRecordResult, VehicleWorkOrder, WorkOrderDecision } from '@/lib/partsentry'
 import {
   fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
+  fetchVerificationReviewQueueDetailed as fetchVerificationReviewQueueDetailedRequest,
   fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
   fetchEvidencePreview as fetchEvidencePreviewRequest,
   reviewVerificationSession as reviewVerificationSessionRequest,
@@ -34,6 +45,7 @@ import type {
 } from '@shared/types'
 import type { 
   User, 
+  LedgerIntegrityReport,
   Vehicle, 
   WorkOrder, 
   Part, 
@@ -468,6 +480,201 @@ type CommunicationAuditEvent = {
   created_at?: string | null
 }
 
+/* ── Service Network response shapes ─────────────────────────────────────────────────────────────
+   These are the exact projections the certified routes return. `any` is the established idiom
+   elsewhere in this file; it is not a reason to add more where the server contract is known. */
+export type ServiceCaseView = {
+  id: string
+  vin: string
+  status: string
+  service_category: string | null
+  request_summary: string | null
+  garage_display_name?: string | null
+  garage_slug?: string | null
+  branch_id?: string | null
+  requested_at: string | null
+  accepted_at: string | null
+  declined_at: string | null
+  started_at: string | null
+  completed_at: string | null
+  cancelled_at: string | null
+  conversation_thread_id?: string | null
+}
+export type ServiceCaseResult = { case: ServiceCaseView; created?: boolean }
+export type GarageAppointment = {
+  id: string
+  service_case_id: string
+  branch_id: string
+  status: 'requested' | 'confirmed' | 'declined' | 'cancelled' | 'fulfilled' | 'no_show'
+  starts_at: string
+  ends_at: string
+  appointment_timezone: string
+  planned_workforce_profile_id: string | null
+  requested_by_user_id: string
+  confirmed_at: string | null
+  created_at: string
+  updated_at: string
+}
+export type AppointmentAvailabilityResponse = {
+  configured: boolean
+  enabled?: boolean
+  reason?: string
+  branch: { id: string; name: string | null; timezone: string | null }
+  date: string
+  duration_minutes: number
+  slot_interval_minutes?: number
+  capacity?: number
+  slots: Array<{
+    starts_at: string
+    ends_at: string
+    appointment_timezone: string
+    branch_capacity: number
+    booked_count: number
+    available_count: number
+    bookable: boolean
+  }>
+}
+export type GarageScheduleResponse = {
+  appointments: Array<GarageAppointment & {
+    service_case: { id: string; status: string; vin: string; service_category: string | null; requester_name: string | null } | null
+    vehicle: { vin: string; make: string | null; model: string | null; year: number | null } | null
+    branch: { id: string; name: string | null; branch_code: string | null; timezone: string | null } | null
+    planned_workforce: { profile_id: string; user_id: string; staff_code: string; display_name: string | null } | null
+  }>
+  unscheduled_cases: Array<{ id: string; vin: string; status: string; service_category: string | null; branch_id: string | null; requester_user_id: string | null; requested_at: string | null }>
+  total: number
+  scope: 'garage' | 'planned_for_me'
+}
+export type GarageSchedulingConfiguration = {
+  sites: Array<{
+    id: string
+    name: string
+    branch_code: string | null
+    timezone: string | null
+    is_active: boolean
+    settings: null | { scheduling_enabled: boolean; max_concurrent_appointments: number; slot_interval_minutes: number }
+  }>
+  workforce: Array<{
+    id: string
+    user_id: string
+    staff_code: string
+    employment_status: string
+    display_name: string | null
+    tenant_role: string | null
+    live_branch_ids: string[]
+    schedules: Array<{ id: string; branch_id: string; day_of_week: number; starts_at: string; ends_at: string; effective_from: string; effective_until: string | null }>
+    unavailability: Array<{ id: string; starts_at: string; ends_at: string; reason_code: string | null }>
+  }>
+}
+export type ServiceCaseDetail = {
+  case: ServiceCaseView
+  access_basis?: string
+  history?: Array<{ event_type: string; from_status: string | null; to_status: string | null; created_at: string }>
+}
+export type GarageQueueResponse = {
+  queue: Array<{
+    id: string
+    status: string
+    vin: string
+    vehicle: { make: string | null; model: string | null; year: number | null } | null
+    service_category: string | null
+    requested_at: string | null
+    accepted_at?: string | null
+    branch_id?: string | null
+    work_order: { id: string; status: string; assigned_mechanic_user_id?: string | null } | null
+    next_action?: string
+  }>
+  total: number
+  counts: { requested: number; accepted: number; active: number }
+}
+export type GarageMechanicsResponse = {
+  mechanics: Array<{ user_id: string; display_name: string | null; role: string | null }>
+  total: number
+}
+export type GarageCustomerRelationship = {
+  id: string
+  customer_reference_code: string
+  relationship_status: 'active' | 'inactive' | 'prospect'
+  customer_category: 'individual' | 'business' | 'fleet' | 'other' | null
+  preferred_branch_id: string | null
+  assigned_staff_user_id: string | null
+  preferred_site_name?: string | null
+  assigned_staff_name?: string | null
+  internal_notes: string | null
+  notes_available?: boolean
+  tags: string[]
+  first_relationship_at: string
+  follow_up_at: string | null
+  follow_up_status: 'pending' | 'completed' | 'cancelled' | null
+}
+export type GarageCustomerEntry = {
+  customer_id: string
+  party_kind: 'registered' | 'external' | 'walk_in'
+  user_id?: string
+  display_name: string | null
+  identity_status?: string
+  relationship: GarageCustomerRelationship | null
+  vehicle_count: number
+  case_count: number
+  completed_count: number
+  last_service_at: string | null
+  spend_by_currency: Record<string, number>
+  conversation_thread_id: string | null
+}
+export type GarageCustomersResponse = {
+  customers: GarageCustomerEntry[]
+  prospects: GarageCustomerEntry[]
+  total: number
+  prospect_total: number
+}
+export type GarageCustomerDetailResponse = {
+  customer: Pick<GarageCustomerEntry, 'customer_id' | 'party_kind' | 'display_name' | 'identity_status' | 'relationship' | 'spend_by_currency' | 'conversation_thread_id'>
+  vehicles: Array<{ vin: string; make: string | null; model: string | null; year: number | null; relationship_basis: 'service_requester'; canonical_owner_recorded: boolean; canonical_owner_is_customer: boolean; case_count: number; last_service_at: string | null; open_case_count: number }>
+  cases: Array<{ id: string; vin: string; status: string; service_category: string | null; requested_at: string; completed_at: string | null; branch_id: string | null }>
+  work_orders: Array<{ id: string; service_case_id: string; status: string; created_at: string; completed_at: string | null; cancelled_at: string | null }>
+  service_records: Array<{ id: string; service_case_id: string; work_order_id: string; vin: string; service_category: string | null; total_cost: number | null; currency: string | null; performed_at: string | null; created_at: string }>
+}
+export type GarageProfileResponse = {
+  tenant?: { id: string; name: string; type: string }
+  profile: {
+    display_name: string | null
+    slug: string | null
+    description: string | null
+    location_city: string | null
+    location_province: string | null
+    contact_policy: string | null
+    public_phone: string | null
+    service_categories: string[] | null
+    publication_status: string | null
+  } | null
+  branches?: unknown[]
+}
+export type WorkOrderView = { id: string; status: string; service_case_id?: string | null; vin?: string }
+export type WorkOrderResult = { workOrder: WorkOrderView; created?: boolean }
+export type AssignmentResponse = {
+  work_order_id: string
+  assigned_mechanic_user_id: string | null
+  assigned: boolean
+  history: unknown[]
+}
+export type ServiceRecordResult = { record: { id: string; vin: string; work_performed: string | null } }
+export type MileageObservationResult = {
+  observation: { id: string; observed_mileage: number }
+  canonical_mileage: number | null
+  disagrees_with_canonical: boolean | null
+}
+export type ResolvedServiceLink = {
+  resource_type: string
+  access: string
+  next_action?: string | null
+  authenticated?: boolean
+  source_channel?: string | null
+  vin?: string | null
+  service_case_id?: string | null
+  status?: string | null
+  practitioner?: { affiliation: { display_name: string; slug: string } | null; credential_review_state: string | null } | null
+}
+
 export function useCarUpApi() {
   const { user, token } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -484,6 +691,11 @@ export function useCarUpApi() {
     if (user?.id) authHeaders['x-user-id'] = user.id
     if (user?.role) authHeaders['x-stakeholder-role'] = user.role
     if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
+
+    // OC-5D: no role header is swapped for the garage routes. #197 sent the TENANT role as
+    // x-stakeholder-role on "garage-side" paths (a client-maintained list of the server's gates); the
+    // server now decides from the session's SELECTED, verified garage (requireActiveTenant), so the
+    // browser has nothing to claim and nothing to keep in step.
 
     try {
       const data = await apiRequest<T>({ baseUrl: BASE_URL, path, options, authHeaders })
@@ -516,6 +728,12 @@ export function useCarUpApi() {
         verificationClientConfig,
         typeof filter === 'string' ? { status: filter } : filter || undefined,
       ),
+    [verificationClientConfig],
+  )
+
+  const fetchVerificationReviewQueueDetailed = useCallback(
+    (filter?: { workflow_phase?: string; status?: string }) =>
+      fetchVerificationReviewQueueDetailedRequest(verificationClientConfig, filter || undefined),
     [verificationClientConfig],
   )
 
@@ -662,7 +880,7 @@ export function useCarUpApi() {
     return request(`/marketplace/services${query}`)
   }, [request])
 
-  const compareMarketplaceListings = useCallback(async (vins: string[]): Promise<{ listings: any[]; total: number }> => {
+  const compareMarketplaceListings = useCallback(async (vins: string[]): Promise<{ listings: any[]; total: number; provenance?: ProvenanceSummary }> => {
     return request('/marketplace/compare', { method: 'POST', body: JSON.stringify({ vins }) })
   }, [request])
 
@@ -696,7 +914,7 @@ export function useCarUpApi() {
     request('/marketplace/ai/share-copy', { method: 'POST', body: JSON.stringify(payload) }), [request])
 
   // ── Admin marketplace command center ──
-  const fetchAdminMarketplaceListings = useCallback(async (filters?: { public_status?: string; risk_status?: string }): Promise<{ listings: any[]; total: number }> => {
+  const fetchAdminMarketplaceListings = useCallback(async (filters?: { public_status?: string; risk_status?: string }): Promise<{ listings: any[]; total: number; provenance?: ProvenanceSummary }> => {
     const query = filters ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v).map(([k, v]) => [k, String(v)])).toString() : ''
     return request(`/admin/marketplace/listings${query}`)
   }, [request])
@@ -704,7 +922,7 @@ export function useCarUpApi() {
     request<MarketplaceListingDetail>(`/admin/marketplace/listings/${encodeURIComponent(vin)}`), [request])
   const moderateMarketplaceListing = useCallback(async (vin: string, action: 'approve' | 'reject' | 'suppress' | 'request-evidence' | 'flag-risk' | 'clear-risk', body?: { reason?: string; notes?: string }): Promise<any> =>
     request(`/admin/marketplace/listings/${encodeURIComponent(vin)}/${action}`, { method: 'PATCH', body: JSON.stringify(body || {}) }), [request])
-  const fetchAdminMarketplaceInquiries = useCallback(async (filters?: { status?: string; inquiry_type?: string; risk_status?: string }): Promise<{ inquiries: any[] }> => {
+  const fetchAdminMarketplaceInquiries = useCallback(async (filters?: { status?: string; inquiry_type?: string; risk_status?: string }): Promise<{ inquiries: any[]; provenance?: ProvenanceSummary }> => {
     const query = filters ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v).map(([k, v]) => [k, String(v)])).toString() : ''
     return request(`/admin/marketplace/inquiries${query}`)
   }, [request])
@@ -766,8 +984,12 @@ export function useCarUpApi() {
     return request<{ vin: string; timeline: TimelineEvent[]; evidence: VehicleEvidence[] }>(`/vehicles/${vin}/evidence/timeline`)
   }, [request])
 
-  const fetchEvidenceReviewQueue = useCallback(async (status = 'pending'): Promise<VehicleEvidence[]> => {
-    return request<VehicleEvidence[]>(`/evidence/review?status=${encodeURIComponent(status)}`)
+  // PC01-K2B: an explicit page with its total, so a bounded page never passes for the whole queue.
+  const fetchEvidenceReviewQueue = useCallback(async (status = 'pending', page = 1, pageSize = 50): Promise<{
+    items: VehicleEvidence[]; page: number; page_size: number; total: number; has_more: boolean; provenance: ProvenanceSummary | null
+  }> => {
+    const qs = new URLSearchParams({ status, paged: '1', page: String(page), page_size: String(pageSize) })
+    return request(`/evidence/review?${qs.toString()}`)
   }, [request])
 
   const fetchTrustReviewQueue = useCallback(async (filters?: {
@@ -879,9 +1101,9 @@ export function useCarUpApi() {
   }, [request])
 
   // ── WS-A fraud queue + WS-B dealer compliance (admin/reviewer) ────────────────
-  const fetchFraudCases = useCallback(async (filters?: { status?: string; severity?: string }): Promise<{ cases: unknown[] }> => {
+  const fetchFraudCases = useCallback(async (filters?: { status?: string; severity?: string }): Promise<{ cases: unknown[]; provenance?: ProvenanceSummary }> => {
     const qs = new URLSearchParams(filters as Record<string, string>).toString()
-    return request<{ cases: unknown[] }>(`/fraud/cases${qs ? `?${qs}` : ''}`)
+    return request<{ cases: unknown[]; provenance?: ProvenanceSummary }>(`/fraud/cases${qs ? `?${qs}` : ''}`)
   }, [request])
   const fetchFraudCase = useCallback(async (id: string): Promise<{ case: unknown }> =>
     request<{ case: unknown }>(`/fraud/cases/${encodeURIComponent(id)}`), [request])
@@ -889,8 +1111,8 @@ export function useCarUpApi() {
     request(`/fraud/cases/${encodeURIComponent(id)}/resolve`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
   const evaluateVehicleFraud = useCallback(async (vin: string): Promise<unknown> =>
     request(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/fraud/evaluate`, { method: 'POST' }), [request])
-  const fetchDealers = useCallback(async (): Promise<{ dealers: unknown[] }> =>
-    request<{ dealers: unknown[] }>(`/admin/dealers`), [request])
+  const fetchDealers = useCallback(async (): Promise<{ dealers: unknown[]; provenance?: ProvenanceSummary }> =>
+    request<{ dealers: unknown[]; provenance?: ProvenanceSummary }>(`/admin/dealers`), [request])
   const fetchDealer = useCallback(async (id: string): Promise<{ dealer: unknown }> =>
     request<{ dealer: unknown }>(`/admin/dealers/${encodeURIComponent(id)}`), [request])
   const recordDealerDecision = useCallback(async (id: string, body: { decision: string; requirement_key?: string; reason?: string }): Promise<unknown> =>
@@ -996,6 +1218,53 @@ export function useCarUpApi() {
     return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/vehicles/${vin}/review`)
   }, [request])
 
+  // O2/P3 — People & Compliance reviewer aggregate (read-only).
+  const fetchPersonComplianceReview = useCallback(async (userId: string): Promise<{ success: boolean; review: Record<string, unknown> }> => {
+    return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/people/${userId}/review`)
+  }, [request])
+
+  // O2/P4 — identity session decision through the OWNING identity service route.
+  // O2 post-Ready review C2 — the governed decision shape, not a free-text `notes` field.
+  // `reviewVerificationSession` reads reasonCode / internalNote / applicantMessage and reads
+  // NOTHING called `notes`; a rejection without a reason code, or a resubmission request
+  // without an applicant message, is refused by the decision recorder. The type now says so,
+  // so a caller cannot send the shape that always failed.
+  const reviewIdentitySession = useCallback(async (
+    sessionId: string,
+    payload: {
+      action: 'approve' | 'reject' | 'request_resubmission' | 'escalate' | 'add_internal_note'
+      reasonCode?: string | null
+      internalNote?: string | null
+      applicantMessage?: string | null
+    },
+  ): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/admin/identity/verification-sessions/${sessionId}/review`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // O2 post-Ready review C1 (ported by OC-5C from PR #208) — re-prove the account credential on
+  // THIS session so a step-up-gated action becomes reachable. The server is the only writer of
+  // step-up state; this carries the password to the one endpoint that verifies it against the stored
+  // hash. It grants no role and no capability — only recency of authentication.
+  const stepUpSession = useCallback(async (password: string): Promise<{
+    success: boolean; step_up_at: string; method: string
+  }> => {
+    return request('/auth/step-up', { method: 'POST', body: JSON.stringify({ password }) })
+  }, [request])
+
+  // O2/P4 — dealer compliance decision through the OWNING dealer service route.
+  const recordDealerComplianceDecision = useCallback(async (
+    dealerId: string,
+    payload: { decision: string; requirement_key?: string; reason?: string },
+  ): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/admin/dealers/${dealerId}/decision`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
   // Operations M1 — governed classification correction (reason mandatory).
   const correctEvidenceClassification = useCallback(async (
     vin: string,
@@ -1025,8 +1294,10 @@ export function useCarUpApi() {
     return request<VehiclePassport>(`/vehicles/passport/lookup/${identifier}`)
   }, [request])
 
-  const verifyLedger = useCallback(async (vin: string): Promise<{ integrity: string; verified: boolean }> => {
-    return request<{ integrity: string; verified: boolean }>(`/vehicles/${vin}/verify-ledger`)
+  // OC-3B: the route answers an allow-listed integrity projection only — never the chain, its
+  // payloads or its signatures — and only to a session holding authority over this vin.
+  const verifyLedger = useCallback(async (vin: string): Promise<LedgerIntegrityReport> => {
+    return request<LedgerIntegrityReport>(`/vehicles/${vin}/verify-ledger`)
   }, [request])
 
   const fetchVehicle = useCallback(async (vin: string): Promise<Vehicle> => {
@@ -1058,22 +1329,36 @@ export function useCarUpApi() {
   }, [request])
 
   // The mechanic identity is derived server-side from req.userContext.id — never client-supplied.
-  const addRepairLog = useCallback(async (vin: string, partName: string, partOem: string | null, actionType: string, description: string, mileage: number): Promise<any> => {
-    return request('/partsentry/add', {
+  // OC-5A: the same Idempotency-Key on every retry of ONE submit makes the server return the original
+  // record (a lost response is never a second entry, and never a refusal). Who stands behind the entry
+  // (its attestation) is decided by the server, never by the client.
+  const addRepairLog = useCallback(async (
+    vin: string, partName: string, partOem: string | null, actionType: string, description: string, mileage: number,
+    options?: { idempotencyKey?: string; workOrderId?: string | null },
+  ): Promise<PartSentryRecordResult> => {
+    return request<PartSentryRecordResult>('/partsentry/add', {
       method: 'POST',
-      body: JSON.stringify({ vin, partName, partOem, actionType, description, mileage })
+      ...(options?.idempotencyKey ? { headers: { 'Idempotency-Key': options.idempotencyKey } } : {}),
+      body: JSON.stringify({ vin, partName, partOem, actionType, description, mileage, ...(options?.workOrderId ? { workOrderId: options.workOrderId } : {}) })
+    })
+  }, [request])
+
+  // OC-5A: the vehicle's custodian (its owner; for owner-less dealership stock, its governed dealer)
+  // sees the work orders mechanics have opened on it and decides on each. A work order grants a
+  // mechanic nothing until it is authorized here.
+  const fetchVehicleWorkOrders = useCallback(async (vin: string): Promise<VehicleWorkOrder[]> => {
+    return request<VehicleWorkOrder[]>(`/vehicles/${encodeURIComponent(vin)}/work-orders`)
+  }, [request])
+
+  const decideWorkOrderAuthorization = useCallback(async (vin: string, workOrderId: string, decision: WorkOrderDecision, reason?: string): Promise<{ success: boolean; workOrder: VehicleWorkOrder }> => {
+    return request(`/vehicles/${encodeURIComponent(vin)}/work-orders/${encodeURIComponent(workOrderId)}/authorization`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, ...(reason ? { reason } : {}) })
     })
   }, [request])
 
   const fetchRepairHistory = useCallback(async (vin: string): Promise<any[]> => {
     return request<any[]>(`/partsentry/${vin}`)
-  }, [request])
-
-  const runOcrParsing = useCallback(async (docType: string, base64Data: string): Promise<any> => {
-    return request('/ai/ocr', {
-      method: 'POST',
-      body: JSON.stringify({ docType, base64Data })
-    })
   }, [request])
 
   const runFraudScan = useCallback(async (vin: string, price: number, listingTitle: string): Promise<any> => {
@@ -1658,6 +1943,7 @@ export function useCarUpApi() {
     components: DraftComponent[],
     breakdownComplete = false,
   ): Promise<unknown[]> => {
+    const { toComponentPayload } = await import('@/pages/diaspora/commercialFormat')
     const response = await request<{ data: unknown[] }>(
       `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`,
       { method: 'POST', body: JSON.stringify({ components: toComponentPayload(components), breakdown_complete: breakdownComplete }) },
@@ -2396,14 +2682,11 @@ export function useCarUpApi() {
     return request('/admin/health')
   }, [request])
 
-  const fetchUsers = useCallback(async (): Promise<User[]> => {
-    return request<User[]>('/admin/users')
-  }, [request])
-
-  const suspendUser = useCallback(async (id: string): Promise<any> => {
-    return request(`/admin/users/${id}/suspend`, {
-      method: 'PATCH'
-    })
+  // PC01-K2B: operational accounts plus how many were set aside by provenance class. Account
+  // suspension is not offered (ACCOUNT SUSPENSION — PRODUCT / AUTHORITY GAP); its endpoints answer 501.
+  const fetchUsers = useCallback(async (): Promise<{ users: User[]; provenance: ProvenanceSummary | null }> => {
+    const body = await request<{ users: User[]; provenance?: ProvenanceSummary } | User[]>('/admin/users')
+    return Array.isArray(body) ? { users: body, provenance: null } : { users: body.users || [], provenance: body.provenance || null }
   }, [request])
 
   const updateVehicleStatus = useCallback(async (vin: string, status: string): Promise<any> => {
@@ -2440,6 +2723,419 @@ export function useCarUpApi() {
 
   const saveVehicle = useCallback(async (vin: string): Promise<any> => {
     return request('/vehicles/saved/add', { method: 'POST', body: JSON.stringify({ vin }) })
+  }, [request])
+
+  // ── Service Network (S2) — the owner's own service requests ────────────────
+  /**
+   * Open a governed Service Case against a PUBLISHED garage.
+   *
+   * The garage is named by its public slug: the public garage payload withholds `tenant_id`, so the
+   * browser never handles one, and the server resolves the slug against the same publication check.
+   */
+  const createServiceRequest = useCallback(async (input: {
+    garage_slug: string
+    vin: string
+    service_category?: string | null
+    request_summary?: string | null
+    source_channel?: string
+  }): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>('/service-cases', {
+      method: 'POST',
+      body: JSON.stringify({
+        garage_slug: input.garage_slug,
+        vin: input.vin,
+        service_category: input.service_category || null,
+        request_summary: input.request_summary || null,
+        source_channel: input.source_channel || 'directory',
+      }),
+    })
+  }, [request])
+
+  /** The requester's own Service Cases — the canonical ledger, not a second list. */
+  const fetchMyServiceRequests = useCallback(async (): Promise<ServiceCaseView[]> => {
+    const res = await request<ServiceCaseView[] | { cases?: ServiceCaseView[] }>('/service-cases/mine', { method: 'GET' })
+    return Array.isArray(res) ? res : (res?.cases ?? [])
+  }, [request])
+
+  const fetchServiceRequest = useCallback(async (caseId: string): Promise<ServiceCaseDetail> => {
+    return request<ServiceCaseDetail>(`/service-cases/${encodeURIComponent(caseId)}`, { method: 'GET' })
+  }, [request])
+
+  const fetchServiceAppointmentAvailability = useCallback(async (
+    caseId: string,
+    input: { branch_id: string; date: string; duration_minutes: number },
+  ): Promise<AppointmentAvailabilityResponse> => {
+    const query = new URLSearchParams({
+      branch_id: input.branch_id,
+      date: input.date,
+      duration_minutes: String(input.duration_minutes),
+    })
+    return request<AppointmentAvailabilityResponse>(
+      `/service-cases/${encodeURIComponent(caseId)}/appointment-availability?${query.toString()}`,
+      { method: 'GET' },
+    )
+  }, [request])
+
+  const requestServiceAppointment = useCallback(async (
+    caseId: string,
+    body: { branch_id: string; starts_at: string; ends_at: string },
+  ): Promise<{ appointment: GarageAppointment }> =>
+    request<{ appointment: GarageAppointment }>(
+      `/service-cases/${encodeURIComponent(caseId)}/appointments`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ), [request])
+
+  const fetchMyServiceAppointments = useCallback(async (): Promise<GarageAppointment[]> => {
+    const response = await request<{ appointments: GarageAppointment[] }>('/service-appointments/mine', { method: 'GET' })
+    return response?.appointments ?? []
+  }, [request])
+
+  const cancelMyServiceAppointment = useCallback(async (
+    caseId: string, appointmentId: string,
+  ): Promise<{ appointment: GarageAppointment }> =>
+    request<{ appointment: GarageAppointment }>(
+      `/service-cases/${encodeURIComponent(caseId)}/appointments/${encodeURIComponent(appointmentId)}/cancel`,
+      { method: 'POST', body: '{}' },
+    ), [request])
+
+  const fetchGarageSchedule = useCallback(async (): Promise<GarageScheduleResponse> =>
+    request<GarageScheduleResponse>('/garage/schedule', { method: 'GET' }), [request])
+
+  const fetchGarageSchedulingConfiguration = useCallback(async (): Promise<GarageSchedulingConfiguration> =>
+    request<GarageSchedulingConfiguration>('/garage/schedule/configuration', { method: 'GET' }), [request])
+
+  const fetchGarageAppointmentAvailability = useCallback(async (
+    input: { service_case_id: string; branch_id: string; date: string; duration_minutes: number },
+  ): Promise<AppointmentAvailabilityResponse & { slots: Array<AppointmentAvailabilityResponse['slots'][number] & { available_workforce_profile_ids?: string[] }> }> => {
+    const query = new URLSearchParams({
+      service_case_id: input.service_case_id,
+      branch_id: input.branch_id,
+      date: input.date,
+      duration_minutes: String(input.duration_minutes),
+    })
+    return request(`/garage/schedule/availability?${query.toString()}`, { method: 'GET' })
+  }, [request])
+
+
+  const saveGarageSchedulingSettings = useCallback(async (
+    siteId: string,
+    body: { scheduling_enabled: boolean; max_concurrent_appointments: number; slot_interval_minutes: number },
+  ) => request(
+    `/garage/schedule/sites/${encodeURIComponent(siteId)}/settings`,
+    { method: 'PUT', body: JSON.stringify(body) },
+  ), [request])
+
+  const addGarageWorkforceSchedule = useCallback(async (
+    userId: string,
+    body: { branch_id: string; day_of_week: number; starts_at: string; ends_at: string; effective_from: string; effective_until?: string | null },
+  ) => request(
+    `/garage/schedule/workforce/${encodeURIComponent(userId)}/recurring`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ), [request])
+
+  const addGarageWorkforceUnavailability = useCallback(async (
+    userId: string,
+    body: { starts_at: string; ends_at: string; reason_code?: string | null },
+  ) => request(
+    `/garage/schedule/workforce/${encodeURIComponent(userId)}/unavailability`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ), [request])
+
+  const confirmGarageAppointment = useCallback(async (
+    appointmentId: string,
+    body: { branch_id: string; starts_at: string; ends_at: string; planned_workforce_profile_id: string },
+  ) => request<{ appointment: GarageAppointment }>(
+    `/garage/schedule/appointments/${encodeURIComponent(appointmentId)}/confirm`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ), [request])
+
+  const rescheduleGarageAppointment = useCallback(async (
+    appointmentId: string,
+    body: { branch_id: string; starts_at: string; ends_at: string; planned_workforce_profile_id: string },
+  ) => request<{ appointment: GarageAppointment }>(
+    `/garage/schedule/appointments/${encodeURIComponent(appointmentId)}/reschedule`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ), [request])
+
+  const changeGarageAppointmentStatus = useCallback(async (
+    appointmentId: string, status: 'declined' | 'cancelled' | 'fulfilled' | 'no_show',
+  ) => request<{ appointment: GarageAppointment }>(
+    `/garage/schedule/appointments/${encodeURIComponent(appointmentId)}/status`,
+    { method: 'POST', body: JSON.stringify({ status }) },
+  ), [request])
+
+  /* ── GARAGE-1.0 business operating system ───────────────────────────────────────────────────
+     Estimates and the customer's decision, the case hub, stock, invoices / payment records / receipts,
+     and the operating view. Each is a thin call to a governed route; the SERVER decides what is allowed
+     (the hub returns `allowed_actions`) and what every total is — nothing here computes money. */
+
+  const fetchCaseEstimates = useCallback(async (caseId: string): Promise<CaseEstimatesResponse> =>
+    request<CaseEstimatesResponse>(`/garage/cases/${encodeURIComponent(caseId)}/estimates`, { method: 'GET' }), [request])
+
+  const createCaseEstimate = useCallback(async (caseId: string, body: EstimateDraftInput): Promise<{ estimate: GarageEstimate }> =>
+    request<{ estimate: GarageEstimate }>(`/garage/cases/${encodeURIComponent(caseId)}/estimates`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const saveEstimateDraft = useCallback(async (estimateId: string, body: EstimateDraftInput): Promise<{ estimate: GarageEstimate }> =>
+    request<{ estimate: GarageEstimate }>(`/garage/estimates/${encodeURIComponent(estimateId)}`, { method: 'PUT', body: JSON.stringify(body) }), [request])
+
+  const sendGarageEstimate = useCallback(async (estimateId: string): Promise<{ estimate: GarageEstimate }> =>
+    request<{ estimate: GarageEstimate }>(`/garage/estimates/${encodeURIComponent(estimateId)}/send`, { method: 'POST', body: '{}' }), [request])
+
+  const reviseGarageEstimate = useCallback(async (estimateId: string): Promise<{ estimate: GarageEstimate }> =>
+    request<{ estimate: GarageEstimate }>(`/garage/estimates/${encodeURIComponent(estimateId)}/revise`, { method: 'POST', body: '{}' }), [request])
+
+  const cancelGarageEstimate = useCallback(async (estimateId: string, reason?: string): Promise<{ estimate: GarageEstimate }> =>
+    request<{ estimate: GarageEstimate }>(`/garage/estimates/${encodeURIComponent(estimateId)}/cancel`, { method: 'POST', body: JSON.stringify({ reason: reason || null }) }), [request])
+
+  const fetchMyEstimates = useCallback(async (): Promise<{ estimates: CustomerEstimate[] }> =>
+    request<{ estimates: CustomerEstimate[] }>('/service-estimates/mine', { method: 'GET' }), [request])
+
+  const decideMyEstimate = useCallback(async (
+    estimateId: string, decision: 'accept' | 'decline', reason?: string,
+  ): Promise<EstimateDecisionResult> =>
+    request<EstimateDecisionResult>(`/service-estimates/${encodeURIComponent(estimateId)}/decision`, {
+      method: 'POST', body: JSON.stringify({ decision, reason: reason || null }),
+    }), [request])
+
+  const fetchGarageCaseHub = useCallback(async (caseId: string): Promise<CaseHub> =>
+    request<CaseHub>(`/garage/cases/${encodeURIComponent(caseId)}/hub`, { method: 'GET' }), [request])
+
+  const completeGarageJob = useCallback(async (caseId: string) =>
+    request<{ success: boolean; case: { status: string }; service_record_count: number | null }>(
+      `/service-cases/${encodeURIComponent(caseId)}/complete-job`, { method: 'POST', body: '{}' }), [request])
+
+  const fetchGarageStock = useCallback(async (includeInactive = false): Promise<StockListResponse> =>
+    request<StockListResponse>(`/garage/stock${includeInactive ? '?include_inactive=true' : ''}`, { method: 'GET' }), [request])
+
+  const fetchGaragePart = useCallback(async (partId: string): Promise<StockPartResponse> =>
+    request<StockPartResponse>(`/garage/stock/${encodeURIComponent(partId)}`, { method: 'GET' }), [request])
+
+  const createGaragePart = useCallback(async (body: CreatePartInput): Promise<StockPartResponse> =>
+    request<StockPartResponse>('/garage/stock', { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const updateGaragePart = useCallback(async (partId: string, patch: Record<string, unknown>): Promise<StockPartResponse> =>
+    request<StockPartResponse>(`/garage/stock/${encodeURIComponent(partId)}`, { method: 'PATCH', body: JSON.stringify(patch) }), [request])
+
+  const receiveGarageStock = useCallback(async (
+    partId: string, body: { quantity: number; reason?: string; note?: string; idempotency_key?: string },
+  ): Promise<StockPartResponse> =>
+    request<StockPartResponse>(`/garage/stock/${encodeURIComponent(partId)}/receive`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const countGarageStock = useCallback(async (
+    partId: string, body: { counted_quantity: number; reason?: string; note?: string; idempotency_key?: string },
+  ): Promise<StockPartResponse> =>
+    request<StockPartResponse>(`/garage/stock/${encodeURIComponent(partId)}/count`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const fetchWorkOrderParts = useCallback(async (workOrderId: string): Promise<{ money_visible: boolean; usage: PartUsage[] }> =>
+    request<{ money_visible: boolean; usage: PartUsage[] }>(`/garage/work-orders/${encodeURIComponent(workOrderId)}/parts`, { method: 'GET' }), [request])
+
+  const useGaragePartOnJob = useCallback(async (
+    serviceRecordId: string,
+    body: { part_id: string; quantity: number; partsentry_log_id?: number | null; idempotency_key?: string },
+  ) => request<{ usage_id: string; movement_id: string; part_id: string; quantity: number; balance_after: number; replayed: boolean }>(
+    `/garage/service-records/${encodeURIComponent(serviceRecordId)}/parts`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const reverseGaragePartUsage = useCallback(async (usageId: string, body: { reason: string; idempotency_key?: string }) =>
+    request<{ usage_id: string; reversal_movement_id: string; balance_after: number }>(
+      `/garage/part-usage/${encodeURIComponent(usageId)}/reverse`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const fetchGarageCloseout = useCallback(async (caseId: string): Promise<Closeout> =>
+    request<Closeout>(`/garage/cases/${encodeURIComponent(caseId)}/closeout`, { method: 'GET' }), [request])
+
+  const issueGarageInvoice = useCallback(async (
+    caseId: string,
+    body: { currency: string; lines: InvoiceLineInput[]; customer_note?: string | null; internal_note?: string | null; due_date?: string | null },
+  ): Promise<{ invoice: GarageInvoice }> =>
+    request<{ invoice: GarageInvoice }>(`/garage/cases/${encodeURIComponent(caseId)}/invoice`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const fetchGarageInvoices = useCallback(async (status?: 'issued' | 'voided') =>
+    request<{ invoices: GarageInvoice[]; truncated: boolean; summary: { issued: number; unpaid: number; partially_paid: number; paid: number; outstanding_by_currency: Array<{ currency: string; balance: Decimal | null }> } }>(
+      `/garage/invoices${status ? `?status=${status}` : ''}`, { method: 'GET' }), [request])
+
+  const fetchGarageInvoice = useCallback(async (invoiceId: string): Promise<{ invoice: GarageInvoice }> =>
+    request<{ invoice: GarageInvoice }>(`/garage/invoices/${encodeURIComponent(invoiceId)}`, { method: 'GET' }), [request])
+
+  const voidGarageInvoice = useCallback(async (invoiceId: string, reason: string): Promise<{ invoice: GarageInvoice }> =>
+    request<{ invoice: GarageInvoice }>(`/garage/invoices/${encodeURIComponent(invoiceId)}/void`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+
+  const recordGaragePayment = useCallback(async (
+    invoiceId: string,
+    body: { amount: Decimal | number; method: PaymentRecord['method']; reference?: string | null; paid_at?: string | null; idempotency_key: string },
+  ) => request<{ payment_id: string; receipt_id: string; receipt_number: string; payment_status: PaymentStatus; paid_amount: Decimal; balance_amount: Decimal; replayed: boolean; payment_source_label: string; invoice: GarageInvoice; notification?: NotificationOutcome }>(
+    `/garage/invoices/${encodeURIComponent(invoiceId)}/payments`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const reverseGaragePayment = useCallback(async (paymentId: string, body: { reason: string; idempotency_key: string }) =>
+    request<{ reversal_id: string; payment_status: PaymentStatus; paid_amount: Decimal; replayed: boolean; invoice: GarageInvoice }>(
+      `/garage/payments/${encodeURIComponent(paymentId)}/reverse`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const fetchMyInvoices = useCallback(async (): Promise<{ invoices: CustomerInvoice[] }> =>
+    request<{ invoices: CustomerInvoice[] }>('/service-invoices/mine', { method: 'GET' }), [request])
+
+  /* ── CARUP-PAY-04 — garage invoice payments ─────────────────────────────────────────────────
+     The customer pays the GARAGE (its own instructions, or its own provider merchant); the garage reads and
+     refunds its own provider payments; the operator governs exceptions. Money truth is always the server's
+     fresh provider read; nothing here retries a POST or infers a payment. */
+  const fetchGarageInvoicePaymentOptions = useCallback(async (invoiceId: string): Promise<CustomerInvoicePayment> =>
+    request<CustomerInvoicePayment>(`/pay04/garage-invoices/${encodeURIComponent(invoiceId)}/payment`, { method: 'GET' }), [request])
+  const startGarageInvoicePayment = useCallback(async (invoiceId: string, body: { amount?: Decimal }, idempotencyKey: string): Promise<StartPaymentResult> =>
+    request<StartPaymentResult>(`/pay04/garage-invoices/${encodeURIComponent(invoiceId)}/payments`, {
+      method: 'POST', body: JSON.stringify(body), headers: { 'Idempotency-Key': idempotencyKey } }), [request])
+  const verifyGarageInvoicePayment = useCallback(async (collectionId: string): Promise<CollectionOutcome> =>
+    request<CollectionOutcome>(`/pay04/garage-payments/${encodeURIComponent(collectionId)}/verify`, { method: 'POST', body: '{}' }), [request])
+  const cancelGarageInvoicePayment = useCallback(async (collectionId: string, reason: string): Promise<CollectionOutcome> =>
+    request<CollectionOutcome>(`/pay04/garage-payments/${encodeURIComponent(collectionId)}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+  const fetchGarageFinancialOverview = useCallback(async (): Promise<GarageFinancialOverview> =>
+    request<GarageFinancialOverview>('/pay04/garage/financial-overview', { method: 'GET' }), [request])
+  const fetchGaragePaymentInstructions = useCallback(async (): Promise<GaragePaymentInstructionsView> =>
+    request<GaragePaymentInstructionsView>('/pay04/garage/payment-instructions', { method: 'GET' }), [request])
+  const saveGaragePaymentInstructions = useCallback(async (body: { payee_name: string; instructions: string; accepted_methods: string[]; currencies: string[] }): Promise<GaragePaymentInstructionsView> =>
+    request<GaragePaymentInstructionsView>('/pay04/garage/payment-instructions', { method: 'PUT', body: JSON.stringify(body) }), [request])
+  const refundGarageProviderPayment = useCallback(async (collectionId: string, reason: string): Promise<CollectionOutcome & { provider_error: string | null }> =>
+    request<CollectionOutcome & { provider_error: string | null }>(`/pay04/garage/payments/${encodeURIComponent(collectionId)}/refund`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+  const reconcileGarageProviderPayment = useCallback(async (collectionId: string): Promise<CollectionOutcome> =>
+    request<CollectionOutcome>(`/pay04/garage/payments/${encodeURIComponent(collectionId)}/reconcile`, { method: 'POST', body: '{}' }), [request])
+  const cancelGarageProviderPayment = useCallback(async (collectionId: string, reason: string): Promise<CollectionOutcome> =>
+    request<CollectionOutcome>(`/pay04/garage/payments/${encodeURIComponent(collectionId)}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+  const fetchGaragePaymentExceptions = useCallback(async (): Promise<GaragePaymentExceptions> =>
+    request<GaragePaymentExceptions>('/pay04/admin/exceptions', { method: 'GET' }), [request])
+  const resolveGaragePaymentDiscrepancy = useCallback(async (discrepancyId: string, body: { resolution: string; note: string }) =>
+    request<Record<string, unknown>>(`/pay04/admin/discrepancies/${encodeURIComponent(discrepancyId)}/resolve`, { method: 'POST', body: JSON.stringify(body) }), [request])
+  const fetchGarageMerchantAccounts = useCallback(async (): Promise<{ accounts: GarageMerchantAccount[]; simulated_only: boolean; note: string }> =>
+    request<{ accounts: GarageMerchantAccount[]; simulated_only: boolean; note: string }>('/pay04/admin/merchant-accounts', { method: 'GET' }), [request])
+  const registerGarageMerchantAccount = useCallback(async (body: { tenant_id: string; merchant_reference: string; display_name: string; currencies: string[]; authority_note: string }) =>
+    request<{ account: GarageMerchantAccount }>('/pay04/admin/merchant-accounts', { method: 'POST', body: JSON.stringify(body) }), [request])
+  const suspendGarageMerchantAccount = useCallback(async (accountId: string, reason: string) =>
+    request<{ account: GarageMerchantAccount }>(`/pay04/admin/merchant-accounts/${encodeURIComponent(accountId)}/suspend`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+
+  const fetchGarageOperationsSummary = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<OperationsSummary> =>
+    request<OperationsSummary>(`/garage/operations/summary?window_days=${windowDays}`, { method: 'GET' }), [request])
+
+  /* ── Garage operator workspace (R5) ──────────────────────────────────────────────────────────
+     Every one of these endpoints was already certified and had no product surface: the garage's
+     queue, its own members, and the case/work-order/record lifecycle. Nothing new is invented
+     here — these are the canonical Service Network routes, called from a screen at last. */
+
+  const fetchGarageQueue = useCallback(async (status?: string): Promise<GarageQueueResponse> => {
+    const q = status ? `?status=${encodeURIComponent(status)}` : ''
+    return request<GarageQueueResponse>(`/garage/queue${q}`, { method: 'GET' })
+  }, [request])
+
+  const fetchGarageMechanics = useCallback(async (): Promise<GarageMechanicsResponse> => {
+    return request<GarageMechanicsResponse>('/garage/mechanics', { method: 'GET' })
+  }, [request])
+
+  const fetchGarageCustomers = useCallback(async (): Promise<GarageCustomersResponse> => {
+    return request<GarageCustomersResponse>('/garage/customers', { method: 'GET' })
+  }, [request])
+
+  const fetchGarageCustomerDetail = useCallback(async (customerId: string): Promise<GarageCustomerDetailResponse> =>
+    request<GarageCustomerDetailResponse>(`/garage/customers/${encodeURIComponent(customerId)}`, { method: 'GET' }), [request])
+
+  const updateGarageCustomerRelationship = useCallback(async (customerId: string, body: Record<string, unknown>): Promise<{ relationship: GarageCustomerRelationship }> =>
+    request<{ relationship: GarageCustomerRelationship }>(`/garage/customers/${encodeURIComponent(customerId)}/relationship`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+
+  const createGarageProspect = useCallback(async (body: { origin: 'walk_in'; display_name: string; walk_in_confirmed: true }): Promise<{ customer_id: string }> =>
+    request<{ customer_id: string }>('/garage/customer-prospects', { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  /* The garage's own public page. Certified since S1 and never reachable from the product, which
+     left the directory with no way to gain a garage — and so the owner journey with no supply. */
+  const fetchMyGarageProfile = useCallback(async (): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile', { method: 'GET' })
+  }, [request])
+
+  const saveMyGarageProfile = useCallback(async (body: Record<string, unknown>): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile', { method: 'PUT', body: JSON.stringify(body) })
+  }, [request])
+
+  const publishMyGarageProfile = useCallback(async (): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile/publish', { method: 'POST', body: '{}' })
+  }, [request])
+
+  const unpublishMyGarageProfile = useCallback(async (): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile/unpublish', { method: 'POST', body: '{}' })
+  }, [request])
+
+  const acceptServiceCase = useCallback(async (caseId: string, options?: { branch_id?: string }): Promise<ServiceCaseResult> => {
+    // the site is optional on the wire (a garage with no sites accepts without one); when given, the server proves it is this garage's
+    const body = options?.branch_id ? { branch_id: options.branch_id } : {}
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/accept`, { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const declineServiceCase = useCallback(async (caseId: string, reasonCode?: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/decline`, {
+      method: 'POST',
+      body: JSON.stringify({ reason_code: reasonCode || 'garage_declined' }),
+    })
+  }, [request])
+
+  const startServiceCase = useCallback(async (caseId: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/start`, { method: 'POST', body: '{}' })
+  }, [request])
+
+  const completeServiceCase = useCallback(async (caseId: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/complete`, { method: 'POST', body: '{}' })
+  }, [request])
+
+  const openWorkOrderForCase = useCallback(async (caseId: string, body: Record<string, unknown> = {}): Promise<WorkOrderResult> => {
+    return request<WorkOrderResult>(`/service-cases/${encodeURIComponent(caseId)}/work-order`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const fetchWorkOrderAssignment = useCallback(async (workOrderId: string): Promise<AssignmentResponse> => {
+    return request<AssignmentResponse>(`/service-work-orders/${encodeURIComponent(workOrderId)}/assignment`, { method: 'GET' })
+  }, [request])
+
+  const assignMechanicToWorkOrder = useCallback(async (workOrderId: string, mechanicUserId: string): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/service-work-orders/${encodeURIComponent(workOrderId)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ mechanic_user_id: mechanicUserId }),
+    })
+  }, [request])
+
+  const unassignMechanicFromWorkOrder = useCallback(async (workOrderId: string): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/service-work-orders/${encodeURIComponent(workOrderId)}/unassign`, {
+      method: 'POST',
+      body: '{}',
+    })
+  }, [request])
+
+  /** Record what was actually done. Cost is optional, but it never travels without its currency. */
+  const recordServiceOnWorkOrder = useCallback(async (workOrderId: string, body: {
+    work_performed?: string | null
+    service_category?: string | null
+    total_cost?: number | null
+    currency?: string | null
+  }): Promise<ServiceRecordResult> => {
+    return request<ServiceRecordResult>(`/service-work-orders/${encodeURIComponent(workOrderId)}/records`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  /** An OBSERVATION of the odometer. It does not write the vehicle's canonical mileage. */
+  const recordMileageObservation = useCallback(async (recordId: string, observedMileage: number): Promise<MileageObservationResult> => {
+    return request<MileageObservationResult>(`/service-records/${encodeURIComponent(recordId)}/mileage`, {
+      method: 'POST',
+      body: JSON.stringify({ observed_mileage: observedMileage, observation_source: 'garage_stated' }),
+    })
+  }, [request])
+
+  /**
+   * Resolve a scanned CarUp link (R8). The route is `optionalAuth`, so this is called both signed
+   * out and signed in — the identity headers `request` attaches when they exist are exactly what
+   * decides whether the answer is `authentication_required` or the real one.
+   */
+  const resolveServiceLink = useCallback(async (publicToken: string): Promise<ResolvedServiceLink> => {
+    return request<ResolvedServiceLink>(`/service-links/${encodeURIComponent(publicToken)}`, { method: 'GET' })
+  }, [request])
+
+  const cancelServiceRequest = useCallback(async (caseId: string, reasonCode?: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason_code: reasonCode || 'requester_withdrew' }),
+    })
   }, [request])
 
   const fetchServiceHistory = useCallback(async (): Promise<any[]> => {
@@ -2943,6 +3639,219 @@ export function useCarUpApi() {
   const exportReferralAudit = useCallback((filters?: ReferralAuditExportFilters): Promise<ReferralServiceResponse> =>
     request<ReferralServiceResponse>(`/referrals/trust/audit-export${referralQuery(filters)}`), [request])
 
+
+  // OCR 1.0-C3 — Garage applicant application + private evidence consumer only.
+  // Reviewer, activation, invitation and Garage workspace authority remain outside this lane.
+  type GarageApiJson = Record<string, unknown>
+
+  const fetchMyGarageApplication = useCallback(async (): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage-onboarding/application', { method: 'GET' })
+  }, [request])
+
+  const startGarageApplication = useCallback(async (body: { supersedes?: string } = {}): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage-onboarding/application', { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const saveGarageApplication = useCallback(async (id: string, patch: Record<string, unknown>): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage-onboarding/application/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify(patch),
+    })
+  }, [request])
+
+  const submitGarageApplication = useCallback(async (id: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage-onboarding/application/${encodeURIComponent(id)}/submit`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
+  const garageEvidenceBase = (appId: string) =>
+    `/garage-onboarding/application/${encodeURIComponent(appId)}/evidence`
+
+  const listGarageEvidence = useCallback(async (appId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(garageEvidenceBase(appId), { method: 'GET' })
+  }, [request])
+
+  const uploadGarageEvidence = useCallback(async (appId: string, body: Record<string, unknown>): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(garageEvidenceBase(appId), { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const removeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}`, { method: 'DELETE' })
+  }, [request])
+
+  const previewGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}/preview`, { method: 'GET' })
+  }, [request])
+
+  const extractGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}/extract`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
+  const acknowledgeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}/acknowledge`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
+  // GMO-3/4 (ported by OC-5E from #209) — the CarUp reviewer's side of garage onboarding. The server
+  // decides every gate (session, review capability, X3 step-up); these only carry the request.
+  const garageReviewBase = (appId: string) => `/admin/garage-applications/${encodeURIComponent(appId)}`
+  const fetchGarageApplicationsForReview = useCallback(async (statuses?: string[]): Promise<GarageApiJson> => {
+    const q = statuses?.length ? `?status=${encodeURIComponent(statuses.join(','))}` : ''
+    return request<GarageApiJson>(`/admin/garage-applications${q}`, { method: 'GET' })
+  }, [request])
+
+  const fetchGarageApplicationForReview = useCallback(async (appId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(garageReviewBase(appId), { method: 'GET' })
+  }, [request])
+
+  const decideGarageApplication = useCallback(async (appId: string, body: { decision: string; reason?: string; reason_code?: string }): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageReviewBase(appId)}/decision`, { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const activateGarageApplication = useCallback(async (appId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageReviewBase(appId)}/activate`, { method: 'POST', body: '{}' })
+  }, [request])
+
+  const previewGarageEvidenceForReview = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageReviewBase(appId)}/evidence/${encodeURIComponent(docId)}/preview`, { method: 'GET' })
+  }, [request])
+
+  // GMO-6/7 (ported by OC-5E from #209) — a garage's invitations and team. Managing them is the
+  // selected garage's ADMIN's act; the server decides that from the session's verified organisation.
+  const listGarageInvitations = useCallback(async (): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/invitations', { method: 'GET' })
+  }, [request])
+
+  const createGarageInvitation = useCallback(async (body: { email: string; role: string; name?: string }): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/invitations', { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const revokeGarageInvitation = useCallback(async (invitationId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/invitations/${encodeURIComponent(invitationId)}`, { method: 'DELETE' })
+  }, [request])
+
+  const peekGarageInvitation = useCallback(async (token: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/invitations/peek/${encodeURIComponent(token)}`, { method: 'GET' })
+  }, [request])
+
+  const acceptGarageInvitation = useCallback(async (token: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/invitations/accept', { method: 'POST', body: JSON.stringify({ token }) })
+  }, [request])
+
+  const listGarageMembers = useCallback(async (): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/members', { method: 'GET' })
+  }, [request])
+
+  const removeGarageMember = useCallback(async (userId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/members/${encodeURIComponent(userId)}`, { method: 'DELETE' })
+  }, [request])
+
+  const changeGarageMemberRole = useCallback(async (userId: string, role: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/members/${encodeURIComponent(userId)}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
+  }, [request])
+
+  // GARAGE-1.0-OPS01 — governed sites + workforce. Tenant identity is never sent in these payloads;
+  // the server derives the selected active Garage from the proven session on every request.
+  const listGarageSites = useCallback(async (): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/sites', { method: 'GET' }), [request])
+
+  const getGarageSite = useCallback(async (siteId: string): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/sites/${encodeURIComponent(siteId)}`, { method: 'GET' }), [request])
+
+  const createGarageSite = useCallback(async (body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/sites', { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const updateGarageSite = useCallback(async (siteId: string, body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/sites/${encodeURIComponent(siteId)}`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+
+  const setGarageSiteStatus = useCallback(async (siteId: string, status: 'active' | 'inactive'): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/sites/${encodeURIComponent(siteId)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), [request])
+
+  const setGarageSiteManager = useCallback(async (siteId: string, userId: string | null): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/sites/${encodeURIComponent(siteId)}/manager`, { method: 'PATCH', body: JSON.stringify({ user_id: userId }) }), [request])
+
+  const listGarageDepartments = useCallback(async (): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/departments', { method: 'GET' }), [request])
+
+  const createGarageDepartment = useCallback(async (name: string): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/departments', { method: 'POST', body: JSON.stringify({ name }) }), [request])
+
+  const updateGarageDepartment = useCallback(async (departmentId: string, body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/departments/${encodeURIComponent(departmentId)}`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+
+  const listGarageWorkforce = useCallback(async (): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/workforce', { method: 'GET' }), [request])
+
+  const getGarageWorkforceProfile = useCallback(async (userId: string): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}`, { method: 'GET' }), [request])
+
+  const upsertGarageWorkforceProfile = useCallback(async (userId: string, body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+
+  const createGarageWorkforceProfile = useCallback(async (body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/workforce', { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const setGarageWorkforceStatus = useCallback(async (userId: string, status: 'pending' | 'active' | 'inactive' | 'ended'): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), [request])
+
+  const setGarageWorkforceBranches = useCallback(async (userId: string, body: { primary_branch_id: string; additional_branch_ids?: string[] }): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}/branches`, { method: 'PUT', body: JSON.stringify(body) }), [request])
+
+  const replaceGarageWorkforceSkills = useCallback(async (userId: string, skills: string[]): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}/skills`, { method: 'PUT', body: JSON.stringify({ skills }) }), [request])
+
+  const addGarageWorkforceCertification = useCallback(async (userId: string, body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}/certifications`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  // O2-X2 (ported by OC-5C) — the registration onboarding journey (self-scoped; describes, never grants)
+  // and the applicant's own 7C identity wizard. Server-owned payloads travel as structural records;
+  // the consuming page narrows them.
+  type RegistrationJourneyPayload = {
+    success: boolean
+    user: Record<string, unknown> | null
+    profile: Record<string, unknown> | null
+    identity_session: Record<string, unknown> | null
+    journey: Record<string, unknown>
+    identity_assurance: Record<string, unknown> | null
+  }
+  type RegistrationCandidatesPayload = { success: boolean; candidates: Record<string, unknown> }
+  type RegistrationProfileSaveResult = { success: boolean; profile: Record<string, unknown>; field_provenance: Record<string, string>; audit_recorded: boolean }
+  type IdentitySessionEnvelope = { success: boolean; session: Record<string, unknown> }
+
+  const fetchRegistrationJourney = useCallback((): Promise<RegistrationJourneyPayload> =>
+    request<RegistrationJourneyPayload>('/registration/journey'), [request])
+  const fetchRegistrationCandidates = useCallback((): Promise<RegistrationCandidatesPayload> =>
+    request<RegistrationCandidatesPayload>('/registration/profile/candidates'), [request])
+  const saveRegistrationProfile = useCallback((payload: { profile: Record<string, unknown>; candidates_seen?: Record<string, string> }): Promise<RegistrationProfileSaveResult> =>
+    request<RegistrationProfileSaveResult>('/registration/profile', { method: 'PUT', body: JSON.stringify(payload) }), [request])
+  const createIdentitySession = useCallback((documentType: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>('/identity/verification-sessions', { method: 'POST', body: JSON.stringify({ documentType }) }), [request])
+  const uploadIdentitySide = useCallback((sessionId: string, side: 'front' | 'back' | 'selfie', image: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/upload/${side}`, { method: 'POST', body: JSON.stringify({ image }) }), [request])
+  const submitIdentitySession = useCallback((sessionId: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/submit`, { method: 'POST', body: JSON.stringify({}) }), [request])
+
+  // O2-X5 (ported by OC-5C) — the dealer APPLICANT's own onboarding (self-scoped; grants no Dealer authority).
+  type DealerOnboardingPayload = Record<string, unknown> & { success: boolean }
+  const fetchDealerOnboardingOverview = useCallback((): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/overview'), [request])
+  const saveDealerOnboardingProfile = useCallback((payload: { profile: Record<string, unknown> }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/profile', { method: 'PUT', body: JSON.stringify(payload) }), [request])
+  const uploadDealerEvidence = useCallback((payload: { doc_type: string; file: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/documents', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const addDealerOnboardingBranch = useCallback((payload: { name: string; address: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/branches', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
+  const inspectDealerWorkbook = useCallback((payload: { fileBase64: string; filename: string; templateType?: string; sheetName?: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/workbook/inspect', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const confirmDealerWorkbookMapping = useCallback((payload: { template_type: string; sheet_name: string; workbook_checksum: string; mappings: Array<{ source: string; target: string }> }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/workbook/mapping/confirm', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const runDealerWorkbookDryRun = useCallback((payload: { fileBase64: string; filename: string; templateType: string; sheetName: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/workbook/dry-run', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
   return {
     // ── CARUP-PAY-03B: Dealer & Business subscriptions ──
     fetchPay03bCatalogue,
@@ -2965,6 +3874,59 @@ export function useCarUpApi() {
     fetchPay03bReconciliationException,
     acknowledgePay03bReconciliationException,
     resolvePay03bReconciliationException,
+    inspectDealerWorkbook,
+    confirmDealerWorkbookMapping,
+    runDealerWorkbookDryRun,
+    fetchDealerOnboardingOverview,
+    saveDealerOnboardingProfile,
+    uploadDealerEvidence,
+    addDealerOnboardingBranch,
+    fetchRegistrationJourney,
+    fetchRegistrationCandidates,
+    saveRegistrationProfile,
+    createIdentitySession,
+    uploadIdentitySide,
+    submitIdentitySession,
+    fetchMyGarageApplication,
+    startGarageApplication,
+    saveGarageApplication,
+    submitGarageApplication,
+    listGarageEvidence,
+    uploadGarageEvidence,
+    removeGarageEvidence,
+    previewGarageEvidence,
+    extractGarageEvidence,
+    acknowledgeGarageEvidence,
+    fetchGarageApplicationsForReview,
+    fetchGarageApplicationForReview,
+    decideGarageApplication,
+    activateGarageApplication,
+    previewGarageEvidenceForReview,
+    listGarageInvitations,
+    createGarageInvitation,
+    revokeGarageInvitation,
+    peekGarageInvitation,
+    acceptGarageInvitation,
+    listGarageMembers,
+    removeGarageMember,
+    changeGarageMemberRole,
+    listGarageSites,
+    getGarageSite,
+    createGarageSite,
+    updateGarageSite,
+    setGarageSiteStatus,
+    setGarageSiteManager,
+    listGarageDepartments,
+    createGarageDepartment,
+    updateGarageDepartment,
+    listGarageWorkforce,
+    getGarageWorkforceProfile,
+    createGarageWorkforceProfile,
+    upsertGarageWorkforceProfile,
+    setGarageWorkforceStatus,
+    setGarageWorkforceBranches,
+    replaceGarageWorkforceSkills,
+    addGarageWorkforceCertification,
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,
@@ -3022,6 +3984,87 @@ export function useCarUpApi() {
     reopenCommunicationThread,
     pauseCommunicationThreadSla,
     resumeCommunicationThreadSla,
+    createServiceRequest,
+    fetchMyServiceRequests,
+    fetchServiceRequest,
+    fetchServiceAppointmentAvailability,
+    requestServiceAppointment,
+    fetchMyServiceAppointments,
+    cancelMyServiceAppointment,
+    cancelServiceRequest,
+    resolveServiceLink,
+    fetchCaseEstimates,
+    createCaseEstimate,
+    saveEstimateDraft,
+    sendGarageEstimate,
+    reviseGarageEstimate,
+    cancelGarageEstimate,
+    fetchMyEstimates,
+    decideMyEstimate,
+    fetchGarageCaseHub,
+    completeGarageJob,
+    fetchGarageStock,
+    fetchGaragePart,
+    createGaragePart,
+    updateGaragePart,
+    receiveGarageStock,
+    countGarageStock,
+    fetchWorkOrderParts,
+    useGaragePartOnJob,
+    reverseGaragePartUsage,
+    fetchGarageCloseout,
+    issueGarageInvoice,
+    fetchGarageInvoices,
+    fetchGarageInvoice,
+    voidGarageInvoice,
+    recordGaragePayment,
+    reverseGaragePayment,
+    fetchMyInvoices,
+    fetchGarageInvoicePaymentOptions,
+    startGarageInvoicePayment,
+    verifyGarageInvoicePayment,
+    cancelGarageInvoicePayment,
+    fetchGarageFinancialOverview,
+    fetchGaragePaymentInstructions,
+    saveGaragePaymentInstructions,
+    refundGarageProviderPayment,
+    reconcileGarageProviderPayment,
+    cancelGarageProviderPayment,
+    fetchGaragePaymentExceptions,
+    resolveGaragePaymentDiscrepancy,
+    fetchGarageMerchantAccounts,
+    registerGarageMerchantAccount,
+    suspendGarageMerchantAccount,
+    fetchGarageOperationsSummary,
+    fetchGarageQueue,
+    fetchGarageMechanics,
+    fetchGarageCustomers,
+    fetchGarageCustomerDetail,
+    fetchGarageSchedule,
+    fetchGarageSchedulingConfiguration,
+    fetchGarageAppointmentAvailability,
+    saveGarageSchedulingSettings,
+    addGarageWorkforceSchedule,
+    addGarageWorkforceUnavailability,
+    confirmGarageAppointment,
+    rescheduleGarageAppointment,
+    changeGarageAppointmentStatus,
+    updateGarageCustomerRelationship,
+    createGarageProspect,
+    fetchMyGarageProfile,
+    saveMyGarageProfile,
+    publishMyGarageProfile,
+    unpublishMyGarageProfile,
+    acceptServiceCase,
+    declineServiceCase,
+    startServiceCase,
+    completeServiceCase,
+    openWorkOrderForCase,
+    fetchWorkOrderAssignment,
+    assignMechanicToWorkOrder,
+    unassignMechanicFromWorkOrder,
+    recordServiceOnWorkOrder,
+    recordMileageObservation,
     fetchCommunicationDeadLetters,
     retryCommunicationDeadLetter,
     cancelCommunicationDeadLetter,
@@ -3070,6 +4113,7 @@ export function useCarUpApi() {
     fetchVehicleEvidenceTimeline,
     fetchEvidenceReviewQueue,
     fetchVerificationReviewQueue,
+    fetchVerificationReviewQueueDetailed,
     fetchVerificationSessionDetail,
     fetchEvidencePreview,
     reviewVerificationSession,
@@ -3109,6 +4153,10 @@ export function useCarUpApi() {
     approveEvidence,
     rejectEvidence,
     fetchVehicleOperationsReview,
+    fetchPersonComplianceReview,
+    reviewIdentitySession,
+    stepUpSession,
+    recordDealerComplianceDecision,
     correctEvidenceClassification,
     reviewSellerAuthority,
     lookupVehiclePassport,
@@ -3119,8 +4167,9 @@ export function useCarUpApi() {
     fetchSafePayEscrows,
     updateSafePayEscrow,
     addRepairLog,
+    fetchVehicleWorkOrders,
+    decideWorkOrderAuthorization,
     fetchRepairHistory,
-    runOcrParsing,
     runFraudScan,
     runRiskAssessment,
     submitFinancing,
@@ -3319,7 +4368,6 @@ export function useCarUpApi() {
     updateRegistryVerification,
     fetchServerHealth,
     fetchUsers,
-    suspendUser,
     updateVehicleStatus,
 
     // ── Referral Engine ──

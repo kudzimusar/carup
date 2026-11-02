@@ -17,7 +17,6 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
 
 const { createMockSupabase } = await import('./helpers/mockSupabase.js');
-const { supabase } = await import('../db/supabase.js');
 const { exportWorkbookFromDatabase } = await import('../services/diaspora/workbook/diasporaWorkbookDbExportService.js');
 const { parseWorkbook } = await import('../services/diaspora/workbook/diasporaWorkbookXlsxService.js');
 const { sha256Checksum } = await import('../services/diaspora/workbook/diasporaWorkbookUploadSecurity.js');
@@ -61,9 +60,9 @@ function seededClient() {
 }
 
 async function exportAndParse(templateType, caller, client, options = {}) {
-  // Route the audit write (which uses the global supabase client) into the same in-memory mock so
-  // the WORKBOOK_DB_EXPORTED row is assertable and no real network call is attempted.
-  Object.defineProperty(supabase, 'from', { configurable: true, writable: true, value: client.from });
+  // OC-4A: no global-client override. The audit is written through the SAME injected client the export
+  // reads with — if it went to the global singleton instead, it would fail here, and (since an export
+  // is no longer released without its audit) so would every test using this helper.
   const { buffer, meta } = await exportWorkbookFromDatabase(templateType, caller, { supabaseClient: client, ...options });
   assert.equal(Buffer.isBuffer(buffer), true, 'export must return { buffer } with a Buffer');
   assert.ok(meta && typeof meta === 'object', 'export must return { meta }');
@@ -269,15 +268,22 @@ test('export writes an audit row with template/filter/count facts and no PII', a
   }
 });
 
-// 14. An audit-sink failure must not fail an already-authorized, already-built export.
-test('audit write failure does not fail the export', async () => {
+// 14. OC-4A: no audit, no export. The DB export audit is classified SECURITY / AUTHORITY — an export
+// whose audit can be skipped is untraceable — so an audit-sink failure now refuses to release it.
+// (Track W had pinned the opposite: "an audit-sink failure must not fail an already-built export".)
+test('audit write failure refuses to release the export (fail closed)', async () => {
   const client = seededClient();
-  const failingFrom = (table) => {
-    if (table === 'diaspora_import_audit_log') throw new Error('audit sink down');
-    return client.from(table);
+  const failing = {
+    ...client,
+    from(table) {
+      if (table === 'diaspora_import_audit_log') {
+        return { insert: () => ({ select: () => ({ single: async () => ({ data: null, error: { message: 'audit sink down' } }) }) }) };
+      }
+      return client.from(table);
+    },
   };
-  Object.defineProperty(supabase, 'from', { configurable: true, writable: true, value: failingFrom });
-  const { buffer, meta } = await exportWorkbookFromDatabase(TEMPLATE_TYPE, tenantACaller, { supabaseClient: client });
-  assert.equal(Buffer.isBuffer(buffer), true);
-  assert.ok(meta.checksum);
+  await assert.rejects(
+    () => exportWorkbookFromDatabase(TEMPLATE_TYPE, tenantACaller, { supabaseClient: failing }),
+    (err) => err.name === 'DatabaseError' && /not released/.test(err.message) && /audit sink down/.test(err.message),
+  );
 });

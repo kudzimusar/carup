@@ -257,6 +257,27 @@ export function isDocumentArtifactRow(row = {}) {
   return ['registration_document', 'insurance_document', 'police_clearance_document', 'ownership_transfer_document'].includes(type);
 }
 
+/**
+ * OC-5R-REL-01 — evidence that is PRIVATE BY TYPE.
+ *
+ * An odometer photo shows one vehicle's instrument cluster at one moment; it is read by OCR as a
+ * candidate and is never public. The mobile client already asks for `visibility_level: 'private'`,
+ * but a client request is not a control: the server derives private storage for these types itself,
+ * and nothing — a caller's visibility, a caller's bucket, the review capability — can widen it.
+ *
+ * Canonical: the two mileage-photo contracts OCR accepts (`current_condition:odometer` is the native
+ * capture). Legacy: `odometer_photo`, the compatibility type both derive — the legacy field is
+ * storage input (see the rule above), so a legacy-only odometer upload is private too.
+ */
+export const PRIVATE_BY_TYPE_CANONICAL = Object.freeze(['current_condition:odometer', 'inspection:odometer_reading']);
+export const PRIVATE_BY_TYPE_LEGACY = Object.freeze(['odometer_photo']);
+
+export function isPrivateByTypeRow(row = {}) {
+  const { evidence_class: cls, evidence_subtype: sub, semantic_source } = resolveSemanticClassification(row);
+  if (semantic_source === 'canonical' && cls && sub && PRIVATE_BY_TYPE_CANONICAL.includes(`${cls}:${sub}`)) return true;
+  return PRIVATE_BY_TYPE_LEGACY.includes(row.evidence_type);
+}
+
 export function isImportEvidenceRow(row = {}) {
   return resolveSemanticClassification(row).evidence_class === 'import';
 }
@@ -424,6 +445,7 @@ export default {
   deriveLegacyCompatibilityType,
   resolveSemanticClassification,
   isDocumentArtifactRow,
+  isPrivateByTypeRow,
   isImportEvidenceRow,
   isInspectionEvidenceRow,
   isRegistrationEvidenceRow,

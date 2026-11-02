@@ -1,5 +1,6 @@
-import crypto from 'crypto';
 import { FakeCommunicationAdapter } from './fakeCommunicationAdapter.js';
+import { isProductionLikeRuntime } from '../../../utils/runtimeEnvironment.js';
+import { isOutboundDisabled, outboundDisabledResult } from '../outboundKillSwitch.js';
 import { renderAuthEmail } from '../authEmailTemplates.js';
 import {
   EMAIL_CLASSIFICATION_ERRORS,
@@ -41,12 +42,24 @@ function jsonHeaders(extra = {}) {
   return { 'content-type': 'application/json', ...extra };
 }
 
-function stableRequestId(prefix, input) {
-  return `${prefix}_${crypto
-    .createHash('sha256')
-    .update(String(input.idempotencyKey || input.messageId || input.notificationId || Date.now()))
-    .digest('hex')
-    .slice(0, 24)}`;
+/**
+ * OC-5R-PROV-01 G6 — a 2xx that carries none of the provider's own message identifiers proves
+ * nothing. These adapters used to synthesise one (stableRequestId) and report the send as accepted,
+ * so 'sent' could be recorded under an id the provider never issued and no receipt could ever
+ * match. Such an answer is now an explicit, NON-retryable failure: not recorded as sent, and not
+ * retried into a possible duplicate. For providers whose API guarantees an id on success.
+ *
+ * OC-5R-REL-01 closed the rest: SendGrid, Brevo, Expo and Cloudflare (REST and worker) no longer
+ * synthesise an id either, and `stableRequestId` — the helper that minted them — is gone. Exported
+ * for the governed WhatsApp template path, which accepted a 2xx with no message id.
+ */
+export function unprovenAcceptance(provider) {
+  return {
+    accepted: false,
+    retryable: false,
+    errorCode: 'provider_acceptance_unproven',
+    errorMessage: `${provider} answered 2xx without its message identifier; the send cannot be proven, so it is not recorded as sent and is not retried.`,
+  };
 }
 
 function recipientField(input, ...keys) {
@@ -214,6 +227,11 @@ export class HttpCommunicationAdapter {
   }
 
   async requestJson(url, { method = 'POST', headers = {}, body = undefined, basicAuth = null } = {}) {
+    // OC-5R-REL-01: the outbound kill switch, at the transport every HTTP adapter shares. A send is
+    // refused here before any provider is contacted; read-only GETs are not sends.
+    if (String(method).toUpperCase() !== 'GET' && isOutboundDisabled(this.env)) {
+      return { ok: false, status: 0, outboundDisabled: true };
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const finalHeaders = { ...headers };
@@ -246,6 +264,7 @@ export class HttpCommunicationAdapter {
   }
 
   providerFailure(response) {
+    if (response.outboundDisabled) return outboundDisabledResult(this.provider);
     if (response.networkError) {
       return {
         accepted: false,
@@ -278,10 +297,12 @@ export class SendGridEmailAdapter extends HttpCommunicationAdapter {
       },
     });
     if (!response.ok) return this.providerFailure(response);
+    const messageId = response.headers?.get?.('x-message-id') || null;
+    if (!messageId) return unprovenAcceptance('SendGrid');
     return {
       accepted: true,
-      providerRequestId: response.headers?.get?.('x-message-id') || stableRequestId('sendgrid', input),
-      providerMessageId: response.headers?.get?.('x-message-id') || null,
+      providerRequestId: messageId,
+      providerMessageId: messageId,
       providerStatus: 'accepted',
     };
   }
@@ -477,7 +498,8 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
       };
     }
 
-    const providerRequestId = response.body?.id || stableRequestId('resend', input);
+    if (!response.body?.id) return unprovenAcceptance('Resend');
+    const providerRequestId = response.body.id;
     // Resend exposes the RFC Message-ID on the send response; fall back to its own id so reply
     // correlation always has something durable to match against.
     const rfcMessageId = response.body?.message_id || response.headers?.get?.('message-id') || null;
@@ -629,9 +651,10 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
     if (!response.ok) return this.providerFailure(response);
 
     const providerMessageId = response.body?.messageId || response.body?.messageIds?.[0] || null;
+    if (!providerMessageId) return unprovenAcceptance('Brevo');
     return {
       accepted: true,
-      providerRequestId: providerMessageId || stableRequestId('brevo', input),
+      providerRequestId: providerMessageId,
       providerMessageId,
       providerStatus: 'accepted',
       // Provenance for the compliance-critical unsubscribe control, recorded on the delivery attempt.
@@ -830,10 +853,14 @@ export class CloudflareEmailAdapter extends HttpCommunicationAdapter {
       body: cloudflareEmailBody(input, this.env),
     });
     if (!response.ok) return this.providerFailure(response);
+    // G6 / REL-01: the worker must NAME the message. `accepted: true` alone is a claim, not an id —
+    // the edge worker reports it even when Cloudflare returned no message id.
+    const workerMessageId = response.body?.providerMessageId || response.body?.message_id || null;
+    if (!workerMessageId) return unprovenAcceptance('Cloudflare email worker');
     return {
-      accepted: response.body?.accepted !== false,
-      providerRequestId: response.body?.providerRequestId || response.body?.id || response.headers?.get?.('cf-ray') || stableRequestId('cloudflare_email', input),
-      providerMessageId: response.body?.providerMessageId || response.body?.message_id || null,
+      accepted: true,
+      providerRequestId: response.body?.providerRequestId || response.body?.id || workerMessageId,
+      providerMessageId: workerMessageId,
       providerStatus: response.body?.providerStatus || response.body?.status || 'accepted',
     };
   }
@@ -846,12 +873,15 @@ export class CloudflareEmailAdapter extends HttpCommunicationAdapter {
     });
     if (!response.ok || response.body?.success === false) return this.providerFailure(response);
     const result = response.body?.result || {};
+    // REL-01: only the provider's own message id proves the send; `cf-ray` traces the HTTP edge
+    // request, and a recipient list without an id can never be reconciled with a receipt.
+    if (!result.id) return unprovenAcceptance('Cloudflare email REST');
     const to = recipientField(input, 'email', 'address', 'to');
     const delivered = Array.isArray(result.delivered) && result.delivered.includes(to);
     return {
       accepted: true,
-      providerRequestId: response.headers?.get?.('cf-ray') || stableRequestId('cloudflare_email', input),
-      providerMessageId: response.body?.result?.id || null,
+      providerRequestId: result.id,
+      providerMessageId: result.id,
       providerStatus: delivered ? 'delivered' : 'accepted',
       deliveredRecipients: result.delivered || [],
       queuedRecipients: result.queued || [],
@@ -882,6 +912,8 @@ export class TwilioSmsAdapter extends HttpCommunicationAdapter {
   }
 
   async sendUrlEncoded(input, params) {
+    // OC-5R-REL-01: this transport bypasses requestJson, so it carries its own kill-switch check.
+    if (isOutboundDisabled(this.env)) return outboundDisabledResult(this.provider);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const accountSid = envValue(this.env, 'TWILIO_ACCOUNT_SID');
@@ -897,9 +929,10 @@ export class TwilioSmsAdapter extends HttpCommunicationAdapter {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) return this.providerFailure({ status: response.status, body });
+      if (!body?.sid) return unprovenAcceptance('Twilio');
       return {
         accepted: true,
-        providerRequestId: body?.sid || stableRequestId('twilio', input),
+        providerRequestId: body.sid,
         providerMessageId: body?.sid || null,
         providerStatus: body?.status || 'accepted',
       };
@@ -933,9 +966,10 @@ export class MetaWhatsAppAdapter extends HttpCommunicationAdapter {
       body: { messaging_product: 'whatsapp', to, type: 'text', text: { preview_url: false, body: textBody(input) } },
     });
     if (!response.ok) return this.providerFailure(response);
+    if (!response.body?.messages?.[0]?.id) return unprovenAcceptance('Meta WhatsApp');
     return {
       accepted: true,
-      providerRequestId: response.body?.messages?.[0]?.id || stableRequestId('meta_wa', input),
+      providerRequestId: response.body.messages[0].id,
       providerMessageId: response.body?.messages?.[0]?.id || null,
       providerStatus: 'accepted',
     };
@@ -956,9 +990,10 @@ export class FacebookMessengerAdapter extends HttpCommunicationAdapter {
       body: { recipient: { id: recipientId }, messaging_type: 'RESPONSE', message: { text: textBody(input) } },
     });
     if (!response.ok) return this.providerFailure(response);
+    if (!response.body?.message_id) return unprovenAcceptance('Meta Messenger');
     return {
       accepted: true,
-      providerRequestId: response.body?.message_id || stableRequestId('meta_fb', input),
+      providerRequestId: response.body.message_id,
       providerMessageId: response.body?.message_id || null,
       providerStatus: 'accepted',
     };
@@ -980,9 +1015,10 @@ export class InstagramMessagingAdapter extends HttpCommunicationAdapter {
       body: { recipient: { id: recipientId }, messaging_type: 'RESPONSE', message: { text: textBody(input) } },
     });
     if (!response.ok) return this.providerFailure(response);
+    if (!response.body?.message_id) return unprovenAcceptance('Instagram Messaging');
     return {
       accepted: true,
-      providerRequestId: response.body?.message_id || stableRequestId('meta_ig', input),
+      providerRequestId: response.body.message_id,
       providerMessageId: response.body?.message_id || null,
       providerStatus: 'accepted',
     };
@@ -1003,10 +1039,14 @@ export class TelegramBotAdapter extends HttpCommunicationAdapter {
       headers: jsonHeaders(),
       body: { chat_id: chatId, text: textBody(input), disable_web_page_preview: true },
     });
-    if (!response.ok || response.body?.ok === false) return this.providerFailure({ status: response.status || 400, body: response.body });
+    // G5: a timeout or network failure is not a rejection. Rebuilding it as `{ status: 0 || 400 }`
+    // erased its classification and recorded a retryable outage as a permanent HTTP-400 refusal.
+    if (response.networkError || response.outboundDisabled) return this.providerFailure(response);
+    if (!response.ok || response.body?.ok === false) return this.providerFailure({ status: response.status, body: response.body });
+    if (!response.body?.result?.message_id) return unprovenAcceptance('Telegram');
     return {
       accepted: true,
-      providerRequestId: response.body?.result?.message_id ? String(response.body.result.message_id) : stableRequestId('telegram', input),
+      providerRequestId: String(response.body.result.message_id),
       providerMessageId: response.body?.result?.message_id ? String(response.body.result.message_id) : null,
       providerStatus: 'sent',
     };
@@ -1032,19 +1072,20 @@ export class ExpoPushAdapter extends HttpCommunicationAdapter {
       const code = String(ticket.details?.error || ticket.message || 'expo_rejected').toLowerCase();
       return { accepted: false, retryable: ['messageratelimited', 'unknown'].includes(code), errorCode: code, errorMessage: ticket.message || 'Expo rejected push notification' };
     }
+    if (!ticket?.id) return unprovenAcceptance('Expo');
     return {
       accepted: true,
-      providerRequestId: ticket?.id || stableRequestId('expo', input),
-      providerMessageId: ticket?.id || null,
+      providerRequestId: ticket.id,
+      providerMessageId: ticket.id,
       providerStatus: ticket?.status || 'accepted',
     };
   }
 }
 
 export function assertRealTelegramAdapter(registry, env = process.env) {
-  const isRealEnvironment = env.NODE_ENV === 'production' || env.NODE_ENV === 'staging' || env.COMMUNICATION_REAL_ADAPTERS === 'true';
+  const isRealEnvironment = isProductionLikeRuntime(env) || env.COMMUNICATION_REAL_ADAPTERS === 'true';
   if (!isRealEnvironment) return;
-  if (env.COMMUNICATION_FAKE_ADAPTERS_ENABLED === 'true') return;
+  // A deployment must never suppress the real-adapter assertion by turning on a fake-adapter flag.
   if (!envValue(env, 'CARUP_TELEGRAM_BOT_TOKEN')) return;
 
   const adapter = registry.get('telegram');
@@ -1068,14 +1109,22 @@ export function assertRealTelegramAdapter(registry, env = process.env) {
 }
 
 export function createDefaultAdapterRegistry({ fakeAdapters = {}, env = process.env, fetchImpl = globalThis.fetch } = {}) {
-  const isRealEnvironment = env.NODE_ENV === 'production' || env.NODE_ENV === 'staging' || env.COMMUNICATION_REAL_ADAPTERS === 'true';
-  const allowFake = !isRealEnvironment || env.COMMUNICATION_FAKE_ADAPTERS_ENABLED === 'true';
+  const deployedRuntime = isProductionLikeRuntime(env);
+  const isRealEnvironment = deployedRuntime || env.COMMUNICATION_REAL_ADAPTERS === 'true';
+  // COMMUNICATION_FAKE_ADAPTERS_ENABLED is a local/test harness flag only. It cannot turn a real
+  // deployment into a fake provider runtime.
+  const allowFake = !deployedRuntime
+    && (!isRealEnvironment || env.COMMUNICATION_FAKE_ADAPTERS_ENABLED === 'true');
   const realOptions = { env, fetchImpl };
   const registry = new Map();
   const put = (channel, adapter) => registry.set(channel, adapter);
-  const configured = (channel, realAdapter) => fakeAdapters[channel] || (allowFake
-    ? new FakeCommunicationAdapter({ channel })
-    : realAdapter);
+  const configured = (channel, realAdapter) => {
+    const injected = fakeAdapters[channel];
+    if (injected && deployedRuntime) {
+      throw new Error(`FATAL: fake ${channel} communication adapter supplied in a deployed runtime.`);
+    }
+    return injected || (allowFake ? new FakeCommunicationAdapter({ channel }) : realAdapter);
+  };
 
   put('whatsapp', configured('whatsapp', new MetaWhatsAppAdapter(realOptions)));
   put('telegram', configured('telegram', new TelegramBotAdapter(realOptions)));

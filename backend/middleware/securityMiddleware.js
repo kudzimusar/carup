@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
 import { createRateLimitStore, InMemoryRateLimitStore } from './rateLimitStore.js';
+import { isTestRuntime } from '../config/testFixtureGuard.js';
 
 // Pluggable rate-limiting stores. Default = in-memory (identical to prior
 // behavior). With REDIS_URL + an injected redis client they become Redis-backed
@@ -19,7 +20,8 @@ const sensitiveStore = createRateLimitStore();
 function resolveCsrfSecret() {
   const secret = process.env.JWT_SECRET;
   if (secret) return secret;
-  if (process.env.NODE_ENV === 'test') {
+  // The fixture runtime only: NODE_ENV=test inside a declared deployment is not the test suite.
+  if (isTestRuntime()) {
     return 'test-only-insecure-csrf-secret-DO-NOT-USE-IN-PROD';
   }
   throw new Error('[Security] JWT_SECRET is required for CSRF/JWT signing and is not set. Refusing to operate with an unsafe service-role-key fallback.');
@@ -112,8 +114,10 @@ export function rateLimiter({ max, windowMs, isSensitive = false }) {
   // collide even if a future store backend is shared.
   const tier = isSensitive ? 'sensitive' : 'global';
   return (req, res, next) => {
-    // Bypass rate limiting in tests if requested
-    if (process.env.NODE_ENV === 'test' && req.headers['x-bypass-rate-limit'] === 'true') {
+    // Bypass rate limiting in tests if requested — in the test runtime ONLY. A runtime that declares a
+    // deployment never honours the header, even if NODE_ENV=test leaks into it (OC-3E-W1: the AI
+    // limiter is the cost control on authenticated paid inference).
+    if (isTestRuntime() && req.headers['x-bypass-rate-limit'] === 'true') {
       return next();
     }
 
@@ -238,8 +242,9 @@ export function csrfMiddleware(req, res, next) {
     return next();
   }
 
-  // In test environment, bypass CSRF checks by default unless x-verify-csrf header is 'true'
-  if (process.env.NODE_ENV === 'test' && req.headers['x-verify-csrf'] !== 'true') {
+  // In the test suite's fixture runtime, bypass CSRF checks by default unless x-verify-csrf is
+  // 'true'. NODE_ENV=test alone is not enough: a declared deployment never gets the bypass.
+  if (isTestRuntime() && req.headers['x-verify-csrf'] !== 'true') {
     return next();
   }
 
@@ -252,6 +257,9 @@ export function csrfMiddleware(req, res, next) {
                     // mode): its signed webhook and its simulated hosted provider pages, which, like a real
                     // provider's hosted page, carry no CarUp session and therefore no CSRF token.
                     /^\/api\/pay03b\/simulator\/(?:webhook|checkout\/sim_cs_[A-Za-z0-9_]+\/complete|invoice\/sim_in_[A-Za-z0-9_]+\/pay)(?:$|[?#])/.test(url) ||
+                    // PAY-04 local garage payment-provider simulator (same rule): its signed webhook and the simulated
+                    // hosted checkout the customer completes outside CarUp's session.
+                    /^\/api\/pay04\/simulator\/(?:webhook|checkout\/gsim_co_[A-Za-z0-9_]+\/complete)(?:$|[?#])/.test(url) ||
                     url.startsWith('/api/safepay/webhook') ||
                     /^\/api\/referrals\/channels\/(whatsapp|telegram|facebook|instagram)\/webhook(?:$|[/?#])/.test(url) ||
                     // Omnichannel communication engine webhooks (signature-verified in-service)
@@ -263,6 +271,9 @@ export function csrfMiddleware(req, res, next) {
                     /^\/api\/communications\/unsubscribe(?:$|[/?#])/.test(url) ||
                     // Serverless outbox drain (worker-secret guarded in-route)
                     /^\/api\/internal\/events\/process(?:$|[/?#])/.test(url) ||
+                    // OC-5A ledger-intent drain: machine-to-machine, secret-guarded in-route
+                    // (ledgerIntentRoutes.js refuses everything when no secret is configured).
+                    /^\/api\/internal\/ledger-intents\/process(?:$|[/?#])/.test(url) ||
                     // Full Activation signed provider webhooks (HMAC + timestamp + idempotency verified in-service)
                     url.startsWith('/api/insurer/webhook') ||
                     url.startsWith('/api/finance/lender/webhook') ||

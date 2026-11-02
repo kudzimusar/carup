@@ -4,8 +4,10 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Building2, Ban, RotateCcw, ShieldCheck } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useStepUpGuard } from '@/hooks/useStepUpGuard'
 import { toast } from 'sonner'
 import { getErrorMessage } from '@/lib/errorMessage'
+import { ProvenanceNotice, ReadFailedNotice, type ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 
 export interface DealerProfile {
   id: string
@@ -71,22 +73,32 @@ export function DealerComplianceCard({ dealer, onDecision, busy }: { dealer: Dea
 
 export default function DealerCompliance() {
   const { fetchDealers, recordDealerDecision } = useCarUpApi()
+  // The dealer decision route is step-up gated; without this the screen dead-ends on 403.
+  const { runGuarded, stepUpDialog } = useStepUpGuard()
   const [dealers, setDealers] = useState<DealerProfile[]>([])
+  const [provenance, setProvenance] = useState<ProvenanceSummary | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
 
+  // PC01-K2B: operational dealer profiles, with the set-aside count; a failed read is stated.
+  const apply = (r: { dealers?: unknown[]; provenance?: ProvenanceSummary }) => {
+    setDealers((r.dealers || []) as DealerProfile[])
+    setProvenance(r.provenance ?? null)
+    setLoadError(null)
+  }
   const load = useCallback(async () => {
     setLoading(true)
-    try { const r = await fetchDealers(); setDealers((r.dealers || []) as DealerProfile[]) }
-    catch (err) { toast.error(getErrorMessage(err)) }
+    try { apply(await fetchDealers()) }
+    catch (err) { setLoadError(getErrorMessage(err)) }
     finally { setLoading(false) }
   }, [fetchDealers])
   // Initial load without a synchronous set-state-in-effect (loading starts true).
   useEffect(() => {
     let cancelled = false
     fetchDealers()
-      .then((r) => { if (!cancelled) setDealers((r.dealers || []) as DealerProfile[]) })
-      .catch((err) => { if (!cancelled) toast.error(getErrorMessage(err)) })
+      .then((r) => { if (!cancelled) apply(r) })
+      .catch((err) => { if (!cancelled) setLoadError(getErrorMessage(err)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [fetchDealers])
@@ -94,21 +106,25 @@ export default function DealerCompliance() {
   const onDecision = async (id: string, decision: string) => {
     setBusy(id)
     try {
-      await recordDealerDecision(id, { decision, reason: `Admin ${decision}` })
-      toast.success(`Dealer ${decision}`)
-      await load()
-    } catch (err) { toast.error(getErrorMessage(err)) }
-    finally { setBusy(null) }
+      await runGuarded(`Dealer ${decision}`, async () => {
+        await recordDealerDecision(id, { decision, reason: `Admin ${decision}` })
+        toast.success(`Dealer ${decision}`)
+        await load()
+      })
+    } finally { setBusy(null) }
   }
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
+      {stepUpDialog}
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2"><ShieldCheck className="w-6 h-6 text-purple-500" /> Dealer compliance</h1>
         <p className="text-gray-500 text-sm">Eight separate compliance statuses per dealer. Decisions are append-only; suspension blocks publication and escrow.</p>
+        <ProvenanceNotice provenance={provenance} noun="dealer profiles" />
       </div>
       {loading ? [1, 2].map(i => <Skeleton key={i} className="h-24 w-full" />)
-        : dealers.length === 0 ? <Card className="border-0 card-shadow"><CardContent className="py-10 text-center text-gray-400">No dealer profiles yet.</CardContent></Card>
+        : loadError ? <ReadFailedNotice what="Dealer profiles" detail={loadError} />
+        : dealers.length === 0 ? <Card className="border-0 card-shadow"><CardContent className="py-10 text-center text-gray-400">{provenance?.raw ? 'No operational dealer profiles.' : 'No dealer profiles yet.'}</CardContent></Card>
         : dealers.map(d => <DealerComplianceCard key={d.id} dealer={d} onDecision={onDecision} busy={busy === d.id} />)}
     </div>
   )

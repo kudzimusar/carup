@@ -6,10 +6,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Plus, Shield, Search, Wrench, FileText, Loader2, Copy, CheckCircle2 } from 'lucide-react'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import type { Vehicle } from '@/types'
+import WorkOrderRequests from '@/components/owner/WorkOrderRequests'
+import { attestationLabel, newIdempotencyKey, recordOutcomeMessage, refusalMessage } from '@/lib/partsentry'
 
 // Matches the DB CHECK constraint on partsentry_logs.action_type.
 const ACTION_TYPES = ['Replaced', 'Repaired', 'Inspected', 'Diagnosed'] as const
@@ -24,10 +26,15 @@ interface RepairLogRow {
   mileage: number
   timestamp: string
   verification_status?: string
+  // OC-5A: who stands behind the entry. Only a 'mechanic_service' moved the vehicle's odometer.
+  attestation?: string
 }
 
 export default function PartSentry() {
-  const { addRepairLog, verifyLedger, fetchOwnedVehicles, fetchRepairHistory } = useCarUpApi()
+  const { addRepairLog, verifyLedger, fetchOwnedVehicles, fetchRepairHistory, fetchVehicleWorkOrders, decideWorkOrderAuthorization } = useCarUpApi()
+  // One idempotency key per submitted entry: a retry of the SAME entry reuses it, so a lost response
+  // can never record the entry twice. Any edit to the form starts a new entry (and a new key).
+  const submitKey = useRef<string | null>(null)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState('')
   const [repairLogs, setRepairLogs] = useState<RepairLogRow[]>([])
@@ -35,7 +42,9 @@ export default function PartSentry() {
   // has to set state synchronously inside the effect.
   const [loadedHistoryVin, setLoadedHistoryVin] = useState<string | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
-  const [ledgerVerified, setLedgerVerified] = useState<boolean | null>(null)
+  // 'verified' = intact chain AND every signature verified; 'unauthenticated' = intact hash links but at
+  // least one event has no verifiable signature (OC-3D); 'broken' = tamper evidence; null = no badge.
+  const [ledgerState, setLedgerState] = useState<'verified' | 'unauthenticated' | 'broken' | null>(null)
   const [ledgerError, setLedgerError] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -48,6 +57,8 @@ export default function PartSentry() {
     mileage: '',
     partOem: '',
   })
+  // Any edit makes it a different entry, which must not reuse the previous entry's key.
+  useEffect(() => { submitKey.current = null }, [repairForm])
 
   useEffect(() => {
     fetchOwnedVehicles().then(data => {
@@ -81,12 +92,17 @@ export default function PartSentry() {
     loadHistory(selectedVehicle)
     verifyLedger(selectedVehicle)
       .then(data => {
-        setLedgerVerified(data?.integrity === 'verified' || data?.verified === true)
+        // Not two states: a vehicle with no ledger events is neither "verified" nor "tampered", so it
+        // shows no integrity badge at all; and intact hash links are only "Ledger Verified" when every
+        // event's signature verified too.
+        setLedgerState(data?.integrity === 'verified'
+          ? (data?.authenticated === true ? 'verified' : 'unauthenticated')
+          : data?.integrity === 'broken' ? 'broken' : null)
         setLedgerError(null)
       })
       .catch((err: unknown) => {
         // A failed verification is an error, never a fake "verified".
-        setLedgerVerified(null)
+        setLedgerState(null)
         setLedgerError(err instanceof Error ? err.message : 'Ledger verification unavailable')
       })
   }, [selectedVehicle, verifyLedger, loadHistory])
@@ -129,7 +145,9 @@ export default function PartSentry() {
     }
     setSubmitting(true)
     try {
-      // Mechanic identity is derived server-side from the authenticated user.
+      // The actor is derived server-side from the authenticated user, and so is what the entry is:
+      // an owner's own entry is an owner statement, never a mechanic-verified service.
+      submitKey.current = submitKey.current ?? newIdempotencyKey()
       const result = await addRepairLog(
         repairForm.vin,
         repairForm.partName,
@@ -137,24 +155,21 @@ export default function PartSentry() {
         repairForm.actionType,
         repairForm.description.trim(),
         mileage,
+        { idempotencyKey: submitKey.current },
       )
       if (!result?.id) {
         toast.error('The server did not confirm the repair was recorded')
         return
       }
-      toast.success(`Repair log #${result.id} recorded on the PartSentry ledger${result.signature ? ` (signature ${result.signature})` : ''}`, { duration: 5000 })
+      submitKey.current = null
+      toast.success(recordOutcomeMessage(result), { duration: 6000 })
       setShowAddDialog(false)
       setRepairForm({ vin: repairForm.vin, partName: '', actionType: 'Replaced', description: '', mileage: '', partOem: '' })
       if (repairForm.vin === selectedVehicle) {
         await loadHistory(selectedVehicle)
       }
     } catch (err: unknown) {
-      const status = (err as { status?: number })?.status
-      if (status === 403) {
-        toast.error('You are not authorized to log repairs for this vehicle. Only the vehicle owner, an authorized dealer or a certified mechanic can write to its ledger.')
-      } else {
-        toast.error(err instanceof Error ? err.message : 'Failed to record the repair')
-      }
+      toast.error(refusalMessage(err, 'Failed to record the repair'))
     } finally {
       setSubmitting(false)
     }
@@ -169,10 +184,14 @@ export default function PartSentry() {
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-2xl font-bold">PartSentry</h1>
             <Badge className="bg-purple-500 text-white text-[10px]">BETA</Badge>
-            {ledgerVerified !== null && (
-              <Badge className={`text-[10px] ${ledgerVerified ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                {ledgerVerified ? '🔒 Ledger Verified' : '⚠️ Tampered'}
-              </Badge>
+            {ledgerState === 'verified' && (
+              <Badge className="text-[10px] bg-green-100 text-green-700" data-testid="parts-ledger-state">🔒 Ledger Verified</Badge>
+            )}
+            {ledgerState === 'unauthenticated' && (
+              <Badge className="text-[10px] bg-amber-100 text-amber-800" data-testid="parts-ledger-state">Hash chain intact — signatures unverified</Badge>
+            )}
+            {ledgerState === 'broken' && (
+              <Badge className="text-[10px] bg-red-100 text-red-700" data-testid="parts-ledger-state">⚠️ Tampered</Badge>
             )}
             {ledgerError && (
               <Badge className="text-[10px] bg-gray-100 text-gray-600">Verification unavailable</Badge>
@@ -266,11 +285,14 @@ export default function PartSentry() {
                       <TableCell className="text-sm">{log.mileage?.toLocaleString()} km</TableCell>
                       <TableCell className="text-sm">{new Date(log.timestamp).toLocaleDateString()}</TableCell>
                       <TableCell className="text-sm">
-                        {log.verification_status ? (
-                          <Badge variant="outline" className="text-[10px]">{log.verification_status}</Badge>
-                        ) : (
-                          <span className="text-xs text-gray-400">unreviewed</span>
-                        )}
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant="outline" className="text-[10px]" data-testid={`part-attestation-${log.id}`}>{attestationLabel(log.attestation)}</Badge>
+                          {log.verification_status ? (
+                            <Badge variant="outline" className="text-[10px]">{log.verification_status}</Badge>
+                          ) : (
+                            <span className="text-xs text-gray-400">unreviewed</span>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -280,6 +302,14 @@ export default function PartSentry() {
           )}
         </CardContent>
       </Card>
+
+      {selectedVehicle && (
+        <WorkOrderRequests
+          vin={selectedVehicle}
+          fetchVehicleWorkOrders={fetchVehicleWorkOrders}
+          decideWorkOrderAuthorization={decideWorkOrderAuthorization}
+        />
+      )}
 
       {/* Why PartSentry */}
       <Card className="border-0 card-shadow bg-gradient-to-br from-purple-50 to-blue-50">

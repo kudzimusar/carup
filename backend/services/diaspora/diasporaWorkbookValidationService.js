@@ -18,6 +18,23 @@ const HIGH_RISK_AI_ACTIONS = new Set([
   'CHANGE_CUSTOMS_CLEARANCE',
 ]);
 
+const DOMAIN_VALIDATION_CODES = new Set([
+  'UNKNOWN_REFERENCE',
+  'EXTERNAL_REFERENCE_REQUIRES_RESOLUTION',
+  'CONTAINER_OVERFILLED',
+  'CONTAINER_FULL',
+  'CONTAINER_READY_TO_CLOSE',
+  'SHIPPING_ONLY_VEHICLE_REFERENCE_REQUIRED',
+]);
+
+const BUSINESS_RULE_VALIDATION_CODES = new Set([
+  'FLAGGED_COMPLIANCE_BLOCKS_RELEASE',
+  'UNPAID_MILESTONES_BLOCK_RELEASE',
+  'HIGH_RISK_AI_REQUIRES_APPROVAL',
+  'MEDIUM_RISK_AI_CONFIRMATION_EXPECTED',
+  'DRY_RUN_CANNOT_IMPORT_ALREADY_EXECUTED_COMMANDS',
+]);
+
 function normalizeHeader(value) {
   return String(value || '').trim().toUpperCase();
 }
@@ -63,8 +80,18 @@ function normalizeRow(row = {}) {
   return Object.fromEntries(Object.entries(row || {}).map(([key, value]) => [normalizeHeader(key), value]));
 }
 
+function validationLayerForCode(code) {
+  if (BUSINESS_RULE_VALIDATION_CODES.has(code)) return 'BUSINESS_RULE';
+  if (DOMAIN_VALIDATION_CODES.has(code)) return 'DOMAIN';
+  return 'STRUCTURAL';
+}
+
 function addFinding(collection, finding) {
-  if (collection.length < MAX_ERROR_SAMPLES) collection.push(finding);
+  if (collection.length >= MAX_ERROR_SAMPLES) return;
+  collection.push({
+    ...finding,
+    validationLayer: finding.validationLayer || validationLayerForCode(finding.code),
+  });
 }
 
 function buildSheetSummary(sheetName, definition, rows) {
@@ -150,7 +177,11 @@ function validateUniquePrimaryKey({ sheetName, definition, rows, errors }) {
 }
 
 function buildReferenceSets(normalizedSheets) {
-  const getIds = (sheetName, primaryKey) => new Set((normalizedSheets[sheetName] || []).map((row) => normalizeCell(row[primaryKey])).filter(Boolean));
+  const getIds = (sheetName, primaryKey) => new Set(
+    (normalizedSheets[sheetName] || [])
+      .map((row) => normalizeCell(row[primaryKey]))
+      .filter(Boolean),
+  );
   return {
     tradeProfileIds: getIds('TRADE_PROFILES', 'TRADE_PROFILE_ID'),
     importOrderIds: getIds('DIASPORA_IMPORT_ORDERS', 'IMPORT_ORDER_ID'),
@@ -160,7 +191,18 @@ function buildReferenceSets(normalizedSheets) {
   };
 }
 
-function validateReference({ sheetName, rowIndex, row, column, referenceSet, errors, required = false }) {
+function validateReference({
+  sheetName,
+  rowIndex,
+  row,
+  column,
+  referenceSet,
+  referenceSheet,
+  templateSheetSet,
+  errors,
+  warnings,
+  required = false,
+}) {
   const value = normalizeCell(row[column]);
   if (!value) {
     if (required) {
@@ -175,65 +217,105 @@ function validateReference({ sheetName, rowIndex, row, column, referenceSet, err
     }
     return true;
   }
-  if (!referenceSet.has(value)) {
-    addFinding(errors, {
+
+  if (referenceSet.has(value)) return true;
+
+  // Role-specific workbooks deliberately omit other actors' authoritative sheets. A buyer workbook,
+  // for example, references an existing trade profile but does not contain TRADE_PROFILES; a supplier
+  // quote references an RFQ/order but does not contain DIASPORA_IMPORT_ORDERS. Those references must
+  // be resolved against Trade OS during reviewed execution, not falsely rejected as if the role file
+  // were intended to be a self-contained enterprise database.
+  if (referenceSheet && !templateSheetSet.has(referenceSheet)) {
+    addFinding(warnings, {
       sheetName,
       rowIndex,
       column,
-      code: 'UNKNOWN_REFERENCE',
-      message: `${sheetName} row ${rowIndex} references unknown ${column} '${value}'.`,
+      code: 'EXTERNAL_REFERENCE_REQUIRES_RESOLUTION',
+      message: `${sheetName} row ${rowIndex} references ${column} '${value}', which must be resolved against Trade OS during reviewed import.`,
+      referenceSheet,
+      referenceValue: value,
     });
-    return false;
+    return true;
   }
-  return true;
+
+  addFinding(errors, {
+    sheetName,
+    rowIndex,
+    column,
+    code: 'UNKNOWN_REFERENCE',
+    message: `${sheetName} row ${rowIndex} references unknown ${column} '${value}'.`,
+    referenceSheet,
+    referenceValue: value,
+  });
+  return false;
 }
 
-function validateCrossReferences({ normalizedSheets, referenceSets, errors }) {
+function validateCrossReferences({ normalizedSheets, referenceSets, templateSheetSet, errors, warnings }) {
+  const ref = (args) => validateReference({ ...args, templateSheetSet, errors, warnings });
+
   for (const [index, row] of (normalizedSheets.DIASPORA_IMPORT_ORDERS || []).entries()) {
     const rowIndex = index + 2;
-    validateReference({ sheetName: 'DIASPORA_IMPORT_ORDERS', rowIndex, row, column: 'BUYER_TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, errors, required: true });
-    validateReference({ sheetName: 'DIASPORA_IMPORT_ORDERS', rowIndex, row, column: 'CONTAINER_ID', referenceSet: referenceSets.containerIds, errors });
-    validateReference({ sheetName: 'DIASPORA_IMPORT_ORDERS', rowIndex, row, column: 'SHIPMENT_ID', referenceSet: referenceSets.shipmentIds, errors });
+    ref({ sheetName: 'DIASPORA_IMPORT_ORDERS', rowIndex, row, column: 'BUYER_TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, referenceSheet: 'TRADE_PROFILES', required: true });
+    ref({ sheetName: 'DIASPORA_IMPORT_ORDERS', rowIndex, row, column: 'CONTAINER_ID', referenceSet: referenceSets.containerIds, referenceSheet: 'CONTAINER_SHIPMENTS' });
+    ref({ sheetName: 'DIASPORA_IMPORT_ORDERS', rowIndex, row, column: 'SHIPMENT_ID', referenceSet: referenceSets.shipmentIds, referenceSheet: 'SHIPMENTS' });
   }
 
   for (const [index, row] of (normalizedSheets.IMPORT_QUOTES || []).entries()) {
     const rowIndex = index + 2;
-    validateReference({ sheetName: 'IMPORT_QUOTES', rowIndex, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, errors, required: true });
-    validateReference({ sheetName: 'IMPORT_QUOTES', rowIndex, row, column: 'SELLER_TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, errors, required: true });
+    ref({ sheetName: 'IMPORT_QUOTES', rowIndex, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, referenceSheet: 'DIASPORA_IMPORT_ORDERS', required: true });
+    ref({ sheetName: 'IMPORT_QUOTES', rowIndex, row, column: 'SELLER_TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, referenceSheet: 'TRADE_PROFILES', required: true });
   }
 
   for (const [index, row] of (normalizedSheets.TRADE_DOCUMENTS || []).entries()) {
     const rowIndex = index + 2;
-    validateReference({ sheetName: 'TRADE_DOCUMENTS', rowIndex, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, errors });
-    validateReference({ sheetName: 'TRADE_DOCUMENTS', rowIndex, row, column: 'TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, errors });
+    ref({ sheetName: 'TRADE_DOCUMENTS', rowIndex, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, referenceSheet: 'DIASPORA_IMPORT_ORDERS' });
+    ref({ sheetName: 'TRADE_DOCUMENTS', rowIndex, row, column: 'TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, referenceSheet: 'TRADE_PROFILES' });
   }
 
   for (const [index, row] of (normalizedSheets.CARGO_RESERVATIONS || []).entries()) {
     const rowIndex = index + 2;
-    validateReference({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'CONTAINER_ID', referenceSet: referenceSets.containerIds, errors, required: true });
-    validateReference({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, errors, required: true });
-    validateReference({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'BUYER_TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, errors });
-    validateReference({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'SELLER_TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, errors });
-    validateReference({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'INVOICE_DOCUMENT_ID', referenceSet: referenceSets.documentIds, errors });
-    validateReference({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'DIMENSIONS_DOCUMENT_ID', referenceSet: referenceSets.documentIds, errors });
+    ref({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'CONTAINER_ID', referenceSet: referenceSets.containerIds, referenceSheet: 'CONTAINER_SHIPMENTS', required: true });
+    ref({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, referenceSheet: 'DIASPORA_IMPORT_ORDERS', required: true });
+    ref({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'BUYER_TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, referenceSheet: 'TRADE_PROFILES' });
+    ref({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'SELLER_TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, referenceSheet: 'TRADE_PROFILES' });
+    ref({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'INVOICE_DOCUMENT_ID', referenceSet: referenceSets.documentIds, referenceSheet: 'TRADE_DOCUMENTS' });
+    ref({ sheetName: 'CARGO_RESERVATIONS', rowIndex, row, column: 'DIMENSIONS_DOCUMENT_ID', referenceSet: referenceSets.documentIds, referenceSheet: 'TRADE_DOCUMENTS' });
   }
 
   for (const [index, row] of (normalizedSheets.SHIPMENTS || []).entries()) {
     const rowIndex = index + 2;
-    validateReference({ sheetName: 'SHIPMENTS', rowIndex, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, errors, required: true });
-    validateReference({ sheetName: 'SHIPMENTS', rowIndex, row, column: 'CONTAINER_ID', referenceSet: referenceSets.containerIds, errors });
+    ref({ sheetName: 'SHIPMENTS', rowIndex, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, referenceSheet: 'DIASPORA_IMPORT_ORDERS', required: true });
+    ref({ sheetName: 'SHIPMENTS', rowIndex, row, column: 'CONTAINER_ID', referenceSet: referenceSets.containerIds, referenceSheet: 'CONTAINER_SHIPMENTS' });
   }
 
   for (const sheetName of ['COMPLIANCE_REVIEWS', 'PAYMENT_MILESTONES']) {
     for (const [index, row] of (normalizedSheets[sheetName] || []).entries()) {
-      validateReference({ sheetName, rowIndex: index + 2, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, errors, required: true });
+      ref({ sheetName, rowIndex: index + 2, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, referenceSheet: 'DIASPORA_IMPORT_ORDERS', required: true });
     }
   }
 
   for (const [index, row] of (normalizedSheets.REPUTATION_RECORDS || []).entries()) {
     const rowIndex = index + 2;
-    validateReference({ sheetName: 'REPUTATION_RECORDS', rowIndex, row, column: 'TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, errors, required: true });
-    validateReference({ sheetName: 'REPUTATION_RECORDS', rowIndex, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, errors });
+    ref({ sheetName: 'REPUTATION_RECORDS', rowIndex, row, column: 'TRADE_PROFILE_ID', referenceSet: referenceSets.tradeProfileIds, referenceSheet: 'TRADE_PROFILES', required: true });
+    ref({ sheetName: 'REPUTATION_RECORDS', rowIndex, row, column: 'IMPORT_ORDER_ID', referenceSet: referenceSets.importOrderIds, referenceSheet: 'DIASPORA_IMPORT_ORDERS' });
+  }
+}
+
+function validateServiceScopes({ normalizedSheets, errors }) {
+  for (const [index, row] of (normalizedSheets.DIASPORA_IMPORT_ORDERS || []).entries()) {
+    const rowIndex = index + 2;
+    if (upperCell(row.SERVICE_SCOPE) !== 'SHIPPING_ONLY') continue;
+    const hasVehicleReference = [row.LINKED_VEHICLE_VIN, row.VIN, row.CHASSIS_NUMBER, row.VEHICLE_ID]
+      .some((value) => normalizeCell(value) !== '');
+    if (!hasVehicleReference) {
+      addFinding(errors, {
+        sheetName: 'DIASPORA_IMPORT_ORDERS',
+        rowIndex,
+        column: 'SERVICE_SCOPE',
+        code: 'SHIPPING_ONLY_VEHICLE_REFERENCE_REQUIRED',
+        message: `DIASPORA_IMPORT_ORDERS row ${rowIndex} uses SHIPPING_ONLY and must identify the vehicle being transported.`,
+      });
+    }
   }
 }
 
@@ -439,6 +521,7 @@ export function validateDiasporaWorkbookDryRun(payload = {}, userContext = {}) {
   const templateType = normalizeWorkbookTemplateType(payload.templateType);
   const rawSheets = parseSheetsPayload(payload);
   const requiredSheetNames = getRequiredSheetsForTemplate(templateType);
+  const templateSheetSet = new Set(requiredSheetNames);
   const normalizedSheets = {};
   const errors = [];
   const warnings = [];
@@ -494,7 +577,8 @@ export function validateDiasporaWorkbookDryRun(payload = {}, userContext = {}) {
   }
 
   const referenceSets = buildReferenceSets(normalizedSheets);
-  validateCrossReferences({ normalizedSheets, referenceSets, errors });
+  validateCrossReferences({ normalizedSheets, referenceSets, templateSheetSet, errors, warnings });
+  validateServiceScopes({ normalizedSheets, errors });
   validateContainerCapacity({ normalizedSheets, errors, warnings });
   validateReleaseGuards({ normalizedSheets, errors });
   validateAiCommands({ normalizedSheets, errors, warnings });
@@ -517,6 +601,12 @@ export function validateDiasporaWorkbookDryRun(payload = {}, userContext = {}) {
       errorCount: errors.length,
       warningCount: warnings.length,
       sheetCount: summaries.length,
+      structuralErrors: errors.filter((finding) => finding.validationLayer === 'STRUCTURAL').length,
+      domainErrors: errors.filter((finding) => finding.validationLayer === 'DOMAIN').length,
+      businessRuleErrors: errors.filter((finding) => finding.validationLayer === 'BUSINESS_RULE').length,
+      structuralWarnings: warnings.filter((finding) => finding.validationLayer === 'STRUCTURAL').length,
+      domainWarnings: warnings.filter((finding) => finding.validationLayer === 'DOMAIN').length,
+      businessRuleWarnings: warnings.filter((finding) => finding.validationLayer === 'BUSINESS_RULE').length,
     },
     summaries: summaries.map((summary) => ({
       ...summary,

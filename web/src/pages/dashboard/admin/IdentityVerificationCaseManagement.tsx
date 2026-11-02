@@ -41,6 +41,8 @@ import type {
   ExtendedAdminVerificationSession,
 } from '@shared/types'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useStepUpGuard } from '@/hooks/useStepUpGuard'
+import { ProvenanceNotice, type ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 import {
   EVIDENCE_CLASSIFICATION_LABELS,
   EXTRACTION_TRUST_LABELS,
@@ -135,15 +137,19 @@ function bindingColor(status?: string | null): string {
 
 export default function IdentityVerificationCaseManagement() {
   const {
-    fetchVerificationReviewQueue,
+    fetchVerificationReviewQueueDetailed,
     fetchVerificationSessionDetail,
     fetchEvidencePreview,
     reviewVerificationCase,
   } = useCarUpApi()
+  // Both routes this console calls — the decision and the evidence preview — are step-up gated.
+  // Without this the primary identity console could open a case and never decide it.
+  const { runGuarded, stepUpDialog } = useStepUpGuard()
   const [activeTab, setActiveTab] = useState('reviewer_action_required')
   const [sessions, setSessions] = useState<ExtendedAdminVerificationSession[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  const [provenance, setProvenance] = useState<ProvenanceSummary | null>(null)
   const [selectedSession, setSelectedSession] = useState<ExtendedAdminVerificationSession | null>(null)
   const [sessionDetail, setSessionDetail] = useState<ExtendedAdminVerificationSession | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -166,8 +172,9 @@ export default function IdentityVerificationCaseManagement() {
     try {
       const tab = OPERATIONAL_TABS.find(t => t.id === tabId)
       const filter = tab?.phase ? { workflow_phase: tab.phase } : tab?.status ? { status: tab.status } : undefined
-      const data = await fetchVerificationReviewQueue(filter)
-      setSessions((data || []) as ExtendedAdminVerificationSession[])
+      const data = await fetchVerificationReviewQueueDetailed(filter)
+      setSessions((data.sessions || []) as ExtendedAdminVerificationSession[])
+      setProvenance(data.provenance)
       setLoadError(false)
     } catch {
       toast.error('Failed to load verification sessions')
@@ -175,11 +182,12 @@ export default function IdentityVerificationCaseManagement() {
       // queue with zero counts (round-4 staging regression showed "0" cases
       // while the API was returning 500).
       setSessions([])
+      setProvenance(null)
       setLoadError(true)
     } finally {
       setLoading(false)
     }
-  }, [fetchVerificationReviewQueue])
+  }, [fetchVerificationReviewQueueDetailed])
 
   useEffect(() => {
     if (!fetchedRef.current) {
@@ -219,10 +227,11 @@ export default function IdentityVerificationCaseManagement() {
     if (previews[side]) return
     setPreviewsLoading(prev => ({ ...prev, [side]: true }))
     try {
-      const preview = await fetchEvidencePreview(selectedSession.id, side)
-      setPreviews(prev => ({ ...prev, [side]: preview }))
-    } catch {
-      toast.error(`Failed to load ${side} preview`)
+      // Viewing raw identity evidence is a SENSITIVE action; the refusal is recoverable.
+      await runGuarded(`View ${side} evidence`, async () => {
+        const preview = await fetchEvidencePreview(selectedSession.id, side)
+        setPreviews(prev => ({ ...prev, [side]: preview }))
+      })
     } finally {
       setPreviewsLoading(prev => ({ ...prev, [side]: false }))
     }
@@ -244,25 +253,27 @@ export default function IdentityVerificationCaseManagement() {
   const submitDecision = async () => {
     if (!selectedSession || !disposition) return
     setSubmitting(true)
+    // One idempotency key for the whole attempt, so the step-up retry replays the SAME decision
+    // rather than minting a second one.
+    const idempotencyKey = crypto.randomUUID()
     try {
-      const result = await reviewVerificationCase(
-        selectedSession.id,
-        {
-          action: disposition,
-          reasonCode: reasonCode || null,
-          internalNote: internalNote || null,
-          applicantMessage: applicantMessage || null,
-        },
-        { idempotencyKey: crypto.randomUUID() },
-      )
-      setSuccessPanel(result)
-      setShowConfirm(false)
-      toast.success('Decision saved')
-      // Refetch sessions list
-      fetchSessions(activeTab)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to submit decision'
-      toast.error(msg)
+      await runGuarded('Submit identity decision', async () => {
+        const result = await reviewVerificationCase(
+          selectedSession.id,
+          {
+            action: disposition,
+            reasonCode: reasonCode || null,
+            internalNote: internalNote || null,
+            applicantMessage: applicantMessage || null,
+          },
+          { idempotencyKey },
+        )
+        setSuccessPanel(result)
+        setShowConfirm(false)
+        toast.success('Decision saved')
+        // Refetch sessions list
+        fetchSessions(activeTab)
+      })
     } finally {
       setSubmitting(false)
     }
@@ -285,10 +296,13 @@ export default function IdentityVerificationCaseManagement() {
 
   return (
     <div className="space-y-6">
+      {stepUpDialog}
       <div>
         <h1 className="text-2xl font-bold">Identity Verification</h1>
         <p className="text-gray-500">Case management and review queue</p>
       </div>
+
+      <ProvenanceNotice provenance={provenance} noun="verification sessions" />
 
       {/* Operational Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
@@ -296,8 +310,10 @@ export default function IdentityVerificationCaseManagement() {
           {OPERATIONAL_TABS.map(tab => (
             <TabsTrigger key={tab.id} value={tab.id} className="text-xs">
               {tab.label}
-              {!loading && tab.id !== 'all' && (
-                <span className="ml-1.5 text-gray-400">
+              {/* Only the tab that was actually read has a count. Every other tab used to show a
+                  number derived from THIS tab's result — "(0)" for queues nobody counted. */}
+              {!loading && tab.id !== 'all' && tab.id === activeTab && (
+                <span className="ml-1.5 text-gray-400" data-testid={`verification-tab-count-${tab.id}`}>
                   {loadError
                     ? '(—)'
                     : `(${sessions.filter(s => {

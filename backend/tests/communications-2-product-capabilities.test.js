@@ -6,7 +6,7 @@ import { CommunicationProductNotificationService } from '../services/communicati
 import { CommunicationMetaWhatsAppGovernedAdapter } from '../services/communication/communicationMetaWhatsAppGovernedAdapter.js';
 import { CommunicationAnalyticsService } from '../services/communication/communicationAnalyticsService.js';
 import { CommunicationAiRuntimeService } from '../services/communication/communicationAiRuntimeService.js';
-import { CommunicationGeminiProvider } from '../services/communication/communicationGeminiProvider.js';
+import { createCommunicationAiProvider } from '../services/communication/communicationAiProviderFactory.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 import { createDefaultAdapterRegistry } from '../services/communication/adapters/providerAdapters.js';
 
@@ -210,13 +210,26 @@ test('AI runtime stores a derived suggestion for human review and never mutates 
   assert.equal('send' in runtime, false, 'AI runtime has no send primitive');
 });
 
-test('Communications Gemini provider fails closed when no real provider credential is configured', async () => {
-  const provider = new CommunicationGeminiProvider({ apiKey: null, fetchImpl: async () => ({}) });
+// OC-4B: the Gemini provider is retired; general text runs on the CarUp AI gateway. The property this
+// test pinned — no real provider, no answer — now holds for the gateway route, with no vendor fallback.
+test('Communications AI fails closed when the CarUp AI gateway is not configured — and never falls back to another vendor', async () => {
+  const vendorCalls = [];
+  const provider = createCommunicationAiProvider({
+    env: { COMMUNICATION_AI_PROVIDER: 'groq' },
+    apiKey: 'groq-key-present', fetchImpl: async (url) => { vendorCalls.push(String(url)); return new Response('{}'); },
+    gateway: {
+      inspect: () => ({ ok: true, runtime: { provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it', configured: false } }),
+      generateText: async () => ({ ok: false, machine_output: false, authority: 'advisory',
+        error: { code: 'AI_PROVIDER_UNAVAILABLE', message: 'Cloudflare Workers AI is not configured.', retryable: false },
+        provenance: { provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it', execution: 'failed' } }),
+    },
+  });
   assert.equal(provider.health().available, false);
   await assert.rejects(
     provider.generate({ systemPrompt: 'x', userPrompt: 'y' }),
     (error) => error.code === 'communication_ai_provider_unavailable' && error.statusCode === 503,
   );
+  assert.deepEqual(vendorCalls, [], 'a configured media vendor is never asked to answer a text request');
 });
 
 test('normal factory exposes product notification, analytics and AI runtime services without creating a second conversation stack', () => {

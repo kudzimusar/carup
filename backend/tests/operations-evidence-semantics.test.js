@@ -1432,11 +1432,13 @@ test('STG01-R3-R1 Adversarial PostgreSQL Suite: atomic transaction boundary, rol
     // Case 10: Audit and hash-chained provenance (`verifyProvenanceChain`) consistency
     // -------------------------------------------------------------------------
     const chainCheckA = await verifyProvenanceChain(pgClient, evidenceIdA);
+    // PAY-04 integration: the One CarUp verifier (OC-3D) also reports how many legacy v1 rows it could not reproduce.
     assert.deepEqual(chainCheckA, {
       valid: true,
       length: 2,
       brokenAt: null,
       reason: null,
+      legacyUnverifiable: 0,
     });
 
     const chainCheckB = await verifyProvenanceChain(pgClient, evidenceIdB);
@@ -1445,6 +1447,7 @@ test('STG01-R3-R1 Adversarial PostgreSQL Suite: atomic transaction boundary, rol
       length: 2,
       brokenAt: null,
       reason: null,
+      legacyUnverifiable: 0,
     });
 
     const auditRows = await pg.query(
@@ -1477,7 +1480,7 @@ test('STG01-R3-R1 Adversarial PostgreSQL Suite: atomic transaction boundary, rol
 
 test('STG01-FINAL D-PROV-1: provenance content hashes survive the PostgreSQL JSONB round trip for every writer, not only the atomic review RPC', async () => {
   const { PGlite: RoundTripPGlite } = await import('@electric-sql/pglite');
-  const { computeContentHash } = await import('../services/evidence/provenanceService.js');
+  const { computeContentHash, computeContentHashV1 } = await import('../services/evidence/provenanceService.js');
   const pg = await RoundTripPGlite.create();
   // The upload / classification-correction / ingestion writers build `details` in insertion order.
   // evidence_provenance_events.details is JSONB, which re-orders object keys (length, then bytes),
@@ -1503,15 +1506,17 @@ test('STG01-FINAL D-PROV-1: provenance content hashes survive the PostgreSQL JSO
       `hash must be recomputable from JSONB storage for keys ${Object.keys(details).join(',')}`,
     );
   }
-  // Backward compatibility: a hash computed over JSONB-ordered details is unchanged by the fix.
+  // Backward compatibility, reconciled in the PAY-04 integration with the One CarUp line's OC-3D scheme: new writes are
+  // `v2:` canonical hashes; a v1 hash written over JSONB-ordered details (the STG01-R3-R1 review-RPC shape) still
+  // verifies as written, because the verifier recomputes v1 over the details exactly as PostgreSQL returns them.
   const rpcShaped = cases[2];
-  const legacy = (await import('node:crypto')).createHash('sha256').update(JSON.stringify({
-    evidence_id: '00000000-0000-4000-8000-0000000000aa', sequence: 1, event_type: 'uploaded', actor_user_id: 'u_up',
-    actor_role: 'owner', actor_type: 'user', details: rpcShaped, prev_hash: null,
-  })).digest('hex');
-  assert.equal(computeContentHash({
+  const rpcBase = {
     evidence_id: '00000000-0000-4000-8000-0000000000aa', sequence: 1, event_type: 'uploaded',
     actor_user_id: 'u_up', actor_role: 'owner', actor_type: 'user', details: rpcShaped, prev_hash: null,
-  }), legacy);
+  };
+  const legacy = (await import('node:crypto')).createHash('sha256').update(JSON.stringify(rpcBase)).digest('hex');
+  const { rows: rt } = await pg.query('select $1::jsonb as d', [JSON.stringify(rpcShaped)]);
+  assert.equal(computeContentHashV1({ ...rpcBase, details: rt[0].d }), legacy, 'a legacy JSONB-ordered hash still verifies as v1');
+  assert.match(computeContentHash(rpcBase), /^v2:/, 'new writes use the v2 canonical scheme');
   await pg.close();
 });

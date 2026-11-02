@@ -1,39 +1,57 @@
-name: Marketplace Reference Media Staging Apply
+name: Marketplace Reference Media Staging Apply (retired - manual, fail-closed)
 
-# Owner-authorized, staging-only completion gate for Marketplace lanes 6/7.
-# This workflow exists so PR #182 can be tested against the real completed staging state before
-# the feature PR is merged. GitHub's protected `staging` environment remains the credential boundary:
-# the workflow never prints secrets and the importer itself refuses non-staging identities.
+# RETIRED AS AN AUTOMATIC WRITER (OC-5R-DB2B-3R1). This workflow used to run on pull_request events of
+# PR #182 and write 45 synthetic reference images plus their listing_images rows into canonical staging.
+# OC-5R retired that media from staging (DB2B-3) and closed PR #182. There is no automatic trigger any more:
+# the writer runs only from an explicit workflow_dispatch whose confirmation input matches the exact phrase.
+# Anything else - including the empty default - fails in a job that holds no credentials, so the protected
+# `staging` environment is never entered. The importer still refuses every non-staging identity itself.
+# Guarded by backend/tests/oc5r-synthetic-media-writer-guard.test.js.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - '.github/workflows/marketplace-reference-media-staging.yml'
-      - 'backend/fixtures/marketplace-reference-media-v1.json'
-      - 'backend/scripts/marketplace-reference-media-staging.mjs'
-      - 'backend/services/storage/**'
-      - 'backend/db/**'
+  workflow_dispatch:
+    inputs:
+      confirm_synthetic_staging_write:
+        description: >-
+          Synthetic reference media is retired from canonical staging. Only with written owner/moderator
+          authorization, type exactly WRITE-SYNTHETIC-MEDIA-TO-CANONICAL-STAGING. Anything else refuses.
+        required: true
+        default: ''
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: marketplace-reference-media-staging-pr182
+  group: marketplace-reference-media-staging-manual
   cancel-in-progress: false
 
 env:
   # Immutable reviewed product candidate containing the manifest + guarded importer.
-  # The workflow definition may move the PR head, but the staging write code/data do not.
+  # The workflow definition may move, but the staging write code/data do not.
   CANDIDATE_SHA: 38ec60d2564082a242bf90880ca41d5eee2261b2
-  EXPECTED_PR: '182'
-  EXPECTED_BRANCH: 'feat/marketplace-reliability-reference-ux'
+  CONFIRM_PHRASE: WRITE-SYNTHETIC-MEDIA-TO-CANONICAL-STAGING
+  CANONICAL_STAGING_URL: https://eoyenigwevnxwwhyhaer.supabase.co
 
 jobs:
+  confirm-explicit-authorization:
+    # Deliberately no `environment`: an unconfirmed dispatch never reaches the staging credentials.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse unless the exact confirmation phrase was supplied (default refusal)
+        env:
+          CONFIRM: ${{ inputs.confirm_synthetic_staging_write }}
+        run: |
+          if [ "${CONFIRM}" != "${CONFIRM_PHRASE}" ]; then
+            echo '::error::Synthetic reference media is retired from canonical staging (OC-5R-DB2B-3). Refusing: confirm_synthetic_staging_write did not match.'
+            exit 1
+          fi
+
   apply-and-verify:
+    needs: confirm-explicit-authorization
     if: >-
-      github.event.pull_request.number == 182 &&
-      github.event.pull_request.head.ref == 'feat/marketplace-reliability-reference-ux' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event_name == 'workflow_dispatch' &&
+      inputs.confirm_synthetic_staging_write == 'WRITE-SYNTHETIC-MEDIA-TO-CANONICAL-STAGING'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: staging
@@ -81,6 +99,10 @@ jobs:
             *supabase.co*) ;;
             *) echo '::error::Unexpected staging Supabase URL shape; refusing.'; exit 1 ;;
           esac
+          if [ "${SUPABASE_URL%/}" != "${CANONICAL_STAGING_URL}" ]; then
+            echo '::error::STAGING_SUPABASE_URL is not exactly the canonical staging project; refusing.'
+            exit 1
+          fi
 
       - name: Apply complete nine-vehicle reference galleries to staging
         env:

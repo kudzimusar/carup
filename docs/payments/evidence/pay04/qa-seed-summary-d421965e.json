@@ -1,0 +1,44 @@
+{
+  "recorded_at": "2026-11-02T04:46:08.305Z",
+  "authority": "MODERATOR-CARUP-PAY-04-LR01-LEVEL1-LOCAL-SIMULATOR",
+  "backend_commit": "d421965ec3ffaea19a45a6a53fe4601fe89313fc",
+  "garages": {
+    "A": "e1d7ba56-aa40-499e-865b-4aba5b97bbc6",
+    "B": "86abdd74-ef08-4fa2-995c-a0a0bc0f3651"
+  },
+  "merchant_reference": "gsim_merchant_pay04_qa_garage_a",
+  "users": {
+    "adminA": {
+      "userId": "p4qa_admina_8c2f0342",
+      "role": "owner"
+    },
+    "mechA": {
+      "userId": "p4qa_mecha_a8ab9f45",
+      "role": "owner"
+    },
+    "adminB": {
+      "userId": "p4qa_adminb_2d3ef0fc",
+      "role": "owner"
+    },
+    "mechB": {
+      "userId": "p4qa_mechb_ed5e89b5",
+      "role": "owner"
+    },
+    "customer": {
+      "userId": "p4qa_customer_c67c3dde",
+      "role": "owner"
+    },
+    "stranger": {
+      "userId": "p4qa_stranger_999def4c",
+      "role": "owner"
+    },
+    "ops": {
+      "userId": "p4qa_ops_9c57fb7d",
+      "role": "admin"
+    },
+    "legacyMechA": {
+      "userId": "p4qa_legacymecha_807cf61a",
+      "role": "mechanic"
+    }
+  }
+}

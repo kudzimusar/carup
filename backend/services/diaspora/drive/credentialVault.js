@@ -36,6 +36,7 @@
  *    success.
  */
 import crypto from 'crypto';
+import { isProductionLikeRuntime } from '../../../utils/runtimeEnvironment.js';
 import {
   TOKEN_SHAPED_REFERENCE_PATTERNS,
   REDACTION_PATTERNS,
@@ -180,7 +181,7 @@ export class CredentialVault {
 export class InMemoryCredentialVault extends CredentialVault {
   constructor({ allowInProduction = false, referencePrefix = 'memvault' } = {}) {
     super();
-    if (process.env.NODE_ENV === 'production' && !allowInProduction) {
+    if (isProductionLikeRuntime(process.env) && !allowInProduction) {
       throw new VaultError('The in-memory credential vault must never be used in production', 'VAULT_NOT_PERMITTED');
     }
     this._entries = new Map();
@@ -244,7 +245,7 @@ export class InMemoryCredentialVault extends CredentialVault {
 export class EnvCredentialVault extends CredentialVault {
   constructor({ allowInProduction = false } = {}) {
     super();
-    if (process.env.NODE_ENV === 'production' && !allowInProduction) {
+    if (isProductionLikeRuntime(process.env) && !allowInProduction) {
       throw new VaultError('The env credential vault must never be used in production', 'VAULT_NOT_PERMITTED');
     }
   }
@@ -373,7 +374,7 @@ export function resolveVault(options = {}) {
     return scopeVault(buildManagedVault(configured), options.tenantId);
   }
 
-  if (process.env.NODE_ENV === 'production') {
+  if (isProductionLikeRuntime(process.env)) {
     throw new VaultError(
       'No production credential vault is configured (set DIASPORA_CREDENTIAL_VAULT_BACKEND to a managed backend)',
       'VAULT_NOT_CONFIGURED',

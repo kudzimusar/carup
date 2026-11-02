@@ -346,9 +346,27 @@ export function toPublicEvidence(evidence) {
  * is a shallow copy, so deleting `metadata.ai_analysis` from the copy deletes it from the original.
  */
 export function publicAiSummary(row) {
-  const value = row?.metadata?.ai_analysis?.public_safe_summary;
-  return typeof value === 'string' && value ? value : null;
+  const analysis = row?.metadata?.ai_analysis;
+  const value = analysis?.public_safe_summary;
+  if (!(typeof value === 'string' && value)) return null;
+  // OC-3B. A summary reaches the public ONLY from a provider that really executed AND is on the
+  // allow-list below. The allow-list is EMPTY because no such producer exists for evidence images:
+  // `aiVisionProvider` is a simulator, and the string it used to produce — "AI analysis: image
+  // verified clean." — was published on every human-verified evidence row. `metadata` is also
+  // caller-writable on upload, so a self-asserted `provider`/`execution` label proves nothing by
+  // itself; admitting a provider here requires a server-side producer that writes it.
+  if (analysis.execution !== 'provider_executed') return null;
+  if (!PUBLISHABLE_AI_SUMMARY_PROVIDERS.has(analysis.provider)) return null;
+  // Even a real provider's summary may not assert a verdict only a human reviewer can give.
+  if (FORBIDDEN_PUBLIC_AI_WORDING.test(value)) return null;
+  return value;
 }
+
+/** Providers whose executed evidence analysis may contribute a public summary. None, today. */
+export const PUBLISHABLE_AI_SUMMARY_PROVIDERS = Object.freeze(new Set());
+
+/** Wording an AI summary may never put in front of the public, whatever produced it. */
+export const FORBIDDEN_PUBLIC_AI_WORDING = /\b(verified|clean|approved?|official|fraud[- ]?free|genuine|authentic|certified|passed)\b/i;
 
 /** Project the publicly visible plate-history rows for an anonymous caller. */
 export function toPublicPlateHistory(rows) {

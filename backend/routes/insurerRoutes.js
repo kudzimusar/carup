@@ -19,7 +19,6 @@ import { getTrustDecision } from '../services/trustDecision/trustDecisionService
 import {
   requestInsurerEligibility, getInsurerStatus, getInsurerDecisionHistory,
   recordConsent, registerInsurerProfile, listInsurerProviders, ingestInsurerWebhook,
-  INSURER_WEBHOOK_PROVIDER,
 } from '../services/insurance/insurerWorkflow.js';
 
 const router = express.Router();
@@ -121,7 +120,8 @@ router.post('/api/insurer/webhook',
   async (req, res, next) => {
     try {
       const result = await ingestInsurerWebhook({
-        providerId: req.headers['x-provider-id'] || INSURER_WEBHOOK_PROVIDER,
+        // Checked against the server-owned identity, never used to pick the key (B5).
+        providerId: req.headers['x-provider-id'] || null,
         payloadString: req.rawBody || JSON.stringify(req.body || {}),
         signature: req.headers['x-signature'],
         timestamp: req.headers['x-timestamp'],

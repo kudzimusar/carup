@@ -546,10 +546,14 @@ describe('Rule 1b — an unreadable publication state publishes nothing and clai
     // the wide read has already FAILED with a photo_label-missing error. The PUBLICATION GATE, which
     // is what this test is about, still issues no query at all: it reads `publication_status` off
     // the row the passport already holds, asserted below.
-    assert.deepEqual(tableReads, [
+    // Compared as a MULTISET (sorted): O2 · U2 (OC-5C) starts the independent reads together, which
+    // moves the gallery's wide read ahead of the history reads in the source text without adding,
+    // removing or conditioning any read. The question here is WHICH queries exist and how many — that
+    // is unchanged, exactly.
+    assert.deepEqual([...tableReads].sort(), [
       'vehicles', 'vehicle_evidence', 'listing_images', 'listing_images', 'vehicle_plate_history',
       'vehicle_ownership_history', 'users',
-    ], 'the gate must not have added a query. A second read is a second failure mode, and a '
+    ].sort(), 'the gate must not have added a query. A second read is a second failure mode, and a '
       + 'conditional one would also make response time a signal about publication state.');
     // Pin the fallback's guard, so the conditional second read can never quietly become an
     // unconditional one — which WOULD be the extra failure mode this test exists to refuse.

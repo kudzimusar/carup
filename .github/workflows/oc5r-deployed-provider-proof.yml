@@ -1,0 +1,89 @@
+name: OC-5R Deployed provider proof — exact-SHA preview (dispatch only)
+
+# OC-5R-REL-01 Stage 5. Proves Qwen OCR and Gemma advisory AI THROUGH THE DEPLOYED PREVIEW of the
+# exact candidate head — the same governed frontend/backend pair the staging gates use — with synthetic
+# inputs only (scripts/ci/oc5r-deployed-provider-proof.mjs says exactly what it does and keeps).
+#
+# Trigger: ONLY workflow_dispatch by the Owner on the candidate branch, and the job then waits for the
+# `staging` environment's required reviewers. It used to be a pull_request `labeled` trigger ("the label
+# IS the manual dispatch"), but a pull-request workflow hands the staging credentials to whatever the pull
+# request's merge commit says, and CARUP-PAY-05 Checkpoint A forbids any pull-request event from reaching
+# a shared-staging credential (scripts/ci/workflow-secret-isolation.mjs). Consequence: the file must be on
+# the default branch before it can be dispatched, and landing it there is the Owner's decision. It never
+# runs on push, pull_request, schedule or workflow_run: live provider calls cost money and reach real
+# accounts, so each run is an explicit decision. A permanent guard in
+# backend/tests/oc5r-rel01-deployed-provider-proof.test.js fails the suite if that changes, or if the
+# exact-head pairing proof stops coming first.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# The same group as every staging gate for this branch: a proof never overlaps a gate run.
+concurrency:
+  group: staging-preview-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    name: Deployed provider proof (Qwen OCR + Gemma)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.sha }}
+      CANDIDATE_BRANCH: ${{ github.ref_name }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      STAGING_RUN_ID: proof-${{ github.run_id }}-${{ github.run_attempt }}
+      PAIRING_RECORD_PATH: ${{ github.workspace }}/staging-pairing.json
+      PROOF_OUT: ${{ github.workspace }}/oc5r-deployed-provider-proof.json
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          echo "candidate SHA: $EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      # Before ANY staging contact: the deployed frontend and backend must both serve this exact head,
+      # paired with each other, against the approved staging project.
+      - name: Prove the governed exact-head preview pair
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: node scripts/ci/resolve-governed-preview-pair.mjs
+
+      - name: Refuse a busy staging database
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: node scripts/ci/assert-staging-capacity.mjs
+
+      - name: Run the deployed provider proof
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          STAGING_UAT_PASSWORD: ${{ secrets.STAGING_UAT_PASSWORD }}
+        run: node scripts/ci/oc5r-deployed-provider-proof.mjs
+
+      - name: Upload the proof record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc5r-deployed-provider-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.PROOF_OUT }}
+            ${{ env.PAIRING_RECORD_PATH }}
+          if-no-files-found: warn
+          retention-days: 30

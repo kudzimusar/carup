@@ -1,0 +1,79 @@
+name: GARAGE-1.0 OPS02 CI
+
+on:
+  push:
+    branches:
+      - feat/garage-1.0-ops02-customer-vehicle-relationship
+  pull_request:
+    branches:
+      - feat/garage-1.0-ops01-multisite-workforce
+
+permissions:
+  contents: read
+
+concurrency:
+  group: garage-ops02-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    name: OPS02 frozen-parent product checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove OPS01 parent custody
+        run: |
+          set -euo pipefail
+          parent=a8a89fc1fb12551513916dea6bb45c841dbc7a59
+          remote_parent="$(git ls-remote origin refs/heads/feat/garage-1.0-ops01-multisite-workforce | cut -f1)"
+          test "$remote_parent" = "$parent"
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "PARENT=$parent"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: OPS02 migration and authority, inherited Garage and Service Network
+        run: |
+          node --test --test-concurrency=1 \
+            backend/tests/garage-ops02-migrations.test.js \
+            backend/tests/garage-ops02-authority.test.js \
+            backend/tests/garage-ops01-migrations.test.js \
+            backend/tests/garage-ops01-authority.test.js \
+            backend/tests/garage-cv01-parts-authority.test.js \
+            backend/tests/oc5d-active-tenant-context.test.js \
+            backend/tests/oc5d-service-network-authority.test.js \
+            backend/tests/oc5e-gmo7-garage-membership.test.js \
+            backend/tests/service-network-auth-adversarial.test.js \
+            backend/tests/service-network-authority-boundaries.test.js \
+            backend/tests/service-network-route-mounting.test.js \
+            backend/tests/service-network-s9-garage-surfaces.test.js
+
+      - name: Full web product and governance tests
+        run: npm --workspace web run test:unit
+
+      - name: Web TypeScript
+        run: npx tsc --noEmit --project web/tsconfig.app.json
+
+      - name: Production web build
+        run: npm run build
+
+      - name: OPS02 diff hygiene
+        run: git diff --check a8a89fc1fb12551513916dea6bb45c841dbc7a59...HEAD

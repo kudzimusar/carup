@@ -1,0 +1,9 @@
+{
+  "window_started_at": "2026-10-24 20:26:04.598616+00",
+  "identities": [
+    "admin",
+    "mechanic",
+    "customer"
+  ],
+  "plaintext_known_to_runner": false
+}

@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
 import {
   getMarketplaceListingDetail,
+  getOwnerVehiclePassport,
+  MarketplaceApiError,
   createMarketplaceInquiry,
   resolveMarketplacePrimaryImage,
   type MobileListingDetail,
@@ -105,12 +107,25 @@ function VehicleDetailScreenInner() {
     queryKey: ['marketplace-detail', vin],
     queryFn: () => getMarketplaceListingDetail(String(vin)),
     enabled: !!vin,
+    retry: (count, err) => !(err instanceof MarketplaceApiError && err.statusCode === 404) && count < 2,
+  });
+  // PC01-J-R1: a vehicle that is not publicly listed answers 404 here. For its signed-in owner (the
+  // Garage "Trust Passport" path) read their own Vehicle Passport instead of dead-ending.
+  const notPubliclyListed = error instanceof MarketplaceApiError && error.statusCode === 404;
+  const { data: ownerPassport, isLoading: ownerPassportLoading } = useQuery({
+    queryKey: ['owner-passport', vin],
+    queryFn: () => getOwnerVehiclePassport(String(vin)),
+    enabled: !!vin && !!token && notPubliclyListed,
   });
 
   const [inquiring, setInquiring] = useState(false);
   const handleInquire = async () => {
     if (!token) {
-      Alert.alert('Sign in to inquire', 'Please sign in so the seller can respond safely. Never pay outside CarUp.');
+      // PC01-J-R1: the alert only had OK, so a guest who wanted to ask had nowhere to go.
+      Alert.alert('Sign in to ask the seller', 'Browsing needs no account, but messaging a seller does, so they can reply to you safely. Never pay outside CarUp.', [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Sign in', onPress: () => router.push('/(auth)/login') },
+      ]);
       return;
     }
     setInquiring(true);
@@ -129,6 +144,43 @@ function VehicleDetailScreenInner() {
       <View className="flex-1 items-center justify-center bg-slate-50">
         <ActivityIndicator size="large" color="#f97316" />
       </View>
+    );
+  }
+
+  if (notPubliclyListed && token && (ownerPassportLoading || ownerPassport)) {
+    if (ownerPassportLoading || !ownerPassport) {
+      return (
+        <View className="flex-1 items-center justify-center bg-slate-50">
+          <ActivityIndicator size="large" color="#f97316" />
+        </View>
+      );
+    }
+    const v = ownerPassport.vehicle ?? {};
+    const trust = ownerPassport.trustReport ?? null;
+    const ownerTitle = [v.year, v.make, v.model].filter((part) => part !== null && part !== undefined && part !== '').join(' ') || String(vin);
+    return (
+      <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 20, paddingBottom: 48 }} testID="owner-passport-fallback">
+        <Pressable onPress={() => router.back()} className="min-h-[44px] justify-center" accessibilityRole="button">
+          <Text className="text-sm font-semibold text-orange-600">← Back</Text>
+        </Pressable>
+        <Text className="mt-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Your vehicle · {String(vin)}</Text>
+        <Text className="mt-1 text-2xl font-bold text-slate-900">{ownerTitle}</Text>
+        <View className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <Text className="text-sm font-semibold text-amber-900">Not on the public Marketplace</Text>
+          <Text className="mt-1 text-sm leading-5 text-amber-900">
+            Buyers cannot see this vehicle until it is published. Publishing is not in the app yet — it is done on CarUp's website, where CarUp checks its publication requirements first.
+          </Text>
+        </View>
+        <View className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+          <Text className="text-xs font-semibold uppercase tracking-wider text-slate-400">Trust position</Text>
+          <Text className="mt-1 text-base font-bold text-slate-900">
+            {typeof trust?.score === 'number' ? `${trust.score} / 100${trust.band ? ` · ${titleCase(trust.band)}` : ''}` : 'Not yet evaluated'}
+          </Text>
+          {typeof v.mileage === 'number' ? (
+            <Text className="mt-3 text-sm text-slate-600">Recorded mileage: {v.mileage.toLocaleString()} km</Text>
+          ) : null}
+        </View>
+      </ScrollView>
     );
   }
 

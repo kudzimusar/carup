@@ -6,12 +6,35 @@
  * billingProvider.js re-exports both symbols, so every existing import path is unchanged.
  */
 
-export class BillingProviderError extends Error {
+import { CarUpError } from '../../../utils/errors.js';
+
+/**
+ * The HTTP contract of every billing failure (OC-5R-PROV-01 C2). BillingProviderError used to be a
+ * plain Error with no status, so the error middleware answered EVERY billing failure — a missing
+ * tenantId, an unapproved provider on a deployment, a provider outage — as an untyped 500 that a
+ * client, a retry policy and 5xx alerting cannot tell apart from a crash. Each code now carries a
+ * deterministic status: the caller's mistake is 4xx, a provider CarUp does not run is 503, a
+ * provider that answered badly is 502. A code without an entry is a provider failure (502).
+ */
+export const BILLING_ERROR_STATUS = Object.freeze({
+  INVALID_INPUT: 400,
+  RAW_BODY_REQUIRED: 400,
+  EXTERNAL_ACTIVATION_REQUIRED: 503,
+  PROVIDER_CAPABILITY_UNSUPPORTED: 503,
+  TRANSPORT_UNAVAILABLE: 503,
+  TRANSPORT_NOT_IMPLEMENTED: 503,
+  TRANSPORT_ROUTE_MISSING: 503,
+  TRANSPORT_INSECURE_URL: 503,
+  TRANSPORT_FORBIDDEN_IN_TEST: 503,
+  PROVIDER_REQUEST_REJECTED: 502,
+  TRANSPORT_REQUEST_FAILED: 502,
+});
+
+export class BillingProviderError extends CarUpError {
   constructor(message, code = 'BILLING_PROVIDER_ERROR') {
     // Sanitized message only — never include secrets, signatures, or raw provider stack traces.
-    super(message);
+    super(message, BILLING_ERROR_STATUS[code] || 502, code);
     this.name = 'BillingProviderError';
-    this.code = code;
   }
 }
 

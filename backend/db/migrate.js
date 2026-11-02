@@ -22,7 +22,9 @@ const migrationsDir = path.resolve(__dirname, '../../database/migrations');
 // overall success. Integrity violations must stop the run.
 function parseMigration(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
-  return parseMigrationSource(content, path.basename(filePath));
+  // This runner drives the LEGACY LOCAL SQLite database (backend/db/carup.db): the enumerated
+  // SQLite-only files are its own (OC-4A). Every PostgreSQL runner/harness parses as 'postgres'.
+  return parseMigrationSource(content, path.basename(filePath), { dialect: 'sqlite' });
 }
 
 export async function runMigrations(action = 'up') {

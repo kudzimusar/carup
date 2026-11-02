@@ -7,7 +7,7 @@ import { authorizeRole } from '../middleware/authMiddleware.js';
 import {
   getDriveStatus,
   getAuthorizationUrl,
-  handleOAuthCallback,
+  handleOAuthRedirectCallback,
   disconnectDrive,
   listDriveFiles,
   uploadDriveFile,
@@ -28,8 +28,11 @@ router.get('/drive/status', auth, asyncHandler(async (req, res) => {
 router.get('/drive/google/authorize', auth, asyncHandler(async (req, res) => {
   res.json({ data: await getAuthorizationUrl(req.userContext, { req }) });
 }));
-router.get('/drive/google/callback', auth, asyncHandler(async (req, res) => {
-  res.json({ data: await handleOAuthCallback({ code: req.query.code, state: req.query.state }, req.userContext, { req }) });
+// Google redirects the browser here and cannot attach CarUp session headers. Signed state, the
+// one-time nonce and server-held PKCE verifier authenticate this callback. Every other Drive route
+// remains behind normal CarUp session auth.
+router.get('/drive/google/callback', asyncHandler(async (req, res) => {
+  res.json({ data: await handleOAuthRedirectCallback({ code: req.query.code, state: req.query.state }, { req }) });
 }));
 router.post('/drive/disconnect', auth, asyncHandler(async (req, res) => {
   res.json({ data: await disconnectDrive(req.userContext, { req }) });

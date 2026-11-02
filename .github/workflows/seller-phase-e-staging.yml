@@ -1,20 +1,10 @@
 name: Seller Phase E Staging Navigation
 
+# ── Dispatch only (CARUP-PAY-05 Checkpoint A) ──────────────────────────────
+# This workflow holds shared-staging credentials, so no pull request or push may start it. The Owner
+# dispatches it for a governed candidate and the job waits for the `staging` environment's required
+# reviewers. Enforced by scripts/ci/workflow-secret-isolation.mjs.
 on:
-  pull_request:
-    branches:
-      - integration/vehicle-passport-v16-cert
-    paths:
-      - 'web/src/components/seller/**'
-      - 'web/src/components/layout/DashboardLayout.tsx'
-      - 'web/src/config/featureRegistry.ts'
-      - 'web/src/App.tsx'
-      - 'web/src/pages/GuestSell.tsx'
-      - 'web/src/pages/dashboard/owner/**'
-      - 'tests/agents/41-seller-phase-e-staging.spec.ts'
-      - '.github/workflows/seller-phase-e-staging.yml'
-      - 'web/preview-frontend-pairing.json'
-      - 'web/preview-backend-pairing.json'
   workflow_dispatch: {}
 
 
@@ -35,6 +25,7 @@ permissions:
 jobs:
   phase-e-staging:
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 30
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

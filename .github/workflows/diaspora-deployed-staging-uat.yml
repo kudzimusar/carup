@@ -22,20 +22,15 @@ name: Diaspora Deployed Staging UAT
 # gate.
 #
 # A branch with no governed pair FAILS here. It does not skip.
+#
+# ── Dispatch only (CARUP-PAY-05 Checkpoint A) ──────────────────────────────
+# This gate drives SHARED staging (synthetic identities, journeys that mutate staging state). It used to
+# start on every pull request touching backend/web/database: on the Payments line it received the staging
+# credentials 54 times and stopped only because its own pairing proof refused the branch. A pull request
+# can no longer start it. The Owner dispatches it for a governed candidate, and the bootstrap and every
+# shard wait for the `staging` environment's required reviewers. Enforced by
+# scripts/ci/workflow-secret-isolation.mjs (backend/tests/ci-workflow-secret-isolation.test.js).
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/diaspora-deployed-staging-uat.yml'
-      - 'scripts/ci/resolve-governed-preview-pair.mjs'
-      - 'web/preview-frontend-pairing.json'
-      - 'web/preview-backend-pairing.json'
-      - 'backend/**'
-      - 'database/**'
-      - 'playwright.staging.config.ts'
-      - 'tests/agents/**'
-      - 'web/**'
-      - 'package.json'
-      - 'package-lock.json'
   workflow_dispatch: {}
 
 permissions:
@@ -78,6 +73,7 @@ jobs:
   bootstrap:
     name: Bootstrap
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 10
     outputs:
       staging_run_id: ${{ steps.identifier.outputs.staging_run_id }}
@@ -87,7 +83,7 @@ jobs:
       PAIRING_RECORD_PATH: ${{ github.workspace }}/staging-pairing.json
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       STAGING_UAT_PASSWORD: ${{ secrets.STAGING_UAT_PASSWORD }}
-      TRADEOS_WORKER_SECRET: ${{ secrets.TRADEOS_WORKER_SECRET }}
+      COMMUNICATION_WORKER_SECRET: ${{ secrets.COMMUNICATION_WORKER_SECRET }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +104,7 @@ jobs:
           missing=''
           [ -n "$DIASPORA_STAGING_DATABASE_URL" ] || missing="$missing DIASPORA_STAGING_DATABASE_URL"
           [ -n "$STAGING_UAT_PASSWORD" ] || missing="$missing STAGING_UAT_PASSWORD"
-          [ -n "$TRADEOS_WORKER_SECRET" ] || missing="$missing TRADEOS_WORKER_SECRET"
+          [ -n "$COMMUNICATION_WORKER_SECRET" ] || missing="$missing COMMUNICATION_WORKER_SECRET"
           if [ -n "$missing" ]; then
             echo "::error::not configured;$missing — deployed acceptance cannot be certified."
             exit 1

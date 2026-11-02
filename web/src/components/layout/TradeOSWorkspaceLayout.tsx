@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { lazy, useEffect, useState } from 'react'
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { buildLoginRedirect } from '@/lib/returnTo'
 import { Car, Loader2 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { canRoleAccessRoute } from '@/config/featureRegistry'
@@ -8,8 +9,9 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundary'
 import { CarUpWorkspaceBar } from '@/components/workspace/CarUpWorkspaceBar'
 import { ActiveWorkspaceContext, WorkspaceBarProvidedContext } from '@/components/workspace/workspaceBarContext'
+import { ActiveOrganisationPrompt } from '@/components/layout/OrganisationSwitcher'
 import type { DiasporaTradeContext } from '@/types'
-import TradeShippingWorkspace from '@/pages/diaspora/TradeShippingWorkspace'
+const TradeShippingWorkspace = lazy(() => import('@/pages/diaspora/TradeShippingWorkspace'))
 
 /**
  * Trade OS operational workspace shell.
@@ -108,7 +110,9 @@ export default function TradeOSWorkspaceLayout() {
     return <div className="flex min-h-screen items-center justify-center bg-white text-orange-600"><Loader2 className="h-6 w-6 animate-spin" /></div>
   }
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    // PC01-J-R1: Login reads `?returnTo`, not router state — the state alone dropped the visitor on a
+    // role dashboard after signing in instead of the import page they had asked for.
+    return <Navigate to={buildLoginRedirect(`${location.pathname}${location.search}`)} replace state={{ from: location.pathname }} />
   }
 
   return (
@@ -166,6 +170,7 @@ export default function TradeOSWorkspaceLayout() {
           </div>
         </div>
       </header>
+      <ActiveOrganisationPrompt />
       <main className="min-w-0 flex-1">
         {/*
           * enforceAuth is ON. It was previously false, which meant the registry's ROLE decision was

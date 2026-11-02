@@ -13,12 +13,14 @@ export default function KYCVerification() {
   const [uploading, setUploading] = useState(false)
   const [verified, setVerified] = useState(false)
 
-  // Personal Info States
-  const [firstName, setFirstName] = useState('Tendai')
-  const [lastName, setLastName] = useState('Moyo')
-  const [nationalId, setNationalId] = useState('63-1234567A89')
-  const [dob, setDob] = useState('1990-01-01')
-  const [address, setAddress] = useState('123 Samora Machel Ave, Harare')
+  // Personal Info States. PC01-J-R1: these were pre-filled with a demo person — "Tendai Moyo", a
+  // national ID number, a date of birth and a Samora Machel Avenue address — on an identity form.
+  // An identity form starts empty; whether /kyc is retired or redirected is a separate owner decision.
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [nationalId, setNationalId] = useState('')
+  const [dob, setDob] = useState('')
+  const [address, setAddress] = useState('')
 
   // Document states
   const [docType, setDocType] = useState('national-id')
@@ -117,7 +119,7 @@ export default function KYCVerification() {
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block text-gray-300">Physical Address</label>
-                  <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Samora Machel Ave, Harare" className="bg-gray-800/80 border-gray-700 text-white" />
+                  <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="Street address and city" className="bg-gray-800/80 border-gray-700 text-white" />
                 </div>
                 <Button onClick={() => setStep(2)} className="w-full bg-orange-500 hover:bg-orange-600 text-white">
                   Continue <ArrowRight className="w-4 h-4 ml-2" />

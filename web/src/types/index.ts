@@ -1,5 +1,6 @@
 export type { PublicationGap } from '@/lib/publicationRefusal';
 import type { PublicationGap } from '@/lib/publicationRefusal';
+import type { PublicationLastChange } from '@/lib/publicationStatus';
 
 import type { 
   AuthUser as SharedAuthUser, 
@@ -69,6 +70,12 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
    * `unavailable` — it is never folded into `not_listed` / `none`.
    */
   capabilities?: VehicleCapabilities | null;
+  /**
+   * Who last moved this listing on or off the public Marketplace, from `/api/vehicles/me` (PC01-J-R1).
+   * `not_read` is a failed read, never "nobody changed it". Render it through
+   * `describeReadyToPublish` (web/src/lib/publicationStatus.ts).
+   */
+  publication_last_change?: PublicationLastChange | null;
   location?: string;
   /**
    * Why `location` is or is not there. Carried through from the marketplace summary so a card can
@@ -2087,9 +2094,18 @@ export interface VehicleEvidence {
 }
 
 export interface EvidenceAiAnalysis {
-  risk_score: number;
-  confidence: number;
-  ai_status: 'ai_pending' | 'ai_passed' | 'ai_flagged' | 'ai_low_confidence' | 'ai_provider_unavailable' | 'ai_manual_review_required';
+  // OC-3B: the evidence analyzer is a simulator. Its results say so (provider/execution
+  // 'simulated'), carry no score, and are advisory and non-verifying.
+  provider?: 'simulated' | string;
+  model?: string | null;
+  execution?: 'simulated' | 'mock' | 'provider_executed' | 'failed' | 'not_run';
+  advisory?: boolean;
+  verifying?: false;
+  risk_score: number | null;
+  // null when nothing was measured (queued, or not run because no provider is configured).
+  confidence: number | null;
+  // 'ai_not_configured' (OC-5B): nothing examined the image — no evidence-vision provider is configured.
+  ai_status: 'ai_pending' | 'ai_simulated' | 'ai_passed' | 'ai_flagged' | 'ai_low_confidence' | 'ai_provider_unavailable' | 'ai_manual_review_required' | 'ai_not_configured';
   reviewer_summary: string;
   recommended_action: 'approve' | 'reject' | 'inspect';
   visible_plate?: string | null;
@@ -2185,7 +2201,7 @@ export interface VehicleEvidenceSummary {
   file_url?: string | null;
 }
 
-// 23. TrustMetrics — exact keys from calculateVehicleTrustScore()
+// 23. TrustMetrics — exact keys from computeVehicleTrustScore() (the read-only trustGraph report)
 export interface TrustMetrics {
   cvr_synced: boolean;
   zimra_duty: boolean;
@@ -2199,7 +2215,7 @@ export interface TrustMetrics {
   rejected_evidence_count?: number;
 }
 
-// 24. TrustReport — from calculateVehicleTrustScore()
+// 24. TrustReport — from computeVehicleTrustScore() (the read-only trustGraph report)
 export interface TrustReport {
   vin: string;
   trustScore: number;
@@ -2217,7 +2233,7 @@ export interface ChainVerification {
 // 26. PassportVerificationSource — UI model for the Verification tab
 export interface PassportVerificationSource {
   label: string;
-  status: 'verified' | 'not_verified' | 'warning' | 'unknown';
+  status: 'verified' | 'recorded' | 'none_recorded' | 'not_verified' | 'warning' | 'unknown';
   detail?: string;
 }
 
@@ -3358,4 +3374,28 @@ export interface WorkbookInterruptedBatch {
   confirmedImport: Record<string, unknown> | null;
   /** True for NEEDS_OPERATOR: partly applied and not fully reversible. Never offer a retry. */
   needsHuman: boolean;
+}
+
+/**
+ * OC-3B — the ONLY shape GET /api/vehicles/:vin/verify-ledger returns: an allow-listed integrity
+ * verdict. The chain, its payloads, hashes and signatures never leave the server.
+ * `empty` means the vehicle has no ledger events: nothing was found broken, and nothing was verified.
+ */
+export interface LedgerIntegrityReport {
+  vin: string;
+  /**
+   * True ONLY when `integrity === 'verified'` (OC-3B-R). False means "not verified" — broken OR
+   * empty — so a UI must branch on `integrity`, never on this boolean, to tell the two apart.
+   */
+  verified: boolean;
+  count: number | null;
+  integrity: 'verified' | 'broken' | 'empty';
+  /**
+   * OC-3D: true only when the chain verified AND every event's signature was cryptographically
+   * verified. An intact chain whose events carry placeholders or unverifiable signatures is
+   * `integrity: 'verified'` with `authenticated: false` — tamper-evident links, unauthenticated authorship.
+   */
+  authenticated: boolean;
+  failed_at_index?: number;
+  verified_at: string;
 }

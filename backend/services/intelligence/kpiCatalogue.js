@@ -19,7 +19,9 @@
  * after the code has been fixed.
  */
 
-export const KPI_CATALOGUE_VERSION = 'kpi_catalogue@1';
+// kpi_catalogue@2 (OC-5F): the I4 entries now describe rollup@2's numbers. Literals on purpose — a
+// rollup bump fails the drift guard (intelligence-reports.test.js) until someone re-reads these words.
+export const KPI_CATALOGUE_VERSION = 'kpi_catalogue@2';
 
 export const KPI_CATALOGUE = Object.freeze([
   // ── Marketplace / seller ────────────────────────────────────────────────
@@ -27,7 +29,7 @@ export const KPI_CATALOGUE = Object.freeze([
     key: 'listing_views',
     label: 'Listing views',
     phase: 'I4',
-    calculation_version: 'rollup@1',
+    calculation_version: 'rollup@2',
     means: 'How many times your listing was opened by somebody looking at the marketplace.',
     counted: 'From the activity ledger, one event per listing open, de-duplicated within a session.',
     excludes: 'Your own visits to your own listing, traffic flagged as internal, and known automated traffic.',
@@ -37,7 +39,7 @@ export const KPI_CATALOGUE = Object.freeze([
     key: 'unique_visitors',
     label: 'Unique visitors',
     phase: 'I4',
-    calculation_version: 'rollup@1',
+    calculation_version: 'rollup@2',
     means: 'How many distinct people opened your listing.',
     counted: 'Distinct actor keys over the period.',
     excludes: 'The same exclusions as views.',
@@ -47,7 +49,7 @@ export const KPI_CATALOGUE = Object.freeze([
     key: 'inquiries',
     label: 'Enquiries',
     phase: 'I4',
-    calculation_version: 'rollup@1',
+    calculation_version: 'rollup@2',
     means: 'How many people contacted you about a listing.',
     counted: 'Rows in the authoritative enquiry table, which is the record of the enquiry itself rather than a behavioural event.',
     excludes: 'Enquiries marked spam or rejected.',

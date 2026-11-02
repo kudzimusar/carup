@@ -273,6 +273,13 @@ test('cross-tenant scope: a dealer from another tenant has no recognition', asyn
   const client = makeMockClient({ vehicles: [{ ...baseVehicle, owner_id: null, current_seller_id: null, tenant_id: 'tenant-A' }] });
   const state = await svc.getSellerAuthorityState(client, { vin: VIN, sellerUserId: 'u_dealer', sellerTenantId: 'tenant-B' });
   assert.equal(state.status, 'not_assessed');
-  const sameTenant = await svc.getSellerAuthorityState(client, { vin: VIN, sellerUserId: 'u_dealer', sellerTenantId: 'tenant-A' });
-  assert.equal(sameTenant.status, 'recognized');
+  // L-2 — belonging to the vehicle's tenant is no longer recognition on its own. The caller must
+  // have resolved the GOVERNED dealership (hasGovernedDealerVehicleAuthority) and say so.
+  const sameTenantUngoverned = await svc.getSellerAuthorityState(client, { vin: VIN, sellerUserId: 'u_dealer', sellerTenantId: 'tenant-A' });
+  assert.equal(sameTenantUngoverned.status, 'not_assessed',
+    'raw membership in the vehicle\'s tenant must not be recognised as seller authority');
+  const sameTenant = await svc.getSellerAuthorityState(client, {
+    vin: VIN, sellerUserId: 'u_dealer', sellerTenantId: 'tenant-A', dealerTenantAuthorized: true,
+  });
+  assert.equal(sameTenant.status, 'recognized', 'a governed dealership relationship still is');
 });

@@ -5,16 +5,17 @@ name: Operations Serena Staging UAT
 #
 # Deliberately narrow triggering: this journey reviews and publishes the one
 # real UAT vehicle, so it must never be an automatic per-push side effect.
-# workflow_dispatch becomes usable once this file reaches the default branch;
-# until then the pull_request trigger fires ONLY when this workflow or its spec
-# change — an explicit, reviewable act. The spec is state-aware/idempotent:
-# re-runs converge on the same final state instead of re-deciding it.
+# The spec is state-aware/idempotent: re-runs converge on the same final state
+# instead of re-deciding it. (Its former pull_request trigger — "fires only when
+# this workflow or its spec change" — still handed the staging service-role key to
+# any pull request touching those files; it is gone.)
+#
+# ── Dispatch only (CARUP-PAY-05 Checkpoint A) ──────────────────────────────
+# This workflow holds shared-staging credentials, so no pull request or push may start it. The Owner
+# dispatches it for a governed candidate and the job waits for the `staging` environment's required
+# reviewers. Enforced by scripts/ci/workflow-secret-isolation.mjs.
 on:
   workflow_dispatch: {}
-  pull_request:
-    paths:
-      - '.github/workflows/operations-serena-staging-uat.yml'
-      - 'tests/agents/43-operations-serena-staging.spec.ts'
 
 # ── Shared staging preview lock ────────────────────────────────────────────
 # This workflow drives the BRANCH PREVIEW backend, which is shared with the other deployed-staging
@@ -33,6 +34,7 @@ permissions:
 jobs:
   serena-operations-uat:
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 45
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

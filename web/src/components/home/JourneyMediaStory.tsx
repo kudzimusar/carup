@@ -100,7 +100,7 @@ export function JourneyMediaStory({
   image?: string | null
   alt: string
 }) {
-  const shell = 'relative min-h-[220px] overflow-hidden bg-[radial-gradient(circle_at_75%_25%,rgba(249,115,22,0.16),transparent_32%),linear-gradient(145deg,#f8fafc,#eef2f7)] sm:min-h-[250px]'
+  const shell = 'relative min-h-[180px] overflow-hidden bg-[radial-gradient(circle_at_75%_25%,rgba(249,115,22,0.16),transparent_32%),linear-gradient(145deg,#f8fafc,#eef2f7)] sm:min-h-[220px] lg:min-h-[250px]'
 
   if (scene === 'buy') {
     return (

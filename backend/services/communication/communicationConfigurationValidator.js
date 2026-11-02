@@ -1,4 +1,4 @@
-import { createDefaultAdapterRegistry } from './adapters/providerAdapters.js';
+import { BrevoMarketingAdapter, createDefaultAdapterRegistry } from './adapters/providerAdapters.js';
 
 export const COMMUNICATION_CONFIG_STATUS = Object.freeze({
   READY: 'READY',
@@ -286,6 +286,29 @@ export function validateCommunicationConfiguration({ env = process.env, adapterR
     });
   }
 
+  // Marketing Email is routed through Brevo inside the EmailTransportRouter, so it is not a
+  // separate registry channel. Report it explicitly here so /api/health can state whether the
+  // canonical marketing transport is configured without implying that Resend covers marketing.
+  const brevoAdapter = new BrevoMarketingAdapter({ env });
+  const brevoHealth = brevoAdapter.validateConfiguration(env);
+  const brevoMissingWebhook = missingKeys(env, ['BREVO_WEBHOOK_SECRET']);
+  const brevoMissingWebhookUrl = missingWebhookUrl(env, 'COMMUNICATION_WEBHOOK_BASE_URL_OR_CARUP_PUBLIC_API_URL');
+  const brevoReady = brevoHealth.available === true
+    && brevoMissingWebhook.length === 0
+    && brevoMissingWebhookUrl.length === 0;
+  const marketingEmail = {
+    channel: 'email_marketing',
+    provider: 'brevo',
+    status: brevoReady ? COMMUNICATION_CONFIG_STATUS.READY : COMMUNICATION_CONFIG_STATUS.BLOCKED,
+    available: brevoReady,
+    webhookUrl: concreteWebhookUrl(env, '/api/communications/webhooks/brevo/email'),
+    missing: {
+      providerSecrets: brevoHealth.missing || [],
+      webhookSecrets: brevoMissingWebhook,
+      webhookUrls: brevoMissingWebhookUrl,
+    },
+  };
+
   if (env.COMMUNICATION_ENGINE_ENABLED !== 'true') {
     issues.push(issue({
       severity: COMMUNICATION_CONFIG_STATUS.WARNING,
@@ -314,6 +337,7 @@ export function validateCommunicationConfiguration({ env = process.env, adapterR
       status: fakeAdaptersEnabled ? COMMUNICATION_CONFIG_STATUS.BLOCKED : COMMUNICATION_CONFIG_STATUS.READY,
     },
     providers: providerResults,
+    marketingEmail,
   };
 }
 

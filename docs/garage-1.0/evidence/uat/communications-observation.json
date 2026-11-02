@@ -1,0 +1,50 @@
+{
+  "run": "GFNOTIF1203",
+  "sha": "a3e4410b812d53ea2cf138d13369999e507d0ade",
+  "web": "https://carup-staging-ou2b9chmj-11-11.vercel.app",
+  "api": "https://carup-backend-staging-7pl0mhfx5-11-11.vercel.app/api",
+  "steps": [
+    {
+      "at": "2026-10-24T12:03:46.684Z",
+      "name": "login:customer"
+    },
+    {
+      "at": "2026-10-24T12:04:18.390Z",
+      "name": "login:admin"
+    },
+    {
+      "at": "2026-10-24T12:04:29.620Z",
+      "name": "communications-observed",
+      "detail": {
+        "customer": {
+          "bell": "Notifications, 21 unread",
+          "panel_text": "Notifications\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: accepted.\n\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: completed.\n\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: active.\n\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: accepted.\n\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: accepted.\n\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: completed.\n\nOpen Communications"
+        },
+        "admin": {
+          "bell": "Notifications, 3 unread",
+          "panel_text": "Notifications\nYour service request was updated\n\nYour service request for vehicle UATOPS01202600001 is now: accepted.\n\nYour service request was updated\n\nYour service request for vehicle UATOPS01202600001 is now: accepted.\n\nYour service request was updated\n\nYour service request for vehicle UATOPS01202600001 is now: accepted.\n\nOpen Communications"
+        }
+      }
+    }
+  ],
+  "notifications_seen": {
+    "customer": {
+      "bell": "Notifications, 21 unread",
+      "panel_text": "Notifications\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: accepted.\n\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: completed.\n\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: active.\n\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: accepted.\n\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: accepted.\n\nYour service request was updated\n\nYour service request for vehicle UATFINAL202610241 is now: completed.\n\nOpen Communications"
+    },
+    "admin": {
+      "bell": "Notifications, 3 unread",
+      "panel_text": "Notifications\nYour service request was updated\n\nYour service request for vehicle UATOPS01202600001 is now: accepted.\n\nYour service request was updated\n\nYour service request for vehicle UATOPS01202600001 is now: accepted.\n\nYour service request was updated\n\nYour service request for vehicle UATOPS01202600001 is now: accepted.\n\nOpen Communications"
+    }
+  },
+  "external_sends_state": "disabled",
+  "api_hosts_by_actor": {
+    "customer": [
+      "carup-backend-staging-7pl0mhfx5-11-11.vercel.app"
+    ],
+    "admin": [
+      "carup-backend-staging-7pl0mhfx5-11-11.vercel.app"
+    ]
+  },
+  "finished_at": "2026-10-24T12:04:29.632Z"
+}

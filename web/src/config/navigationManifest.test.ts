@@ -100,8 +100,13 @@ describe('Navigation manifest — desktop mega-menus (Milestone 2)', () => {
 
   it('auth-aware destinations resolve correctly for guest vs authenticated', () => {
     const sellYourCar = NAVIGATION_MANIFEST.find(n => n.id === 'sell.your-car')!
-    expect(buildFeatureHref(sellYourCar, GUEST)).toBe('/register')
+    // PC01-J-R1: guests start in the public Sell draft flow; the account is asked for at save time.
+    expect(buildFeatureHref(sellYourCar, GUEST)).toBe('/sell')
     expect(buildFeatureHref(sellYourCar, OWNER)).toBe('/dashboard/sell-vehicle')
+    // A guest who picks a signed-in destination keeps it through the account step.
+    const uploadEvidence = NAVIGATION_MANIFEST.find(n => n.id === 'sell.upload-evidence')!
+    expect(buildFeatureHref(uploadEvidence, GUEST)).toBe('/register?returnTo=%2Fdashboard%2Fgarage')
+    expect(buildFeatureHref(uploadEvidence, OWNER)).toBe('/dashboard/garage')
   })
 
   it('role-restricted nodes: dealer listing visible to guests + dealers, hidden from non-dealer authed users', () => {
@@ -109,12 +114,13 @@ describe('Navigation manifest — desktop mega-menus (Milestone 2)', () => {
       getDesktopMegaMenu('navbar-mega-sell', ctx)
         .flatMap(s => s.items)
         .map(i => i.id)
-    expect(dealerItems(GUEST)).toContain('sell.dealer-listing') // guest sees it (→ /register)
+    expect(dealerItems(GUEST)).toContain('sell.dealer-listing') // guest sees it (→ the public Dealer Directory)
     expect(dealerItems(DEALER)).toContain('sell.dealer-listing') // dealer sees it
     expect(dealerItems(OWNER)).not.toContain('sell.dealer-listing') // owner does NOT
     // Destinations
     const node = NAVIGATION_MANIFEST.find(n => n.id === 'sell.dealer-listing')!
-    expect(buildFeatureHref(node, GUEST)).toBe('/register')
+    // PC01-J-R1: a guest is shown the public directory and how to apply — never a dealer workspace route.
+    expect(buildFeatureHref(node, GUEST)).toBe('/dealers')
     expect(buildFeatureHref(node, DEALER)).toBe('/dealer/inventory')
     // Mechanic work orders gated to mechanics
     const mechItems = getDesktopMegaMenu('navbar-mega-parts', MECHANIC).flatMap(s => s.items).map(i => i.id)
@@ -128,8 +134,8 @@ describe('Navigation manifest — desktop mega-menus (Milestone 2)', () => {
       effectiveStates: { [id]: { featureId: id, state: 'hidden', enabled: false, visible: false, accessible: false, beta: false } },
     })
     const ids = (ctx: NavigationContext) => getDesktopMegaMenu('navbar-more', ctx).flatMap(s => s.items).map(i => i.id)
-    expect(ids({})).toContain('more.insurance')
-    expect(ids(hide('product.insurance'))).not.toContain('more.insurance')
+    expect(ids({})).toContain('more.diaspora')
+    expect(ids(hide('product.diaspora'))).not.toContain('more.diaspora')
   })
 
   // ── TASK 1: feature-linked nodes honor the sanitized backend effective state ─
@@ -138,42 +144,42 @@ describe('Navigation manifest — desktop mega-menus (Milestone 2)', () => {
     const mobileIds = (ctx: NavigationContext) => getMobileNavigation(ctx).secondary.map(i => i.id)
     const footerIds = (ctx: NavigationContext) => getFooterNavigation('product', ctx).map(i => i.id)
     const eff = (extra: object): NavigationContext => ({
-      effectiveStates: { 'product.insurance': { featureId: 'product.insurance', state: 'active', enabled: true, visible: true, accessible: true, beta: false, ...extra } },
+      effectiveStates: { 'product.diaspora': { featureId: 'product.diaspora', state: 'active', enabled: true, visible: true, accessible: true, beta: false, ...extra } },
     })
 
     it('lifecycle active + enabled:false → absent', () => {
-      expect(moreIds(eff({ enabled: false }))).not.toContain('more.insurance')
+      expect(moreIds(eff({ enabled: false }))).not.toContain('more.diaspora')
     })
     it('lifecycle active + visible:false → absent', () => {
-      expect(moreIds(eff({ visible: false }))).not.toContain('more.insurance')
+      expect(moreIds(eff({ visible: false }))).not.toContain('more.diaspora')
     })
     it('tenant/role-denied effective state (visible:false, accessible:false) → absent', () => {
-      expect(moreIds(eff({ visible: false, accessible: false }))).not.toContain('more.insurance')
+      expect(moreIds(eff({ visible: false, accessible: false }))).not.toContain('more.diaspora')
     })
     it('active + visible → present', () => {
-      expect(moreIds(eff({}))).toContain('more.insurance')
+      expect(moreIds(eff({}))).toContain('more.diaspora')
     })
     it('beta + visible → present and flagged beta', () => {
       const ctx = eff({ state: 'beta', beta: true })
-      const item = getDesktopMegaMenu('navbar-more', ctx).flatMap(s => s.items).find(i => i.id === 'more.insurance')!
+      const item = getDesktopMegaMenu('navbar-more', ctx).flatMap(s => s.items).find(i => i.id === 'more.diaspora')!
       expect(item.beta).toBe(true)
     })
     it('reset to static default (no effective state) → present', () => {
-      expect(moreIds({})).toContain('more.insurance')
+      expect(moreIds({})).toContain('more.diaspora')
     })
     it('the SAME state hides it from the More menu AND the mobile secondary AND the footer', () => {
       const ctx = eff({ enabled: false })
-      expect(moreIds(ctx)).not.toContain('more.insurance')   // desktop More
-      expect(mobileIds(ctx)).not.toContain('more.insurance') // mobile secondary
-      expect(footerIds(ctx)).not.toContain('product.insurance') // footer
+      expect(moreIds(ctx)).not.toContain('more.diaspora')   // desktop More
+      expect(mobileIds(ctx)).not.toContain('more.diaspora') // mobile secondary
+      expect(footerIds(ctx)).not.toContain('product.diaspora') // footer
     })
     it('no regression: coverage-gated Marketplace items still defer/activate correctly', () => {
       const brandNew = NAVIGATION_MANIFEST.find(n => n.id === 'buy.brand-new')!
       // coverage gating is unaffected by backend effective state (href is pure)
       expect(buildFeatureHref(brandNew, {})).toBe('/marketplace')
       expect(buildFeatureHref(brandNew, { coverage: { categories: { brand_new: { active: true } } } })).toBe('/marketplace?category=brand_new')
-      // owned by product.marketplace (not product.insurance), so disabling
-      // product.insurance does NOT remove it from the Buy menu
+      // owned by product.marketplace (not product.diaspora), so disabling
+      // product.diaspora does NOT remove it from the Buy menu
       const buyIds = getDesktopMegaMenu('navbar-mega-buy', eff({ enabled: false })).flatMap(s => s.items).map(i => i.id)
       expect(buyIds).toContain('buy.brand-new')
     })
@@ -399,9 +405,13 @@ describe('Navigation manifest — guest registration CTAs survive governance hyd
     expect(mobilePrimaryIds(anon())).toContain('mobile.sell')
   })
 
-  it('the guest CTA routes to /register (never the protected destination)', () => {
-    expect(buildFeatureHref(node('sell.your-car'), { isAuthenticated: false, role: null })).toBe('/register')
-    expect(buildFeatureHref(node('mobile.sell'), { isAuthenticated: false, role: null })).toBe('/register')
+  it('the guest Sell CTA routes to the public Sell flow (never the protected destination)', () => {
+    // PC01-J-R1: `/sell` drafts in the browser and asks for an account only when the draft is saved.
+    expect(buildFeatureHref(node('sell.your-car'), { isAuthenticated: false, role: null })).toBe('/sell')
+    expect(buildFeatureHref(node('mobile.sell'), { isAuthenticated: false, role: null })).toBe('/sell')
+    for (const id of ['sell.your-car', 'mobile.sell', 'sell.create-passport', 'sell.upload-evidence', 'sell.service-history', 'sell.safepay-ready', 'sell.dealer-listing']) {
+      expect(buildFeatureHref(node(id), { isAuthenticated: false, role: null })).not.toMatch(/^\/(dashboard|dealer\/)/)
+    }
   })
 
   it('a globally disabled (enabled:false) owner feature hides its guest CTA for everyone', () => {

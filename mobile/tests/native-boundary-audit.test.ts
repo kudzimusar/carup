@@ -166,8 +166,10 @@ test('dashboard (index) screen is route-level governed by the role overview owne
   const src = readScreen('/(tabs)/index');
   assert.match(src, /<NativeFeatureBoundary\b/);
   assert.match(src, /\$\{role\}\.overview/, 'dashboard must resolve `${role}.overview` as its owner');
-  // Anonymous (no role) must redirect to auth rather than render.
-  assert.match(src, /Redirect\s+href="\/login"/, 'anon dashboard must <Redirect href="/login" />');
+  // Anonymous (no role) must redirect rather than render the dashboard. PC01-J-R1: the destination is
+  // the gate's — the PUBLIC Marketplace (native-dashboard-bootstrap pins it) — not Login, because a
+  // guest must be able to browse.
+  assert.match(src, /if \(gate\.kind === 'redirect'\)\s*\{\s*return <Redirect href=\{gate\.to\} \/>;/, 'anon dashboard must redirect through the gate');
 });
 
 console.log(`\n${PASSED} passed, ${FAILED} failed.`);

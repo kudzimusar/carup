@@ -16,6 +16,8 @@ export function SellerWorkspaceHeader({
   workspace,
   breadcrumbs,
   titleId,
+  eyebrowId,
+  eyebrowTestId,
 }: {
   eyebrow?: string
   title: string
@@ -31,6 +33,9 @@ export function SellerWorkspaceHeader({
   breadcrumbs?: WorkspaceCrumb[]
   /** R3: lets a page that labels its `<main>` by its title point at this heading. */
   titleId?: string
+  /** Lets a page label its `<main>` by the eyebrow too (OC-5R-REL-02: the owner page says it IS the Vehicle Passport). */
+  eyebrowId?: string
+  eyebrowTestId?: string
 }) {
   return (
     <header className="border-b border-slate-200 pb-7" data-testid="seller-workspace-header">
@@ -40,7 +45,7 @@ export function SellerWorkspaceHeader({
 
       <div className="mt-4 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">{eyebrow}</p>
+          <p id={eyebrowId} data-testid={eyebrowTestId} className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">{eyebrow}</p>
           <h1 id={titleId} className="mt-2 text-4xl font-black tracking-[-0.05em] text-slate-950 sm:text-5xl">{title}</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{description}</p>
           {(objectIdentity || statusLabel) && (

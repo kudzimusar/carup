@@ -22,7 +22,7 @@ import { supabase } from '../../db/supabase.js';
 import { getProvider as getRegistryProvider, isCallable } from '../providerPlatform/providerRegistry.js';
 import { executeProviderRequest } from '../providerPlatform/providerFramework.js';
 import { evaluateGates } from '../eligibility/eligibilityContract.js';
-import { verifyWebhook } from '../eligibility/webhookSecurity.js';
+import { verifyRouteWebhook } from '../eligibility/webhookSecurity.js';
 
 // Finance decision outcomes persisted to finance_provider_decisions (mirror the DB CHECK).
 export const FINANCE_OUTCOMES = [
@@ -293,9 +293,10 @@ function statusForOutcome(outcome) {
  * audit event, then append a NEW finance decision + update the eligibility_request. Fail-closed
  * on a missing secret (verifyWebhook returns unknown_provider). Never mutates a prior decision.
  */
-export async function ingestLenderWebhook({ providerId, payloadString, signature, timestamp, idempotencyKey, body }, now = Date.now()) {
-  const provider = providerId || FINANCE_WEBHOOK_PROVIDER_ID;
-  const verdict = verifyWebhook(provider, payloadString, signature, timestamp, now);
+export async function ingestLenderWebhook({ providerId = null, payloadString, signature, timestamp, idempotencyKey, body }, now = Date.now()) {
+  // Server-owned identity (OC-5R-PROV-01 B5): the caller's provider id is checked, never obeyed.
+  const provider = FINANCE_WEBHOOK_PROVIDER_ID;
+  const verdict = verifyRouteWebhook(provider, providerId, payloadString, signature, timestamp, now);
 
   // Dedup on the shared finance webhook audit ledger.
   let duplicate = false;
@@ -317,6 +318,8 @@ export async function ingestLenderWebhook({ providerId, payloadString, signature
 
   const { data: req } = await supabase.from('eligibility_requests').select('*').eq('id', body.request_id).maybeSingle();
   if (!req) return { applied: false, reason: 'unknown_request', signature_valid: true };
+  // A finance-signed delivery authorises finance requests only.
+  if (req.capability !== 'finance') return { applied: false, reason: 'request_not_found_for_capability', signature_valid: true };
 
   const validityUntil = body.validity_days ? validityFrom(body.validity_days) : (req.validity_until || null);
   await supabase.from('eligibility_requests')

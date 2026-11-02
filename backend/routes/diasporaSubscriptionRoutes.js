@@ -75,12 +75,16 @@ const SUBSCRIPTIONS_TABLE = ENTITLEMENT_TABLES.SUBSCRIPTIONS_TABLE;
 
 /**
  * Per-request injection seam (tests set req.app.locals.diasporaTestDeps). Falls back to the real
- * service-role client and the (sandbox) provider factory. No network at import or selection time.
+ * service-role client and the provider factory. No network at import or selection time.
+ *
+ * The provider is selected ONLY for a route that uses it (OC-5R-PROV-01 C2). Selecting it for every
+ * route made a deployment with no approved provider fail its read-only routes too — subscription
+ * status and entitlements, which read the database and never touch a provider, answered 500.
  */
-async function deps(req) {
+async function deps(req, { billing: withBilling = false } = {}) {
   const injected = req.app?.locals?.diasporaTestDeps || {};
   const supabase = await resolveClient({ supabaseClient: injected.supabaseClient });
-  const billing = selectBillingProvider({ billingProvider: injected.billingProvider });
+  const billing = withBilling ? selectBillingProvider({ billingProvider: injected.billingProvider }) : null;
   return { supabase, billing };
 }
 
@@ -164,7 +168,7 @@ router.post('/checkout', auth, asyncHandler(async (req, res) => {
   assertCanManageSubscription(req.userContext, tenantId); // Gate S8-A: trusted manager only
   const planKey = req.body?.planKey;
   if (!planKey || !PLAN_KEYS.includes(planKey)) throw new ValidationError('A valid planKey is required for checkout');
-  const { supabase, billing } = await deps(req);
+  const { supabase, billing } = await deps(req, { billing: true });
   const correlationId = req.correlationId || req.headers['x-correlation-id'] || newCorrelationId('chk');
   const session = await billing.createCheckoutSession({
     tenantId,
@@ -193,7 +197,7 @@ router.post('/checkout', auth, asyncHandler(async (req, res) => {
 router.post('/portal', auth, asyncHandler(async (req, res) => {
   const tenantId = requireTenantId(req);
   assertCanManageSubscription(req.userContext, tenantId); // Gate S8-A: trusted manager only
-  const { billing } = await deps(req);
+  const { billing } = await deps(req, { billing: true });
   const session = await billing.createPortalSession({ tenantId, returnUrl: req.body?.returnUrl || null });
   res.status(201).json({ data: session });
 }));
@@ -204,7 +208,7 @@ router.post('/change-plan', auth, asyncHandler(async (req, res) => {
   assertCanManageSubscription(req.userContext, tenantId); // Gate S8-A: trusted manager only
   const planKey = req.body?.planKey;
   if (!planKey || !PLAN_KEYS.includes(planKey)) throw new ValidationError('A valid planKey is required to change plan');
-  const { supabase, billing } = await deps(req);
+  const { supabase, billing } = await deps(req, { billing: true });
   const snapshot = await billing.changePlan({ tenantId, planKey });
   // Persist the provider's authoritative snapshot (never a client-submitted status).
   const persisted = await syncSubscriptionFromSnapshot(supabase, snapshot, req.userContext?.id || null);
@@ -216,7 +220,7 @@ router.post('/cancel', auth, asyncHandler(async (req, res) => {
   const tenantId = requireTenantId(req);
   assertCanManageSubscription(req.userContext, tenantId); // Gate S8-A: trusted manager only
   const atPeriodEnd = req.body?.atPeriodEnd !== false;
-  const { supabase, billing } = await deps(req);
+  const { supabase, billing } = await deps(req, { billing: true });
   const snapshot = await billing.cancelSubscription({ tenantId, atPeriodEnd });
   const persisted = await syncSubscriptionFromSnapshot(supabase, snapshot, req.userContext?.id || null);
   res.json({ data: persisted });
@@ -235,7 +239,7 @@ router.post('/cancel', auth, asyncHandler(async (req, res) => {
 router.post('/reconcile', auth, asyncHandler(async (req, res) => {
   const tenantId = requireTenantId(req);
   assertCanManageSubscription(req.userContext, tenantId);
-  const { supabase, billing } = await deps(req);
+  const { supabase, billing } = await deps(req, { billing: true });
   const result = await runBillingReconciliation({
     trigger: BILLING_RECONCILIATION_TRIGGERS.OPERATOR,
     tenantId,
@@ -350,7 +354,7 @@ function carriesSubscriptionState(normalized) {
  * No auth middleware: the provider signature IS the authorization.
  */
 router.post('/webhook', asyncHandler(async (req, res) => {
-  const { supabase, billing } = await deps(req);
+  const { supabase, billing } = await deps(req, { billing: true });
   const correlationId = req.correlationId || req.headers['x-correlation-id'] || newCorrelationId();
   const signature = req.headers['x-billing-signature']
     || req.headers['stripe-signature']

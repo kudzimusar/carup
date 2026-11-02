@@ -46,6 +46,9 @@ export function ListingImage({
           alt={alt}
           className={`h-full w-full object-cover ${imgClassName}`}
           loading={loading}
+          decoding="async"
+          width={800}
+          height={500}
           onError={() => setFailedSrc(src)}
         />
         {representative && (

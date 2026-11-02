@@ -112,6 +112,7 @@ router.post('/api/pay03b/dealer/subscription/invoices/:invoiceId/pay', memberSes
 
 // ------------------------------------------------------------------------------------------ administrator
 const adminArgs = (req) => ({ db: dbFor(req), env: envFor(req), provider: providerFor(req), stripe: stripeFor(req),
+  pay04Provider: local(req, 'pay04Provider') ?? null,
   adminActorId: actorId(req), adminActorRole: adminPlatformRole(req), requestContext: requestContext(req) });
 
 router.get('/api/pay03b/admin/catalogue', adminSession, handle((req) => getPay03bAdminCatalogue({ db: dbFor(req), env: envFor(req) })));
@@ -133,7 +134,8 @@ router.post('/api/pay03b/admin/stripe-sandbox/test-clock/advance', adminSession,
 router.get('/api/pay03b/admin/reconciliation-exceptions', adminSession, handle((req) => listPay03bReconciliationExceptions({
   db: dbFor(req), env: envFor(req), status: req.query?.status || 'open' })));
 router.get('/api/pay03b/admin/reconciliation-exceptions/:exceptionId', adminSession, handle((req) => readPay03bReconciliationException({
-  db: dbFor(req), env: envFor(req), provider: providerFor(req), stripe: stripeFor(req), exceptionId: req.params.exceptionId,
+  db: dbFor(req), env: envFor(req), provider: providerFor(req), stripe: stripeFor(req), pay04Provider: local(req, 'pay04Provider') ?? null,
+  exceptionId: req.params.exceptionId,
   verify: req.query?.verify === '1' })));
 router.post('/api/pay03b/admin/reconciliation-exceptions/:exceptionId/acknowledge', adminSession, handle((req) =>
   acknowledgePay03bReconciliationException({ ...adminArgs(req), exceptionId: req.params.exceptionId,

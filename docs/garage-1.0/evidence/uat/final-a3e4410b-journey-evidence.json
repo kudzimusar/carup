@@ -1,0 +1,579 @@
+{
+  "run": "GF202610241154",
+  "sha": "a3e4410b812d53ea2cf138d13369999e507d0ade",
+  "web": "https://carup-staging-ou2b9chmj-11-11.vercel.app",
+  "api": "https://carup-backend-staging-7pl0mhfx5-11-11.vercel.app/api",
+  "steps": [
+    {
+      "at": "2026-10-24T11:54:53.480Z",
+      "name": "login:customer"
+    },
+    {
+      "at": "2026-10-24T11:55:05.179Z",
+      "name": "customer-request",
+      "detail": {
+        "caseId": "2a845d96-3154-4a5e-a08b-851cbaea2cb7"
+      }
+    },
+    {
+      "at": "2026-10-24T11:55:23.576Z",
+      "name": "login:admin"
+    },
+    {
+      "at": "2026-10-24T11:55:42.548Z",
+      "name": "admin-accepted",
+      "detail": {
+        "workOrder": null
+      }
+    },
+    {
+      "at": "2026-10-24T11:56:09.662Z",
+      "name": "estimate-sent",
+      "detail": {
+        "estimate": "e5cd4378-05fe-4ba2-97d2-b169202b27fa",
+        "total": "180.00",
+        "currency": "USD"
+      }
+    },
+    {
+      "at": "2026-10-24T11:56:32.706Z",
+      "name": "customer-accepted-estimate"
+    },
+    {
+      "at": "2026-10-24T11:57:12.206Z",
+      "name": "assigned-and-started"
+    },
+    {
+      "at": "2026-10-24T11:57:26.770Z",
+      "name": "login:mechanic"
+    },
+    {
+      "at": "2026-10-24T11:57:59.608Z",
+      "name": "work-recorded-and-completed"
+    },
+    {
+      "at": "2026-10-24T11:58:46.286Z",
+      "name": "invoice-paid",
+      "detail": {
+        "invoice": "INV-000004"
+      }
+    },
+    {
+      "at": "2026-10-24T11:58:54.651Z",
+      "name": "customer-sees-invoice"
+    },
+    {
+      "at": "2026-10-24T11:59:11.382Z",
+      "name": "stock-and-operations"
+    },
+    {
+      "at": "2026-10-24T12:00:31.666Z",
+      "name": "decline-journey-verified",
+      "detail": {
+        "start_after_decline": {
+          "status": 409,
+          "body": {
+            "success": false,
+            "error": {
+              "code": "CONFLICT",
+              "message": "The customer declined this work, so it cannot proceed.",
+              "timestamp": "2026-10-24T12:00:22.946Z",
+              "requestId": "req-2dd6058d-a7d8-42f2-80d6-c61eed3c9606"
+            }
+          }
+        },
+        "record_service_without_authorization": {
+          "status": 409,
+          "body": {
+            "success": false,
+            "error": {
+              "code": "CONFLICT",
+              "message": "The vehicle owner has not authorized this work order; service cannot be recorded against it",
+              "timestamp": "2026-10-24T12:00:25.520Z",
+              "requestId": "req-3e20073c-dac5-46a8-8303-436cf72d0f10"
+            }
+          }
+        },
+        "complete_job_without_work": {
+          "status": 409,
+          "body": {
+            "success": false,
+            "error": {
+              "code": "CONFLICT",
+              "message": "Start the work first — service can only be recorded or completed on a job that is under way.",
+              "timestamp": "2026-10-24T12:00:28.902Z",
+              "requestId": "req-41155afa-e564-44ae-a31c-0865e9c77d12"
+            }
+          }
+        },
+        "invoice_without_completion": {
+          "status": 409,
+          "body": {
+            "success": false,
+            "error": {
+              "code": "CONFLICT",
+              "message": "An invoice can be issued once the job is complete.",
+              "timestamp": "2026-10-24T12:00:31.564Z",
+              "requestId": "req-e3c67496-77d3-4b0d-9558-34b14c588a34"
+            }
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-10-24T12:01:23.821Z",
+      "name": "mobile-verified"
+    },
+    {
+      "at": "2026-10-24T12:01:31.887Z",
+      "name": "history-convergence"
+    },
+    {
+      "at": "2026-10-24T12:01:52.303Z",
+      "name": "security-verified",
+      "detail": {
+        "customer_cannot_open_the_garage_hub": {
+          "status": 403,
+          "body": {
+            "error": "Select the organisation you are acting for.",
+            "code": "ACTIVE_TENANT_REQUIRED"
+          }
+        },
+        "customer_cannot_read_operations": {
+          "status": 403,
+          "body": {
+            "error": "Select the organisation you are acting for.",
+            "code": "ACTIVE_TENANT_REQUIRED"
+          }
+        },
+        "customer_cannot_list_garage_invoices": {
+          "status": 403,
+          "body": {
+            "error": "Select the organisation you are acting for.",
+            "code": "ACTIVE_TENANT_REQUIRED"
+          }
+        },
+        "mechanic_cannot_read_operations": {
+          "status": 403,
+          "body": {
+            "error": "Your role in this organisation does not allow this action.",
+            "code": "ACTIVE_TENANT_ROLE"
+          }
+        },
+        "mechanic_cannot_read_closeout": {
+          "status": 403,
+          "body": {
+            "error": "Your role in this organisation does not allow this action.",
+            "code": "ACTIVE_TENANT_ROLE"
+          }
+        },
+        "mechanic_cannot_list_invoices": {
+          "status": 403,
+          "body": {
+            "error": "Your role in this organisation does not allow this action.",
+            "code": "ACTIVE_TENANT_ROLE"
+          }
+        },
+        "mechanic_cannot_record_payment": {
+          "status": 403,
+          "body": {
+            "error": "Your role in this organisation does not allow this action.",
+            "code": "ACTIVE_TENANT_ROLE"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-10-24T12:02:55.459Z",
+      "name": "regression-verified"
+    }
+  ],
+  "runtime": {
+    "provenance": {
+      "commit_sha": "a3e4410b812d53ea2cf138d13369999e507d0ade",
+      "git_ref": "feat/garage-1.0-final-business-os-completion",
+      "provenance_source": "explicit_build_input",
+      "api_base_url": "https://carup-backend-staging-7pl0mhfx5-11-11.vercel.app/api",
+      "api_base_source": "explicit VITE_API_URL in the environment",
+      "unpaired": false
+    },
+    "health_build": {
+      "commit_sha": "a3e4410b812d53ea2cf138d13369999e507d0ade",
+      "commit_sha_short": "a3e4410b",
+      "branch": "feat/garage-1.0-final-business-os-completion",
+      "deployment_id": "dpl_7n7ptdSQmYs5JBrKNTFAdEE13W6H",
+      "environment": "preview",
+      "source": "explicit_build_input",
+      "provenance_available": true
+    },
+    "health_db": {
+      "supabase_project_ref": "eoyenigwevnxwwhyhaer",
+      "postgres_project_refs": [
+        "eoyenigwevnxwwhyhaer"
+      ],
+      "unrecognised_endpoints": 0,
+      "unrecognised_endpoint_names": [],
+      "consistent": true
+    },
+    "external_sends": "disabled"
+  },
+  "bypass_attempt_customer_direct_authorization": {
+    "status": 409,
+    "body": {
+      "error": "The garage has sent an estimate for this job. Review it and accept or decline it there.",
+      "reason": "decision_via_estimate"
+    }
+  },
+  "bypass_attempt_garage_admin_authorizes_own_job": {
+    "status": 403,
+    "body": {
+      "error": "Only the vehicle's owner — or, for dealership stock, its governed dealer — decides on its work orders.",
+      "reason": "not_custodian"
+    }
+  },
+  "overpayment_attempt": {
+    "status": 409,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "CONFLICT",
+        "message": "That is more than the invoice balance (80.00 remaining).",
+        "timestamp": "2026-10-24T11:58:34.864Z",
+        "requestId": "req-40a6833c-8f27-45d9-8bb7-17d197488c9d"
+      }
+    }
+  },
+  "operations_summary_after_golden": {
+    "window_days": 30,
+    "window": {
+      "from": "2026-09-24T11:59:10.025Z",
+      "to": "2026-10-24T11:59:10.025Z"
+    },
+    "generated_at": "2026-10-24T11:59:10.025Z",
+    "truncated": false,
+    "work": {
+      "open_cases": {
+        "requested": 1,
+        "accepted": 8,
+        "active": 0,
+        "definition": "Service cases currently in that status (not limited to the window)."
+      },
+      "completed_jobs": {
+        "value": 5,
+        "definition": "Service cases completed inside the window."
+      },
+      "cycle_time": {
+        "state": "measured",
+        "average_hours": 0,
+        "jobs": 5,
+        "definition": "Average hours from the garage accepting the request to the job being completed, for jobs completed in the window that have both timestamps."
+      },
+      "by_site": [
+        {
+          "branch_id": "b1000000-0000-4000-8000-000000000001",
+          "name": "SYNTHETIC / UAT OPS01 Harare Site",
+          "open": 3,
+          "completed_in_window": 0
+        },
+        {
+          "branch_id": null,
+          "name": null,
+          "open": 5,
+          "completed_in_window": 5
+        },
+        {
+          "branch_id": "b1000000-0000-4000-8000-000000000002",
+          "name": "SYNTHETIC / UAT OPS01 Bulawayo Site",
+          "open": 1,
+          "completed_in_window": 0
+        }
+      ],
+      "by_mechanic": [
+        {
+          "user_id": "uat_ops01_mech01_20261022a",
+          "name": "SYNTHETIC / UAT OPS01 Mechanic 01",
+          "completed_jobs": 5,
+          "attribution": "assigned_mechanic"
+        }
+      ],
+      "repeat_customers": {
+        "state": "measured",
+        "repeat": 2,
+        "identified": 2,
+        "definition": "Customers (requesters) with more than one service case with this garage, of all customers with a case."
+      }
+    },
+    "appointments": {
+      "by_status": {
+        "cancelled": 22
+      },
+      "upcoming_confirmed": {
+        "value": 0,
+        "definition": "Confirmed appointments that have not started yet."
+      },
+      "no_show_rate": {
+        "state": "not_measured",
+        "reason": "Fewer than 5 cases so far (0); a rate would not mean anything yet.",
+        "numerator": 0,
+        "denominator": 0,
+        "definition": "No-shows ÷ (fulfilled + no-shows) for appointments that started in the window."
+      }
+    },
+    "estimates": {
+      "by_status": {
+        "accepted": 7,
+        "declined": 2
+      },
+      "sent_in_window": {
+        "value": 9,
+        "definition": "Estimate versions sent to a customer inside the window."
+      },
+      "approval_rate": {
+        "state": "measured",
+        "rate": 77.8,
+        "unit": "percent",
+        "numerator": 7,
+        "denominator": 9,
+        "definition": "Accepted ÷ (accepted + declined) among estimates decided in the window. Superseded and cancelled versions are not decisions."
+      }
+    },
+    "money": {
+      "invoiced_by_currency": [
+        {
+          "currency": "USD",
+          "total": "720.00",
+          "invoices": 4
+        }
+      ],
+      "outstanding_by_currency": [
+        {
+          "currency": "USD",
+          "balance": "80.00",
+          "definition": "Live invoices’ totals minus the payments the garage recorded."
+        }
+      ],
+      "recorded_payments_by_currency": [
+        {
+          "currency": "USD",
+          "net_recorded": "640.00",
+          "source": "garage_recorded_external",
+          "label": "Recorded by the garage. CarUp has not processed or verified these payments."
+        }
+      ],
+      "estimate_vs_invoice": {
+        "by_currency": [
+          {
+            "currency": "USD",
+            "jobs": 4,
+            "estimate_total": "720.00",
+            "invoice_total": "720.00",
+            "difference": "0.00"
+          }
+        ],
+        "not_comparable": 0,
+        "definition": "Invoiced total vs the accepted estimate it replaced, per currency, for jobs invoiced in the window. Different currencies are never compared."
+      },
+      "note": "Invoiced amounts are documents, and recorded payments are the garage’s own declarations. Neither is revenue."
+    },
+    "parts": {
+      "used_in_window": [
+        {
+          "part_name": "UAT FINAL Brake pad set GF202610241131",
+          "sku": "UATF-GF202610241131",
+          "quantity": 4
+        },
+        {
+          "part_name": "UAT FINAL Brake pad set GF202610241127",
+          "sku": "UATF-GF202610241127",
+          "quantity": 4
+        },
+        {
+          "part_name": "UAT FINAL Brake pad set GF202610241142",
+          "sku": "UATF-GF202610241142",
+          "quantity": 4
+        },
+        {
+          "part_name": "UAT FINAL Brake pad set GF202610241136",
+          "sku": "UATF-GF202610241136",
+          "quantity": 4
+        },
+        {
+          "part_name": "UAT FINAL Brake pad set GF202610241154",
+          "sku": "UATF-GF202610241154",
+          "quantity": 4
+        }
+      ],
+      "stock_alerts": {
+        "total": 6,
+        "out": 0,
+        "low": 0,
+        "uncounted": 0,
+        "unknown": 0
+      },
+      "definition": "Units used on completed or open jobs, net of reversals."
+    },
+    "not_measured": [
+      {
+        "key": "bay_capacity_utilisation",
+        "reason": "appointments and schedules record what was PLANNED; nothing records time actually worked on a job, so how much of the available capacity was used cannot be measured"
+      },
+      {
+        "key": "staffing_utilisation",
+        "reason": "appointments and schedules record what was PLANNED; nothing records time actually worked on a job, so how much of the available capacity was used cannot be measured"
+      },
+      {
+        "key": "technician_productivity",
+        "reason": "work orders are not decomposed into timed tasks"
+      },
+      {
+        "key": "comeback_warranty_rate",
+        "reason": "no warranty or comeback linkage between service records exists"
+      },
+      {
+        "key": "customer_rating",
+        "reason": "Foundation deliberately publishes no ratings, so none can be measured"
+      },
+      {
+        "key": "first_time_fix_rate",
+        "reason": "no record states whether a repair resolved the reported fault"
+      },
+      {
+        "key": "response_time",
+        "reason": "Communications owns response time; no governed join to service cases exists yet"
+      },
+      {
+        "key": "revenue",
+        "reason": "Revenue is an accounting judgement. CarUp holds invoice totals and payments the garage itself recorded; it does not know what the garage has earned."
+      },
+      {
+        "key": "profit",
+        "reason": "No governed cost-of-sales or overhead record exists, so no profit can be stated."
+      },
+      {
+        "key": "conversion_rate",
+        "reason": "Enquiries are not linked to outcomes by any governed record, so a conversion rate would be invented."
+      },
+      {
+        "key": "customer_lifetime_value",
+        "reason": "No governed definition and no complete payment history exist."
+      },
+      {
+        "key": "forecast",
+        "reason": "A forecast is a model, not a measurement; none is defined."
+      }
+    ]
+  },
+  "negative_journey_doors": {
+    "start_after_decline": {
+      "status": 409,
+      "body": {
+        "success": false,
+        "error": {
+          "code": "CONFLICT",
+          "message": "The customer declined this work, so it cannot proceed.",
+          "timestamp": "2026-10-24T12:00:22.946Z",
+          "requestId": "req-2dd6058d-a7d8-42f2-80d6-c61eed3c9606"
+        }
+      }
+    },
+    "record_service_without_authorization": {
+      "status": 409,
+      "body": {
+        "success": false,
+        "error": {
+          "code": "CONFLICT",
+          "message": "The vehicle owner has not authorized this work order; service cannot be recorded against it",
+          "timestamp": "2026-10-24T12:00:25.520Z",
+          "requestId": "req-3e20073c-dac5-46a8-8303-436cf72d0f10"
+        }
+      }
+    },
+    "complete_job_without_work": {
+      "status": 409,
+      "body": {
+        "success": false,
+        "error": {
+          "code": "CONFLICT",
+          "message": "Start the work first — service can only be recorded or completed on a job that is under way.",
+          "timestamp": "2026-10-24T12:00:28.902Z",
+          "requestId": "req-41155afa-e564-44ae-a31c-0865e9c77d12"
+        }
+      }
+    },
+    "invoice_without_completion": {
+      "status": 409,
+      "body": {
+        "success": false,
+        "error": {
+          "code": "CONFLICT",
+          "message": "An invoice can be issued once the job is complete.",
+          "timestamp": "2026-10-24T12:00:31.564Z",
+          "requestId": "req-e3c67496-77d3-4b0d-9558-34b14c588a34"
+        }
+      }
+    }
+  },
+  "security_refusals": {
+    "customer_cannot_open_the_garage_hub": {
+      "status": 403,
+      "body": {
+        "error": "Select the organisation you are acting for.",
+        "code": "ACTIVE_TENANT_REQUIRED"
+      }
+    },
+    "customer_cannot_read_operations": {
+      "status": 403,
+      "body": {
+        "error": "Select the organisation you are acting for.",
+        "code": "ACTIVE_TENANT_REQUIRED"
+      }
+    },
+    "customer_cannot_list_garage_invoices": {
+      "status": 403,
+      "body": {
+        "error": "Select the organisation you are acting for.",
+        "code": "ACTIVE_TENANT_REQUIRED"
+      }
+    },
+    "mechanic_cannot_read_operations": {
+      "status": 403,
+      "body": {
+        "error": "Your role in this organisation does not allow this action.",
+        "code": "ACTIVE_TENANT_ROLE"
+      }
+    },
+    "mechanic_cannot_read_closeout": {
+      "status": 403,
+      "body": {
+        "error": "Your role in this organisation does not allow this action.",
+        "code": "ACTIVE_TENANT_ROLE"
+      }
+    },
+    "mechanic_cannot_list_invoices": {
+      "status": 403,
+      "body": {
+        "error": "Your role in this organisation does not allow this action.",
+        "code": "ACTIVE_TENANT_ROLE"
+      }
+    },
+    "mechanic_cannot_record_payment": {
+      "status": 403,
+      "body": {
+        "error": "Your role in this organisation does not allow this action.",
+        "code": "ACTIVE_TENANT_ROLE"
+      }
+    }
+  },
+  "api_hosts_by_actor": {
+    "customer": [
+      "carup-backend-staging-7pl0mhfx5-11-11.vercel.app"
+    ],
+    "admin": [
+      "carup-backend-staging-7pl0mhfx5-11-11.vercel.app"
+    ],
+    "mechanic": [
+      "carup-backend-staging-7pl0mhfx5-11-11.vercel.app"
+    ]
+  },
+  "finished_at": "2026-10-24T12:02:55.479Z"
+}

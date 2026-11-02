@@ -16,6 +16,7 @@
  *     never returns private documents, contacts, internal reasons, or raw decision payloads.
  */
 import { supabase } from '../../db/supabase.js';
+import { emitDomainEvent } from '../eventBus/eventBusService.js';
 
 const PROFILES = 'dealer_profiles';
 const BRANCHES = 'dealer_branches';
@@ -23,9 +24,13 @@ const DOCUMENTS = 'dealer_compliance_documents';
 const REQUIREMENTS = 'dealer_compliance_requirements';
 const DECISIONS = 'dealer_compliance_decisions';
 
+// O2-X5 (ported by OC-5C): tenant_id is DELIBERATELY absent. A dealer must never create or move
+// themselves into an organization by sending {"tenant_id": ...} — on RC1 POST /api/dealer/profile did
+// exactly that, which also placed them in that tenant's admin listing. Tenant binding is a server-side
+// fact from a governed organization relationship, or stays null until one exists.
 const PROFILE_FIELDS = [
   'legal_name', 'trading_name', 'registration_number', 'tax_id',
-  'physical_address', 'responsible_person', 'operating_country', 'tenant_id',
+  'physical_address', 'responsible_person', 'operating_country',
 ];
 
 const DECISIONS_ALLOWED = [
@@ -78,11 +83,25 @@ async function getProfileById(dealerId) {
 /**
  * Resolve a profile by its id (the profile UUID) or by the owning user_id. Tries id first,
  * then falls back to user_id, so it works whether the caller holds a dealer id or a user id.
+ *
+ * `dealer_profiles.id` is a uuid column while `user_id` is TEXT, so on real PostgreSQL the id probe
+ * raises 22P02 `invalid input syntax for type uuid` for a text user id. That is the type system saying
+ * "not a profile id", so it falls through to the user lookup instead of 500ing the request; every
+ * OTHER database error still propagates. (#208 73344d6a, found by its P7 run on real staging; ported
+ * by OC-5C.)
  */
+function isUuidCastRefusal(error) {
+  return /invalid input syntax for type uuid/i.test(String(error?.message || error || ''));
+}
+
 export async function getProfile(dealerOrUserId) {
   if (!dealerOrUserId) throw new Error('getProfile requires a dealerId or userId');
-  const byId = await getProfileById(dealerOrUserId);
-  if (byId) return byId;
+  try {
+    const byId = await getProfileById(dealerOrUserId);
+    if (byId) return byId;
+  } catch (error) {
+    if (!isUuidCastRefusal(error)) throw error;
+  }
   return getProfileByUser(dealerOrUserId);
 }
 
@@ -256,7 +275,79 @@ export async function recordDecision(dealerId, { decision, requirement_key, reas
     updatedProfile = await getProfileById(dealerId);
   }
 
+  // O2/P5 — bridge the persisted decision into the communication engine, exactly like
+  // identity.verification.decided (decisionRecorder seam-E E5). Best-effort: the ledger row and
+  // the applied effect are already durable, so an outbox write failure must never fail the
+  // decision itself. Communications owns delivery; this service only announces the fact.
+  // O2-X6 §14 (carried with the port): the reviewer's free-text reason stays in the governed
+  // LEDGER — the event payload carries only safe structured facts. #208 first shipped this event
+  // with `reason` in it; that is the version NOT ported.
+  // who_must_act is the CANONICAL dealer projection over the post-decision facts — the same answer the
+  // reviewer's People read model gives. #208 derived a second answer from the decision verb alone
+  // ('none' unless request_more_info), which told a dealer whose document was just rejected, or who
+  // was just suspended, that nobody had to act.
+  const recipientUserId = updatedProfile?.user_id || profile?.user_id || null;
+  let actionSummary = null;
+  try {
+    actionSummary = await buildDealerActionSummary(dealerId, { profile: updatedProfile });
+  } catch (err) {
+    console.warn('dealer action summary unavailable for the decision event:', err.message);
+  }
+  await emitDomainEvent(null, 'dealer.compliance.decided', {
+    dealerId,
+    recipientUserId,
+    decision,
+    requirementKey: requirement_key || null,
+    whoMustAct: actionSummary?.who_must_act ?? 'carup_review',
+    occurredAt: new Date().toISOString(),
+    schemaVersion: 'o2_event.v1',
+  }, updatedProfile?.tenant_id || null).catch((err) => {
+    console.warn('dealer.compliance.decided outbox emit failed:', err.message);
+  });
+
+  // O2-X6 §15 (ported by OC-5C) — a request for more information announces the WHOLE outstanding set
+  // once ("we still need A · B · C") instead of drip-feeding refusals. Safe requirement labels only.
+  // Nothing outstanding → nothing to announce (never "CarUp still needs: .").
+  if (decision === 'request_more_info' && actionSummary?.missing.length) {
+    try {
+      await emitDomainEvent(null, 'dealer.compliance.evidence_required', {
+        dealerId,
+        recipientUserId,
+        missingRequirements: actionSummary.missing,
+        summary: actionSummary.missing.map((item) => item.label).join(' · '),
+        whoMustAct: actionSummary.who_must_act,
+        occurredAt: new Date().toISOString(),
+        schemaVersion: 'o2_event.v1',
+      }, updatedProfile?.tenant_id || null);
+    } catch (err) {
+      console.warn('dealer.compliance.evidence_required outbox emit failed:', err.message);
+    }
+  }
+
   return { decision: ledger, profile: updatedProfile };
+}
+
+/**
+ * O2-X6 §15 — the batched missing-requirements ACTION SUMMARY (domain-owned facts; Communications
+ * only renders it). Safe codes and human labels, never free text.
+ *
+ *   missing          blocking requirements the DEALER must still provide ("we still need …")
+ *   awaiting_review  blocking requirements already submitted — CarUp's move, never "needed" from them
+ *   who_must_act     the canonical projection (toResponsibilityProjection), never a second derivation
+ */
+export async function buildDealerActionSummary(dealerId, { profile } = {}) {
+  const requirements = await listRequirements(dealerId);
+  const blocking = (requirements || []).filter(isRequirementBlocking);
+  const item = (row) => ({ code: row.requirement_key, label: String(row.requirement_key || '').replace(/_/g, ' ') });
+  const missing = blocking.filter((row) => !REQUIREMENT_AWAITING_DECISION.includes(row.status)).map(item);
+  const currentProfile = profile === undefined ? await getProfileById(dealerId) : profile;
+  return {
+    dealer_id: dealerId,
+    missing,
+    awaiting_review: blocking.filter((row) => REQUIREMENT_AWAITING_DECISION.includes(row.status)).map(item),
+    count: missing.length,
+    who_must_act: toResponsibilityProjection({ profile: currentProfile || {}, blockingRequirements: requirements || [] }),
+  };
 }
 
 /** Full, immutable decision history for a dealer (admin/owner surface). */
@@ -296,6 +387,9 @@ export function deriveExpiryState(profile = {}, now = new Date()) {
   if (!profile || !profile.expiry_date) return 'none';
   return new Date(profile.expiry_date).getTime() < now.getTime() ? 'expired' : 'valid';
 }
+
+/** A blocking requirement in one of these statuses was submitted and awaits CarUp's decision. */
+export const REQUIREMENT_AWAITING_DECISION = Object.freeze(['submitted', 'pending_review', 'in_review']);
 
 /** PURE: a requirement still blocks if it is blocking and not yet verified/not_applicable. */
 export function isRequirementBlocking(req) {
@@ -396,3 +490,43 @@ export default {
   deriveEvidenceBand,
   getBuyerSafeSummary,
 };
+
+/**
+ * O2/P2 — normalized responsibility projection (M8 ADR §10.1). PURE, derived from the same inputs
+ * as `deriveCanPublish`; the domain's own statuses (active/pending/restricted/suspended,
+ * investigation decisions, expiry) stay canonical and are DISPLAYED VERBATIM beside this
+ * projection — it never replaces them.
+ *
+ * Order of precedence mirrors who actually holds the next move:
+ *   investigation           -> escalated        (a specialist decision is pending)
+ *   suspended / restricted  -> subject_action   (remediation is the dealer's)
+ *   expired document        -> subject_action
+ *   blocking requirement with a SUBMITTED artifact awaiting decision -> carup_review
+ *   blocking requirement with nothing submitted -> subject_action
+ *   identity not verified   -> subject_action
+ *   review not passed (but nothing above applies) -> carup_review
+ *   otherwise               -> none
+ */
+export function toResponsibilityProjection({ profile = {}, blockingRequirements = [], now = new Date() } = {}) {
+  if (profile?.compliance_review_state === 'investigation' || profile?.investigation_state === 'open') {
+    return 'escalated';
+  }
+  if (profile?.suspension_state === 'suspended' || profile?.restriction_state === 'restricted') {
+    return 'subject_action';
+  }
+  if (deriveExpiryState(profile, now) === 'expired') {
+    return 'subject_action';
+  }
+  const stillBlocking = (Array.isArray(blockingRequirements) ? blockingRequirements : []).filter(isRequirementBlocking);
+  if (stillBlocking.length > 0) {
+    const awaitingDecision = stillBlocking.some((req) => REQUIREMENT_AWAITING_DECISION.includes(req.status));
+    return awaitingDecision ? 'carup_review' : 'subject_action';
+  }
+  if (profile?.identity_status && profile.identity_status !== 'verified') {
+    return 'subject_action';
+  }
+  if (profile?.compliance_review_state && profile.compliance_review_state !== 'passed') {
+    return 'carup_review';
+  }
+  return 'none';
+}

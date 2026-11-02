@@ -139,6 +139,36 @@ export const CSRF_ERROR_MESSAGE =
 /** Backend message for a stale/expired/invalid session (see authMiddleware). */
 export const SESSION_INVALID_MESSAGE = 'Unauthorized. Session is invalid or expired.'
 
+export type ApiFailure = Error & {
+  status?: number
+  requestId?: string
+  correlationId?: string
+  code?: string
+  data?: unknown
+}
+
+/**
+ * Build the error every failed request throws — ONE place, used by both the direct failure path and
+ * the CSRF-retry path (ported by OC-5C from PR #208 6f850163, finding D1).
+ *
+ * `code` is load-bearing, not decoration: callers branch on it (`STEP_UP_REQUIRED` opens the step-up
+ * prompt). Every unsafe 403 is retried once as a possibly-stale CSRF token, and that retry path used
+ * to carry status and data but drop `code` — so the step-up prompt could never open for a real call.
+ * Keeping the construction in one function is what stops the two paths diverging again.
+ */
+export function buildApiFailure(message: string, status: number, data: unknown): ApiFailure {
+  const metadata = extractApiErrorMetadata(data)
+  const failure = new Error(message) as ApiFailure
+  failure.status = status
+  // Preserve the parsed JSON error body so callers can surface structured server detail (e.g. the
+  // provider-smoke endpoint's sanitized Meta failure) instead of only "HTTP error! status: 502".
+  failure.data = data
+  if (typeof metadata.requestId === 'string') failure.requestId = metadata.requestId
+  if (typeof metadata.correlationId === 'string') failure.correlationId = metadata.correlationId
+  if (typeof metadata.code === 'string') failure.code = metadata.code
+  return failure
+}
+
 /** Thrown when the backend rejects the request because the session is invalid/expired (401). */
 export class SessionExpiredError extends Error {
   constructor(message: string = SESSION_INVALID_MESSAGE) {
@@ -157,6 +187,27 @@ function isSessionFailure(status: number, message?: string): boolean {
 // can clear its stored auth and redirect to login. Module-level so the framework-agnostic core can
 // signal React without importing it.
 let unauthorizedHandler: (() => void) | null = null
+
+/**
+ * OC-5D — the server re-verifies the session's selected organisation on every request. When it no
+ * longer holds (the membership was revoked, the organisation deactivated) or the client asserted a
+ * different one, the request is refused with one of these codes. The client's copy of its organisation
+ * is then stale, so AuthContext re-reads the session (`/auth/me`) — the next request stops asserting an
+ * organisation the person no longer acts for, and the person is asked to choose again.
+ */
+export const TENANT_CONTEXT_CODES: ReadonlySet<string> = new Set(['TENANT_CONTEXT_MISMATCH', 'TENANT_CONTEXT_REVOKED'])
+let tenantContextHandler: ((code: string) => void) | null = null
+
+export function setTenantContextHandler(handler: ((code: string) => void) | null): void {
+  tenantContextHandler = handler
+}
+
+function signalTenantContext(failure: ApiFailure): ApiFailure {
+  if (failure.code && TENANT_CONTEXT_CODES.has(failure.code) && tenantContextHandler) {
+    try { tenantContextHandler(failure.code) } catch { /* never mask the original failure */ }
+  }
+  return failure
+}
 export function setUnauthorizedHandler(handler: (() => void) | null): void {
   unauthorizedHandler = handler
 }
@@ -346,12 +397,13 @@ export async function apiRequest<T = any>({
         return retryResponse.json() as Promise<T>
       }
       const retryErrorData = await retryResponse.json().catch(() => ({} as Record<string, unknown>))
-      const retryError = new Error(extractApiErrorMessage(retryErrorData) || `HTTP error! status: ${retryResponse.status}`) as Error & { status?: number; data?: unknown }
-      // Match the non-retry failure path: callers branch on .status/.data
-      // (e.g. tailored 403 messaging), which a bare Error silently disabled.
-      retryError.status = retryResponse.status
-      retryError.data = retryErrorData
-      throw retryError
+      // Every unsafe 403 lands here (a 403 is presumed to be a stale CSRF token and retried once),
+      // so this is also where a genuine STEP_UP_REQUIRED arrives. It goes through the ONE builder.
+      throw signalTenantContext(buildApiFailure(
+        extractApiErrorMessage(retryErrorData) || `HTTP error! status: ${retryResponse.status}`,
+        retryResponse.status,
+        retryErrorData,
+      ))
     }
 
     if (isSessionFailure(response.status, message)) {
@@ -363,22 +415,7 @@ export async function apiRequest<T = any>({
       throw new SessionExpiredError(message || SESSION_INVALID_MESSAGE)
     }
 
-    const metadata = extractApiErrorMetadata(errorData)
-    const failure = new Error(message || `HTTP error! status: ${response.status}`) as Error & {
-      status?: number
-      requestId?: string
-      correlationId?: string
-      code?: string
-      data?: unknown
-    }
-    failure.status = response.status
-    // Preserve the parsed JSON error body so callers can surface structured server detail (e.g. the
-    // provider-smoke endpoint's sanitized Meta failure) instead of only "HTTP error! status: 502".
-    failure.data = errorData
-    if (typeof metadata.requestId === 'string') failure.requestId = metadata.requestId
-    if (typeof metadata.correlationId === 'string') failure.correlationId = metadata.correlationId
-    if (typeof metadata.code === 'string') failure.code = metadata.code
-    throw failure
+    throw signalTenantContext(buildApiFailure(message || `HTTP error! status: ${response.status}`, response.status, errorData))
   }
 
   return (await response.json()) as T

@@ -216,7 +216,9 @@ test('Issue #158: stakeholder event timestamp is bound to the successful generat
   const addEventSource = src.slice(addStart, addEnd);
   const registerAt = addEventSource.indexOf('await getOrCreateKeypair(signerId)');
   const timestampAt = addEventSource.indexOf('registeredSignerKey?.eventTimestamp');
-  const hashAt = addEventSource.indexOf('const currentHash = calculateHash');
+  // OC-3D: the event hash is computed through the versioned computeLedgerHash (v1 or v2); the
+  // ordering this test pins — hash after the generation-authorized timestamp — is unchanged.
+  const hashAt = addEventSource.indexOf('const currentHash = computeLedgerHash(ledgerWriteHashVersion(), previousHash, vin, eventType, timestamp,');
   assert.ok(registerAt >= 0, 'stakeholder key registration must exist');
   assert.ok(timestampAt > registerAt, 'event timestamp must come from the authorized key check');
   assert.ok(hashAt > timestampAt, 'event hash must use the generation-authorized timestamp');

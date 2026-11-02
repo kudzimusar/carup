@@ -17,8 +17,9 @@
  * CHECK-constrained to photo/document types (migrations 014/015). A file-less system event
  * cannot be written there truthfully, so the handoff event goes to `blockchain_events`
  * (vin, free event_type, JSONB payload, hash chain) — the immutable per-VIN event ledger the
- * vehicle passport verifies via verifyChain. The insert mirrors blockchainService.addEvent
- * (same hash chain + system signature format) but runs against the injected client.
+ * vehicle passport verifies via verifyChain. The event is submitted to the ledger's canonical write
+ * boundary, blockchainService.addEvent, through the injected client (OC-3D: this service no longer
+ * builds previous_hash / current_hash / signature itself).
  *
  * The event payload NEVER contains storage paths/URLs and makes no claims of legal title,
  * registration, customs clearance or roadworthiness — it records only that a verified import
@@ -30,8 +31,7 @@ import crypto from 'crypto';
 import { IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
 import { GOVERNMENT_DOCUMENT_CATEGORIES } from '../../constants/diaspora/diasporaDocumentTypes.js';
 import { ZIMBABWE_READY_REQUIRED_DOCUMENTS } from './diasporaWorkflowService.js';
-import { calculateHash } from '../blockchain/blockchainService.js';
-import { signSystemLedgerHash } from '../blockchain/blockchainKeyCustodyService.js';
+import { addEvent } from '../blockchain/blockchainService.js';
 import { CarUpError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import {
   assertCanReadImportOrder,
@@ -52,7 +52,6 @@ const IMPORT_RECORDS = 'vehicle_import_records';
 const GOVERNMENT_DOCS = 'vehicle_government_documents';
 const VEHICLES = 'vehicles';
 const TIMELINE_EVENTS = 'blockchain_events';
-const GENESIS_HASH = '0'.repeat(64);
 
 /** 409-style typed error: a vehicles row for this VIN already belongs to a different context. */
 export class OwnershipHandoffConflictError extends CarUpError {
@@ -223,45 +222,17 @@ async function insertVehicleIdentity(client, { vin, chassisNumber, order }) {
 }
 
 /**
- * Hash-chained timeline event, mirroring blockchainService.addEvent (same calculateHash and
- * system signature format) against the injected client so the chain stays verifiable.
+ * The handoff event, submitted as a REQUEST to the ledger's single write boundary (OC-3D 4J).
+ * blockchainService.addEvent produces the envelope — previous_hash, the versioned current_hash and the
+ * system signature — through the injected client. The signer is named explicitly ('system'), never
+ * inferred from payload keys. The ledger records the handoff; it decides nothing.
  */
 async function appendHandoffTimelineEvent(client, { vin, payload }) {
-  const { data: lastEvents, error: lastError } = await client
-    .from(TIMELINE_EVENTS)
-    .select('current_hash, id')
-    .eq('vin', vin)
-    .order('id', { ascending: false })
-    .limit(1);
-  if (lastError) throw new DatabaseError(lastError.message);
-
-  const previousHash = lastEvents?.[0]?.current_hash || GENESIS_HASH;
-  const timestamp = new Date().toISOString();
-  const currentHash = calculateHash(previousHash, vin, HANDOFF_EVENT_TYPE, timestamp, payload);
-
-  // Sign through the CANONICAL system signer, not a local HMAC over a hardcoded literal.
-  // Issue #158 retired the hardcoded system-secret literal in favour of the configured
-  // CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET, and verifyChain validates system signatures with
-  // verifySystemLedgerHash. A copy of the retired literal here does not merely duplicate a
-  // secret: every handoff event it signed would FAIL chain verification for that VIN
-  // forever, because the verifier no longer holds the key this signer used.
-  const systemSignature = signSystemLedgerHash(currentHash);
-
-  const { data, error } = await client
-    .from(TIMELINE_EVENTS)
-    .insert({
-      previous_hash: previousHash,
-      current_hash: currentHash,
-      vin,
-      event_type: HANDOFF_EVENT_TYPE,
-      payload: JSON.stringify(payload),
-      timestamp,
-      signature: `system:${systemSignature}`,
-    })
-    .select()
-    .single();
-  if (error) throw new DatabaseError(`Failed to append handoff evidence event: ${error.message}`);
-  return data;
+  try {
+    return await addEvent(vin, HANDOFF_EVENT_TYPE, payload, 'SYSTEM_SIGNATURE', { client, signerId: 'system' });
+  } catch (error) {
+    throw new DatabaseError(`Failed to append handoff evidence event: ${error.message}`);
+  }
 }
 
 /**

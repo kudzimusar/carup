@@ -87,10 +87,19 @@ function resetMockState() {
     createSignedUrl: async () => ({ data: { signedUrl: `${SIGNED_URL_PREFIX}doc.pdf` }, error: null }),
     // fetch() of the signed URL
     signedFetch: async () => duckResponse({ contentType: 'application/pdf', contentLength: '12', body: 'PDFCONTENT!!' }),
-    // DocumentIntelligenceService.extractDocumentData behaviour
+    // DocumentIntelligenceService.extractDocumentData behaviour.
+    // O2 OCR convergence: the persisted Diaspora extraction is now derived from a provider
+    // execution the server itself observed. The result therefore carries the provenance the
+    // governed recordDocumentExtraction path requires — executionStatus, provider and model — so a
+    // provider outage or a forged client body can never be laundered into an OCR_EXTRACTED record.
     ocr: async () => ({
       success: true,
       ocrDocumentId: 'ocr-doc-1',
+      provider: 'cloudflare',
+      model: '@cf/qwen/qwen3.8-27b',
+      executionStatus: 'provider_succeeded',
+      confidence: 0.92,
+      confidenceReported: true,
       qualityMetrics: { blurScore: 0.9 },
       extractedData: { confidenceScore: 0.92, first_name: 'Tendai', last_name: 'Moyo' },
     }),

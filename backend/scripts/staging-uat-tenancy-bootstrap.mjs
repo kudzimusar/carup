@@ -4,9 +4,10 @@
  *
  * WHY THIS EXISTS
  * ---------------
- * `userContext.tenantId` is derived ONLY from the `x-tenant-id` header, and `authorizeRole` validates
- * it against a `tenant_users` row. There is no product path that creates a tenant or a membership —
- * grep the backend for inserts into `tenants` or `tenant_users` and you find none, by design. The
+ * A session acts for an organisation only through a verified membership (`tenant_users`). The product
+ * creates a garage membership ONLY through the four OC-5E GMO functions (activation, invitation
+ * acceptance, removal, role change — see backend/tests/oc5e-gmo0-membership-writers.test.js); it never
+ * creates a DEALERSHIP or its membership, which is why this staging fixture seeds one directly. The
  * staging identity script says so directly: privileged identities are "NOT provisionable through
  * public registration ... provide them from the release-operator session (admin bootstrap or DB)".
  *

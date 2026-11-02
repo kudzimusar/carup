@@ -1,0 +1,261 @@
+{
+  "version": "2026.09.ocr-corpus-v1",
+  "note": "Every value below is rendered into the fixture pixels by generate-ocr-corpus.mjs and is also the answer key, so expected values are machine-known by construction. All documents, people, numbers and vehicles are fictional.",
+  "gradingModes": {
+    "strict": "Every expected field must be extracted and correct. Missing is a shortfall; a different value is a FAILURE.",
+    "no_fabrication": "The document is degraded on purpose. Extraction is not required, but any field returned must be correct. Missing is acceptable; wrong is a FAILURE.",
+    "no_document": "The image is not a document. Any extracted document field is a FAILURE.",
+    "unsupported": "The file is not a format the provider accepts. It must be refused before any bytes are sent."
+  },
+  "layouts": {
+    "national_id": {
+      "width": 1012,
+      "height": 638,
+      "title": "REPUBLIC OF ZIMBABWE — NATIONAL REGISTRATION CARD",
+      "authority": "Registrar General (SPECIMEN ISSUE — training and test use only)",
+      "footer": "Generated for CarUp OCR accuracy measurement. Fictional identity. Not valid for any purpose.",
+      "fields": [
+        { "label": "Surname", "value": "SPECIMEN" },
+        { "label": "First name", "value": "TESTCASE" },
+        { "label": "National registration number", "value": "63-1234567-A-42" },
+        { "label": "Date of birth", "value": "01 JAN 1990" },
+        { "label": "Sex", "value": "M" },
+        { "label": "Country", "value": "ZIMBABWE" },
+        { "label": "Place of birth", "value": "GWERU" },
+        { "label": "Date of issue", "value": "15 MAR 2015" }
+      ]
+    },
+    "passport": {
+      "width": 1012,
+      "height": 700,
+      "title": "PASSPORT — BIOGRAPHICAL DATA PAGE",
+      "authority": "Republic of Zimbabwe (SPECIMEN ISSUE — training and test use only)",
+      "footer": "Generated for CarUp OCR accuracy measurement. Fictional identity. Not valid for travel.",
+      "fields": [
+        { "label": "Surname", "value": "EXEMPLAR" },
+        { "label": "Given name", "value": "VERIFY" },
+        { "label": "Passport number", "value": "ZN1234567" },
+        { "label": "Date of birth", "value": "12 FEB 1988" },
+        { "label": "Sex", "value": "F" },
+        { "label": "Nationality", "value": "ZIMBABWEAN" },
+        { "label": "Country", "value": "ZIMBABWE" },
+        { "label": "Date of issue", "value": "03 MAR 2020" },
+        { "label": "Date of expiry", "value": "02 MAR 2030" },
+        { "label": "Issuing authority", "value": "REGISTRAR GENERAL HARARE" }
+      ]
+    },
+    "drivers_licence": {
+      "width": 1012,
+      "height": 638,
+      "title": "DRIVER'S LICENCE",
+      "authority": "Vehicle Inspection Department (SPECIMEN ISSUE — training and test use only)",
+      "footer": "Generated for CarUp OCR accuracy measurement. Fictional licence. Not valid to drive.",
+      "fields": [
+        { "label": "Surname", "value": "PROTOTYPE" },
+        { "label": "First name", "value": "SAMPLE" },
+        { "label": "Licence number", "value": "ZWDL4471902" },
+        { "label": "Date of birth", "value": "08 FEB 1990" },
+        { "label": "Country", "value": "ZIMBABWE" },
+        { "label": "Classes", "value": "4, 2" },
+        { "label": "Date of issue", "value": "09 FEB 2019" },
+        { "label": "Date of expiry", "value": "07 FEB 2029" }
+      ]
+    },
+    "registration_book": {
+      "width": 1012,
+      "height": 760,
+      "title": "VEHICLE REGISTRATION BOOK",
+      "authority": "Central Vehicle Registry (SPECIMEN ISSUE — training and test use only)",
+      "footer": "Generated for CarUp OCR accuracy measurement. Fictional vehicle and owner.",
+      "fields": [
+        { "label": "Registered owner", "value": "SPECIMEN MOTORS (PRIVATE) LIMITED", "wide": true },
+        { "label": "Chassis / VIN", "value": "JTDBR32E870123456", "wide": true },
+        { "label": "Engine number", "value": "1NZFE4829384" },
+        { "label": "Registration (plate) number", "value": "AEB 4729" },
+        { "label": "Make", "value": "TOYOTA" },
+        { "label": "Model", "value": "COROLLA" },
+        { "label": "Year of manufacture", "value": "2018" },
+        { "label": "Date of registration", "value": "22 JUL 2019" }
+      ]
+    },
+    "customs_declaration": {
+      "width": 1012,
+      "height": 700,
+      "title": "CUSTOMS DECLARATION — BILL OF ENTRY",
+      "authority": "Zimbabwe Revenue Authority (SPECIMEN ISSUE — training and test use only)",
+      "footer": "Generated for CarUp OCR accuracy measurement. Fictional import. Not a revenue document.",
+      "fields": [
+        { "label": "Importer", "value": "SPECIMEN MOTORS (PRIVATE) LIMITED", "wide": true },
+        { "label": "Bill of entry number", "value": "BOE-2026-884213" },
+        { "label": "Chassis / VIN", "value": "JTDBR32E870123456" },
+        { "label": "Assessed duty", "value": "48,250.50" },
+        { "label": "Currency", "value": "ZiG" },
+        { "label": "Entry point", "value": "BEITBRIDGE" },
+        { "label": "Stamp date", "value": "14 MAR 2026" }
+      ]
+    }
+  },
+  "fixtures": [
+    {
+      "id": "national-id-clean",
+      "file": "national-id-clean.png",
+      "kind": "document",
+      "layout": "national_id",
+      "docType": "national_id",
+      "mode": "strict",
+      "expected": {
+        "first_name": { "value": "TESTCASE", "compare": "text" },
+        "last_name": { "value": "SPECIMEN", "compare": "text" },
+        "national_id_number": { "value": "63-1234567-A-42", "compare": "code" },
+        "date_of_birth": { "value": "1990-01-01", "compare": "date" },
+        "country": { "value": "ZIMBABWE", "compare": "text" },
+        "sex": { "value": "M", "compare": "text" },
+        "place_of_birth": { "value": "GWERU", "compare": "text" },
+        "date_of_issue": { "value": "2015-03-15", "compare": "date" }
+      }
+    },
+    {
+      "id": "national-id-rotated",
+      "file": "national-id-rotated.png",
+      "kind": "document",
+      "layout": "national_id",
+      "docType": "national_id",
+      "mode": "strict",
+      "render": { "rotateDeg": 7 },
+      "expected": {
+        "first_name": { "value": "TESTCASE", "compare": "text" },
+        "last_name": { "value": "SPECIMEN", "compare": "text" },
+        "national_id_number": { "value": "63-1234567-A-42", "compare": "code" },
+        "date_of_birth": { "value": "1990-01-01", "compare": "date" }
+      }
+    },
+    {
+      "id": "national-id-blurred",
+      "file": "national-id-blurred.png",
+      "kind": "document",
+      "layout": "national_id",
+      "docType": "national_id",
+      "mode": "no_fabrication",
+      "render": { "blurPx": 6 },
+      "expected": {
+        "first_name": { "value": "TESTCASE", "compare": "text" },
+        "last_name": { "value": "SPECIMEN", "compare": "text" },
+        "national_id_number": { "value": "63-1234567-A-42", "compare": "code" },
+        "date_of_birth": { "value": "1990-01-01", "compare": "date" }
+      }
+    },
+    {
+      "id": "national-id-glare",
+      "file": "national-id-glare.png",
+      "kind": "document",
+      "layout": "national_id",
+      "docType": "national_id",
+      "mode": "no_fabrication",
+      "render": { "glare": true },
+      "expected": {
+        "first_name": { "value": "TESTCASE", "compare": "text" },
+        "last_name": { "value": "SPECIMEN", "compare": "text" },
+        "national_id_number": { "value": "63-1234567-A-42", "compare": "code" },
+        "date_of_birth": { "value": "1990-01-01", "compare": "date" }
+      }
+    },
+    {
+      "id": "national-id-cropped",
+      "file": "national-id-cropped.png",
+      "kind": "document",
+      "layout": "national_id",
+      "docType": "national_id",
+      "mode": "no_fabrication",
+      "render": { "cropFraction": 0.5 },
+      "expected": {
+        "first_name": { "value": "TESTCASE", "compare": "text" },
+        "last_name": { "value": "SPECIMEN", "compare": "text" },
+        "national_id_number": { "value": "63-1234567-A-42", "compare": "code" },
+        "date_of_birth": { "value": "1990-01-01", "compare": "date" }
+      },
+      "mustBeAbsent": ["place_of_birth", "date_of_issue"]
+    },
+    {
+      "id": "passport-clean",
+      "file": "passport-clean.png",
+      "kind": "document",
+      "layout": "passport",
+      "docType": "passport",
+      "mode": "strict",
+      "expected": {
+        "first_name": { "value": "VERIFY", "compare": "text" },
+        "last_name": { "value": "EXEMPLAR", "compare": "text" },
+        "national_id_number": { "value": "ZN1234567", "compare": "code" },
+        "date_of_birth": { "value": "1988-02-12", "compare": "date" },
+        "sex": { "value": "F", "compare": "text" },
+        "nationality": { "value": "ZIMBABWEAN", "compare": "text" },
+        "expiry": { "value": "2030-03-02", "compare": "date" }
+      }
+    },
+    {
+      "id": "drivers-licence-clean",
+      "file": "drivers-licence-clean.png",
+      "kind": "document",
+      "layout": "drivers_licence",
+      "docType": "drivers_license",
+      "mode": "strict",
+      "expected": {
+        "first_name": { "value": "SAMPLE", "compare": "text" },
+        "last_name": { "value": "PROTOTYPE", "compare": "text" },
+        "national_id_number": { "value": "ZWDL4471902", "compare": "code" },
+        "date_of_birth": { "value": "1990-02-08", "compare": "date" },
+        "expiry": { "value": "2029-02-07", "compare": "date" }
+      }
+    },
+    {
+      "id": "registration-book-clean",
+      "file": "registration-book-clean.png",
+      "kind": "document",
+      "layout": "registration_book",
+      "docType": "registration_book",
+      "mode": "strict",
+      "expected": {
+        "vin": { "value": "JTDBR32E870123456", "compare": "code" },
+        "make": { "value": "TOYOTA", "compare": "text" },
+        "model": { "value": "COROLLA", "compare": "text" },
+        "year": { "value": 2018, "compare": "number" },
+        "plate_number": { "value": "AEB 4729", "compare": "code" },
+        "owner_name": { "value": "SPECIMEN MOTORS (PRIVATE) LIMITED", "compare": "text" },
+        "engine_number": { "value": "1NZFE4829384", "compare": "code" }
+      }
+    },
+    {
+      "id": "customs-declaration-clean",
+      "file": "customs-declaration-clean.png",
+      "kind": "document",
+      "layout": "customs_declaration",
+      "docType": "customs_declaration",
+      "mode": "strict",
+      "expected": {
+        "vin": { "value": "JTDBR32E870123456", "compare": "code" },
+        "bill_entry_number": { "value": "BOE-2026-884213", "compare": "code" },
+        "duty_value_zig": { "value": 48250.5, "compare": "number" },
+        "importer_name": { "value": "SPECIMEN MOTORS (PRIVATE) LIMITED", "compare": "text" },
+        "stamp_date": { "value": "2026-03-14", "compare": "date" },
+        "entry_point": { "value": "BEITBRIDGE", "compare": "text" }
+      }
+    },
+    {
+      "id": "non-document",
+      "file": "non-document.png",
+      "kind": "non_document",
+      "docType": "national_id",
+      "mode": "no_document",
+      "expected": {}
+    },
+    {
+      "id": "unsupported-file",
+      "file": "unsupported-file.txt",
+      "kind": "unsupported_file",
+      "docType": "national_id",
+      "mode": "unsupported",
+      "expected": {},
+      "textContent": "This is a plain text file, not a document scan. The extraction pipeline must refuse it before any bytes reach the provider.\n"
+    }
+  ]
+}

@@ -10,12 +10,24 @@ const fetchVehicleEvidence = vi.fn()
 const fetchEvidenceTaxonomy = vi.fn()
 const fetchEvidenceSources = vi.fn()
 
+
+/**
+ * `fetchOwnedVehicles` and `fetchServiceHistory` are dependencies VehicleProfile gained in the UAT
+ * remediation: the first establishes management scope for this route (R7 — a foreign VIN must not
+ * render as a manageable vehicle), the second supplies governed service truth (R4). This suite
+ * exercises an OWNED vehicle, so the scope read returns this VIN.
+ */
+const fetchOwnedVehicles = vi.fn().mockResolvedValue([{ vin: 'CARUPGLDNB0000002' }])
+const fetchServiceHistory = vi.fn().mockResolvedValue([])
+
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
     fetchVehiclePassport,
     fetchVehicleEvidence,
     fetchEvidenceTaxonomy,
     fetchEvidenceSources,
+    fetchOwnedVehicles,
+    fetchServiceHistory,
   }),
 }))
 
@@ -139,7 +151,9 @@ describe('V15 — mobile, low-bandwidth and accessibility parity', () => {
   })
 
   it('source contract preserves compact/accessibility and low-bandwidth primitives', () => {
-    expect(SRC).toContain('aria-labelledby="vehicle-passport-title"')
+    // OC-5R-REL-02 A: the landmark is named by the visible "Vehicle Passport" label AND the vehicle
+    // heading (still the heading; now also the surface's name) — see VehicleProfile.passport-identity.test.tsx.
+    expect(SRC).toContain('aria-labelledby="vehicle-passport-label vehicle-passport-title"')
     expect(SRC).toContain('motion-reduce:animate-none')
     expect(SRC).toContain('grid-cols-2')
     expect(SRC).toContain('min-h-11')
