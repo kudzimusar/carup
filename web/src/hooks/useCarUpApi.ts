@@ -3026,7 +3026,9 @@ export function useCarUpApi() {
     request<GaragePaynowConnection>('/pay05/garage/paynow/disconnect', { method: 'POST', body: JSON.stringify({ reason }) }), [request])
   const fetchPaynowMerchants = useCallback(async (): Promise<{ merchants: PaynowMerchant[]; availability: PaynowAvailability }> =>
     request<{ merchants: PaynowMerchant[]; availability: PaynowAvailability }>('/pay05/admin/merchants', { method: 'GET' }), [request])
-  const verifyPaynowMerchant = useCallback(async (merchantId: string, body: { legal_identity_reviewed: boolean; settlement_account_reviewed: boolean; note: string }) =>
+  const verifyPaynowMerchant = useCallback(async (merchantId: string, body: {
+    legal_identity_reviewed: boolean; settlement_account_reviewed: boolean; currency_configuration_reviewed: boolean; note: string
+  }) =>
     request<{ merchant: PaynowMerchant; probes: Record<string, { result: string }> }>(`/pay05/admin/merchants/${encodeURIComponent(merchantId)}/verify`, { method: 'POST', body: JSON.stringify(body) }), [request])
   const rejectPaynowMerchant = useCallback(async (merchantId: string, reason: string) =>
     request<{ merchant: PaynowMerchant }>(`/pay05/admin/merchants/${encodeURIComponent(merchantId)}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
