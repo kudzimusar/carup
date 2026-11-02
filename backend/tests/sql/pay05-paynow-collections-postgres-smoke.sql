@@ -417,7 +417,8 @@ END $$;
 -- ═══════════════════════════ R: independent-review remediation ═══════════════════════════
 DO $$
 DECLARE
-  g uuid; inv garage_invoices%ROWTYPE; c uuid; t1 bigint; t2 bigint; t3 bigint; v_res jsonb; v_m record; v_disc uuid; v_ref text;
+  g uuid; g2 uuid; inv garage_invoices%ROWTYPE; c uuid; t1 bigint; t2 bigint; t3 bigint; v_res jsonb; v_m record; v_disc uuid; v_ref text;
+  v_acct uuid; v_probes jsonb;
 BEGIN
   SELECT tenant_id INTO g FROM tenant_users WHERE user_id = 'p5a-admin';
 
@@ -578,6 +579,39 @@ BEGIN
   PERFORM pay05_record_provider_error('callback_signature_invalid', g, c, NULL, '{"code":"PAY05_CALLBACK_SIGNATURE_INVALID"}');
   PERFORM pg_temp.check((SELECT count(*) FROM pay05_provider_errors WHERE collection_id = c AND kind = 'callback_signature_invalid') = 1,
     'one row per collection and kind per minute');
+
+  -- R15 (mutation S10): even with a fresh unpaid read, a hold is released only once CarUp's collection time has passed
+  inv := pg_temp.invoice(g, 'p5a', 'PAY05PAYNOWVIN0001', 'p5-cust', 23.00);
+  c := pg_temp.collection(pay04_begin_garage_collection(inv.id, 'p5-cust', 23.00, 'USD', 'p5-r15-key-0001', 1800));
+  PERFORM pg_temp.send_attach(c, 'ecocash');
+  PERFORM pg_temp.obs_t(c, 'sent', pay05_begin_paynow_read(c));
+  PERFORM pg_temp.expect(format($q$SELECT pay05_release_paynow_hold(%L, 'p5-op', 'admin', 'Not expired: the customer may still approve.')$q$, c), '^PAY05_HOLD_NOT_RELEASABLE$');
+
+  -- R16 (mutation S26, S27 — defence in depth for states only a writer outside PAY-05 could create, simulated directly in
+  --     this disposable database): a merchant listing ZWG whose ZWG integration alone was closed cannot begin a ZWG
+  --     collection; an integration under a merchant that is no longer verified can never send
+  SELECT tenant_id INTO g2 FROM tenant_users WHERE user_id = 'p5b-admin';
+  v_res := pay05_register_paynow_merchant(g2, gen_random_uuid(), 'p5b-admin', 'P5B Garage', pg_temp.profile('P5B Auto Ltd'), jsonb_build_array(
+    pg_temp.integration('USD', '20011', ARRAY['web', 'ecocash'], '00000000000000b1'),
+    pg_temp.integration('ZWG', '20012', ARRAY['web', 'ecocash'], '00000000000000b2')));
+  v_acct := (v_res->'merchant'->>'id')::uuid;
+  SELECT jsonb_object_agg(id::text, jsonb_build_object('result', 'authenticated', 'credential_fingerprint', credential_fingerprint, 'probed_at', now()))
+    INTO v_probes FROM pay05_merchant_integrations WHERE merchant_account_id = v_acct;
+  PERFORM pay05_verify_paynow_merchant(v_acct, 'p5-op', 'admin', jsonb_build_object('legal_identity_reviewed', true,
+    'settlement_account_reviewed', true, 'currency_configuration_reviewed', true, 'credential_probes', v_probes),
+    'P5B reviewed for the defence-in-depth checks.');
+  UPDATE pay05_merchant_integrations SET status = 'suspended', closed_by = 'p5-op', closed_reason = 'Simulated: the ZWG integration closed alone',
+         closed_at = clock_timestamp()
+   WHERE merchant_account_id = v_acct AND currency = 'ZWG';
+  inv := pg_temp.invoice(g2, 'p5b', 'PAY05PAYNOWVIN0001', 'p5-cust', 120.00, 'ZWG');
+  PERFORM pg_temp.expect(format($q$SELECT pay04_begin_garage_collection(%L, 'p5-cust', 120.00, 'ZWG', 'p5-r16-key-0001', 1800)$q$, inv.id),
+    'PAY04_MERCHANT_CURRENCY_UNSUPPORTED');
+  inv := pg_temp.invoice(g2, 'p5b', 'PAY05PAYNOWVIN0001', 'p5-cust', 24.00);
+  c := pg_temp.collection(pay04_begin_garage_collection(inv.id, 'p5-cust', 24.00, 'USD', 'p5-r16-key-0002', 1800));
+  UPDATE pay04_garage_merchant_accounts SET status = 'suspended', suspended_by = 'p5-op', suspended_reason = 'Simulated: suspended outside the PAY-05 writer',
+         suspended_at = clock_timestamp()
+   WHERE id = v_acct;
+  PERFORM pg_temp.expect(format($q$SELECT pay05_record_paynow_sending(%L, %L, 'web', NULL)$q$, c, pg_temp.trace(c)), 'PAY05_INTEGRATION_UNAVAILABLE');
   RAISE NOTICE 'PAY05_PAYNOW_SMOKE R PASS: stale reads superseded, regressions ignored, disputes end only on a correct Paid, refused and unconfirmed requests close, late signed money reviewed, operator release of unconfirmed requests, early attach keeps reply data, settlement frees the room, amountless Refunded applied, PAY-04 writers refuse Paynow, availability stops sending, release freshness reads every source, provider errors throttled';
 END $$;
 

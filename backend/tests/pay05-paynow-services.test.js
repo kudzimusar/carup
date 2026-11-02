@@ -442,6 +442,26 @@ test('independent review D7: Paynow\'s "Paid" again after a dispute CarUp learne
   assert.equal((await money(inv.id)).provider_paid, '46.00', 'polled and applied, not dropped as a resend');
 });
 
+test('independent review S6: a trace reply naming another payment never binds this one (the service refuses before the database must)', { skip }, async () => {
+  const inv = await invoice(48);
+  sim.simulator.inject('initiate', { kind: 'drop_response' });
+  sim.simulator.inject('trace', { kind: 'error' }); // the start's own recovery gets no answer: the request stays unconfirmed
+  const s = await start(inv, { method: 'ecocash', phone: '0779000105' }, `p5s-s6-${run}-1`);
+  assert.equal((await txOf(s.collection_id)).initiation_state, 'unknown');
+  const real = A.httpTransport();
+  // a correctly signed trace reply (re-signed with the integration's own key) that names ANOTHER payment's reference
+  const foreign = async (url, opts) => {
+    const out = await real(url, opts);
+    if (!/\/interface\/trace$/i.test(new URL(url).pathname)) return out;
+    const pairs = [...new URLSearchParams(out.text)].filter(([k]) => k !== 'hash')
+      .map(([k, v]) => (k === 'reference' ? [k, 'pay04_gar_00000000-0000-0000-0000-000000000000'] : [k, v]));
+    return { ...out, text: encodeForm(signPairs(pairs, world.usd.key)) };
+  };
+  await P.checkPaynowCollection({ db, env, transport: foreign, collection: await S.loadCollection(db, s.collection_id), deps });
+  assert.equal((await txOf(s.collection_id)).initiation_state, 'unknown', 'never bound to the foreign request');
+  assert.equal(await errorsOf(s.collection_id, 'callback_binding_mismatch'), 1);
+});
+
 test('independent review S3/S4/S10: the kill switch reaches PAY-04 routes; customers get the customer view; refresh is throttled', { skip }, async () => {
   const inv = await invoice(47);
   const s = await start(inv, { method: 'ecocash', phone: '0779000104' }, `p5s-ks-${run}-1`);
