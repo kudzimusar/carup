@@ -2,10 +2,10 @@
  * CARUP-PAY-04-LR01 — route hardening (the PAY-03B R12 rule, applied to PAY-04).
  *
  * Every PAY-04 route that calls the garage's payment provider (checkout creation, provider re-read, checkout stop,
- * refund) is behind the SHARED sensitive-tier limiter with the same 60-second window every other sensitive limiter uses,
- * mounted in server.js BEFORE the PAY-04 router so it runs first. Read-only PAY-04 routes that only read CarUp's own
- * tables are not limited beyond the global limiter. (Found in physical UAT: a route-level 15-minute window on the shared
- * per-IP sensitive counter skewed every other sensitive limiter's window.)
+ * refund) is behind the shared sensitive-tier limiter with the 60-second window the payment routes use (PAY-01A..PAY-03B,
+ * R12), mounted in server.js BEFORE the PAY-04 router so it runs first. Read-only PAY-04 routes that only read CarUp's own
+ * tables are not limited beyond the global limiter. (Found in physical UAT: PAY-04 carried a route-level 15-minute
+ * limiter inside its router instead of following the payment-route convention.)
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
