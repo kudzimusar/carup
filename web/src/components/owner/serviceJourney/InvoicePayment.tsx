@@ -10,7 +10,7 @@ import {
 } from '@/lib/pay04GaragePayments'
 import { requestDate } from '@/lib/serviceRequests'
 import {
-  PAYNOW_METHOD_LABEL, paynowContinuable, paynowOutcomeMessage, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment,
+  PAYNOW_METHOD_LABEL, paynowContinuable, paynowOutcomeMessage, paynowStatusLine, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment,
 } from '@/lib/pay05Paynow'
 import PaynowCheckout from './PaynowCheckout'
 import PaynowPendingPanel from './PaynowPendingPanel'
@@ -221,7 +221,7 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                           <span>{formatMoney(p.amount, p.currency)} · started {requestDate(p.initiated_at)}{paynow ? ` · Paynow ${PAYNOW_METHOD_LABEL[paynow.method]}` : ''}</span>
                           <Badge variant="outline" className={`whitespace-normal ${PROVIDER_STATE_TONE[p.state] ?? ''}`}>{p.state_label}</Badge>
                         </p>
-                        {paynow && <p className="mt-1 text-xs text-gray-700" data-testid="my-provider-payment-paynow">{paynow.provider_status_label}</p>}
+                        {paynow && <p className="mt-1 text-xs text-gray-700" data-testid="my-provider-payment-paynow">{paynowStatusLine(p.state, paynow)}</p>}
                         {continuable && (
                           <PaynowPendingPanel className="mt-2 rounded-md border border-amber-300 bg-white p-2" collectionId={p.id} paynow={continuable}
                             state={p.state} busy={busy}

@@ -94,6 +94,18 @@ describe('Garage provider payments', () => {
     expect(screen.queryByTestId('provider-payment-stop')).toBeNull()
   })
 
+  it('W5: a Paynow payment under review reads as under review — with what Paynow reported — never as paid', () => {
+    const paynow = { method: 'ecocash', initiation: 'attached', provider_status: 'paid', provider_status_label: 'Paid — confirmed by Paynow', checkout_url: null,
+      instructions: null, authorization_code: null, authorization_expires: null, otp_reference: null, needs_otp: false, phone: '077*****67', hold_released: false,
+      paynow_reference: 'PN-1' }
+    render(<ProviderPaymentsPanel busy={false} run={vi.fn()} canAct invoice={invoice({ provider_receipts: [], provider_payments: [
+      payment('under_review', { gateway: 'paynow_zimbabwe', state_label: 'Under review — not counted', paynow }),
+    ] })} />)
+    expect(screen.getByTestId('provider-payment-paynow-status')).toHaveTextContent('Under review — not counted. Paynow reports it paid.')
+    expect(screen.getByTestId('provider-payment-row')).not.toHaveTextContent(/Paid — confirmed/)
+    expect(screen.getByTestId('provider-payment-state').className).not.toMatch(/green/)
+  })
+
   it('renders nothing where PAY-04 is not installed', () => {
     const { container } = render(<ProviderPaymentsPanel invoice={invoice({ provider_payments_supported: false })} canAct busy={false} run={vi.fn()} />)
     expect(container).toBeEmptyDOMElement()

@@ -8,7 +8,7 @@
  *  - Paynow cannot cancel a request or refund through CarUp, and the words say so instead of pretending otherwise.
  */
 import type { Decimal } from './garageBusiness'
-import { pay04ErrorText, type CollectionOutcome, type ProviderPayment } from './pay04GaragePayments'
+import { PROVIDER_STATE_TONE, pay04ErrorText, type CollectionOutcome, type ProviderPayment, type ProviderPaymentState } from './pay04GaragePayments'
 
 export type PaynowMethod = 'web' | 'ecocash' | 'onemoney' | 'innbucks' | 'omari'
 export type PaynowStatus =
@@ -95,17 +95,42 @@ export const PAYNOW_STATUS_SHORT: Record<PaynowStatus, string> = {
   cancelled: 'Cancelled', failed: 'Not completed', disputed: 'Disputed', refunded: 'Refunded', unrecognized: 'Under review',
 }
 
-export const PAYNOW_STATUS_TONE: Record<PaynowStatus, string> = {
-  created: 'bg-amber-50 text-amber-900 border-amber-300',
-  sent: 'bg-amber-50 text-amber-900 border-amber-300',
-  awaiting_delivery: 'bg-amber-50 text-amber-900 border-amber-300',
-  delivered: 'bg-amber-50 text-amber-900 border-amber-300',
-  paid: 'bg-green-50 text-green-900 border-green-300',
-  cancelled: 'bg-gray-100 text-gray-800 border-gray-300',
-  failed: 'bg-gray-100 text-gray-800 border-gray-300',
-  disputed: 'bg-red-50 text-red-900 border-red-300',
-  refunded: 'bg-gray-100 text-gray-800 border-gray-300',
-  unrecognized: 'bg-red-50 text-red-900 border-red-300',
+/** What Paynow reported, in words: said alongside CarUp's own state, never instead of it. */
+export const PAYNOW_REPORTED: Record<PaynowStatus, string> = {
+  created: 'Paynow reports it waiting for payment',
+  sent: 'Paynow reports it waiting for approval on the phone',
+  awaiting_delivery: 'Paynow reports it paid into Paynow and held by Paynow',
+  delivered: 'Paynow reports it paid into Paynow and held until Paynow releases it',
+  paid: 'Paynow reports it paid',
+  cancelled: 'Paynow reports it cancelled',
+  failed: 'Paynow reports it not completed',
+  disputed: 'Paynow reports it disputed',
+  refunded: 'Paynow reports it refunded',
+  unrecognized: 'Paynow reported a status CarUp does not recognise',
+}
+
+const WAITING_TONE = 'bg-amber-50 text-amber-900 border-amber-300'
+const REVIEW_STATES: ReadonlySet<string> = new Set(['under_review', 'confirmed_unallocated'])
+
+/**
+ * The badge of a Paynow payment. provider_status is only what CarUp APPLIED; the collection state is the truth. So the
+ * tone and the word come from the state: green and "Paid" only when the state is confirmed (counted), "Under review — not
+ * counted" for review, and a Paynow word otherwise — a paid status CarUp did not count is never called paid.
+ */
+export function paynowStateBadge(state: string | null | undefined, status: PaynowStatus | null): { label: string; tone: string } {
+  if (state === 'confirmed') return { label: 'Paid — counted on the invoice', tone: PROVIDER_STATE_TONE.confirmed }
+  if (state && REVIEW_STATES.has(state)) return { label: 'Under review — not counted', tone: PROVIDER_STATE_TONE.under_review }
+  const tone = state && state in PROVIDER_STATE_TONE ? PROVIDER_STATE_TONE[state as ProviderPaymentState] : WAITING_TONE
+  if (status === 'paid') return { label: 'Paynow reports it paid — not counted yet', tone }
+  return { label: status ? PAYNOW_STATUS_SHORT[status] : 'Waiting for Paynow', tone }
+}
+
+/** The sentence about a Paynow payment, by the same rule: under review says so first, then what Paynow reported. */
+export function paynowStatusLine(state: string | null | undefined, view: PaynowView): string {
+  const status = view.provider_status
+  if (state && REVIEW_STATES.has(state)) return `Under review — not counted.${status ? ` ${PAYNOW_REPORTED[status]}.` : ''}`
+  if (status === 'paid' && state !== 'confirmed') return 'Paynow reports it paid, but CarUp has not counted it yet.'
+  return view.provider_status_label
 }
 
 /**

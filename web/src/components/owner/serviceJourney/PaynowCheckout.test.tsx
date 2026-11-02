@@ -245,6 +245,31 @@ describe('Paying the garage with Paynow', () => {
   })
 })
 
+describe('Tone and words follow the collection state (W5)', () => {
+  it('the checkout never shows green or "Paid" for a payment under review, and says what Paynow reported', async () => {
+    startGarageInvoicePayment.mockResolvedValue(started({}))
+    verifyGarageInvoicePayment.mockResolvedValue({ collection: { state: 'under_review' }, applied: true, refused: null, duplicate_event: false,
+      payment_status: 'pending', money: {}, paynow: paynowView({ provider_status: 'paid', provider_status_label: 'Paid — confirmed by Paynow' }) })
+    await openPaynow()
+    fireEvent.click(screen.getByTestId('paynow-method-ecocash'))
+    fireEvent.change(screen.getByTestId('paynow-phone'), { target: { value: '0771234567' } })
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    fireEvent.click(await screen.findByTestId('paynow-check'))
+    await waitFor(() => expect(screen.getByTestId('paynow-status-badge')).toHaveTextContent('Under review — not counted'))
+    expect(screen.getByTestId('paynow-status-badge').className).not.toMatch(/green/)
+    expect(screen.getByTestId('paynow-status')).toHaveTextContent('Under review — not counted. Paynow reports it paid.')
+  })
+
+  it('a listed Paynow payment under review reads as such, never as paid', async () => {
+    fetchGarageInvoicePaymentOptions.mockResolvedValue(options({ online_payment: { available: false, reason: 'payment_in_progress' },
+      provider_payments: [row({ provider_status: 'paid', provider_status_label: 'Paid — confirmed by Paynow' }, { state: 'under_review', state_label: 'Under review — not counted' })] }))
+    render(<InvoicePayment invoice={invoice} />)
+    fireEvent.click(screen.getByTestId('how-to-pay-toggle'))
+    expect(await screen.findByTestId('my-provider-payment-paynow')).toHaveTextContent('Under review — not counted. Paynow reports it paid.')
+    expect(screen.getByTestId('my-provider-payment')).not.toHaveTextContent(/Paid — confirmed/)
+  })
+})
+
 describe('Continuing a Paynow payment already on the invoice (W2)', () => {
   const inProgress = (rows: unknown[]) => options({ online_payment: { available: false, reason: 'payment_in_progress' }, provider_payments: rows })
 

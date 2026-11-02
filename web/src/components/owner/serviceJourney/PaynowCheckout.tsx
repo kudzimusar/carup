@@ -5,7 +5,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { newIdempotencyKey } from '@/lib/garageBusiness'
 import { MONEY_ACTION_BUTTON_CLASS, onlineAmountProblem } from '@/lib/pay04GaragePayments'
 import {
-  PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_STATUS_SHORT, PAYNOW_STATUS_TONE, needsPhone, pay05ErrorText, paynowOutcomeMessage, paynowStartFailure,
+  PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, needsPhone, pay05ErrorText, paynowOutcomeMessage, paynowStartFailure, paynowStateBadge, paynowStatusLine,
   phoneProblem,
   type PaynowMethod, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment, type PaynowStartResult, type PaynowView,
 } from '@/lib/pay05Paynow'
@@ -38,14 +38,16 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
   const [key, setKey] = useState(() => newIdempotencyKey())
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
-  const [pending, setPending] = useState<{ collectionId: string; amount: string; currency: string; paynow: PaynowView | null; cannotCancel: string } | null>(null)
+  // `state` is the collection's state as last read (unknown until a check or a refresh says it): it, not Paynow's status, sets the tone
+  const [pending, setPending] = useState<{
+    collectionId: string; amount: string; currency: string; paynow: PaynowView | null; state: string | null; cannotCancel: string
+  } | null>(null)
   const [checked, setChecked] = useState<{ outcome: PaynowOutcome | null; failed: boolean } | null>(null)
 
   // a refresh of the invoice is a newer read of the request started here than the one shown: adopt it
   useEffect(() => {
-    if (!latest?.paynow) return
-    const fresh = latest.paynow
-    setPending((p) => (p && p.collectionId === latest.id ? { ...p, paynow: fresh } : p))
+    if (!latest) return
+    setPending((p) => (p && p.collectionId === latest.id ? { ...p, paynow: latest.paynow ?? p.paynow, state: latest.state } : p))
   }, [latest])
 
   const amountProblem = amount.trim() ? onlineAmountProblem(amount, option.max_amount, option.currency) : null
@@ -71,7 +73,8 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
         window.location.assign(started.checkout_url)
         return
       }
-      setPending({ collectionId: started.collection_id, amount: started.amount, currency: started.currency, paynow: started.paynow, cannotCancel: started.cannot_cancel })
+      setPending({ collectionId: started.collection_id, amount: started.amount, currency: started.currency, paynow: started.paynow, state: null,
+        cannotCancel: started.cannot_cancel })
       setChecked(null)
       onStarted?.(started.collection_id)
       onChanged?.()
@@ -93,7 +96,7 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
     try {
       const outcome = await verifyGarageInvoicePayment(pending.collectionId) as PaynowOutcome
       setChecked({ outcome, failed: false })
-      if (outcome.paynow) setPending({ ...pending, paynow: outcome.paynow })
+      setPending((p) => (p ? { ...p, paynow: outcome.paynow ?? p.paynow, state: outcome.collection?.state ?? p.state } : p))
       onChanged?.()
     } catch {
       setChecked({ outcome: null, failed: true })
@@ -105,12 +108,12 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
   // O'mari: Paynow's answer to the code, from the shared panel
   const otpAnswered = (outcome: PaynowOutcome) => {
     setChecked({ outcome, failed: false })
-    const fresh = outcome.paynow
-    if (fresh) setPending((p) => (p ? { ...p, paynow: fresh } : p))
+    setPending((p) => (p ? { ...p, paynow: outcome.paynow ?? p.paynow, state: outcome.collection?.state ?? p.state } : p))
     onChanged?.()
   }
 
   const view = pending?.paynow
+  const badge = pending ? paynowStateBadge(pending.state, view?.provider_status ?? null) : null
   return (
     <div className="rounded-md border p-3 space-y-3" data-testid="paynow-checkout">
       <p className="font-medium">Pay online with Paynow — into the garage’s own Paynow account</p>
@@ -162,12 +165,12 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
         <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-950" data-testid="paynow-pending">
           <p className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{pending.amount} {pending.currency} with {view ? PAYNOW_METHOD_LABEL[view.method] : 'Paynow'}</span>
-            {view?.provider_status && (
-              <Badge variant="outline" className={`whitespace-normal ${PAYNOW_STATUS_TONE[view.provider_status]}`} data-testid="paynow-status-badge">{PAYNOW_STATUS_SHORT[view.provider_status]}</Badge>
-            )}
+            <Badge variant="outline" className={`whitespace-normal ${badge?.tone ?? ''}`} data-testid="paynow-status-badge">{badge?.label}</Badge>
           </p>
-          <p role="status" aria-live="polite" data-testid="paynow-status">{view?.provider_status_label ?? 'Waiting for Paynow. Nothing is counted until Paynow confirms it.'}</p>
-          {view && <PaynowPendingPanel collectionId={pending.collectionId} paynow={view} busy={busy} onOtpOutcome={otpAnswered} />}
+          <p role="status" aria-live="polite" data-testid="paynow-status">
+            {view ? paynowStatusLine(pending.state, view) : 'Waiting for Paynow. Nothing is counted until Paynow confirms it.'}
+          </p>
+          {view && <PaynowPendingPanel collectionId={pending.collectionId} paynow={view} state={pending.state} busy={busy} onOtpOutcome={otpAnswered} />}
           <Button variant="outline" className="min-h-11 bg-white" disabled={busy} onClick={() => void check()} data-testid="paynow-check">
             Check payment status
           </Button>
