@@ -18,22 +18,11 @@ name: Seller Home & Lifecycle Staging UAT
 # A branch with no governed preview pair FAILS at "Prove the governed exact-head preview pair",
 # before any staging contact. That is the expected result until the RC2 runbook's staging step
 # governs a pair: OC-5 deploys nothing to staging while staging identity is unresolved.
+# ── Dispatch only (CARUP-PAY-05 Checkpoint A) ──────────────────────────────
+# This workflow holds shared-staging credentials, so no pull request or push may start it. The Owner
+# dispatches it for a governed candidate and the job waits for the `staging` environment's required
+# reviewers. Enforced by scripts/ci/workflow-secret-isolation.mjs.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/seller-home-lifecycle-staging-uat.yml'
-      - 'tests/agents/48-seller-home-comms-lifecycle-staging.spec.ts'
-      - 'tests/agents/staging-helpers.ts'
-      - 'tests/agents/staging-global-setup.ts'
-      - 'playwright.staging.config.ts'
-      - 'playwright.staging.seller-home.config.ts'
-      - 'scripts/ci/golden-seller-identity.mjs'
-      - 'scripts/ci/bootstrap-staging-uat-identities.mjs'
-      - 'scripts/ci/resolve-governed-preview-pair.mjs'
-      - 'web/preview-frontend-pairing.json'
-      - 'web/preview-backend-pairing.json'
-      - 'backend/**'
-      - 'web/**'
   workflow_dispatch: {}
 
 permissions:
@@ -49,6 +38,7 @@ jobs:
   seller-home-lifecycle:
     name: Seller Home and lifecycle (Communications authored, not run)
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 45
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

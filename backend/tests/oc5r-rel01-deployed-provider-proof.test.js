@@ -17,18 +17,19 @@ const REF = 'eoyenigwevnxwwhyhaer';
 const SHA = 'a'.repeat(40);
 
 // ── The workflow ──────────────────────────────────────────────────────────────────────────────
-test('proof workflow: a person adding the label is the ONLY trigger', () => {
-  assert.match(WF, /\non:\n {2}pull_request:\n {4}types: \[labeled\]\n/);
-  assert.doesNotMatch(WF, /\n {2}(push|schedule|workflow_run|workflow_dispatch):/);
-  assert.doesNotMatch(WF, /types: \[[^\]]*(opened|synchronize|reopened)/);
-  assert.match(WF, /if: github\.event\.label\.name == 'oc5r-deployed-provider-proof' && github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
+// CARUP-PAY-05 Checkpoint A: the former pull_request `labeled` trigger handed staging credentials to a
+// pull-request event. The proof is now an Owner dispatch behind the staging environment's reviewers.
+test('proof workflow: an Owner dispatch is the ONLY trigger', () => {
+  assert.match(WF, /\non:\n {2}workflow_dispatch: \{\}\n/);
+  assert.doesNotMatch(WF, /\n {2}(push|schedule|workflow_run|pull_request|pull_request_target|issue_comment):/);
+  assert.match(WF, /\n {4}if: github\.event_name == 'workflow_dispatch'\n/);
 });
 
-test('proof workflow: no environment, the staging-preview concurrency group, and the exact head', () => {
-  assert.doesNotMatch(WF, /\n\s+environment:/);
-  assert.match(WF, /group: staging-preview-\$\{\{ github\.event\.pull_request\.head\.ref \}\}/);
+test('proof workflow: the staging environment, the staging-preview concurrency group, and the exact head', () => {
+  assert.match(WF, /\n {4}environment: staging\n/);
+  assert.match(WF, /group: staging-preview-\$\{\{ github\.ref_name \}\}/);
   assert.match(WF, /cancel-in-progress: false/);
-  assert.match(WF, /EXPECTED_HEAD_SHA: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  assert.match(WF, /EXPECTED_HEAD_SHA: \$\{\{ github\.sha \}\}/);
   assert.match(WF, /test "\$\(git rev-parse HEAD\)" = "\$EXPECTED_HEAD_SHA"/);
   assert.match(WF, /EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer/);
 });

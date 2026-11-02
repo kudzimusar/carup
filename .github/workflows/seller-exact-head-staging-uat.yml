@@ -2,16 +2,11 @@ name: Seller Exact-Head Staging UAT
 
 # Mandatory Golden Dynamic Seller deployed acceptance for the Seller remediation lane.
 # Runs only for PRs into the Passport integration branch; it never promotes or targets main.
+# ── Dispatch only (CARUP-PAY-05 Checkpoint A) ──────────────────────────────
+# This workflow holds shared-staging credentials, so no pull request or push may start it. The Owner
+# dispatches it for a governed candidate and the job waits for the `staging` environment's required
+# reviewers. Enforced by scripts/ci/workflow-secret-isolation.mjs.
 on:
-  pull_request:
-    branches:
-      - integration/vehicle-passport-v16-cert
-    paths:
-      - 'backend/**'
-      - 'web/**'
-      - 'tests/agents/38-seller-staging-browser-golden.spec.ts'
-      - 'playwright.staging.config.ts'
-      - '.github/workflows/seller-exact-head-staging-uat.yml'
   workflow_dispatch: {}
 
 
@@ -32,6 +27,7 @@ permissions:
 jobs:
   golden-dynamic-seller:
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 35
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

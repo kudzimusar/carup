@@ -8,13 +8,14 @@ name: Seller S3 Location Visibility Staging Gate
 #
 # The workflow definition may move, but all code and migration SQL that receive the protected
 # staging credential are checked out from CANDIDATE_SHA. No arbitrary ref or SQL input exists.
+# ── RETIRED one-shot (CARUP-PAY-05 Checkpoint A) ───────────────────────────
+# This gate was registered for PR #182 and ran on that pull request's events with the shared-staging
+# credential in scope. No pull request may start a job holding a staging credential any more
+# (scripts/ci/workflow-secret-isolation.mjs), so its only trigger is workflow_dispatch — and the job's
+# PR #182 condition can never be true for a dispatch: it is inert. A re-run needs a new, governed
+# dispatch workflow behind the `staging` environment, not an edit to this one.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - '.github/workflows/seller-s3-location-visibility-staging.yml'
-      - 'backend/scripts/seller-s3-location-visibility-staging.mjs'
-      - 'database/migrations/20260828160000_seller_s3_location_visibility_province_only.sql'
+  workflow_dispatch: {}
 
 permissions:
   contents: read

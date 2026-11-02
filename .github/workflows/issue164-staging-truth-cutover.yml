@@ -1,14 +1,15 @@
 name: Issue 164 Controlled Staging Truth Cutover
 
-# Control-plane registration only. Manual workflow_dispatch remains owner-only on main. Because the
-# connected automation cannot invoke workflow_dispatch, the initial already-authorized cutover may
-# also run exactly when dispatcher PR #169 is merged with the pinned merge title below. All database
+# Control-plane registration only. Manual workflow_dispatch remains owner-only on main. All database
 # code still comes from one immutable reviewed candidate; there is no arbitrary ref/SQL input.
+#
+# CARUP-PAY-05 Checkpoint A removed the one-shot push path: the initial cutover was allowed to run "exactly
+# when dispatcher PR #169 is merged with the pinned merge title". That merge happened long ago, main has no
+# branch protection, and a push to main carrying the same commit message would have re-run a shared-staging
+# cutover. A job holding staging credentials is now reachable by workflow_dispatch only
+# (scripts/ci/workflow-secret-isolation.mjs). The last definition with the push path is in git history.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       mode:
@@ -34,7 +35,6 @@ concurrency:
 env:
   CANDIDATE_SHA: 52d85aa8ce64603e71ba06a0dc566e9763e13235
   PG_DRIVER_VERSION: 8.21.0
-  INITIAL_CUTOVER_MERGE_TITLE: 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)'
 
 jobs:
   cutover:
@@ -42,16 +42,10 @@ jobs:
     timeout-minutes: 20
     environment: staging
     if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/main' &&
-       github.actor == 'kudzimusar' &&
-       github.triggering_actor == 'kudzimusar') ||
-      (github.event_name == 'push' &&
-       github.ref == 'refs/heads/main' &&
-       github.actor == 'kudzimusar' &&
-       github.triggering_actor == 'kudzimusar' &&
-       github.run_attempt == 1 &&
-       github.event.head_commit.message == 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)')
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'kudzimusar' &&
+      github.triggering_actor == 'kudzimusar'
 
     steps:
       - name: Check out immutable reviewed cutover candidate

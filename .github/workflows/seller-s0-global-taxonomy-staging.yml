@@ -3,16 +3,14 @@ name: Seller S0 Global Taxonomy Staging Gate
 # Staging-only, immutable-candidate gate for Seller Journey 1.0 / S0.
 # The workflow definition may move, but all code and migration SQL that receive the protected
 # staging credential are checked out from CANDIDATE_SHA. No arbitrary ref or SQL input exists.
+# ── RETIRED one-shot (CARUP-PAY-05 Checkpoint A) ───────────────────────────
+# This gate was registered for PR #182 and ran on that pull request's events with the shared-staging
+# credential in scope. No pull request may start a job holding a staging credential any more
+# (scripts/ci/workflow-secret-isolation.mjs), so its only trigger is workflow_dispatch — and the job's
+# PR #182 condition can never be true for a dispatch: it is inert. A re-run needs a new, governed
+# dispatch workflow behind the `staging` environment, not an edit to this one.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - '.github/workflows/seller-s0-global-taxonomy-staging.yml'
-      - 'backend/scripts/seller-s0-taxonomy-staging.mjs'
-      - 'database/migrations/20260828133000_global_vehicle_taxonomy_s0.sql'
-      - 'database/migrations/20260828140000_global_vehicle_taxonomy_imports_s0.sql'
-      - 'database/migrations/20260828143000_global_vehicle_taxonomy_color_s0.sql'
-      - 'backend/scripts/seller-s0-taxonomy-backfill.mjs'
+  workflow_dispatch: {}
 
 permissions:
   contents: read

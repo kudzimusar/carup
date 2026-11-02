@@ -5,14 +5,14 @@ name: Seller Registration Profile Staging Gate
 # The workflow is registered by PR #199, but the database-bearing job checks out ONE immutable
 # candidate commit. No ref/SQL input is accepted. The migration Git blob hash is asserted before
 # any staging credential is placed in scope.
+# ── RETIRED one-shot (CARUP-PAY-05 Checkpoint A) ───────────────────────────
+# This gate was registered for PR #199 and ran on that pull request's events with the shared-staging
+# credential in scope. No pull request may start a job holding a staging credential any more
+# (scripts/ci/workflow-secret-isolation.mjs), so its only trigger is workflow_dispatch — and the job's
+# PR #199 condition can never be true for a dispatch: it is inert. A re-run needs a new, governed
+# dispatch workflow behind the `staging` environment, not an edit to this one.
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-    paths:
-      - '.github/workflows/seller-registration-profile-staging.yml'
-      - 'backend/scripts/seller-registration-profile-staging.mjs'
-      - 'database/migrations/20260829123000_user_registration_profiles.sql'
+  workflow_dispatch: {}
 
 permissions:
   contents: read

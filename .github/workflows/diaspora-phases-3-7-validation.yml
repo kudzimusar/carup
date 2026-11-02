@@ -3,7 +3,10 @@ name: Diaspora Phases 3-7 Validation
 # Independent acceptance workflow for the Diaspora Trade OS Phases 3-7 hardening program.
 # Proves the reported local results in CI: backend focused tests, TypeScript, route validation,
 # Playwright (Phase 2C + 3-7), production build, migration sanity, and a secret-scan guard.
-# Staging integration runs only when secrets are configured; otherwise it reports skipped.
+# This workflow is started by pull requests, so it holds NO secret (CARUP-PAY-05 Checkpoint A,
+# scripts/ci/workflow-secret-isolation.mjs). The shared-staging integration suite that used to run here
+# on every matching pull request — writing (then deleting) rows on SHARED staging — now runs only as the
+# governed, Owner-dispatched, reviewer-approved workflow diaspora-staging-integration.yml.
 
 on:
   pull_request:
@@ -135,24 +138,3 @@ jobs:
             web/playwright-report
             web/test-results
           retention-days: 7
-
-  staging-integration:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - name: Install dependencies (lockfile)
-        run: npm ci
-      - name: Staging integration (gated on secrets)
-        env:
-          STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
-        run: |
-          if [ -z "$STAGING_DATABASE_URL" ]; then
-            echo 'skipped — secrets unavailable (DIASPORA_STAGING_DATABASE_URL not configured)'
-            exit 0
-          fi
-          RUN_DIASPORA_STAGING_INTEGRATION=true DATABASE_URL="$STAGING_DATABASE_URL" \
-            node --test backend/tests/staging/diaspora-staging-integration.test.js

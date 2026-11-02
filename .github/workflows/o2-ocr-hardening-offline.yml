@@ -1080,6 +1080,7 @@ jobs:
     name: OCR Stage-4 authenticated deployed journeys
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.stage4_authenticated == 'true' && github.event.inputs.deployed_expected_sha != ''
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 30
     # Share the deployed-UAT preview lock; never cancel an in-flight certification.
     concurrency:

@@ -7,10 +7,11 @@ name: PAY-04 garage payments CI
 # receive the lineages, the real-PostgreSQL service/concurrency suites (a skip is a failure), the Garage race suite and
 # the full web suite. Nothing here reaches staging, production or a payment provider.
 #
-# Exact-head CI runs on every push of the PAY-04 branch (the checkout is the pushed commit itself). A pull request is
-# NOT required for it: a same-repository pull request whose diff includes this integrated line also fires
-# diaspora-phases-3-7-validation's staging-integration job, which writes (then deletes) rows on shared staging, and
-# PAY-04 has no shared-staging authority. Opening the pull request is the Owner's decision.
+# Exact-head CI runs on every push of the PAY-04 branch (the checkout is the pushed commit itself). Until CARUP-PAY-05
+# Checkpoint A, a same-repository pull request whose diff included this integrated line also fired
+# diaspora-phases-3-7-validation's staging-integration job, which writes (then deletes) rows on shared staging. That
+# job is now a governed dispatch-only workflow, and the workflow-secret-isolation job below proves on every run that
+# no job a pull request can start holds any secret or protected environment.
 on:
   push:
     branches:
@@ -36,7 +37,9 @@ on:
       - 'web/e2e/pay04-*'
       - 'shared/navigation/**'
       - 'docs/payments/CARUP_PAY_04_*'
-      - '.github/workflows/pay04-garage-payments-ci.yml'
+      - '.github/workflows/**'
+      - 'scripts/ci/workflow-secret-isolation.mjs'
+      - 'backend/tests/ci-workflow-secret-isolation.test.js'
   workflow_dispatch:
 
 permissions:
@@ -92,6 +95,37 @@ jobs:
         run: |
           git diff --check "$INTEGRATION_MERGE" HEAD
           git diff --check "$PAYMENTS_PARENT" HEAD
+
+  workflow-secret-isolation:
+    name: Workflow secret isolation — no pull-request job can reach a secret; no Payments push reaches shared data
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Static policy regression (every rule, plus the repository's own workflows)
+        run: node --test backend/tests/ci-workflow-secret-isolation.test.js
+      - name: Dry run — every job any pull-request event could start, and every Payments branch push
+        env:
+          THIS_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          node scripts/ci/workflow-secret-isolation.mjs \
+            --push-branch "$THIS_BRANCH" \
+            --push-branch feat/carup-pay-04-garage-payments \
+            --push-branch feat/carup-pay-05-zimbabwe-collections-mobile-money \
+            --report workflow-secret-isolation-report.json
+      - name: Publish the dry-run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-secret-isolation-${{ github.sha }}
+          path: workflow-secret-isolation-report.json
+          if-no-files-found: error
+          retention-days: 30
 
   backend:
     name: Backend — PAY-04 contracts, Garage domains, PAY-03B/PAY-01..03A regressions, communications, migration integrity
