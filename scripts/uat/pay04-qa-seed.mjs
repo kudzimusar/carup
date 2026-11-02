@@ -29,6 +29,9 @@ const DEFS = {
   customer: { name: 'PAY04 Customer [QA]', email: 'pay04.customer@carup-uat.invalid', role: 'owner' },
   stranger: { name: 'PAY04 Other Customer [QA]', email: 'pay04.stranger@carup-uat.invalid', role: 'owner' },
   ops: { name: 'PAY04 Payments Operations Admin [QA]', email: 'pay04.ops.admin@carup-uat.invalid', role: 'admin' },
+  // a LEGACY platform-mechanic stakeholder who is a member of garage A: the one actor the legacy
+  // PATCH /api/mechanic/work-orders/:id route lets reopen a completed work order (independent review M3)
+  legacyMechA: { name: 'PAY04 Garage A Legacy Mechanic [QA]', email: 'pay04.garage.a.legacy.mech@carup-uat.invalid', role: 'mechanic' },
 };
 const accounts = existsSync(ACCOUNTS_FILE) ? JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf8')) : {};
 for (const [key, def] of Object.entries(DEFS)) accounts[key] ||= { ...def, password: randomBytes(18).toString('base64url') };
@@ -83,6 +86,8 @@ for (const [g, name, slug, admin, mech, code] of [
        on conflict (tenant_id) do nothing`);
   accounts[g === accounts.garageA ? 'branchA' : 'branchB'] = branch;
 }
+sql(`insert into public.tenant_users (tenant_id, user_id, role) values (${lit(accounts.garageA)}, ${lit(accounts.legacyMechA.userId)}, 'mechanic')
+     on conflict (tenant_id, user_id) do nothing`);
 
 // ── the customers' vehicles ──
 accounts.vinCustomer ||= `P4QA${randomBytes(4).toString('hex').toUpperCase()}00001`.slice(0, 17);

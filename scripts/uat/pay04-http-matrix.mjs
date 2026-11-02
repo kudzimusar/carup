@@ -7,6 +7,7 @@
 //
 //   node scripts/uat/pay04-http-matrix.mjs     -> ~/carup-launch-evidence/pay04/uat/http-matrix-<commit>.json (0600)
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { ACCOUNTS_FILE, API, EVIDENCE_DIR, call, code, identity, lit, login, msg, paceGlobal, quietSensitiveWindow, requirePay04UatDatabase, sql } from './pay04-uat-lib.mjs';
 
@@ -15,7 +16,7 @@ const accounts = JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf8'));
 const health = await (await fetch(`${API}/api/health`)).json();
 const commit = health?.build?.commit_sha || 'unknown';
 const tok = {};
-for (const k of ['adminA', 'mechA', 'adminB', 'customer', 'stranger', 'ops']) tok[k] = await login(accounts[k]);
+for (const k of ['adminA', 'mechA', 'adminB', 'customer', 'stranger', 'ops', 'legacyMechA']) tok[k] = await login(accounts[k]);
 const as = {
   customer: identity(accounts.customer, tok.customer),
   stranger: identity(accounts.stranger, tok.stranger),
@@ -23,6 +24,7 @@ const as = {
   mechA: identity(accounts.mechA, tok.mechA, accounts.garageA),
   adminB: identity(accounts.adminB, tok.adminB, accounts.garageB),
   ops: identity(accounts.ops, tok.ops),
+  legacyMechA: identity(accounts.legacyMechA, tok.legacyMechA, accounts.garageA),
 };
 
 const results = [];
@@ -377,8 +379,9 @@ await step('RV2', 'A part billed on an issued invoice cannot be reversed, even o
   const J = await job({ cost: '20.00', partQty: 1, sellPrice: '15.00' });
   const inv = (await issue(J, suggested(J))).json.invoice;
   const usageId = suggested(J).find((l) => l.source_kind === 'part_usage')?.source_id;
-  // OPS05 guards only ENTERING Completed, so a completed work order can be reopened: the billing itself must refuse
-  const reopened = await call('PATCH', `/api/mechanic/work-orders/${J.workOrderId}`, { status: 'In Progress' }, as.adminA);
+  // OPS05 guards only ENTERING Completed, so a completed work order can be reopened — by a legacy platform-mechanic
+  // member of the garage through PATCH /api/mechanic/work-orders/:id. The billing itself must then refuse.
+  const reopened = await call('PATCH', `/api/mechanic/work-orders/${J.workOrderId}`, { status: 'In Progress' }, as.legacyMechA);
   const refused = await call('POST', `/api/garage/part-usage/${usageId}/reverse`, { reason: 'Returned to stock', idempotency_key: key('rv2a') }, as.adminA);
   const voided = await call('POST', `/api/garage/invoices/${inv.id}/void`, { reason: 'Part returned unused' }, as.adminA);
   const reversed = await call('POST', `/api/garage/part-usage/${usageId}/reverse`, { reason: 'Returned to stock', idempotency_key: key('rv2b') }, as.adminA);
@@ -430,7 +433,7 @@ await step('INV', 'Database invariants over every invoice of garage A', async ()
 });
 
 const out = { programme: 'CARUP-PAY-04-LR01', level: 'Level 1 (local simulator; no provider, no money)', recorded_at: new Date().toISOString(),
-  backend_commit: commit, stack: 'carup-pay04-supabase 127.0.0.1:56321/56322', results, facts,
+  backend_commit: commit, harness_commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), stack: 'carup-pay04-supabase 127.0.0.1:56321/56322', results, facts,
   summary: { total: results.length, passed: results.filter((r) => r.pass).length, failed: results.filter((r) => !r.pass).map((r) => r.case) } };
 mkdirSync(`${EVIDENCE_DIR}/uat`, { recursive: true, mode: 0o700 });
 const file = `${EVIDENCE_DIR}/uat/http-matrix-${commit.slice(0, 8)}.json`;
