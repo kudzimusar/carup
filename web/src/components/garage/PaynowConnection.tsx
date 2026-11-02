@@ -157,8 +157,10 @@ export default function PaynowConnection() {
     setDrafts((d) => ({ USD: { ...d.USD, key: '' }, ZWG: { ...d.ZWG, key: '' } }))
     setKeysCleared(true)
     try {
-      setData(await connectGaragePaynow({ ...form, integrations }))
+      const connected = await connectGaragePaynow({ ...form, integrations })
+      setData(connected)
       setMessage({ ok: true, text: 'Your Paynow account is connected and waiting for CarUp to verify it. Customers can pay through it once it is verified.' })
+      setFocusId(connected?.merchant ? `${uid}-status` : `${uid}-message`)
     } catch (err) {
       const code = /\bPAY05_[A-Z0-9_]+\b/.exec(err instanceof Error ? err.message : '')?.[0]
       const fields = refusedFields(code, connecting)
@@ -169,6 +171,7 @@ export default function PaynowConnection() {
         setMessage({ ok: false, text: 'The Paynow account was not connected and nothing was saved — see the marked field.' })
       } else {
         setMessage({ ok: false, text })
+        setFocusId(`${uid}-message`)
       }
     } finally {
       setBusy(false)
@@ -179,12 +182,15 @@ export default function PaynowConnection() {
     setBusy(true)
     setMessage(null)
     try {
-      setData(await disconnectGaragePaynow(reason.trim()))
+      const disconnected = await disconnectGaragePaynow(reason.trim())
+      setData(disconnected)
       setDisconnectAsk(false)
       setReason('')
       setMessage({ ok: true, text: 'Your Paynow account is disconnected. Customers can no longer pay through it on CarUp.' })
+      setFocusId(disconnected?.merchant ? `${uid}-status` : `${uid}-message`)
     } catch (err) {
       setMessage({ ok: false, text: paynowErrorText(err, 'The Paynow account could not be disconnected. Nothing changed.') })
+      setFocusId(`${uid}-message`)
     } finally {
       setBusy(false)
     }
@@ -222,7 +228,10 @@ export default function PaynowConnection() {
           <Button variant="outline" className="mt-2 min-h-11" onClick={() => { setState('loading'); void load() }}>Try again</Button>
         </div>
       )}
-      {message && <p role={message.ok ? 'status' : 'alert'} className={`rounded-md p-3 ${message.ok ? 'bg-green-50 text-green-900' : 'bg-red-50 text-red-900'}`} data-testid="garage-paynow-message">{message.text}</p>}
+      {/* in the page, empty, before its words arrive, so they are announced; it takes the focus after a refusal (W8) */}
+      <p id={`${uid}-message`} role="status" aria-live="polite" tabIndex={-1}
+        className={message ? `rounded-md p-3 ${message.ok ? 'bg-green-50 text-green-900' : 'bg-red-50 text-red-900'}` : ''}
+        data-testid="garage-paynow-message">{message?.text ?? ''}</p>
       {state === 'ready' && data && (
         <>
           {data.mode === 'simulator' && (
@@ -235,7 +244,9 @@ export default function PaynowConnection() {
             <div className="rounded-md border p-3 space-y-2" data-testid="garage-paynow-merchant" data-status={merchant.status}>
               <p className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{merchant.display_name}</span>
-                <Badge variant="outline" className="whitespace-normal" data-testid="garage-paynow-status">{MERCHANT_STATUS_LABEL[merchant.status]}</Badge>
+                <Badge id={`${uid}-status`} tabIndex={-1} variant="outline" className="whitespace-normal" data-testid="garage-paynow-status">
+                  {MERCHANT_STATUS_LABEL[merchant.status]}
+                </Badge>
               </p>
               {merchant.profile && (
                 <p className="text-sm text-gray-700">

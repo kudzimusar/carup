@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -12,6 +12,13 @@ import {
 import PaynowPendingPanel from './PaynowPendingPanel'
 
 const TONE = { ok: 'bg-green-50 text-green-900', wait: 'bg-amber-50 text-amber-900', warn: 'bg-amber-50 text-amber-900', error: 'bg-red-50 text-red-900' } as const
+
+/** A live region that is in the page, empty, before its words arrive — so they are announced (W8). */
+function LiveText({ text, testId }: { text: string; testId: string }) {
+  const [said, setSaid] = useState('')
+  useEffect(() => { setSaid(text) }, [text])
+  return <p role="status" aria-live="polite" data-testid={testId}>{said}</p>
+}
 
 /**
  * CARUP-PAY-05 — the customer pays the garage through the GARAGE's own Paynow account.
@@ -43,6 +50,14 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
     collectionId: string; amount: string; currency: string; paynow: PaynowView | null; state: string | null; cannotCancel: string
   } | null>(null)
   const [checked, setChecked] = useState<{ outcome: PaynowOutcome | null; failed: boolean } | null>(null)
+  // after Pay, focus moves to the request's heading (W8)
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const focusPending = useRef(false)
+  useEffect(() => {
+    if (!pending || !focusPending.current) return
+    focusPending.current = false
+    headingRef.current?.focus()
+  }, [pending])
 
   // a refresh of the invoice is a newer read of the request started here than the one shown: adopt it
   useEffect(() => {
@@ -75,6 +90,7 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
         window.location.assign(started.checkout_url)
         return
       }
+      focusPending.current = true
       setPending({ collectionId: started.collection_id, amount: started.amount, currency: started.currency, paynow: started.paynow, state: null,
         cannotCancel: started.cannot_cancel })
       setChecked(null)
@@ -95,6 +111,7 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
   const check = async () => {
     if (!pending) return
     setBusy(true)
+    setChecked(null) // the outcome region empties, so the same answer twice is still said twice
     try {
       const outcome = await verifyGarageInvoicePayment(pending.collectionId) as PaynowOutcome
       setChecked({ outcome, failed: false })
@@ -116,6 +133,8 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
 
   const view = pending?.paynow
   const badge = pending ? paynowStateBadge(pending.state, view?.provider_status ?? null) : null
+  const statusText = pending ? (view ? paynowStatusLine(pending.state, view) : 'Waiting for Paynow. Nothing is counted until Paynow confirms it.') : ''
+  const outcome = checked ? paynowOutcomeMessage(checked.outcome, checked.failed) : null
   return (
     <div className="rounded-md border p-3 space-y-3" data-testid="paynow-checkout">
       <p className="font-medium">Pay online with Paynow — into the garage’s own Paynow account</p>
@@ -166,21 +185,21 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
 
       {pending && (
         <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-950" data-testid="paynow-pending">
+          <h6 ref={headingRef} tabIndex={-1} className="font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
+            data-testid="paynow-pending-heading">
+            Your Paynow payment request
+          </h6>
           <p className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{pending.amount} {pending.currency} with {view ? PAYNOW_METHOD_LABEL[view.method] : 'Paynow'}</span>
             <Badge variant="outline" className={`whitespace-normal ${badge?.tone ?? ''}`} data-testid="paynow-status-badge">{badge?.label}</Badge>
           </p>
-          <p role="status" aria-live="polite" data-testid="paynow-status">
-            {view ? paynowStatusLine(pending.state, view) : 'Waiting for Paynow. Nothing is counted until Paynow confirms it.'}
-          </p>
+          <LiveText testId="paynow-status" text={statusText} />
           {view && <PaynowPendingPanel collectionId={pending.collectionId} paynow={view} state={pending.state} busy={busy} onOtpOutcome={otpAnswered} />}
           <Button variant="outline" className="min-h-11 bg-white" disabled={busy} onClick={() => void check()} data-testid="paynow-check">
             Check payment status
           </Button>
-          {checked && (() => {
-            const message = paynowOutcomeMessage(checked.outcome, checked.failed)
-            return <p role="status" className={`rounded-md p-2 ${TONE[message.tone]}`} data-testid="paynow-outcome" data-tone={message.tone}>{message.text}</p>
-          })()}
+          <p role="status" aria-live="polite" className={outcome ? `rounded-md p-2 ${TONE[outcome.tone]}` : ''} data-testid="paynow-outcome"
+            data-tone={outcome?.tone}>{outcome?.text ?? ''}</p>
           <p className="text-xs text-amber-950" data-testid="paynow-cannot-cancel">{pending.cannotCancel}</p>
         </div>
       )}

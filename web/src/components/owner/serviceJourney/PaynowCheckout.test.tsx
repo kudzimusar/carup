@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { CustomerInvoice } from '@/lib/garageBusiness'
+import { watchLiveRegions } from '@/test/liveRegions'
 
 /**
  * CARUP-PAY-05 — the customer pays the garage through the garage's OWN Paynow account. Truth rules: only enabled
@@ -109,9 +110,8 @@ describe('Paying the garage with Paynow', () => {
     expect(screen.getByTestId('paynow-cannot-cancel')).toHaveTextContent('Paynow cannot cancel')
     expect(screen.queryByText(/It now counts on the invoice/)).toBeNull()
     fireEvent.click(screen.getByTestId('paynow-check'))
-    const said = await screen.findByTestId('paynow-outcome')
-    expect(said).toHaveTextContent(/held by Paynow/)
-    expect(said).toHaveAttribute('data-tone', 'wait')
+    await waitFor(() => expect(screen.getByTestId('paynow-outcome')).toHaveTextContent(/held by Paynow/))
+    expect(screen.getByTestId('paynow-outcome')).toHaveAttribute('data-tone', 'wait')
   })
 
   it('W7: while the number is missing, Pay says why it cannot be pressed', async () => {
@@ -153,7 +153,7 @@ describe('Paying the garage with Paynow', () => {
     expect(submitPaynowOtp).not.toHaveBeenCalled()
     fireEvent.change(screen.getByTestId('paynow-otp-input'), { target: { value: '483920' } })
     fireEvent.click(screen.getByTestId('paynow-otp-submit'))
-    expect(await screen.findByTestId('paynow-outcome')).toHaveAttribute('data-tone', 'ok')
+    await waitFor(() => expect(screen.getByTestId('paynow-outcome')).toHaveAttribute('data-tone', 'ok'))
     expect(submitPaynowOtp).toHaveBeenCalledWith('11111111-2222-3333-4444-555555555555', '483920')
   })
 
@@ -315,6 +315,34 @@ describe('Continuing a Paynow payment already on the invoice (W2)', () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
     expect(submitPaynowOtp).toHaveBeenCalledWith(COLLECTION, '483920')
     expect(fetchGarageInvoicePaymentOptions).toHaveBeenCalledTimes(2)
-    expect(await screen.findByTestId('my-provider-payment-outcome')).toHaveTextContent('Paynow confirmed your payment')
+    await waitFor(() => expect(screen.getByTestId('my-provider-payment-outcome')).toHaveTextContent('Paynow confirmed your payment'))
+  })
+})
+
+describe('Focus follows the payment; live regions are there before they speak (W8)', () => {
+  it('after Pay, focus moves to the pending heading; the status and outcome regions speak only once in the page', async () => {
+    startGarageInvoicePayment.mockResolvedValue(started({}))
+    verifyGarageInvoicePayment.mockResolvedValue({ collection: { state: 'awaiting_provider' }, applied: true, refused: null, duplicate_event: false,
+      payment_status: 'pending', money: {}, paynow: paynowView({ provider_status: 'awaiting_delivery', provider_status_label: 'Paid to Paynow — held by Paynow' }) })
+    await openPaynow()
+    fireEvent.click(screen.getByTestId('paynow-method-ecocash'))
+    fireEvent.change(screen.getByTestId('paynow-phone'), { target: { value: '0771234567' } })
+    const regions = watchLiveRegions()
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    const heading = await screen.findByTestId('paynow-pending-heading')
+    await waitFor(() => expect(heading).toHaveFocus())
+    expect(heading.tagName).toMatch(/^H[1-6]$/)
+    expect(heading).toHaveAttribute('tabindex', '-1')
+    await waitFor(() => expect(regions.spoke()).toContain('paynow-status'))
+    expect(screen.getByTestId('paynow-status')).toHaveTextContent('Waiting for you to approve the payment on your phone')
+    const outcome = screen.getByTestId('paynow-outcome')
+    expect(outcome).toHaveAttribute('role', 'status')
+    expect(outcome).toHaveAttribute('aria-live', 'polite')
+    expect(outcome).toBeEmptyDOMElement()
+    fireEvent.click(screen.getByTestId('paynow-check'))
+    await waitFor(() => expect(outcome).toHaveTextContent(/held by Paynow/))
+    expect(screen.getByTestId('paynow-outcome')).toBe(outcome)
+    expect(regions.spoke()).toContain('paynow-outcome')
+    regions.stop()
   })
 })

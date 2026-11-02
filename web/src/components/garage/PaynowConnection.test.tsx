@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { watchLiveRegions } from '@/test/liveRegions'
 
 /**
  * CARUP-PAY-05 — the garage connects its OWN Paynow account. Truth rules: the key is a password field that is cleared
@@ -102,7 +103,7 @@ describe('Connecting the garage’s own Paynow account', () => {
     await fill()
     fireEvent.click(screen.getByTestId('paynow-connect-attest'))
     fireEvent.click(screen.getByTestId('paynow-connect-submit'))
-    expect(await screen.findByTestId('garage-paynow-message')).toHaveTextContent('already connected to another account')
+    await waitFor(() => expect(screen.getByTestId('garage-paynow-message')).toHaveTextContent('already connected to another account'))
     expect(screen.getByTestId('paynow-connect-USD-key')).toHaveValue('')
   })
 
@@ -180,6 +181,37 @@ describe('Connecting the garage’s own Paynow account', () => {
     expect(await screen.findByTestId('garage-paynow-disabled')).toHaveTextContent('Paynow payments are not offered yet.')
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByTestId('garage-paynow-error')).toBeNull()
+  })
+
+  it('W8: the message region is there before it speaks; after connecting, focus moves to the connection’s status', async () => {
+    connectGaragePaynow.mockResolvedValue(base({ can_connect: false, merchant }))
+    await fill()
+    const message = screen.getByTestId('garage-paynow-message')
+    expect(message).toBeEmptyDOMElement()
+    expect(message).toHaveAttribute('role', 'status')
+    expect(message).toHaveAttribute('aria-live', 'polite')
+    const regions = watchLiveRegions()
+    fireEvent.click(screen.getByTestId('paynow-connect-attest'))
+    fireEvent.click(screen.getByTestId('paynow-connect-submit'))
+    await waitFor(() => expect(screen.getByTestId('garage-paynow-status')).toHaveFocus())
+    expect(screen.getByTestId('garage-paynow-message')).toHaveTextContent('waiting for CarUp to verify')
+    expect(regions.spoke()).toContain('garage-paynow-message')
+    regions.stop()
+  })
+
+  it('W8: after disconnecting, focus moves to the connection’s status; a refusal no field explains takes it to the message', async () => {
+    fetchGaragePaynowConnection.mockResolvedValue(base({ can_connect: false, merchant }))
+    disconnectGaragePaynow.mockRejectedValueOnce(apiFailure('PAY05_MERCHANT_AUTHORITY_REFUSED', 403))
+      .mockResolvedValueOnce(base({ merchant: { ...merchant, status: 'suspended', suspended_reason: 'Moving to another Paynow account.' } }))
+    render(<PaynowConnection />)
+    fireEvent.click(await screen.findByTestId('garage-paynow-disconnect'))
+    fireEvent.change(screen.getByTestId('garage-paynow-disconnect-reason'), { target: { value: 'Moving to another Paynow account.' } })
+    fireEvent.click(screen.getByTestId('garage-paynow-disconnect-confirm'))
+    await waitFor(() => expect(screen.getByTestId('garage-paynow-message')).toHaveFocus())
+    expect(screen.getByTestId('garage-paynow-message')).toHaveTextContent('Only the garage’s administrator can do this.')
+    fireEvent.click(screen.getByTestId('garage-paynow-disconnect-confirm'))
+    await waitFor(() => expect(screen.getByTestId('garage-paynow-status')).toHaveFocus())
+    expect(screen.getByTestId('garage-paynow-status')).toHaveTextContent('Suspended')
   })
 
   it('a failed load never reads as connected or disconnected', async () => {
