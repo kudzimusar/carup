@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney } from '@/lib/garageBusiness'
-import { activityActor, DISCREPANCY_LABEL, minorToMajor, PROVIDER_EVENT_LABEL, type GarageMerchantAccount, type GaragePaymentExceptions, type ProviderActivity } from '@/lib/pay04GaragePayments'
+import { activityActor, DISCREPANCY_LABEL, minorToMajor, PROVIDER_EVENT_LABEL, type GarageMerchantAccount, type GaragePaymentExceptions, type ProviderActivity, pay04ErrorText } from '@/lib/pay04GaragePayments'
 
 function Trail({ history }: { history?: ProviderActivity[] }) {
   if (!history?.length) return null
@@ -20,13 +20,21 @@ function Trail({ history }: { history?: ProviderActivity[] }) {
   )
 }
 
+/** Operators read the refusal in words and keep its code for support. */
 function messageOf(e: unknown, fallback: string): string {
-  return e instanceof Error && e.message ? e.message : fallback
+  if (!(e instanceof Error) || !e.message) return fallback
+  const code = /\bPAY04_[A-Z0-9_]+\b/.exec(e.message)?.[0]
+  return code ? `${pay04ErrorText(code)} (${code})` : e.message
 }
 const RESOLUTIONS: Record<string, Array<{ value: string; label: string }>> = {
   unallocated_provider_money: [
     { value: 'refunded_to_customer', label: 'Refunded to the customer (provider-confirmed refund required)' },
     { value: 'settled_off_platform', label: 'Settled with the customer outside CarUp (explain in the note)' },
+  ],
+  // the invoice already counts only what the provider says the garage keeps; the operator records the review
+  refund_after_resolution: [
+    { value: 'acknowledged', label: 'Reviewed: the invoice counts only what the provider says the garage keeps (explain in the note)' },
+    { value: 'refunded_to_customer', label: 'Refunded to the customer (provider-confirmed full refund required)' },
   ],
   default: [{ value: 'provider_corrected', label: 'Provider corrected its report (verify first)' }],
 }

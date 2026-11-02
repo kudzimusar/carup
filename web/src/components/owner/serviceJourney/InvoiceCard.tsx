@@ -46,7 +46,7 @@ const PAYMENT_TONE: Record<string, string> = {
   voided: 'bg-red-100 text-red-900 border-red-300',
 }
 
-export default function InvoiceCard({ invoice: inv }: { invoice: CustomerInvoice }) {
+export default function InvoiceCard({ invoice: inv, onChanged }: { invoice: CustomerInvoice; onChanged?: () => void }) {
   const uid = useId()
   const titleId = `${uid}-title`
   const voided = inv.status === 'voided'
@@ -121,7 +121,7 @@ export default function InvoiceCard({ invoice: inv }: { invoice: CustomerInvoice
             </div>
             {Number(inv.money.provider_reserved) > 0 && (
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <dt className="text-gray-700">In progress with the provider (not counted yet)</dt>
+                <dt className="text-gray-700">With the provider — in progress or under review (not counted)</dt>
                 <dd className="tabular-nums" data-testid="invoice-in-flight-amount">{formatMoney(inv.money.provider_reserved, inv.currency)}</dd>
               </div>
             )}
@@ -240,7 +240,7 @@ export default function InvoiceCard({ invoice: inv }: { invoice: CustomerInvoice
         )}
       </section>
 
-      {owed && <InvoicePayment invoice={inv} />}
+      {owed && <InvoicePayment invoice={inv} onChanged={onChanged} />}
     </article>
   )
 }

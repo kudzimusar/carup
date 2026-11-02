@@ -32,7 +32,7 @@ describe('Garage provider payments', () => {
     expect(screen.getByTestId('money-declared')).toHaveTextContent('80.00 USD')
     expect(screen.getByTestId('money-provider')).toHaveTextContent('100.00 USD')
     expect(screen.getByTestId('money-in-flight')).toHaveTextContent('20.00 USD')
-    expect(screen.getByText('In progress with the provider (not counted)')).toBeInTheDocument()
+    expect(screen.getByText('With the provider — in progress or under review (not counted)')).toBeInTheDocument()
   })
 
   it('lists provider payments and receipts with the garage-not-CarUp source label', () => {
@@ -75,6 +75,23 @@ describe('Garage provider payments', () => {
     expect(screen.getAllByTestId('provider-payment-stop')).toHaveLength(1)
     expect(screen.queryByTestId('provider-payment-refund')).toBeNull()
     expect(screen.getByTestId('provider-payment-discrepancy')).toHaveTextContent('Provider reported a different amount')
+  })
+
+  it('a provider refusal reaches the hub as a sentence, never a raw code or a success', async () => {
+    refundGarageProviderPayment.mockRejectedValueOnce(new Error('PAY04_PROVIDER_REFUND_REFUSED'))
+    let shown = ''
+    const run = vi.fn(async (_scope, fn) => { try { await fn(); return true } catch (e) { shown = (e as Error).message; return false } })
+    render(<ProviderPaymentsPanel invoice={invoice()} canAct busy={false} run={run} />)
+    fireEvent.click(screen.getByTestId('provider-payment-refund'))
+    fireEvent.change(screen.getByTestId('provider-refund-form-reason'), { target: { value: 'Customer was charged twice' } })
+    fireEvent.click(screen.getByTestId('provider-refund-form-submit'))
+    await waitFor(() => expect(shown).toMatch(/refused/))
+    expect(shown).not.toMatch(/PAY04_/)
+  })
+
+  it('a checkout that is already stopping offers no second stop', () => {
+    render(<ProviderPaymentsPanel busy={false} run={vi.fn()} canAct invoice={invoice({ provider_receipts: [], provider_payments: [payment('stopping')] })} />)
+    expect(screen.queryByTestId('provider-payment-stop')).toBeNull()
   })
 
   it('renders nothing where PAY-04 is not installed', () => {

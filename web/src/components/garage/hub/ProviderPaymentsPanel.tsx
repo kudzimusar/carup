@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney, type GarageInvoice } from '@/lib/garageBusiness'
 import { dateTimeLabel } from '@/lib/garageWorkspace'
-import { activityActor, DISCREPANCY_LABEL, PROVIDER_EVENT_LABEL, PROVIDER_STATE_TONE, type ProviderPayment } from '@/lib/pay04GaragePayments'
+import { activityActor, DISCREPANCY_LABEL, PROVIDER_EVENT_LABEL, PROVIDER_STATE_TONE, type ProviderPayment, pay04ErrorText } from '@/lib/pay04GaragePayments'
 import { FormError, INPUT_CLASS, type HubRun } from './hubUi'
 
 /**
@@ -14,6 +14,10 @@ import { FormError, INPUT_CLASS, type HubRun } from './hubUi'
  * garage's payment PROVIDER confirmed, and what is IN FLIGHT with the provider (not counted). Every figure is the
  * server's; nothing is added up here.
  */
+/** A PAY-04 refusal reaches the hub's message area as a sentence (the hub shows the error's own message). */
+const inWords = (fn: () => Promise<unknown>) => () =>
+  fn().catch((e: unknown) => { throw new Error(pay04ErrorText(e instanceof Error ? e.message : '')) })
+
 export function InvoiceMoneyBreakdown({ invoice }: { invoice: GarageInvoice }) {
   const m = invoice.money
   if (!m) return null
@@ -28,7 +32,7 @@ export function InvoiceMoneyBreakdown({ invoice }: { invoice: GarageInvoice }) {
         <dd data-testid="money-provider">{formatMoney(m.provider_paid, invoice.currency)}</dd>
       </div>
       <div>
-        <dt className="text-gray-500">In progress with the provider (not counted)</dt>
+        <dt className="text-gray-500">With the provider — in progress or under review (not counted)</dt>
         <dd data-testid="money-in-flight">{formatMoney(m.provider_reserved, invoice.currency)}</dd>
       </div>
     </dl>
@@ -103,7 +107,7 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline" className="min-h-11" disabled={busy} data-testid="provider-payment-reconcile"
-              onClick={() => run('closeout', () => reconcileGarageProviderPayment(payment.id), 'Checked with the payment provider.')}
+              onClick={() => run('closeout', inWords(() => reconcileGarageProviderPayment(payment.id)), 'Checked with the payment provider.')}
             >
               Check with the provider
             </Button>
@@ -125,7 +129,7 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
           testId="provider-refund-form" label="Why are you refunding this payment?" minLength={10} busy={busy}
           hint="The full amount goes back to the customer through the provider. It stops counting on the invoice at once and its receipt is voided."
           submitLabel="Refund the full amount" onClose={() => setOpen(null)}
-          onSubmit={(reason) => run('closeout', () => refundGarageProviderPayment(payment.id, reason), 'Refund sent to the provider. The invoice shows what the provider confirmed.')}
+          onSubmit={(reason) => run('closeout', inWords(() => refundGarageProviderPayment(payment.id, reason)), 'Refund sent to the provider. The invoice shows what the provider confirmed.')}
         />
       )}
       {open === 'stop' && (
@@ -133,7 +137,7 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
           testId="provider-stop-form" label="Why stop this checkout?" minLength={3} busy={busy}
           hint="Nothing has been paid. Stopping releases the amount it was holding on the invoice."
           submitLabel="Stop the checkout" onClose={() => setOpen(null)}
-          onSubmit={(reason) => run('closeout', () => cancelGarageProviderPayment(payment.id, reason), 'Checkout stopped.')}
+          onSubmit={(reason) => run('closeout', inWords(() => cancelGarageProviderPayment(payment.id, reason)), 'Stop sent to the provider. The payment shows what the provider confirmed.')}
         />
       )}
     </li>

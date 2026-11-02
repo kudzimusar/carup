@@ -42,10 +42,11 @@ describe('Garage invoices and payments', () => {
     expect(cards.map((c) => c.getAttribute('data-currency'))).toEqual(['USD', 'ZWG'])
     expect(cards[0]).toHaveTextContent('Recorded by the garage80.00 USD')
     expect(cards[0]).toHaveTextContent('Confirmed by your payment provider120.00 USD')
-    expect(cards[0]).toHaveTextContent('In progress with the provider (not counted)50.00 USD')
+    expect(cards[0]).toHaveTextContent('With the provider — in progress or under review (not counted)50.00 USD')
     expect(screen.queryByText(/320\.00/)).toBeNull()
     expect(screen.getByTestId('garage-money-owner-note')).toHaveTextContent('CarUp is not paid any of this money')
-    expect(screen.getByTestId('garage-money-discrepancies')).toHaveTextContent('need review and are not counted')
+    expect(screen.getByTestId('garage-money-discrepancies')).toHaveTextContent('1 provider-payment exception is under review')
+    expect(screen.getByTestId('garage-money-discrepancies')).toHaveTextContent('money it concerns is not counted')
     expect(screen.getByTestId('garage-provider-status')).toHaveTextContent('Simulated provider')
   })
 

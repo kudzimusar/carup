@@ -18,9 +18,11 @@ type Props = {
   /** The request's status when the request is on screen; `null` for records that belong to no listed request. */
   requestStatus: string | null
   onDecide: (estimateId: string, decision: 'accept' | 'decline', reason?: string) => Promise<void>
+  /** CARUP-PAY-04: a payment action on an invoice changed it — reload so the card shows the server's new truth. */
+  onInvoiceChanged?: () => void
 }
 
-export default function CaseCommercial({ estimates, invoices, requestStatus, onDecide }: Props) {
+export default function CaseCommercial({ estimates, invoices, requestStatus, onDecide, onInvoiceChanged }: Props) {
   const estimatesTitleId = useId()
   const invoicesTitleId = useId()
   const status = String(requestStatus ?? '').toLowerCase()
@@ -84,7 +86,7 @@ export default function CaseCommercial({ estimates, invoices, requestStatus, onD
           <h3 id={invoicesTitleId} className="mb-2 text-sm font-semibold text-gray-900">Invoices</h3>
           {orderedInvoices.length > 0 ? (
             <div className="space-y-3">
-              {orderedInvoices.map((i) => <InvoiceCard key={i.id} invoice={i} />)}
+              {orderedInvoices.map((i) => <InvoiceCard key={i.id} invoice={i} onChanged={onInvoiceChanged} />)}
             </div>
           ) : (
             <p className="text-sm text-gray-600" data-testid="no-invoices">The garage has not issued an invoice for this request.</p>

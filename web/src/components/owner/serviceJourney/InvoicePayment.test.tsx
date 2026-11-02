@@ -87,6 +87,71 @@ describe('How to pay', () => {
     expect(screen.queryByTestId('online-payment-start')).toBeNull()
   })
 
+  it('an amount is checked before it is sent: a bad one disables the button and sends nothing', async () => {
+    fetchGarageInvoicePaymentOptions.mockResolvedValue(options())
+    render(<InvoicePayment invoice={invoice} />)
+    fireEvent.click(screen.getByTestId('how-to-pay-toggle'))
+    const amount = await screen.findByTestId('online-payment-amount')
+    fireEvent.change(amount, { target: { value: '-5' } })
+    expect(screen.getByTestId('online-payment-amount-problem')).toHaveTextContent(/amount/)
+    expect(screen.getByTestId('online-payment-start')).toBeDisabled()
+    fireEvent.change(amount, { target: { value: '150.01' } })
+    expect(screen.getByTestId('online-payment-amount-problem')).toHaveTextContent('150.00')
+    expect(screen.getByTestId('online-payment-start')).toBeDisabled()
+    expect(startGarageInvoicePayment).not.toHaveBeenCalled()
+    expect(screen.getByTestId('online-payment-start').className).toMatch(/whitespace-normal/)
+  })
+
+  it('a changed amount is a new request (new key); a refusal is shown as a sentence', async () => {
+    fetchGarageInvoicePaymentOptions.mockResolvedValue(options())
+    startGarageInvoicePayment.mockRejectedValue(new Error('PAY04_COLLECTION_EXCEEDS_UNCOMMITTED_BALANCE'))
+    render(<InvoicePayment invoice={invoice} />)
+    fireEvent.click(screen.getByTestId('how-to-pay-toggle'))
+    const amount = await screen.findByTestId('online-payment-amount')
+    fireEvent.change(amount, { target: { value: '100.00' } })
+    fireEvent.click(screen.getByTestId('online-payment-start'))
+    expect(await screen.findByTestId('online-payment-error')).not.toHaveTextContent('PAY04_')
+    fireEvent.change(amount, { target: { value: '90.00' } })
+    fireEvent.click(screen.getByTestId('online-payment-start'))
+    await waitFor(() => expect(startGarageInvoicePayment).toHaveBeenCalledTimes(2))
+    const [[, , k1], [, , k2]] = startGarageInvoicePayment.mock.calls
+    expect(k1).not.toBe(k2)
+  })
+
+  it('stopping asks first; a refusal shows even when online payment is not on offer; success refreshes the invoice', async () => {
+    const row = { id: 'c1', amount: '150.00', currency: 'USD', initiated_at: '2026-11-02T00:00:00Z', expires_at: '2026-11-02T00:30:00Z', cancelled_at: null,
+      state: 'awaiting_provider', state_label: 'Waiting for the provider to confirm', payment_status: 'pending', gateway: 'pay04_garage_provider_simulator',
+      simulated: true, source_label: '' }
+    fetchGarageInvoicePaymentOptions.mockResolvedValue(options({ online_payment: { available: false, reason: 'payment_in_progress' }, provider_payments: [row] }))
+    cancelGarageInvoicePayment.mockRejectedValueOnce(new Error('PAY04_PROVIDER_CANCEL_UNAVAILABLE'))
+      .mockResolvedValueOnce({ collection: { ...row, state: 'stopped' }, payment_status: 'cancelled', money: {} })
+    const onChanged = vi.fn()
+    render(<InvoicePayment invoice={invoice} onChanged={onChanged} />)
+    fireEvent.click(screen.getByTestId('how-to-pay-toggle'))
+    fireEvent.click(await screen.findByTestId('my-provider-payment-stop'))
+    expect(cancelGarageInvoicePayment).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId('my-provider-payment-stop-confirm'))
+    const refusal = await screen.findByTestId('my-provider-payment-stop-error')
+    expect(refusal).not.toHaveTextContent('PAY04_')
+    expect(refusal).toHaveTextContent(/provider/)
+    expect(onChanged).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId('my-provider-payment-stop'))
+    fireEvent.click(screen.getByTestId('my-provider-payment-stop-confirm'))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
+  })
+
+  it('a check that changes the payment refreshes the invoice above it', async () => {
+    fetchGarageInvoicePaymentOptions.mockResolvedValue(options({ provider_payments: [{ id: 'c1', amount: '50.00', currency: 'USD', initiated_at: '2026-11-02T00:00:00Z',
+      expires_at: '2026-11-02T00:30:00Z', cancelled_at: null, state: 'awaiting_provider', state_label: 'Waiting', payment_status: 'pending',
+      gateway: 'pay04_garage_provider_simulator', simulated: true, source_label: '' }] }))
+    verifyGarageInvoicePayment.mockResolvedValue({ collection: { state: 'confirmed', state_label: 'Confirmed by the provider' }, applied: true, money: {} })
+    const onChanged = vi.fn()
+    render(<InvoicePayment invoice={invoice} onChanged={onChanged} />)
+    fireEvent.click(screen.getByTestId('how-to-pay-toggle'))
+    fireEvent.click(await screen.findByTestId('my-provider-payment-check'))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
+  })
+
   it('checking a payment in progress never claims success before the provider confirms it', async () => {
     fetchGarageInvoicePaymentOptions.mockResolvedValue(options({ provider_payments: [{ id: 'c1', amount: '50.00', currency: 'USD', initiated_at: '2026-11-02T00:00:00Z',
       expires_at: '2026-11-02T00:30:00Z', cancelled_at: null, state: 'awaiting_provider', state_label: 'Waiting for the provider to confirm', payment_status: 'pending',

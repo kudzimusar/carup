@@ -35,7 +35,7 @@ function ReasonForm({ testId, label, hint, submitLabel, busy, onSubmit, onClose 
       <FormError message={problem} testId={`${testId}-error`} />
       <div className="flex flex-wrap gap-2">
         <Button
-          className={MONEY_ACTION_BUTTON_CLASS} disabled={busy} data-testid={`${testId}-submit`}
+          className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy} data-testid={`${testId}-submit`}
           onClick={async () => {
             if (!reason.trim()) { setProblem('Give a reason.'); return }
             setProblem(null)
@@ -193,7 +193,7 @@ export function InvoiceView({ hub, invoice, busy, run }: {
         paying ? (
           <PaymentForm invoice={invoice} busy={busy} run={run} onDone={() => setPaying(false)} />
         ) : (
-          <Button className={MONEY_ACTION_BUTTON_CLASS} disabled={busy} data-testid="record-payment" onClick={() => setPaying(true)}>
+          <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy} data-testid="record-payment" onClick={() => setPaying(true)}>
             Record a payment
           </Button>
         )

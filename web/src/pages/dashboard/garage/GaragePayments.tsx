@@ -6,11 +6,11 @@ import { Card, CardContent } from '@/components/ui/card'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney } from '@/lib/garageBusiness'
-import { MONEY_ACTION_BUTTON_CLASS, PAYMENT_METHOD_OPTIONS, type GarageFinancialOverview, type GaragePaymentInstructionsView } from '@/lib/pay04GaragePayments'
+import { pay04ErrorText, MONEY_ACTION_BUTTON_CLASS, PAYMENT_METHOD_OPTIONS, type GarageFinancialOverview, type GaragePaymentInstructionsView } from '@/lib/pay04GaragePayments'
 import { SN_PAGE } from '@/lib/serviceNetworkLayout'
 
 function messageOf(e: unknown, fallback: string): string {
-  return e instanceof Error && e.message ? e.message : fallback
+  return e instanceof Error && e.message ? pay04ErrorText(e.message) : fallback
 }
 
 const isOverview = (v: GarageFinancialOverview | null | undefined): v is GarageFinancialOverview =>
@@ -133,7 +133,7 @@ export default function GaragePayments() {
                         <div className="flex justify-between gap-2"><dt>Recorded by the garage</dt><dd className="tabular-nums" data-testid="overview-declared">{formatMoney(c.declared_paid, c.currency)}</dd></div>
                         <div className="flex justify-between gap-2"><dt>Confirmed by your payment provider</dt><dd className="tabular-nums" data-testid="overview-provider">{formatMoney(c.provider_paid, c.currency)}</dd></div>
                         <div className="flex justify-between gap-2"><dt>Still owed</dt><dd className="tabular-nums" data-testid="overview-outstanding">{formatMoney(c.outstanding, c.currency)}</dd></div>
-                        <div className="flex justify-between gap-2"><dt>In progress with the provider (not counted)</dt><dd className="tabular-nums">{formatMoney(c.in_flight, c.currency)}</dd></div>
+                        <div className="flex justify-between gap-2"><dt>With the provider — in progress or under review (not counted)</dt><dd className="tabular-nums">{formatMoney(c.in_flight, c.currency)}</dd></div>
                       </dl>
                       <p className="mt-2 text-xs text-gray-600">
                         {c.counts.issued} live invoice(s): {c.counts.paid} paid, {c.counts.partially_paid} partly paid, {c.counts.unpaid} unpaid · {c.counts.voided} voided
@@ -147,7 +147,8 @@ export default function GaragePayments() {
             <p className="text-xs text-gray-600" data-testid="garage-money-owner-note">{overview.revenue_owner_note}</p>
             {overview.open_discrepancies > 0 && (
               <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-900" data-testid="garage-money-discrepancies">
-                {overview.open_discrepancies} provider payment(s) need review and are not counted. CarUp operations has been alerted.
+                {overview.open_discrepancies === 1 ? '1 provider-payment exception is under review' : `${overview.open_discrepancies} provider-payment exceptions are under review`}
+                {' '}— the money it concerns is not counted until it is resolved. CarUp operations has been alerted.
               </p>
             )}
             <div className="rounded-lg border p-3 text-sm" data-testid="garage-provider-status">
@@ -209,7 +210,7 @@ export default function GaragePayments() {
                 {saveMessage.text}
               </p>
             )}
-            <Button className={MONEY_ACTION_BUTTON_CLASS} disabled={saving} onClick={() => void save()} data-testid="instructions-save">
+            <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={saving} onClick={() => void save()} data-testid="instructions-save">
               {saving ? 'Saving…' : instructions?.active ? 'Publish a new version' : 'Publish instructions'}
             </Button>
             {instructions && instructions.history.length > 0 && (

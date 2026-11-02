@@ -520,6 +520,7 @@ export default function ServiceRequests() {
                   estimates={{ status: estimatesState, items: estimatesState === 'ready' ? (estimatesByCase.get(r.id) ?? []) : [] }}
                   invoices={{ status: invoicesState, items: invoicesState === 'ready' ? (invoicesByCase.get(r.id) ?? []) : [] }}
                   onDecide={decideEstimate}
+                  onInvoiceChanged={() => { void loadCommercial() }}
                 />
 
                 {canCancel(r.status) && (
@@ -565,6 +566,7 @@ export default function ServiceRequests() {
                   estimates={{ status: 'ready', items: caseEstimates }}
                   invoices={{ status: 'ready', items: caseInvoices }}
                   onDecide={decideEstimate}
+                  onInvoiceChanged={() => { void loadCommercial() }}
                 />
               </div>
             )

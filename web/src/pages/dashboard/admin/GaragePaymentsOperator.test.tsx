@@ -37,7 +37,7 @@ describe('Garage payments operations', () => {
     expect(screen.getByRole('link', { name: 'payment reconciliation console' })).toHaveAttribute('href', '/admin/commercial-foundation')
   })
 
-  it('closing an exception needs a written note and reports the server’s refusal verbatim', async () => {
+  it('closing an exception needs a written note and reports the server’s refusal in words, with its code for support', async () => {
     resolveGaragePaymentDiscrepancy.mockRejectedValueOnce(new Error('PAY04_RESOLUTION_SELF_DEALING_REFUSED'))
     page()
     fireEvent.click(await screen.findByTestId('operator-resolve'))
@@ -45,7 +45,19 @@ describe('Garage payments operations', () => {
     fireEvent.change(screen.getByTestId('operator-resolution-note'), { target: { value: 'Provider confirmed the 45.00 report' } })
     fireEvent.click(screen.getByTestId('operator-resolve-submit'))
     await waitFor(() => expect(resolveGaragePaymentDiscrepancy).toHaveBeenCalledWith('d1', { resolution: 'provider_corrected', note: 'Provider confirmed the 45.00 report' }))
-    expect(await screen.findByTestId('operator-message')).toHaveTextContent('PAY04_RESOLUTION_SELF_DEALING_REFUSED')
+    const message = await screen.findByTestId('operator-message')
+    expect(message).toHaveTextContent('PAY04_RESOLUTION_SELF_DEALING_REFUSED')
+    expect(message).toHaveTextContent(/connected to this payment/)
+  })
+
+  it('a refund the provider reported after a final resolution is reviewed with its own closures', async () => {
+    fetchGaragePaymentExceptions.mockResolvedValue({ ...exceptions, discrepancies: [{ ...exceptions.discrepancies[0], id: 'd9', type: 'refund_after_resolution', amount: '10.00' }] })
+    page()
+    expect(await screen.findByTestId('operator-discrepancy')).toHaveTextContent('more refund than the operator verified')
+    fireEvent.click(screen.getByTestId('operator-resolve'))
+    const values = [...(screen.getByTestId('operator-resolution') as HTMLSelectElement).options].map((o) => o.value)
+    expect(values).toContain('acknowledged')
+    expect(values).not.toContain('provider_corrected')
   })
 
   it('a failed load is an error, not "no exceptions"', async () => {

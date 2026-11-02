@@ -18,7 +18,7 @@ export type InvoiceMoney = {
 }
 
 export type ProviderPaymentState =
-  | 'awaiting_provider' | 'stopped' | 'expired' | 'confirmed' | 'confirmed_unallocated' | 'under_review'
+  | 'awaiting_provider' | 'stopping' | 'stopped' | 'expired' | 'confirmed' | 'confirmed_unallocated' | 'under_review'
   | 'refund_pending' | 'refunded' | 'partially_refunded' | 'cancelled' | 'unknown'
 
 export type ProviderPayment = {
@@ -198,13 +198,14 @@ export const DISCREPANCY_LABEL: Record<string, string> = {
   amount_mismatch: 'Provider reported a different amount',
   currency_mismatch: 'Provider reported a different currency',
   merchant_mismatch: 'Provider evidence named another merchant',
+  refund_after_resolution: 'Provider reported more refund than the operator verified',
 }
 
 /**
- * The money-action button (record, pay, save, confirm). WCAG 2 AA: white on orange-700 is 5.2:1 at rest and on
+ * The money-action button colours (record, pay, save, confirm); call sites add the min-h-11 touch target. WCAG 2 AA: white on orange-700 is 5.2:1 at rest and on
  * orange-800 7.3:1 on hover; the orange-500/600 shades it replaces were 2.7:1 and 3.6:1 (found by axe in physical UAT).
  */
-export const MONEY_ACTION_BUTTON_CLASS = 'min-h-11 bg-orange-700 text-white hover:bg-orange-800'
+export const MONEY_ACTION_BUTTON_CLASS = 'bg-orange-700 text-white hover:bg-orange-800'
 
 const zero = (v: Decimal | null | undefined) => v === null || v === undefined || Number(v) === 0
 
@@ -224,8 +225,12 @@ export function paymentStatusLabel(invoice: Pick<GarageInvoice, 'payment_status'
   const provider = invoice.money && !zero(invoice.money.provider_paid)
   const declared = invoice.money ? !zero(invoice.money.declared_paid) : true
   if (invoice.payment_status === 'unpaid') {
-    return invoice.money && !zero(invoice.money.provider_reserved) ? 'Not paid yet — a payment is in progress' : 'No payment counted yet'
+    // reserved money may be a checkout in progress, a refund in progress or money held for review: none of it counts
+    return invoice.money && !zero(invoice.money.provider_reserved)
+      ? 'Not paid yet — money is with the provider (in progress or under review) and not counted'
+      : 'No payment counted yet'
   }
+  if (invoice.payment_status !== 'paid' && invoice.payment_status !== 'partially_paid') return 'Payment status unavailable'
   const whole = invoice.payment_status === 'paid' ? 'Paid in full' : 'Partly paid'
   if (!provider) return `${whole} (recorded by the garage)`
   return declared ? `${whole} (recorded by the garage and confirmed by its payment provider)` : `${whole} (confirmed by the garage’s payment provider)`
@@ -233,6 +238,7 @@ export function paymentStatusLabel(invoice: Pick<GarageInvoice, 'payment_status'
 
 export const PROVIDER_STATE_TONE: Record<ProviderPaymentState, string> = {
   awaiting_provider: 'bg-amber-50 text-amber-900 border-amber-300',
+  stopping: 'bg-amber-50 text-amber-900 border-amber-300',
   stopped: 'bg-gray-100 text-gray-800 border-gray-300',
   expired: 'bg-gray-100 text-gray-800 border-gray-300',
   confirmed: 'bg-green-50 text-green-900 border-green-300',
@@ -255,6 +261,52 @@ export function returnOutcomeMessage(outcome: CollectionOutcome | null, failed: 
   if (state === 'confirmed') return { tone: 'ok', text: 'The garage’s payment provider confirmed your payment. It now counts on the invoice.' }
   if (state === 'awaiting_provider') return { tone: 'wait', text: 'The provider has not confirmed this payment yet. It is not counted until it does.' }
   if (state === 'under_review' || state === 'confirmed_unallocated') return { tone: 'warn', text: 'This payment needs review before it can count. The garage and CarUp have been alerted.' }
-  if (state === 'stopped' || state === 'expired' || state === 'cancelled') return { tone: 'warn', text: 'This checkout ended without a payment. Nothing was charged.' }
+  // "Nothing was charged" only once the PROVIDER has confirmed the checkout closed unpaid
+  if (state === 'stopping' || state === 'expired') {
+    return { tone: 'wait', text: 'This checkout ended before the provider confirmed a payment, so it is not counted. CarUp is confirming with the provider that nothing was paid.' }
+  }
+  if (state === 'stopped' || state === 'cancelled') return { tone: 'warn', text: 'This checkout ended without a payment. The provider confirmed nothing was charged.' }
   return { tone: 'warn', text: outcome.collection?.state_label || 'This payment is not counted.' }
+}
+
+/** PAY-04 refusals in words. The server answers with a code; people read a sentence that says what happened. */
+const PAY04_ERROR_TEXT: Record<string, string> = {
+  PAY04_AMOUNT_INVALID: 'Enter an amount in the invoice’s currency, for example 120.00.',
+  PAY04_COLLECTION_EXCEEDS_UNCOMMITTED_BALANCE: 'That is more than is still open on this invoice. Nothing was charged.',
+  PAY04_IDEMPOTENCY_CONFLICT: 'That request was already started with a different amount. Reload and try again. Nothing was charged.',
+  PAY04_INVOICE_NOT_PAYABLE: 'This invoice is not open for payment.',
+  PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE: 'CarUp could not reach the garage’s payment provider. Nothing changed; try again shortly.',
+  PAY04_PROVIDER_CANCEL_UNAVAILABLE: 'CarUp could not reach the payment provider to stop this checkout. Nothing changed and it is still waiting; try again shortly.',
+  PAY04_PROVIDER_REFUND_REFUSED: 'The payment provider refused the refund. Nothing was refunded and the payment still counts on the invoice.',
+  PAY04_COLLECTION_NOT_CANCELLABLE: 'This checkout can no longer be stopped — the provider has already settled it. Check its status.',
+  PAY04_COLLECTION_CLOSED: 'This checkout has already ended. Start a new payment if one is still due.',
+  PAY04_REFUND_NOT_ALLOWED: 'Only a payment the provider has confirmed, and that is not already being refunded, can be refunded.',
+  PAY04_REASON_REQUIRED: 'Give a reason (at least a few words).',
+  PAY04_RESOLUTION_SELF_DEALING_REFUSED: 'Refused: you are connected to this payment (as payer or garage member), so another operator must close it.',
+  PAY04_RESOLUTION_AUTHORITY_REFUSED: 'Only a platform administrator can close this.',
+  PAY04_RESOLUTION_INVALID: 'That closure does not fit this kind of exception.',
+  PAY04_RESOLUTION_REQUIRES_PROVIDER_REFUND: 'Close it as refunded only after the provider has confirmed the refund.',
+  PAY04_RESOLUTION_NOTE_REQUIRED: 'Write a note of at least 10 characters.',
+  PAY04_DISCREPANCY_NOT_OPEN: 'This exception is already closed.',
+  PAY04_DISABLED: 'Online garage payments are switched off right now.',
+}
+export function pay04ErrorText(message: string): string {
+  const code = /\bPAY04_[A-Z0-9_]+\b/.exec(message)?.[0]
+  if (!code) return message
+  return PAY04_ERROR_TEXT[code] ?? 'That did not go through. Nothing was changed. Try again, or contact CarUp support.'
+}
+
+/** Why an online amount cannot be sent (null when it can): the currency’s own precision, more than zero, at most `max`. */
+export function onlineAmountProblem(raw: string, max: string, currency: string): string | null {
+  const scale = ZERO_DECIMAL.has(currency) ? 0 : 2
+  const text = raw.trim()
+  const pattern = scale === 0 ? /^\d{1,12}$/ : /^\d{1,12}(\.\d{1,2})?$/
+  if (!pattern.test(text)) return scale === 0 ? `Enter a whole amount in ${currency}.` : `Enter an amount in ${currency}, for example 120.00.`
+  const minor = (v: string) => {
+    const [whole, frac = ''] = v.split('.')
+    return BigInt(whole) * BigInt(10 ** scale) + BigInt((frac + '00').slice(0, scale) || '0')
+  }
+  if (minor(text) <= 0n) return 'Enter an amount of more than zero.'
+  if (minor(text) > minor(max)) return `You can pay at most ${max} ${currency} here.`
+  return null
 }
