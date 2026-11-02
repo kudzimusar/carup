@@ -394,7 +394,9 @@ export async function getCloseout(client = defaultClient, actor = {}, caseId) {
   if (live || invoices[0]) {
     const target = live || invoices[0];
     const parts = await loadInvoiceParts(client, [target.id]);
-    out.invoice = await invoiceView(client, target, parts);
+    const view = await invoiceView(client, target, parts);
+    // the Garage Hub shows the invoice's provider activity too (closeout is a garage-administrator view)
+    out.invoice = { ...view, provider_history: await providerHistoryOf(client, view) };
     out.variance = out.invoice.variance;
   } else {
     out.variance = accepted ? { state: 'awaiting_invoice' } : { state: 'no_estimate' };
@@ -439,6 +441,15 @@ async function notifyForCase(client, serviceCaseId, eventType, entity, deps) {
   }
 }
 
+/** CARUP-PAY-04: the append-only provider-payment activity of an invoice (garage views only; a failed read throws). */
+async function providerHistoryOf(client, view) {
+  if (!view.provider_payments_supported) return [];
+  const { data, error } = await client.from('pay04_garage_collection_events')
+    .select('event_type, actor, detail, created_at, collection_id').eq('invoice_id', view.id).order('seq', { ascending: true });
+  if (error) throw new DatabaseError('Could not load provider payment history: ' + error.message);
+  return list(data);
+}
+
 export async function getInvoice(client = defaultClient, actor = {}, invoiceId) {
   const tenantId = adminTenant(actor);
   const id = String(invoiceId ?? '').trim();
@@ -450,15 +461,7 @@ export async function getInvoice(client = defaultClient, actor = {}, invoiceId) 
   const { data: ev, error: evError } = await client.from('garage_invoice_events')
     .select('event_type, actor_user_id, created_at, detail').eq('invoice_id', data.id).order('seq', { ascending: true });
   if (evError) throw new DatabaseError('Could not load invoice history: ' + evError.message);
-  // CARUP-PAY-04: the append-only provider-payment activity of this invoice (garage view only)
-  let providerHistory = [];
-  if (view.provider_payments_supported) {
-    const { data: pev, error: pevError } = await client.from('pay04_garage_collection_events')
-      .select('event_type, actor, detail, created_at, collection_id').eq('invoice_id', data.id).order('seq', { ascending: true });
-    if (pevError) throw new DatabaseError('Could not load provider payment history: ' + pevError.message);
-    providerHistory = list(pev);
-  }
-  return { ...view, history: list(ev), provider_history: providerHistory };
+  return { ...view, history: list(ev), provider_history: await providerHistoryOf(client, view) };
 }
 
 export async function listInvoices(client = defaultClient, actor = {}, { status } = {}) {

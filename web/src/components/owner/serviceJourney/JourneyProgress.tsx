@@ -9,6 +9,7 @@ import {
   type OwnerAuthorization,
 } from '@/lib/garageBusiness'
 import { requestDate } from '@/lib/serviceRequests'
+import { paymentStatusLabel } from '@/lib/pay04GaragePayments'
 
 /**
  * The customer's view of one request's whole journey:
@@ -238,7 +239,8 @@ function deriveSteps(
       steps.push({ key: 'payment', name: 'Payment recorded', state: 'pending', detail: 'Not yet' })
     } else {
       steps.push({ key: 'invoice', name: 'Invoice', state: 'done', detail: `Invoice ${invoice.invoice_number} issued ${requestDate(invoice.issued_at)}` })
-      const paymentLabel = PAYMENT_STATUS_LABEL[invoice.payment_status] ?? 'Payment status not recorded'
+      // CARUP-PAY-04: where provider-confirmed money counts, the label names that source too
+      const paymentLabel = invoice.money ? paymentStatusLabel(invoice) : (PAYMENT_STATUS_LABEL[invoice.payment_status] ?? 'Payment status not recorded')
       const paymentState: StepState = invoice.payment_status === 'paid' ? 'done'
         : invoice.payment_status === 'partially_paid' ? 'current'
           : invoice.payment_status === 'voided' ? 'stopped' : 'pending'

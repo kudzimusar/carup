@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PAYMENT_STATUS_LABEL, formatMoney, type Decimal, type GarageInvoice } from '@/lib/garageBusiness'
 import { Section, whenText } from './OperationsParts'
+import { paymentStatusLabel } from '@/lib/pay04GaragePayments'
 
 export type InvoiceStatusFilter = 'all' | 'issued' | 'voided'
 
@@ -33,9 +34,13 @@ export function InvoicesSection({ state, data, error, status, onStatusChange, on
   onStatusChange: (next: InvoiceStatusFilter) => void
   onRetry: () => void
 }) {
-  const sourceLabel = data?.invoices.find((i) => i.payment_source_label)?.payment_source_label ?? null
+  // CARUP-PAY-04: once provider-confirmed money counts on any listed invoice, one label cannot describe them all
+  const anyProviderMoney = Boolean(data?.invoices.some((i) => i.money && Number(i.money.provider_paid) > 0))
+  const sourceLabel = anyProviderMoney
+    ? 'Each invoice states where its counted payments come from: recorded by the garage (CarUp has not verified them) or confirmed by the garage’s payment provider (paid to the garage, not to CarUp).'
+    : (data?.invoices.find((i) => i.payment_source_label)?.payment_source_label ?? null)
   return (
-    <Section id="invoices" title="Invoices" intro="Each invoice opens its service case. Payment states come from the payments the garage recorded.">
+    <Section id="invoices" title="Invoices" intro="Each invoice opens its service case. Payment states count what the garage recorded and what its payment provider confirmed.">
       <div className="max-w-xs">
         <label htmlFor="invoice-status-filter" className="block text-sm font-medium mb-1">Invoice status</label>
         <select id="invoice-status-filter" className="w-full min-h-11 rounded-md border px-3" value={status} onChange={(e) => onStatusChange(e.target.value as InvoiceStatusFilter)}>
@@ -108,12 +113,17 @@ export function InvoicesSection({ state, data, error, status, onStatusChange, on
                         </div>
                         <p className="font-semibold tabular-nums">{formatMoney(inv.total_amount, inv.currency)}</p>
                       </div>
-                      <p className="mt-1 text-sm">{PAYMENT_STATUS_LABEL[inv.payment_status] ?? inv.payment_status}</p>
-                      {paymentsShown && inv.status === 'issued' && (
+                      <p className="mt-1 text-sm">{inv.money ? paymentStatusLabel(inv) : (PAYMENT_STATUS_LABEL[inv.payment_status] ?? inv.payment_status)}</p>
+                      {paymentsShown && inv.status === 'issued' && (inv.money && Number(inv.money.provider_paid) > 0 ? (
+                        <p className="text-sm text-gray-700">
+                          Paid {formatMoney(inv.paid_amount, inv.currency)} — recorded by the garage {formatMoney(inv.money.declared_paid, inv.currency)},
+                          {' '}confirmed by its payment provider {formatMoney(inv.money.provider_paid, inv.currency)}; balance {formatMoney(inv.balance_amount, inv.currency)}
+                        </p>
+                      ) : (
                         <p className="text-sm text-gray-700">
                           Recorded payments {formatMoney(inv.paid_amount, inv.currency)}, balance {formatMoney(inv.balance_amount, inv.currency)}
                         </p>
-                      )}
+                      ))}
                       {inv.status === 'issued' && !paymentsShown && (
                         <p className="text-sm text-gray-700">Balance {formatMoney(inv.balance_amount, inv.currency)}</p>
                       )}

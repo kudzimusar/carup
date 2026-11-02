@@ -503,6 +503,15 @@ test('room that reappears (a declared payment is reversed) re-projects provider 
   assert.equal(flag.resolution, 'counted_on_invoice');
 });
 
+test('the Garage Hub (closeout) carries the provider payment activity of its live invoice', { skip }, async () => {
+  const inv = await invoice(26);
+  const started = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv.id, body: {}, idempotencyKey: `p4t-hub-${run}-01` });
+  await payAndDeliver(started);
+  const closeout = await I.getCloseout(db, garageAdminCtx(), inv.service_case_id);
+  const events = (closeout.invoice?.provider_history || []).map((e) => e.event_type);
+  assert.ok(events.includes('initiated') && events.includes('allocated'), `activity: ${events.join(',')}`);
+});
+
 test('races on real PostgreSQL: one winner for the last unit of balance; webhook storms apply once; refunds once', { skip }, async () => {
   const inv = await invoice(60);
   // two customers' requests (different keys) for the whole balance at the same instant

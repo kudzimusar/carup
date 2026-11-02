@@ -22,6 +22,7 @@ import {
   type OwnerAuthorization,
   type PaymentRecord,
 } from '@/lib/garageBusiness'
+import { paymentStatusLabel } from '@/lib/pay04GaragePayments'
 
 export type CaseStatus = 'requested' | 'accepted' | 'active' | 'completed' | 'declined' | 'cancelled' | string
 export type WorkOrderStatus = 'In Progress' | 'Completed' | 'Cancelled' | string
@@ -428,7 +429,8 @@ export function hubSteps(hub: CaseHub): HubStep[] {
   if (money) {
     rows.push(
       { key: 'invoice', label: 'Invoice', done: Boolean(live), detail: live ? live.invoice_number : null },
-      { key: 'payment', label: 'Payment', done: live?.payment_status === 'paid', detail: live ? PAYMENT_STATUS_LABEL[live.payment_status] : null },
+      // CARUP-PAY-04: where provider-confirmed money counts, the label names that source too
+      { key: 'payment', label: 'Payment', done: live?.payment_status === 'paid', detail: live ? (live.money ? paymentStatusLabel(live) : PAYMENT_STATUS_LABEL[live.payment_status]) : null },
     )
   }
 
