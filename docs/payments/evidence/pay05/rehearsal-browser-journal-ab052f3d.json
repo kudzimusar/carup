@@ -1,0 +1,67 @@
+[
+  {
+    "step": "provenance",
+    "at": "2026-11-02T12:38:06.313Z",
+    "web": "ab052f3d849409e6abb8dcd5df98ed2d9d400134",
+    "backend": "ab052f3d849409e6abb8dcd5df98ed2d9d400134"
+  },
+  {
+    "step": "garage-connected",
+    "at": "2026-11-02T12:38:37.289Z",
+    "merchant_status": "pending_verification"
+  },
+  {
+    "step": "operator-verified",
+    "at": "2026-11-02T12:39:13.318Z",
+    "probe": "authenticated"
+  },
+  {
+    "step": "customer-paid-on-paynow-page",
+    "at": "2026-11-02T12:40:19.022Z",
+    "collection": "0889fc4c-3940-4f3b-ae87-4bda5e10778e",
+    "ledger": "paynow_zimbabwe|paid|garage_business_tenant|tenant:3926b0b7-82b7-438b-99d2-37d94b1f7ccf"
+  },
+  {
+    "step": "customer-ecocash",
+    "at": "2026-11-02T12:41:20.269Z",
+    "collection": "b047cfa0-7190-422f-ad5c-cfd060d916a3",
+    "status": "paid"
+  },
+  {
+    "step": "customer-innbucks",
+    "at": "2026-11-02T12:42:21.764Z",
+    "collection": "416464b3-f086-4f56-b0d5-defcfcec5e35",
+    "status": "paid"
+  },
+  {
+    "step": "customer-omari",
+    "at": "2026-11-02T12:43:23.708Z",
+    "collection": "6176e5b8-0afe-4bc3-a1a5-1a1492ce52c3",
+    "status": "paid"
+  },
+  {
+    "step": "garage-paynow-payments",
+    "at": "2026-11-02T12:44:21.054Z",
+    "case": "6f6217c9-b884-4631-ae24-739fabf1f2e1"
+  },
+  {
+    "step": "operator-held",
+    "at": "2026-11-02T12:45:21.453Z",
+    "collection": "09944dd3-406a-4a20-b186-b1ac3c239344"
+  },
+  {
+    "step": "viewport-desktop",
+    "at": "2026-11-02T12:46:34.426Z",
+    "ok": true
+  },
+  {
+    "step": "viewport-tablet",
+    "at": "2026-11-02T12:47:35.610Z",
+    "ok": true
+  },
+  {
+    "step": "viewport-mobile",
+    "at": "2026-11-02T12:48:37.280Z",
+    "ok": true
+  }
+]

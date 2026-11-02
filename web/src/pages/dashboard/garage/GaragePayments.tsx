@@ -8,6 +8,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney } from '@/lib/garageBusiness'
 import { pay04ErrorText, MONEY_ACTION_BUTTON_CLASS, PAYMENT_METHOD_OPTIONS, type GarageFinancialOverview, type GaragePaymentInstructionsView } from '@/lib/pay04GaragePayments'
 import { SN_PAGE } from '@/lib/serviceNetworkLayout'
+import PaynowConnection from '@/components/garage/PaynowConnection'
 
 function messageOf(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? pay04ErrorText(e.message) : fallback
@@ -165,6 +166,8 @@ export default function GaragePayments() {
           </>
         )}
       </section>
+
+      <PaynowConnection />
 
       <section aria-labelledby={`${uid}-instr`} className="space-y-3 border-t pt-6" data-testid="garage-instructions-section">
         <h2 id={`${uid}-instr`} className="text-lg font-semibold">Payment instructions for your customers</h2>

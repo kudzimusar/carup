@@ -181,9 +181,22 @@ test('X4: no biometric fingerprint store and no template/embedding store anywher
     .replace(/\bv_fingerprint\b/g, '');
   assert.match(withoutTrustFingerprint('CREATE TABLE identity_biometrics (fingerprint BYTEA);'), /fingerprint/i,
     'the refinement must still catch a fingerprint column');
+  // A second NON-biometric meaning (PAY-05, 20261103100000): a garage's Paynow integration-key fingerprint, the first
+  // 16 hex characters of a one-way hash of the key, so an operator can tell keys apart without ever seeing one. Only a
+  // file that pins that column to exactly 16 lowercase hex (which no biometric template fits) has the identifier, and
+  // the registration payload's 'fingerprint' key, removed. Every other mention still fails.
+  const KEY_FINGERPRINT_IS_A_16_HEX_DIGEST = /credential_fingerprint ~ '\^\[0-9a-f\]\{16\}\$'/;
+  const withoutKeyFingerprint = (sql) => (KEY_FINGERPRINT_IS_A_16_HEX_DIGEST.test(sql)
+    ? sql.replace(/\bcredential_fingerprint\b/g, '').replace(/->>'fingerprint'/g, '')
+    : sql);
+  assert.match(withoutTrustFingerprint(withoutKeyFingerprint('CREATE TABLE k (credential_fingerprint bytea);')), /fingerprint/i,
+    'an unconstrained credential_fingerprint is still caught');
+  assert.match(withoutTrustFingerprint(withoutKeyFingerprint(
+    "CREATE TABLE k (credential_fingerprint text CHECK (credential_fingerprint ~ '^[0-9a-f]{16}$')); CREATE TABLE b (fingerprint bytea);")),
+  /fingerprint/i, 'a fingerprint column beside the key digest is still caught');
   for (const file of sqlFiles) {
     const sql = readFileSync(file, 'utf8');
-    if (path.basename(file) >= '20260829') assert.doesNotMatch(withoutTrustFingerprint(sql), /fingerprint/i, `${path.basename(file)} must not define fingerprint storage`);
+    if (path.basename(file) >= '20260829') assert.doesNotMatch(withoutTrustFingerprint(withoutKeyFingerprint(sql)), /fingerprint/i, `${path.basename(file)} must not define fingerprint storage`);
     assert.doesNotMatch(sql, biometricFingerprint, `${path.basename(file)} must not define biometric fingerprint storage`);
     assert.doesNotMatch(sql, templateStore, `${path.basename(file)} must not define a biometric template/embedding store`);
   }

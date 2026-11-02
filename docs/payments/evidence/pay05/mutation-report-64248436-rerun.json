@@ -1,0 +1,87 @@
+{
+  "summary": {
+    "total": 7,
+    "killed": 4,
+    "survived": [
+      "BASE-UNIT",
+      "BASE-SVC",
+      "BASE-SQL"
+    ],
+    "invalid": [],
+    "worktree_clean_after": true
+  },
+  "results": [
+    {
+      "id": "BASE-UNIT",
+      "file": "backend/services/payment/pay05PaynowProtocol.js",
+      "why": "baseline: unit tests pass unmutated",
+      "verdict": "SURVIVED",
+      "seconds": 0.6,
+      "evidence": []
+    },
+    {
+      "id": "BASE-SVC",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "baseline: real-PG services pass unmutated",
+      "verdict": "SURVIVED",
+      "seconds": 8.7,
+      "evidence": []
+    },
+    {
+      "id": "J11-trace-reference",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "trace reply for another reference (S6; SQL is the second line)",
+      "verdict": "KILLED",
+      "seconds": 7.7,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 7630.788708"
+      ]
+    },
+    {
+      "id": "BASE-SQL",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "baseline: the smoke passes unmutated",
+      "verdict": "SURVIVED",
+      "seconds": 6.7,
+      "evidence": []
+    },
+    {
+      "id": "S10-release-expiry",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "release before expiry",
+      "verdict": "KILLED",
+      "seconds": 6.7,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_release_paynow_hold(%L, 'p5-op', 'admin', 'Not expired: the customer may still approve.')$q$, c), '^PAY05_HOLD_NOT_RELEASABLE$')\"",
+        "PL/pgSQL function inline_code_block line 171 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S26-begin-currency-integration",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "collection begun for a currency without a verified integration",
+      "verdict": "KILLED",
+      "seconds": 6.7,
+      "evidence": [
+        "    'PAY04_MERCHANT_CURRENCY_UNSUPPORTED')\"",
+        "PL/pgSQL function inline_code_block line 190 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S27-verified-merchant-join",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "integration of a non-verified merchant usable (defence in depth)",
+      "verdict": "KILLED",
+      "seconds": 6.7,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_record_paynow_sending(%L, %L, 'web', NULL)$q$, c, pg_temp.trace(c)), 'PAY05_INTEGRATION_UNAVAILABLE')\"",
+        "PL/pgSQL function inline_code_block line 197 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    }
+  ]
+}

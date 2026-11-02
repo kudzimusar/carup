@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { returnOutcomeMessage, type CollectionOutcome } from '@/lib/pay04GaragePayments'
+import { paynowContinuable, paynowOutcomeMessage, type PaynowOutcome } from '@/lib/pay05Paynow'
+import PaynowPendingPanel from './PaynowPendingPanel'
 
 const TONE = { ok: 'border-green-300 bg-green-50 text-green-900', wait: 'border-amber-300 bg-amber-50 text-amber-900', warn: 'border-amber-300 bg-amber-50 text-amber-900', error: 'border-red-300 bg-red-50 text-red-900' } as const
 const COLLECTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -17,7 +19,9 @@ const COLLECTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => void }) {
   const [params] = useSearchParams()
   const { verifyGarageInvoicePayment } = useCarUpApi()
-  const returned = params.get('pay04')
+  // PAY-05: back from Paynow's own page (?pay05=returned) — the same rule: coming back proves nothing
+  const paynow = params.get('pay05') === 'returned'
+  const returned = paynow ? 'returned' : params.get('pay04')
   const collectionId = params.get('collection') || ''
   const valid = (returned === 'returned' || returned === 'cancelled') && COLLECTION_ID.test(collectionId)
   const [phase, setPhase] = useState<'checking' | 'done'>('checking')
@@ -47,19 +51,28 @@ export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => v
   }, [valid, collectionId])
 
   if (!valid) return null
-  if (phase === 'checking') {
-    return (
-      <div role="status" className="rounded-lg border border-gray-300 bg-white p-4 text-sm" data-testid="payment-return-checking">
-        Checking your payment with the garage’s payment provider… Nothing is shown as paid until the provider confirms it.
-      </div>
-    )
-  }
-  const message = returnOutcomeMessage(outcome, failed)
+  const message = phase === 'checking' ? null
+    : paynow ? paynowOutcomeMessage(outcome as PaynowOutcome | null, failed) : returnOutcomeMessage(outcome, failed)
+  // PAY-05: back from Paynow without finishing — what Paynow gave CarUp to continue the request (its page, a code)
+  const view = message && paynow && !failed ? (outcome as PaynowOutcome | null)?.paynow ?? null : null
+  const state = outcome?.collection?.state ?? null
   return (
-    <div role="status" className={`rounded-lg border p-4 text-sm ${TONE[message.tone]}`} data-testid="payment-return-outcome" data-tone={message.tone}>
-      <p>{message.text}</p>
-      {message.tone !== 'ok' && (
-        <Button variant="outline" className="mt-2 min-h-11 bg-white" onClick={() => void check()} data-testid="payment-return-recheck">
+    <div className={`space-y-2 rounded-lg border p-4 text-sm ${message ? TONE[message.tone] : 'border-gray-300 bg-white'}`} data-testid="payment-return">
+      {phase === 'checking' && (
+        <p data-testid="payment-return-checking">
+          {paynow
+            ? 'Checking your payment with Paynow… Coming back from Paynow is not proof of payment; nothing is shown as paid until Paynow confirms it.'
+            : 'Checking your payment with the garage’s payment provider… Nothing is shown as paid until the provider confirms it.'}
+        </p>
+      )}
+      {/* in the page, empty, while CarUp checks: the words that arrive are announced (W8) */}
+      <p role="status" aria-live="polite" data-testid="payment-return-outcome" data-tone={message?.tone}>{message?.text ?? ''}</p>
+      {view && paynowContinuable(state, view) && (
+        <PaynowPendingPanel collectionId={collectionId} paynow={view} state={state}
+          onOtpOutcome={(answer) => { setOutcome(answer); setFailed(false); onSettled?.() }} />
+      )}
+      {message && message.tone !== 'ok' && (
+        <Button variant="outline" className="min-h-11 bg-white" onClick={() => void check()} data-testid="payment-return-recheck">
           Check payment status
         </Button>
       )}

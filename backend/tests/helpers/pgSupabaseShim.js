@@ -83,7 +83,10 @@ export function createPgSupabase(connectionString) {
   async function shapeOf(name) {
     if (!shapes.has(name)) {
       const { rows: [shape] } = await pool.query(
-        `SELECT p.proretset, t.typtype FROM pg_proc p JOIN pg_type t ON t.oid = p.prorettype
+        `SELECT p.proretset, t.typtype,
+                (SELECT coalesce(array_agg(n ORDER BY i), '{}') FROM unnest(p.proargnames, p.proargtypes::oid[]::regtype[]::text[])
+                   WITH ORDINALITY AS a(n, ty, i) WHERE ty IN ('json', 'jsonb')) AS json_args
+           FROM pg_proc p JOIN pg_type t ON t.oid = p.prorettype
           WHERE p.proname = $1 AND p.pronamespace = 'public'::regnamespace LIMIT 1`, [name]);
       shapes.set(name, shape || null);
     }
@@ -95,11 +98,14 @@ export function createPgSupabase(connectionString) {
     const call = keys.map((k, i) => `${ident(k)} => $${i + 1}`).join(', ');
     try {
       const shape = await shapeOf(name);
+      // PAY-05: like PostgREST, a JSON array argument for a json/jsonb parameter is JSON (not a PostgreSQL array)
+      const jsonArgs = new Set(shape?.json_args ?? []);
+      const values = keys.map((k) => (jsonArgs.has(k) && Array.isArray(args[k]) ? JSON.stringify(args[k]) : toPg(args[k])));
       if (shape && (shape.proretset || shape.typtype === 'c')) {
-        const { rows } = await pool.query(`SELECT * FROM public.${ident(name)}(${call})`, keys.map((k) => toPg(args[k])));
+        const { rows } = await pool.query(`SELECT * FROM public.${ident(name)}(${call})`, values);
         return { data: rows, error: null };
       }
-      const { rows } = await pool.query(`SELECT public.${ident(name)}(${call}) AS result`, keys.map((k) => toPg(args[k])));
+      const { rows } = await pool.query(`SELECT public.${ident(name)}(${call}) AS result`, values);
       return { data: rows[0]?.result ?? null, error: null };
     } catch (err) {
       return { data: null, error: { message: err.message, code: err.code, details: err.detail || null } };

@@ -1,0 +1,310 @@
+name: PAY-05 Zimbabwe collections CI
+# CARUP-PAY-05-LR01 — Zimbabwe collections through the garage's OWN Paynow merchant, on the PAY-04 line.
+#
+# Custody is proven against the accepted PAY-04 head and its CI-only reconciliation (both ancestors, no PAY-04 or earlier
+# migration rewritten, the PAY-05 migration sorting last). Then the workflow secret-isolation gate, the PAY-05 and PAY-04
+# contracts with every inherited Payments/Garage gate, the integrated PostgreSQL certification in both orders a real
+# database can receive the lineages followed by the real-PostgreSQL + real-HTTP Paynow service tests (the local Paynow
+# protocol simulator; a skip is a failure), and the full web suite. Nothing here reaches staging, production or Paynow,
+# and no job holds a secret.
+on:
+  push:
+    branches:
+      - feat/carup-pay-05-zimbabwe-collections-mobile-money
+  pull_request:
+    paths:
+      - 'backend/services/payment/**'
+      - 'backend/services/garageOperations/**'
+      - 'backend/routes/pay0*'
+      - 'backend/middleware/securityMiddleware.js'
+      - 'backend/server.js'
+      - 'backend/tests/pay04-*'
+      - 'backend/tests/pay05-*'
+      - 'backend/tests/helpers/**'
+      - 'backend/tests/sql/**'
+      - 'database/migrations/**'
+      - 'scripts/ci/pay0*'
+      - 'scripts/ci/workflow-secret-isolation.mjs'
+      - 'scripts/uat/pay05-*'
+      - 'web/src/**'
+      - '.github/workflows/**'
+      - 'docs/payments/CARUP_PAY_05_*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PAY04_ACCEPTED_HEAD: 18440746db6557bc81ee6644ce7338acbef3378d
+  PAY04_RECONCILED_HEAD: b3ca4d211f316a40728d56612f4d975c745c4061
+  PAYMENTS_PARENT: c2d548edbe4cc7ac9528f3c4a2c7f55a1d8bad88
+  GARAGE_PARENT: 69e12e21941a318c1ad6a3266cc8144de44c5d32
+
+jobs:
+  custody:
+    name: Custody — accepted PAY-04 head and its CI reconciliation are ancestors; no shipped migration rewritten; PAY-05 last
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The accepted heads are ancestors of this candidate
+        run: |
+          set -euo pipefail
+          for p in "$PAY04_ACCEPTED_HEAD" "$PAY04_RECONCILED_HEAD" "$PAYMENTS_PARENT" "$GARAGE_PARENT"; do
+            git cat-file -e "${p}^{commit}"
+            git merge-base --is-ancestor "$p" HEAD
+            echo "ancestor: $p"
+          done
+          echo "HEAD=$(git rev-parse HEAD)"
+      - name: The PAY-04 reconciliation changed CI only (no runtime, migration or product file)
+        run: |
+          set -euo pipefail
+          other="$(git diff --name-only "$PAY04_ACCEPTED_HEAD" "$PAY04_RECONCILED_HEAD" | grep -v -E '^(\.github/workflows/|scripts/ci/workflow-secret-isolation\.mjs$|backend/tests/ci-workflow-secret-isolation\.test\.js$|backend/tests/oc5r-rel01-deployed-provider-proof\.test\.js$|docs/ci/)' || true)"
+          if [ -n "$other" ]; then echo "non-CI change in the reconciliation:"; echo "$other"; exit 1; fi
+      - name: No migration the PAY-04 line shipped was rewritten or removed
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-status "$PAY04_RECONCILED_HEAD" HEAD -- database/migrations | awk '$1 != "A"' || true)"
+          if [ -n "$changed" ]; then echo "migrations changed:"; echo "$changed"; exit 1; fi
+      - name: PAY-05 migrations sort after every parent migration and carry the Up/Down markers
+        run: |
+          set -euo pipefail
+          tip="$(git ls-tree -r --name-only "$PAY04_RECONCILED_HEAD" -- database/migrations | sed 's#.*/##' | grep -E '^[0-9]{14}_' | sort | tail -1)"
+          echo "latest parent migration: $tip"
+          for f in $(git diff --name-only --diff-filter=A "$PAY04_RECONCILED_HEAD" HEAD -- database/migrations); do
+            name="$(basename "$f")"
+            [[ "$name" > "$tip" ]] || { echo "$name sorts before $tip"; exit 1; }
+            if ! { grep -q -- '-- +migrate Up' "$f" && grep -q -- '-- +migrate Down' "$f"; }; then echo "$name lacks markers"; exit 1; fi
+            echo "ok: $name"
+          done
+      - name: Diff hygiene
+        run: git diff --check "$PAY04_RECONCILED_HEAD" HEAD
+
+  workflow-secret-isolation:
+    name: Workflow secret isolation — no pull-request job can reach a secret; no Payments push reaches shared data
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Static policy regression
+        run: node --test backend/tests/ci-workflow-secret-isolation.test.js
+      - name: Dry run — every job any pull-request event could start, and every Payments branch push
+        env:
+          THIS_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          node scripts/ci/workflow-secret-isolation.mjs \
+            --push-branch "$THIS_BRANCH" \
+            --push-branch feat/carup-pay-04-garage-payments \
+            --push-branch feat/carup-pay-05-zimbabwe-collections-mobile-money \
+            --report workflow-secret-isolation-report.json
+      - name: Publish the dry-run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-secret-isolation-${{ github.sha }}
+          path: workflow-secret-isolation-report.json
+          if-no-files-found: error
+          retention-days: 30
+
+  backend:
+    name: Backend — PAY-05 protocol/custody/adapter/drift/coverage/routes, PAY-04 contracts, Garage and Payments regressions
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_ENV: test
+      CARUP_ENV: test
+      CARUP_PAY01A_ENABLED: 'false'
+      CARUP_PAY01C_ENABLED: 'false'
+      CARUP_PAY03B_ENABLED: 'false'
+      CARUP_PAY04_ENABLED: 'false'
+      CARUP_PAY05_ENABLED: 'false'
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: PAY-05 contracts (Paynow protocol vectors, key custody, adapter vs simulator, PAY-04 drift, product coverage, routes)
+        run: |
+          node --test backend/tests/pay05-paynow-protocol.test.js backend/tests/pay05-credential-vault.test.js \
+            backend/tests/pay05-paynow-adapter.test.js backend/tests/pay05-pay04-function-drift.test.js \
+            backend/tests/pay05-product-coverage.test.js backend/tests/pay05-route-hardening.test.js backend/tests/pay05-paynow-views.test.js \
+            backend/tests/ci-workflow-secret-isolation.test.js backend/tests/oc5r-rel01-deployed-provider-proof.test.js \
+            backend/tests/oc4f-no-committed-credentials.test.js
+      - name: PAY-04 static contracts
+        run: node --test backend/tests/pay04-f5-extension-drift.test.js backend/tests/pay04-garage-notifications.test.js backend/tests/pay04-invoice-failure-mapping.test.js backend/tests/pay04-product-inventory.test.js backend/tests/pay04-route-hardening.test.js backend/tests/pay04-garage-payments.test.js
+      - name: Garage domains (OPS04-OPS07, hub, communications, summary, history)
+        run: |
+          node --test --test-concurrency=1 \
+            backend/tests/garage-ops04-migrations.test.js backend/tests/garage-ops04-authority.test.js \
+            backend/tests/garage-ops05-migrations.test.js backend/tests/garage-ops05-authority.test.js \
+            backend/tests/garage-ops06-migrations.test.js backend/tests/garage-ops06-authority.test.js \
+            backend/tests/garage-ops07-migrations.test.js backend/tests/garage-ops07-authority.test.js \
+            backend/tests/garage-hub.test.js backend/tests/garage-communications.test.js \
+            backend/tests/garage-operations-summary.test.js backend/tests/garage-history-convergence.test.js
+      - name: Inherited Garage, Service Network, OC-5, PartSentry and Communications gates
+        run: |
+          node --test --test-concurrency=1 \
+            backend/tests/garage-cv01-parts-authority.test.js \
+            backend/tests/garage-ops01-*.test.js backend/tests/garage-ops02-*.test.js backend/tests/garage-ops03-*.test.js \
+            backend/tests/service-network-*.test.js \
+            backend/tests/oc5a-*.test.js backend/tests/oc5d-*.test.js backend/tests/oc5e-*.test.js backend/tests/oc5h-*.test.js \
+            backend/tests/gmo-*.test.js backend/tests/partsentry-*.test.js \
+            backend/tests/communication-event-coverage.test.js backend/tests/communication-engine.test.js backend/tests/oc5g-policy-*.test.js \
+            backend/tests/intelligence-service-mechanic-garage.test.js
+      - name: PAY-03B and PAY-01A/C, PAY-02, PAY-03A regressions
+        run: |
+          node --test backend/tests/pay03b-refund-mismatch.test.js backend/tests/pay03b-provider-reconciliation.test.js \
+            backend/tests/pay03b-diaspora-bridge.test.js backend/tests/pay03b-route-hardening.test.js \
+            backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js \
+            backend/tests/pay02-commercial-foundation.test.js backend/tests/pay03a-real-report-commerce.test.js \
+            backend/tests/migration-integrity.test.js
+      - name: Shell and module syntax of the PAY-05 harness
+        run: |
+          bash -n scripts/ci/pay04-postgres-certification.sh
+          bash -n scripts/ci/pay05-postgres-certification.sh
+          for f in scripts/uat/pay05-*.sh; do [ -e "$f" ] && bash -n "$f"; done
+          for f in scripts/uat/pay05-*.mjs; do [ -e "$f" ] && node --check "$f"; done
+          true
+
+  postgres-payments-first:
+    name: Disposable PostgreSQL — Payments first, Garage, PAY-04, PAY-05 (upgrade + behaviour) and real-PG + real-HTTP Paynow services
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pay01c_sandbox_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pay01c_sandbox_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: pay01c_sandbox_ci
+      PAY04_DISPOSABLE_PG: '1'
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
+      # the throwaway password comes from PGPASSWORD; no credential is written into a connection string
+      PAY05_TEST_PGURL: postgresql://postgres@127.0.0.1:5432/pay01c_sandbox_ci
+      PAY04_TEST_PGURL: postgresql://postgres@127.0.0.1:5432/pay01c_sandbox_ci
+      PAY03B_TEST_PGURL: postgresql://postgres@127.0.0.1:5432/pay01c_sandbox_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Integrated certification (Phase 1 no-rewrite fingerprint; Phase 2 PAY + PAY-04 smokes on PAY-05 functions + PAY-05 smoke)
+        run: bash scripts/ci/pay05-postgres-certification.sh payments-first
+      - name: PAY-05 Paynow services over real HTTP to the local protocol simulator (a skip is a failure)
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 backend/tests/pay05-paynow-services.test.js | tee pay05.log
+          grep -E '^# skipped 0$' pay05.log && grep -E '^# fail 0$' pay05.log
+      - name: PAY-04 services on the PAY-05 schema (a skip is a failure)
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 backend/tests/pay04-garage-payments.test.js | tee pay04.log
+          grep -E '^# skipped 0$' pay04.log && grep -E '^# fail 0$' pay04.log
+      - name: PAY-03B services on the PAY-05 schema (a skip is a failure)
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 backend/tests/pay03b-business-subscriptions.test.js backend/tests/pay03b-tenant-entitlements.test.js | tee pay03b.log
+          grep -E '^# skipped 0$' pay03b.log && grep -E '^# fail 0$' pay03b.log
+
+  postgres-garage-first:
+    name: Disposable PostgreSQL — Garage-lineage database receives Payments, PAY-04 and PAY-05 (upgrade + behaviour) and real-PG services
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pay01c_sandbox_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pay01c_sandbox_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: pay01c_sandbox_ci
+      PAY04_DISPOSABLE_PG: '1'
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
+      PAY05_TEST_PGURL: postgresql://postgres@127.0.0.1:5432/pay01c_sandbox_ci
+      PAY04_TEST_PGURL: postgresql://postgres@127.0.0.1:5432/pay01c_sandbox_ci
+      PAY03B_TEST_PGURL: postgresql://postgres@127.0.0.1:5432/pay01c_sandbox_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Integrated certification, garage-first
+        run: bash scripts/ci/pay05-postgres-certification.sh garage-first
+      - name: PAY-05 Paynow services over real HTTP (a skip is a failure)
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 backend/tests/pay05-paynow-services.test.js | tee pay05.log
+          grep -E '^# skipped 0$' pay05.log && grep -E '^# fail 0$' pay05.log
+      - name: PAY-04 services on the PAY-05 schema (a skip is a failure)
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 backend/tests/pay04-garage-payments.test.js | tee pay04.log
+          grep -E '^# skipped 0$' pay04.log && grep -E '^# fail 0$' pay04.log
+
+  web:
+    name: Web — full product and governance tests, TypeScript, build
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Feature manifest has not drifted
+        run: node scripts/generate-feature-manifest.mjs --check
+      - name: Full web product and governance tests
+        run: npm --workspace web run test:unit
+      - name: Web TypeScript (project references)
+        run: npx tsc -b web
+      - name: Production web build
+        run: npm run build

@@ -6,6 +6,7 @@ import { formatMoney, type GarageInvoice } from '@/lib/garageBusiness'
 import { dateTimeLabel } from '@/lib/garageWorkspace'
 import { activityActor, DISCREPANCY_LABEL, PROVIDER_EVENT_LABEL, PROVIDER_STATE_TONE, type ProviderPayment, pay04ErrorText } from '@/lib/pay04GaragePayments'
 import { FormError, INPUT_CLASS, type HubRun } from './hubUi'
+import { PAYNOW_METHOD_LABEL, pay05ErrorText, paynowStatusLine, type PaynowProviderPayment } from '@/lib/pay05Paynow'
 
 /**
  * CARUP-PAY-04 — what the invoice's money is made of, for the garage.
@@ -16,7 +17,7 @@ import { FormError, INPUT_CLASS, type HubRun } from './hubUi'
  */
 /** A PAY-04 refusal reaches the hub's message area as a sentence (the hub shows the error's own message). */
 const inWords = (fn: () => Promise<unknown>) => () =>
-  fn().catch((e: unknown) => { throw new Error(pay04ErrorText(e instanceof Error ? e.message : '')) })
+  fn().catch((e: unknown) => { const m = e instanceof Error ? e.message : ''; throw new Error(pay05ErrorText(m) ?? pay04ErrorText(m)) })
 
 export function InvoiceMoneyBreakdown({ invoice }: { invoice: GarageInvoice }) {
   const m = invoice.money
@@ -84,11 +85,17 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
   const { refundGarageProviderPayment, reconcileGarageProviderPayment, cancelGarageProviderPayment } = useCarUpApi()
   const [open, setOpen] = useState<'refund' | 'stop' | null>(null)
   const discrepancies = payment.open_discrepancies ?? []
+  // PAY-05: a payment through the garage's own Paynow account
+  const paynow = (payment as PaynowProviderPayment).paynow ?? null
+  // Paynow cannot cancel a request: stopping one records a decision, it does not free the invoice room
+  const viaPaynow = payment.gateway === 'paynow_zimbabwe'
   return (
     <li className="p-3 text-sm" data-testid="provider-payment-row" data-state={payment.state}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
-          <p className="font-medium">Payment through the provider: {formatMoney(payment.amount, payment.currency || currency)}</p>
+          <p className="font-medium">
+            {paynow ? `Paynow (${PAYNOW_METHOD_LABEL[paynow.method]})` : 'Payment through the provider'}: {formatMoney(payment.amount, payment.currency || currency)}
+          </p>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className={`whitespace-normal text-left ${PROVIDER_STATE_TONE[payment.state] ?? ''}`} data-testid="provider-payment-state">
               {payment.state_label}
@@ -96,6 +103,11 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
             {payment.simulated && <Badge variant="outline" data-testid="provider-payment-simulated">Simulated provider (test)</Badge>}
           </div>
           <p className="text-xs text-gray-500">Started {dateTimeLabel(payment.initiated_at)}</p>
+          {paynow && (
+            <p className="text-xs text-gray-700" data-testid="provider-payment-paynow-status">
+              {paynowStatusLine(payment.state, paynow, 'garage')}{paynow.paynow_reference ? ` · Paynow reference ${paynow.paynow_reference}` : ''}
+            </p>
+          )}
           <p className="text-xs text-gray-600" data-testid="provider-payment-source">{payment.source_label}</p>
           {discrepancies.map((d) => (
             <p key={d.id} className="text-xs text-red-800" data-testid="provider-payment-discrepancy">
@@ -111,17 +123,22 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
             >
               Check with the provider
             </Button>
-            {payment.state === 'confirmed' && (
+            {payment.state === 'confirmed' && !paynow && (
               <Button variant="outline" className="min-h-11" disabled={busy} data-testid="provider-payment-refund" onClick={() => setOpen(open === 'refund' ? null : 'refund')}>
                 Refund
               </Button>
             )}
-            {payment.state === 'awaiting_provider' && (
+            {payment.state === 'awaiting_provider' && (!paynow || paynow.provider_status === null || paynow.provider_status === 'created' || paynow.provider_status === 'sent') && (
               <Button variant="outline" className="min-h-11" disabled={busy} data-testid="provider-payment-stop" onClick={() => setOpen(open === 'stop' ? null : 'stop')}>
-                Stop this checkout
+                {paynow ? 'Stop waiting for this payment' : 'Stop this checkout'}
               </Button>
             )}
           </div>
+        )}
+        {paynow && payment.state === 'confirmed' && (
+          <p className="w-full text-xs text-gray-700" data-testid="provider-payment-paynow-refund-guidance">
+            To refund, use your Paynow dashboard — Paynow does not let CarUp refund. CarUp shows the refund when Paynow reports it.
+          </p>
         )}
       </div>
       {open === 'refund' && (
@@ -132,14 +149,22 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
           onSubmit={(reason) => run('closeout', inWords(() => refundGarageProviderPayment(payment.id, reason)), 'Refund sent to the provider. The invoice shows what the provider confirmed.')}
         />
       )}
-      {open === 'stop' && (
+      {open === 'stop' && (viaPaynow ? (
+        <ReasonAction
+          testId="provider-stop-form" label="Why stop waiting for this payment?" minLength={3} busy={busy}
+          hint={'Paynow cannot cancel a payment request. Stopping records that the customer should not pay through this request; the amount stays held '
+            + 'until Paynow reports the outcome, or CarUp’s payment time passes and a CarUp operator releases it.'}
+          submitLabel="Stop waiting" onClose={() => setOpen(null)}
+          onSubmit={(reason) => run('closeout', inWords(() => cancelGarageProviderPayment(payment.id, reason)), 'Stop recorded — the amount stays held until Paynow reports the outcome.')}
+        />
+      ) : (
         <ReasonAction
           testId="provider-stop-form" label="Why stop this checkout?" minLength={3} busy={busy}
           hint="Nothing has been paid. Stopping releases the amount it was holding on the invoice."
           submitLabel="Stop the checkout" onClose={() => setOpen(null)}
           onSubmit={(reason) => run('closeout', inWords(() => cancelGarageProviderPayment(payment.id, reason)), 'Stop sent to the provider. The payment shows what the provider confirmed.')}
         />
-      )}
+      ))}
     </li>
   )
 }

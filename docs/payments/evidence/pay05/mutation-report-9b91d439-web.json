@@ -1,0 +1,81 @@
+{
+  "summary": {
+    "total": 6,
+    "killed": 5,
+    "survived": [
+      "BASE-WEB"
+    ],
+    "invalid": [],
+    "worktree_clean_after": true
+  },
+  "results": [
+    {
+      "id": "BASE-WEB",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "baseline: web suites pass unmutated",
+      "verdict": "SURVIVED",
+      "seconds": 3.4,
+      "evidence": []
+    },
+    {
+      "id": "W01-paid-word-counts",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "a Paynow \"paid\" CarUp did not count is shown as paid (W5)",
+      "verdict": "KILLED",
+      "seconds": 3.4,
+      "evidence": [
+        "    110|       }",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af"
+      ]
+    },
+    {
+      "id": "W02-review-dropped",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "money under review read as Paynow's word (W5)",
+      "verdict": "KILLED",
+      "seconds": 7.5,
+      "evidence": [
+        "    264|     verifyGarageInvoicePayment.mockResolvedValue({ collection: { state\u2026",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af"
+      ]
+    },
+    {
+      "id": "W03-refresh-unmounts",
+      "file": "web/src/components/owner/serviceJourney/InvoicePayment.tsx",
+      "why": "the started request vanishes on refresh (W1)",
+      "verdict": "KILLED",
+      "seconds": 6.4,
+      "evidence": [
+        "    239|     expect(screen.getByTestId('my-provider-payment')).toBeInTheDocumen\u2026",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[3/3]\u23af"
+      ]
+    },
+    {
+      "id": "W04-key-password-field",
+      "file": "web/src/components/garage/PaynowConnection.tsx",
+      "why": "password managers capture the integration key (W6)",
+      "verdict": "KILLED",
+      "seconds": 2.4,
+      "evidence": [
+        "     80|       expect(key).toHaveAttribute('spellcheck', 'false')",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af"
+      ]
+    },
+    {
+      "id": "W05-refusal-ambiguous",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "Paynow's refusal replays forever",
+      "verdict": "KILLED",
+      "seconds": 2.4,
+      "evidence": [
+        "    193|     expect(keys[3]).not.toBe(keys[2])",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af"
+      ]
+    }
+  ]
+}

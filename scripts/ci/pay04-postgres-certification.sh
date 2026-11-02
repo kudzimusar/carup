@@ -28,7 +28,7 @@ set -euo pipefail
 mode="${1:-}"
 case "$mode" in payments-first|garage-first) ;; *) echo "usage: $0 payments-first|garage-first" >&2; exit 2 ;; esac
 
-repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
 fail() { echo "PAY04_CERT_REFUSED: $*" >&2; exit 1; }
@@ -228,21 +228,25 @@ lineages() {
   return 0
 }
 
-echo "#### Phase 1 ($mode): upgrade — PAY-04 preserves OPS07 history, derived balances and canonical payments"
-reset_db
-lineages with-pay-smokes
-before="$(fingerprint)"
-pay04_chain
-after="$(fingerprint)"
-[ "$before" = "$after" ] || fail "PAY-04 migrations rewrote OPS07 history, a derived balance or a canonical payment ($before != $after)."
-echo "OPS07 history, derived balances and canonical payments preserved across PAY-04: fingerprint $after"
+# PAY-05 (and later packages) source this file with PAY04_CERT_LIBRARY=1 to reuse every step above verbatim and run
+# their own phases; run directly, it certifies PAY-04 exactly as before.
+if [ "${PAY04_CERT_LIBRARY:-}" != '1' ]; then
+  echo "#### Phase 1 ($mode): upgrade — PAY-04 preserves OPS07 history, derived balances and canonical payments"
+  reset_db
+  lineages with-pay-smokes
+  before="$(fingerprint)"
+  pay04_chain
+  after="$(fingerprint)"
+  [ "$before" = "$after" ] || fail "PAY-04 migrations rewrote OPS07 history, a derived balance or a canonical payment ($before != $after)."
+  echo "OPS07 history, derived balances and canonical payments preserved across PAY-04: fingerprint $after"
 
-echo "#### Phase 2 ($mode): behaviour — certified PAY smokes on the PAY-04 writers, then the PAY-04 smokes"
-reset_db
-lineages
-pay04_chain
-pay_smokes 'after PAY-04 (the F5 extension must regress nothing)'
-echo '== PAY-04 smokes'
-run_sql pay04-garage-invoice-integrity-postgres-smoke.sql
-run_sql pay04-garage-provider-payments-postgres-smoke.sql
-echo "PAY04_POSTGRES_CERTIFICATION_PASS ($mode)"
+  echo "#### Phase 2 ($mode): behaviour — certified PAY smokes on the PAY-04 writers, then the PAY-04 smokes"
+  reset_db
+  lineages
+  pay04_chain
+  pay_smokes 'after PAY-04 (the F5 extension must regress nothing)'
+  echo '== PAY-04 smokes'
+  run_sql pay04-garage-invoice-integrity-postgres-smoke.sql
+  run_sql pay04-garage-provider-payments-postgres-smoke.sql
+  echo "PAY04_POSTGRES_CERTIFICATION_PASS ($mode)"
+fi

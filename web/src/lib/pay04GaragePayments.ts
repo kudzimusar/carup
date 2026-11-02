@@ -160,6 +160,8 @@ export type GaragePaymentExceptions = {
     id: string; type: string; garage: string | null; tenant_id: string; invoice_id: string; collection_id: string
     amount: Decimal | null; currency: string; evidence: Record<string, unknown>; detected_via: string; first_detected_at: string; observation_count: number
     history?: ProviderActivity[]
+    /** whose collection it is: 'pay04_garage_provider_simulator', or 'paynow_zimbabwe' for the garage's own Paynow merchant (PAY-05) */
+    gateway?: string
   }>
   reconciliation_holds: Array<{
     history?: ProviderActivity[]
@@ -199,6 +201,11 @@ export const DISCREPANCY_LABEL: Record<string, string> = {
   currency_mismatch: 'Provider reported a different currency',
   merchant_mismatch: 'Provider evidence named another merchant',
   refund_after_resolution: 'Provider reported more refund than the operator verified',
+  // PAY-05 (Paynow)
+  provider_disputed: 'Paynow holds this payment in a dispute',
+  provider_status_unrecognized: 'Paynow reported a status CarUp does not recognise, or a step backwards',
+  provider_refund_unquantified: 'Paynow reports a refund without an amount — confirm it in the garage’s Paynow records',
+  provider_paid_after_close: 'Paynow took money after CarUp had closed this payment',
 }
 
 /**

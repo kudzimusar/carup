@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import PaynowOperatorPanel from '@/components/admin/PaynowOperatorPanel'
 import { formatMoney } from '@/lib/garageBusiness'
 import { activityActor, DISCREPANCY_LABEL, minorToMajor, PROVIDER_EVENT_LABEL, type GarageMerchantAccount, type GaragePaymentExceptions, type ProviderActivity, pay04ErrorText } from '@/lib/pay04GaragePayments'
 
@@ -36,7 +37,34 @@ const RESOLUTIONS: Record<string, Array<{ value: string; label: string }>> = {
     { value: 'acknowledged', label: 'Reviewed: the invoice counts only what the provider says the garage keeps (explain in the note)' },
     { value: 'refunded_to_customer', label: 'Refunded to the customer (provider-confirmed full refund required)' },
   ],
+  // PAY-05 (Paynow)
+  provider_disputed: [
+    { value: 'provider_corrected', label: 'Dispute over: Paynow reports the payment Paid again (CarUp checks)' },
+    { value: 'refunded_to_customer', label: 'Refunded to the customer (Paynow must report it refunded)' },
+  ],
+  provider_status_unrecognized: [
+    { value: 'acknowledged', label: 'Reviewed with Paynow: counting follows the payment’s status again (explain in the note)' },
+    { value: 'provider_corrected', label: 'Paynow corrected its report (verify first)' },
+  ],
+  provider_refund_unquantified: [
+    { value: 'acknowledged', label: 'Confirmed in the garage’s Paynow records: refunded in full (explain in the note)' },
+  ],
+  provider_paid_after_close: [
+    { value: 'settled_off_platform', label: 'Settled outside CarUp: refunded in Paynow or agreed with the customer (explain in the note)' },
+    { value: 'acknowledged', label: 'Reviewed (explain in the note)' },
+  ],
   default: [{ value: 'provider_corrected', label: 'Provider corrected its report (verify first)' }],
+}
+/**
+ * PAY-05: Paynow has no refund API, so the garage settles a wrong Paynow amount in Paynow or with the customer, and the
+ * operator records that. PAY-04 (simulator) mismatches keep their own closures.
+ */
+const PAYNOW_SETTLED_OUTSIDE = {
+  value: 'settled_off_platform', label: 'Settled outside CarUp: the garage refunded it in Paynow or agreed with the customer (explain in the note)',
+}
+const resolutionsFor = (d: GaragePaymentExceptions['discrepancies'][number]) => {
+  const base = RESOLUTIONS[d.type] ?? RESOLUTIONS.default
+  return d.type === 'amount_mismatch' && d.gateway === 'paynow_zimbabwe' ? [...base, PAYNOW_SETTLED_OUTSIDE] : base
 }
 
 /**
@@ -124,14 +152,15 @@ export default function GaragePaymentsOperator() {
                 <li key={d.id} className="rounded-lg border p-3 text-sm" data-testid="operator-discrepancy" data-type={d.type}>
                   <p className="font-medium">{DISCREPANCY_LABEL[d.type] ?? d.type}{d.amount ? ` — ${formatMoney(d.amount, d.currency)}` : ''}</p>
                   <p className="text-xs text-gray-600">{d.garage ?? 'Garage'} · detected via {d.detected_via.replace('_', ' ')} · {new Date(d.first_detected_at).toLocaleString()} · seen {d.observation_count}×</p>
-                  <pre className="mt-2 max-h-40 overflow-auto rounded bg-gray-50 p-2 text-xs" data-testid="operator-discrepancy-evidence">{JSON.stringify(d.evidence, null, 2)}</pre>
+                  <pre className="mt-2 max-h-40 overflow-auto rounded bg-gray-50 p-2 text-xs" role="region" tabIndex={0}
+                    aria-label={`Evidence: ${DISCREPANCY_LABEL[d.type] ?? d.type}`} data-testid="operator-discrepancy-evidence">{JSON.stringify(d.evidence, null, 2)}</pre>
                   <Trail history={d.history} />
                   {resolving?.id === d.id ? (
                     <div className="mt-2 space-y-2 rounded-lg bg-gray-50 p-3">
                       <label htmlFor={`${uid}-res-${d.id}`} className="block text-sm font-medium">Resolution</label>
                       <select id={`${uid}-res-${d.id}`} className="w-full min-h-11 rounded-lg border px-2" value={resolving.resolution}
                         onChange={(e) => setResolving({ ...resolving, resolution: e.target.value })} data-testid="operator-resolution">
-                        {(RESOLUTIONS[d.type] ?? RESOLUTIONS.default).map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                        {resolutionsFor(d).map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                       </select>
                       <label htmlFor={`${uid}-note-${d.id}`} className="block text-sm font-medium">Note (what you verified, at least 10 characters)</label>
                       <textarea id={`${uid}-note-${d.id}`} rows={3} className="w-full rounded-lg border p-2 text-sm" value={resolving.note}
@@ -146,7 +175,7 @@ export default function GaragePaymentsOperator() {
                     </div>
                   ) : (
                     <Button variant="outline" className="mt-2 min-h-11" data-testid="operator-resolve"
-                      onClick={() => setResolving({ id: d.id, resolution: (RESOLUTIONS[d.type] ?? RESOLUTIONS.default)[0].value, note: '' })}>
+                      onClick={() => setResolving({ id: d.id, resolution: resolutionsFor(d)[0].value, note: '' })}>
                       Resolve…
                     </Button>
                   )}
@@ -164,6 +193,8 @@ export default function GaragePaymentsOperator() {
           </>
         )}
       </section>
+
+      <PaynowOperatorPanel />
 
       <section aria-labelledby={`${uid}-acc`} className="space-y-3 border-t pt-6" data-testid="operator-merchants">
         <h2 id={`${uid}-acc`} className="text-lg font-semibold">Garage merchant accounts</h2>

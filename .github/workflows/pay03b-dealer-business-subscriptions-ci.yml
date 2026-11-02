@@ -102,7 +102,7 @@ jobs:
           NODE_ENV: test
           SUPABASE_URL: http://localhost:54321
           SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
-          PAY03B_TEST_PGURL: postgresql://postgres:ephemeral-ci-only@127.0.0.1:5432/pay01c_sandbox_ci
+          PAY03B_TEST_PGURL: postgresql://postgres@127.0.0.1:5432/pay01c_sandbox_ci
         # Serial: both files share one disposable database and each switches the simulator guard off on teardown.
         run: node --test --test-concurrency=1 backend/tests/pay03b-business-subscriptions.test.js backend/tests/pay03b-tenant-entitlements.test.js
 

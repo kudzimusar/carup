@@ -1,0 +1,46 @@
+[
+  {
+    "step": "provenance",
+    "at": "2026-11-02T13:05:50.124Z",
+    "web": "ab052f3d849409e6abb8dcd5df98ed2d9d400134",
+    "backend": "ab052f3d849409e6abb8dcd5df98ed2d9d400134"
+  },
+  {
+    "step": "invoice-issued",
+    "at": "2026-11-02T13:06:19.051Z",
+    "invoice": "INV-000037",
+    "total": "135.00"
+  },
+  {
+    "step": "customer-paid-online",
+    "at": "2026-11-02T13:07:00.850Z",
+    "collection": "b8a8c155-ffbb-42f2-87b5-69986ac3e5e7",
+    "canonical": "paid|garage_business_tenant|tenant:e1d7ba56-aa40-499e-865b-4aba5b97bbc6"
+  },
+  {
+    "step": "garage-recorded-remainder",
+    "at": "2026-11-02T13:07:59.293Z",
+    "invoice": "INV-000037"
+  },
+  {
+    "step": "garage-refund",
+    "at": "2026-11-02T13:09:02.801Z",
+    "collection": "b8a8c155-ffbb-42f2-87b5-69986ac3e5e7",
+    "status": "refunded"
+  },
+  {
+    "step": "operator-closed-discrepancy",
+    "at": "2026-11-02T13:10:01.401Z",
+    "collection": "d51065fc-7c40-4b44-ad80-32098c86229a"
+  },
+  {
+    "step": "viewport-desktop",
+    "at": "2026-11-02T13:11:13.458Z",
+    "ok": true
+  },
+  {
+    "step": "viewport-tablet",
+    "at": "2026-11-02T13:12:15.915Z",
+    "ok": true
+  }
+]

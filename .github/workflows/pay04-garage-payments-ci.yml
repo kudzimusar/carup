@@ -212,8 +212,8 @@ jobs:
       NODE_ENV: test
       SUPABASE_URL: http://localhost:54321
       SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
-      PAY04_TEST_PGURL: postgresql://postgres:ephemeral-ci-only@127.0.0.1:5432/pay01c_sandbox_ci
-      PAY03B_TEST_PGURL: postgresql://postgres:ephemeral-ci-only@127.0.0.1:5432/pay01c_sandbox_ci
+      PAY04_TEST_PGURL: postgresql://postgres@127.0.0.1:5432/pay01c_sandbox_ci
+      PAY03B_TEST_PGURL: postgresql://postgres@127.0.0.1:5432/pay01c_sandbox_ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -263,8 +263,8 @@ jobs:
       NODE_ENV: test
       SUPABASE_URL: http://localhost:54321
       SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
-      PAY04_TEST_PGURL: postgresql://postgres:ephemeral-ci-only@127.0.0.1:5432/pay01c_sandbox_ci
-      PAY03B_TEST_PGURL: postgresql://postgres:ephemeral-ci-only@127.0.0.1:5432/pay01c_sandbox_ci
+      PAY04_TEST_PGURL: postgresql://postgres@127.0.0.1:5432/pay01c_sandbox_ci
+      PAY03B_TEST_PGURL: postgresql://postgres@127.0.0.1:5432/pay01c_sandbox_ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

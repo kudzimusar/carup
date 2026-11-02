@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 /** CARUP-PAY-04 — operators review garage payment evidence and close exceptions with a written note. */
@@ -58,6 +58,32 @@ describe('Garage payments operations', () => {
     const values = [...(screen.getByTestId('operator-resolution') as HTMLSelectElement).options].map((o) => o.value)
     expect(values).toContain('acknowledged')
     expect(values).not.toContain('provider_corrected')
+  })
+
+  it('contract 8: a Paynow amount mismatch can also close as settled outside CarUp; a PAY-04 one keeps its options', async () => {
+    fetchGaragePaymentExceptions.mockResolvedValue({ ...exceptions, reconciliation_holds: [], discrepancies: [
+      { ...exceptions.discrepancies[0], id: 'd-paynow', gateway: 'paynow_zimbabwe' },
+      { ...exceptions.discrepancies[0], id: 'd-sim', gateway: 'pay04_garage_provider_simulator' },
+    ] })
+    page()
+    const [paynowRow, simulatorRow] = await screen.findAllByTestId('operator-discrepancy')
+    fireEvent.click(within(paynowRow).getByTestId('operator-resolve'))
+    const paynowOptions = [...(within(paynowRow).getByTestId('operator-resolution') as HTMLSelectElement).options]
+    expect(paynowOptions.map((o) => o.value)).toEqual(['provider_corrected', 'settled_off_platform'])
+    expect(paynowOptions[1]).toHaveTextContent('Settled outside CarUp: the garage refunded it in Paynow or agreed with the customer (explain in the note)')
+    fireEvent.click(within(paynowRow).getByText('Cancel'))
+    fireEvent.click(within(simulatorRow).getByTestId('operator-resolve'))
+    expect([...(within(simulatorRow).getByTestId('operator-resolution') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['provider_corrected'])
+  })
+
+  // PAY-05 final UAT (PAY-04 browser replay at 390 px): a Paynow "money after close" exception's evidence overflowed its
+  // capped box, and axe refused the page (scrollable-region-focusable): a keyboard could not scroll what it could not reach
+  it('an exception’s evidence is a named region a keyboard can reach, so it can be scrolled on a phone', async () => {
+    page()
+    const evidence = await screen.findByTestId('operator-discrepancy-evidence')
+    expect(evidence).toHaveAttribute('tabindex', '0')
+    expect(evidence).toHaveAttribute('role', 'region')
+    expect(evidence).toHaveAccessibleName('Evidence: Provider reported a different amount')
   })
 
   it('a failed load is an error, not "no exceptions"', async () => {
