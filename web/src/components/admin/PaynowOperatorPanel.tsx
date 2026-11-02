@@ -5,7 +5,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney } from '@/lib/garageBusiness'
 import { MONEY_ACTION_BUTTON_CLASS, pay04ErrorText } from '@/lib/pay04GaragePayments'
 import {
-  CURRENCY_NAME, MERCHANT_STATUS_LABEL, PAYNOW_METHOD_LABEL, PROVIDER_ERROR_LABEL, pay05ErrorText,
+  CURRENCY_NAME, MERCHANT_STATUS_LABEL, PAY05_NOT_OFFERED, PAYNOW_METHOD_LABEL, PROVIDER_ERROR_LABEL, isPay05Disabled, pay05ErrorText,
   type PaynowAvailability, type PaynowHeldCollection, type PaynowMerchant, type PaynowProviderError,
 } from '@/lib/pay05Paynow'
 
@@ -32,6 +32,7 @@ export default function PaynowOperatorPanel() {
   const [held, setHeld] = useState<PaynowHeldCollection[] | null>(null)
   const [errors, setErrors] = useState<PaynowProviderError[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [disabled, setDisabled] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [review, setReview] = useState<Record<string, { legal: boolean; settlement: boolean; note: string }>>({})
@@ -42,8 +43,10 @@ export default function PaynowOperatorPanel() {
     try {
       const [m, h, e] = await Promise.all([fetchPaynowMerchants(), fetchPaynowHeldCollections(), fetchPaynowProviderErrors()])
       if (!Array.isArray(m?.merchants) || !Array.isArray(h?.held) || !Array.isArray(e?.errors)) throw new Error('Unexpected Paynow operator response')
-      setMerchants(m.merchants); setAvailability(m.availability); setHeld(h.held); setErrors(e.errors); setLoadError(null)
+      setMerchants(m.merchants); setAvailability(m.availability); setHeld(h.held); setErrors(e.errors); setLoadError(null); setDisabled(false)
     } catch (err) {
+      // PAY-05 switched off on this server is a state, not a failure
+      if (isPay05Disabled(err)) { setDisabled(true); setLoadError(null); return }
       setLoadError(messageOf(err, 'The Paynow operator view could not be loaded.'))
     }
   }, [fetchPaynowMerchants, fetchPaynowHeldCollections, fetchPaynowProviderErrors])
@@ -71,9 +74,18 @@ export default function PaynowOperatorPanel() {
     </div>
   )
 
+  const title = <h2 id={`${uid}-title`} className="text-lg font-semibold">Paynow (Zimbabwe) — garages’ own merchant accounts</h2>
+  if (disabled) {
+    return (
+      <section aria-labelledby={`${uid}-title`} className="space-y-6 border-t pt-6" data-testid="paynow-operator">
+        {title}
+        <p className="text-sm text-gray-700" data-testid="paynow-op-disabled">{PAY05_NOT_OFFERED}</p>
+      </section>
+    )
+  }
   return (
     <section aria-labelledby={`${uid}-title`} className="space-y-6 border-t pt-6" data-testid="paynow-operator">
-      <h2 id={`${uid}-title`} className="text-lg font-semibold">Paynow (Zimbabwe) — garages’ own merchant accounts</h2>
+      {title}
       {loadError && <p role="alert" className="rounded-md bg-red-50 p-3 text-red-900">{loadError}</p>}
       {message && <p role={message.ok ? 'status' : 'alert'} className={`rounded-md p-3 ${message.ok ? 'bg-green-50 text-green-900' : 'bg-red-50 text-red-900'}`} data-testid="paynow-op-message">{message.text}</p>}
 

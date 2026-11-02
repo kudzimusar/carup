@@ -174,6 +174,14 @@ describe('Connecting the garage’s own Paynow account', () => {
     expect(screen.getByTestId('garage-paynow-connect')).toBeInTheDocument()
   })
 
+  it('W11: with PAY-05 switched off the section is a short neutral note, never a red alert', async () => {
+    fetchGaragePaynowConnection.mockRejectedValue(apiFailure('PAY05_DISABLED', 404))
+    render(<PaynowConnection />)
+    expect(await screen.findByTestId('garage-paynow-disabled')).toHaveTextContent('Paynow payments are not offered yet.')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByTestId('garage-paynow-error')).toBeNull()
+  })
+
   it('a failed load never reads as connected or disconnected', async () => {
     fetchGaragePaynowConnection.mockRejectedValue(new Error('network'))
     render(<PaynowConnection />)

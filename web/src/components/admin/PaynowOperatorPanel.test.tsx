@@ -35,7 +35,20 @@ beforeEach(() => {
     kind: 'callback_signature_invalid', detail: { code: 'PAY05_CALLBACK_SIGNATURE_INVALID' }, created_at: '2026-11-02T10:00:00Z' }] })
 })
 
+/** What useCarUpApi throws for an HTTP refusal: the server's code as the message, with its status and code. */
+const apiFailure = (code: string, status: number) => Object.assign(new Error(code), { status, code })
+
 describe('Paynow operator panel', () => {
+  it('W11: with PAY-05 switched off the panel is a neutral note, not an alert', async () => {
+    for (const fetch of [api.fetchPaynowMerchants, api.fetchPaynowHeldCollections, api.fetchPaynowProviderErrors]) {
+      fetch.mockRejectedValue(apiFailure('PAY05_DISABLED', 404))
+    }
+    render(<PaynowOperatorPanel />)
+    expect(await screen.findByTestId('paynow-op-disabled')).toHaveTextContent('Paynow payments are not offered yet.')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText('Merchant accounts')).toBeNull()
+  })
+
   it('verifies only with both reviews and a note, and shows the refusal in words with its code', async () => {
     api.verifyPaynowMerchant.mockRejectedValue(new Error('PAY05_REVIEWER_SEPARATION_REQUIRED'))
     render(<PaynowOperatorPanel />)
