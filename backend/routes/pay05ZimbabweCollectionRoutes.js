@@ -24,7 +24,7 @@ import {
   listPaynowProviderErrors, rejectPaynowMerchant, setPaynowAvailability, suspendPaynowMerchant, verifyPaynowMerchant,
 } from '../services/payment/pay05MerchantService.js';
 import {
-  processPaynowStatusUpdate, reconcilePaynowCollection, releasePaynowHold, submitPaynowOtp,
+  listHeldPaynowCollections, processPaynowStatusUpdate, reconcilePaynowCollection, releasePaynowHold, submitPaynowOtp,
 } from '../services/payment/pay05PaynowCollectionService.js';
 import { loadCollection } from '../services/payment/pay04GaragePaymentService.js';
 
@@ -104,6 +104,7 @@ router.get('/api/pay05/admin/availability', requirePay05, adminSession, handle((
 router.put('/api/pay05/admin/availability', requirePay05, adminSession, handle((req) => setPaynowAvailability({
   ...args(req), body: req.body || {} })));
 router.get('/api/pay05/admin/provider-errors', requirePay05, adminSession, handle((req) => listPaynowProviderErrors(args(req))));
+router.get('/api/pay05/admin/held-collections', requirePay05, adminSession, handle((req) => listHeldPaynowCollections(args(req))));
 router.post('/api/pay05/admin/collections/:collectionId/release-hold', requirePay05, adminSession, handle((req) => releasePaynowHold({
   ...args(req), collectionId: req.params.collectionId, body: req.body || {} })));
 router.post('/api/pay05/admin/collections/:collectionId/reconcile', requirePay05, adminSession, handle(async (req) =>

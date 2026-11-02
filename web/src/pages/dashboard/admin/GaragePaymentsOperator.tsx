@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import PaynowOperatorPanel from '@/components/admin/PaynowOperatorPanel'
 import { formatMoney } from '@/lib/garageBusiness'
 import { activityActor, DISCREPANCY_LABEL, minorToMajor, PROVIDER_EVENT_LABEL, type GarageMerchantAccount, type GaragePaymentExceptions, type ProviderActivity, pay04ErrorText } from '@/lib/pay04GaragePayments'
 
@@ -35,6 +36,22 @@ const RESOLUTIONS: Record<string, Array<{ value: string; label: string }>> = {
   refund_after_resolution: [
     { value: 'acknowledged', label: 'Reviewed: the invoice counts only what the provider says the garage keeps (explain in the note)' },
     { value: 'refunded_to_customer', label: 'Refunded to the customer (provider-confirmed full refund required)' },
+  ],
+  // PAY-05 (Paynow)
+  provider_disputed: [
+    { value: 'provider_corrected', label: 'Dispute over: Paynow reports the payment Paid again (CarUp checks)' },
+    { value: 'refunded_to_customer', label: 'Refunded to the customer (Paynow must report it refunded)' },
+  ],
+  provider_status_unrecognized: [
+    { value: 'acknowledged', label: 'Reviewed with Paynow: counting follows the payment’s status again (explain in the note)' },
+    { value: 'provider_corrected', label: 'Paynow corrected its report (verify first)' },
+  ],
+  provider_refund_unquantified: [
+    { value: 'acknowledged', label: 'Confirmed in the garage’s Paynow records: refunded in full (explain in the note)' },
+  ],
+  provider_paid_after_close: [
+    { value: 'settled_off_platform', label: 'Settled outside CarUp: refunded in Paynow or agreed with the customer (explain in the note)' },
+    { value: 'acknowledged', label: 'Reviewed (explain in the note)' },
   ],
   default: [{ value: 'provider_corrected', label: 'Provider corrected its report (verify first)' }],
 }
@@ -164,6 +181,8 @@ export default function GaragePaymentsOperator() {
           </>
         )}
       </section>
+
+      <PaynowOperatorPanel />
 
       <section aria-labelledby={`${uid}-acc`} className="space-y-3 border-t pt-6" data-testid="operator-merchants">
         <h2 id={`${uid}-acc`} className="text-lg font-semibold">Garage merchant accounts</h2>

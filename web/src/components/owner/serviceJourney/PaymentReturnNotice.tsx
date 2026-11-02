@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { returnOutcomeMessage, type CollectionOutcome } from '@/lib/pay04GaragePayments'
+import { paynowOutcomeMessage, type PaynowOutcome } from '@/lib/pay05Paynow'
 
 const TONE = { ok: 'border-green-300 bg-green-50 text-green-900', wait: 'border-amber-300 bg-amber-50 text-amber-900', warn: 'border-amber-300 bg-amber-50 text-amber-900', error: 'border-red-300 bg-red-50 text-red-900' } as const
 const COLLECTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -17,7 +18,9 @@ const COLLECTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => void }) {
   const [params] = useSearchParams()
   const { verifyGarageInvoicePayment } = useCarUpApi()
-  const returned = params.get('pay04')
+  // PAY-05: back from Paynow's own page (?pay05=returned) — the same rule: coming back proves nothing
+  const paynow = params.get('pay05') === 'returned'
+  const returned = paynow ? 'returned' : params.get('pay04')
   const collectionId = params.get('collection') || ''
   const valid = (returned === 'returned' || returned === 'cancelled') && COLLECTION_ID.test(collectionId)
   const [phase, setPhase] = useState<'checking' | 'done'>('checking')
@@ -50,11 +53,13 @@ export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => v
   if (phase === 'checking') {
     return (
       <div role="status" className="rounded-lg border border-gray-300 bg-white p-4 text-sm" data-testid="payment-return-checking">
-        Checking your payment with the garage’s payment provider… Nothing is shown as paid until the provider confirms it.
+        {paynow
+          ? 'Checking your payment with Paynow… Coming back from Paynow is not proof of payment; nothing is shown as paid until Paynow confirms it.'
+          : 'Checking your payment with the garage’s payment provider… Nothing is shown as paid until the provider confirms it.'}
       </div>
     )
   }
-  const message = returnOutcomeMessage(outcome, failed)
+  const message = paynow ? paynowOutcomeMessage(outcome as PaynowOutcome | null, failed) : returnOutcomeMessage(outcome, failed)
   return (
     <div role="status" className={`rounded-lg border p-4 text-sm ${TONE[message.tone]}`} data-testid="payment-return-outcome" data-tone={message.tone}>
       <p>{message.text}</p>

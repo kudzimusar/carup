@@ -459,3 +459,31 @@ export async function reconcilePaynowCollection({ db = defaultDb, env = process.
   return checkPaynowCollection({ db, env, transport, collection, deps });
 }
 
+/**
+ * The operator's queue of Paynow checkouts still holding invoice room although they are stopped or past CarUp's time:
+ * Paynow cannot cancel them, so each is either closed by Paynow, paid, or released by an operator after a fresh read.
+ */
+export async function listHeldPaynowCollections({ db = defaultDb, env = process.env } = {}) {
+  requirePay05Enabled(env);
+  const txs = list(await read(db.from('pay05_paynow_transactions').select('*').is('hold_released_at', null)
+    .in('initiation_state', ['attached', 'sending', 'unknown']).order('created_at', { ascending: true }).limit(200)));
+  if (!txs.length) return { held: [] };
+  const collections = list(await read(db.from('pay04_garage_collections').select('*').in('id', txs.map((t) => t.collection_id))));
+  const byId = new Map(collections.map((c) => [c.id, c]));
+  const refs = collections.map((c) => c.payment_reference);
+  const payments = new Map(list(await read(db.from('payment_transactions').select('reference, status').in('reference', refs))).map((p) => [p.reference, p.status]));
+  const invoiceIds = [...new Set(collections.map((c) => c.invoice_id))];
+  const invoices = new Map(list(await read(db.from('garage_invoices').select('id, invoice_number').in('id', invoiceIds))).map((i) => [i.id, i.invoice_number]));
+  const tenantIds = [...new Set(collections.map((c) => c.tenant_id))];
+  const tenants = new Map(list(await read(db.from('tenants').select('id, name').in('id', tenantIds))).map((t) => [t.id, t.name]));
+  const now = Date.now();
+  const held = txs.map((t) => ({ tx: t, c: byId.get(t.collection_id) }))
+    .filter(({ c }) => c && payments.get(c.payment_reference) === 'pending' && (c.cancelled_at || Date.parse(c.expires_at) <= now))
+    .map(({ tx, c }) => ({
+      collection_id: c.id, garage: tenants.get(c.tenant_id) ?? null, invoice_number: invoices.get(c.invoice_id) ?? null,
+      amount: pay04Money(c.amount, c.currency), currency: c.currency, initiated_at: c.initiated_at, expires_at: c.expires_at,
+      stopped_at: c.cancelled_at, paynow: paynowView(tx),
+    }));
+  return { held };
+}
+

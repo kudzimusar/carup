@@ -9,6 +9,8 @@ import {
   type CollectionOutcome, type CustomerInvoicePayment,
 } from '@/lib/pay04GaragePayments'
 import { requestDate } from '@/lib/serviceRequests'
+import { PAYNOW_METHOD_LABEL, paynowOutcomeMessage, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment } from '@/lib/pay05Paynow'
+import PaynowCheckout from './PaynowCheckout'
 
 const METHOD_LABEL = Object.fromEntries(PAYMENT_METHOD_OPTIONS.map((m) => [m.value, m.label]))
 const TONE = { ok: 'bg-green-50 text-green-900', wait: 'bg-amber-50 text-amber-900', warn: 'bg-amber-50 text-amber-900', error: 'bg-red-50 text-red-900' } as const
@@ -101,6 +103,8 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
   }
 
   const option = data?.online_payment
+  // PAY-05: the garage's live merchant is its own Paynow account
+  const paynowOption = option?.available && 'gateway' in option && option.gateway === 'paynow_zimbabwe' ? (option as unknown as PaynowOnlineOption) : null
   const amountProblem = option?.available && amount.trim() ? onlineAmountProblem(amount, option.max_amount, option.currency) : null
   const panelId = `${uid}-pay`
   return (
@@ -138,7 +142,9 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
               </div>
 
               <div data-testid="online-payment">
-                {option?.available ? (
+                {paynowOption ? (
+                  <PaynowCheckout invoiceId={invoice.id} option={paynowOption} onChanged={() => { void load(); onChanged?.() }} />
+                ) : option?.available ? (
                   <div className="rounded-md border p-3 space-y-2">
                     <p className="font-medium">Pay online through the garage’s payment provider</p>
                     {option.simulation_notice && <Badge variant="outline" className="whitespace-normal" data-testid="online-payment-simulated">{option.simulation_notice}</Badge>}
@@ -167,25 +173,30 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                 <div data-testid="my-provider-payments">
                   <p className="font-medium">Your payments through the provider</p>
                   <ul className="mt-2 space-y-2">
-                    {data.provider_payments.map((p) => (
+                    {data.provider_payments.map((p) => {
+                      const paynow = (p as PaynowProviderPayment).paynow ?? null
+                      return (
                       <li key={p.id} className="rounded-md border bg-gray-50 p-3" data-testid="my-provider-payment" data-state={p.state}>
                         <p className="flex flex-wrap items-baseline justify-between gap-2">
-                          <span>{formatMoney(p.amount, p.currency)} · started {requestDate(p.initiated_at)}</span>
+                          <span>{formatMoney(p.amount, p.currency)} · started {requestDate(p.initiated_at)}{paynow ? ` · Paynow ${PAYNOW_METHOD_LABEL[paynow.method]}` : ''}</span>
                           <Badge variant="outline" className={`whitespace-normal ${PROVIDER_STATE_TONE[p.state] ?? ''}`}>{p.state_label}</Badge>
                         </p>
+                        {paynow && <p className="mt-1 text-xs text-gray-700" data-testid="my-provider-payment-paynow">{paynow.provider_status_label}</p>}
                         <div className="mt-2 flex flex-wrap gap-2">
                           <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => void check(p.id)} data-testid="my-provider-payment-check">
                             Check payment status
                           </Button>
-                          {p.state === 'awaiting_provider' && stopAsk !== p.id && (
+                          {p.state === 'awaiting_provider' && stopAsk !== p.id && (!paynow || paynow.provider_status === null || paynow.provider_status === 'created' || paynow.provider_status === 'sent') && (
                             <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => { setStopAsk(p.id); setStopError(null) }} data-testid="my-provider-payment-stop">
-                              Stop this checkout
+                              {paynow ? 'Stop waiting for this payment' : 'Stop this checkout'}
                             </Button>
                           )}
                         </div>
                         {stopAsk === p.id && (
                           <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-amber-900" role="group" aria-label="Stop this checkout?" data-testid="my-provider-payment-stop-ask">
-                            <p>Stop this checkout? If you already paid at the provider, that payment still counts.</p>
+                            <p>{paynow
+                              ? 'Stop waiting for this Paynow payment? Paynow cannot cancel a payment request: if you do not complete it, nothing is charged; if you do pay it, it still counts.'
+                              : 'Stop this checkout? If you already paid at the provider, that payment still counts.'}</p>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy} onClick={() => void stop(p.id)} data-testid="my-provider-payment-stop-confirm">Yes, stop it</Button>
                               <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => setStopAsk(null)} data-testid="my-provider-payment-stop-keep">Keep it</Button>
@@ -196,11 +207,12 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                           <p role="alert" className="mt-2 rounded-md bg-red-50 p-2 text-red-900" data-testid="my-provider-payment-stop-error">{stopError.text}</p>
                         )}
                         {checked?.id === p.id && (() => {
-                          const message = returnOutcomeMessage(checked.outcome, checked.failed)
+                          const message = paynow ? paynowOutcomeMessage(checked.outcome as PaynowOutcome | null, checked.failed) : returnOutcomeMessage(checked.outcome, checked.failed)
                           return <p role="status" className={`mt-2 rounded-md p-2 ${TONE[message.tone]}`} data-testid="my-provider-payment-outcome">{message.text}</p>
                         })()}
                       </li>
-                    ))}
+                      )
+                    })}
                   </ul>
                 </div>
               )}

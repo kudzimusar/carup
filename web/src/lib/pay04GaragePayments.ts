@@ -199,6 +199,11 @@ export const DISCREPANCY_LABEL: Record<string, string> = {
   currency_mismatch: 'Provider reported a different currency',
   merchant_mismatch: 'Provider evidence named another merchant',
   refund_after_resolution: 'Provider reported more refund than the operator verified',
+  // PAY-05 (Paynow)
+  provider_disputed: 'Paynow holds this payment in a dispute',
+  provider_status_unrecognized: 'Paynow reported a status CarUp does not recognise, or a step backwards',
+  provider_refund_unquantified: 'Paynow reports a refund without an amount — confirm it in the garage’s Paynow records',
+  provider_paid_after_close: 'Paynow took money after CarUp had closed this payment',
 }
 
 /**

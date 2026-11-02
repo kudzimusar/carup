@@ -8,6 +8,10 @@ import type {
   CollectionOutcome, CustomerInvoicePayment, GarageFinancialOverview, GarageMerchantAccount, GaragePaymentExceptions,
   GaragePaymentInstructionsView, StartPaymentResult,
 } from '@/lib/pay04GaragePayments'
+import type {
+  GaragePaynowConnection, PaynowAvailability, PaynowHeldCollection, PaynowMerchant, PaynowMethod, PaynowOutcome, PaynowProviderError,
+  PaynowStartResult,
+} from '@/lib/pay05Paynow'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
 import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
 import type { SharedChargeSet } from '@/pages/diaspora/SharedChargeAllocation'
@@ -2977,8 +2981,10 @@ export function useCarUpApi() {
      fresh provider read; nothing here retries a POST or infers a payment. */
   const fetchGarageInvoicePaymentOptions = useCallback(async (invoiceId: string): Promise<CustomerInvoicePayment> =>
     request<CustomerInvoicePayment>(`/pay04/garage-invoices/${encodeURIComponent(invoiceId)}/payment`, { method: 'GET' }), [request])
-  const startGarageInvoicePayment = useCallback(async (invoiceId: string, body: { amount?: Decimal }, idempotencyKey: string): Promise<StartPaymentResult> =>
-    request<StartPaymentResult>(`/pay04/garage-invoices/${encodeURIComponent(invoiceId)}/payments`, {
+  // PAY-05: the same route starts a Paynow payment when the garage's own Paynow merchant is its live merchant
+  const startGarageInvoicePayment = useCallback(async (invoiceId: string, body: { amount?: Decimal; method?: PaynowMethod; phone?: string },
+    idempotencyKey: string): Promise<StartPaymentResult | PaynowStartResult> =>
+    request<StartPaymentResult | PaynowStartResult>(`/pay04/garage-invoices/${encodeURIComponent(invoiceId)}/payments`, {
       method: 'POST', body: JSON.stringify(body), headers: { 'Idempotency-Key': idempotencyKey } }), [request])
   const verifyGarageInvoicePayment = useCallback(async (collectionId: string): Promise<CollectionOutcome> =>
     request<CollectionOutcome>(`/pay04/garage-payments/${encodeURIComponent(collectionId)}/verify`, { method: 'POST', body: '{}' }), [request])
@@ -3006,6 +3012,36 @@ export function useCarUpApi() {
     request<{ account: GarageMerchantAccount }>('/pay04/admin/merchant-accounts', { method: 'POST', body: JSON.stringify(body) }), [request])
   const suspendGarageMerchantAccount = useCallback(async (accountId: string, reason: string) =>
     request<{ account: GarageMerchantAccount }>(`/pay04/admin/merchant-accounts/${encodeURIComponent(accountId)}/suspend`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+
+  /* ── CARUP-PAY-05 — the garage's own Paynow merchant ───────────────────────────────────────
+     The garage connects its own Paynow account (the key is sealed server-side and never comes back); CarUp verifies
+     it; customers pay the garage through it. Paynow's signed status, confirmed by a fresh poll, is the only money truth. */
+  const submitPaynowOtp = useCallback(async (collectionId: string, otp: string): Promise<PaynowOutcome> =>
+    request<PaynowOutcome>(`/pay05/garage-payments/${encodeURIComponent(collectionId)}/otp`, { method: 'POST', body: JSON.stringify({ otp }) }), [request])
+  const fetchGaragePaynowConnection = useCallback(async (): Promise<GaragePaynowConnection> =>
+    request<GaragePaynowConnection>('/pay05/garage/paynow', { method: 'GET' }), [request])
+  const connectGaragePaynow = useCallback(async (body: Record<string, unknown>): Promise<GaragePaynowConnection> =>
+    request<GaragePaynowConnection>('/pay05/garage/paynow/connect', { method: 'POST', body: JSON.stringify(body) }), [request])
+  const disconnectGaragePaynow = useCallback(async (reason: string): Promise<GaragePaynowConnection> =>
+    request<GaragePaynowConnection>('/pay05/garage/paynow/disconnect', { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+  const fetchPaynowMerchants = useCallback(async (): Promise<{ merchants: PaynowMerchant[]; availability: PaynowAvailability }> =>
+    request<{ merchants: PaynowMerchant[]; availability: PaynowAvailability }>('/pay05/admin/merchants', { method: 'GET' }), [request])
+  const verifyPaynowMerchant = useCallback(async (merchantId: string, body: { legal_identity_reviewed: boolean; settlement_account_reviewed: boolean; note: string }) =>
+    request<{ merchant: PaynowMerchant; probes: Record<string, { result: string }> }>(`/pay05/admin/merchants/${encodeURIComponent(merchantId)}/verify`, { method: 'POST', body: JSON.stringify(body) }), [request])
+  const rejectPaynowMerchant = useCallback(async (merchantId: string, reason: string) =>
+    request<{ merchant: PaynowMerchant }>(`/pay05/admin/merchants/${encodeURIComponent(merchantId)}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+  const suspendPaynowMerchant = useCallback(async (merchantId: string, reason: string) =>
+    request<{ merchant: PaynowMerchant }>(`/pay05/admin/merchants/${encodeURIComponent(merchantId)}/suspend`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+  const setPaynowAvailability = useCallback(async (available: boolean, note: string): Promise<PaynowAvailability> =>
+    request<PaynowAvailability>('/pay05/admin/availability', { method: 'PUT', body: JSON.stringify({ available, note }) }), [request])
+  const fetchPaynowProviderErrors = useCallback(async (): Promise<{ errors: PaynowProviderError[] }> =>
+    request<{ errors: PaynowProviderError[] }>('/pay05/admin/provider-errors', { method: 'GET' }), [request])
+  const fetchPaynowHeldCollections = useCallback(async (): Promise<{ held: PaynowHeldCollection[] }> =>
+    request<{ held: PaynowHeldCollection[] }>('/pay05/admin/held-collections', { method: 'GET' }), [request])
+  const releasePaynowHold = useCallback(async (collectionId: string, reason: string) =>
+    request<Record<string, unknown>>(`/pay05/admin/collections/${encodeURIComponent(collectionId)}/release-hold`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+  const reconcilePaynowCollection = useCallback(async (collectionId: string): Promise<PaynowOutcome> =>
+    request<PaynowOutcome>(`/pay05/admin/collections/${encodeURIComponent(collectionId)}/reconcile`, { method: 'POST', body: '{}' }), [request])
 
   const fetchGarageOperationsSummary = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<OperationsSummary> =>
     request<OperationsSummary>(`/garage/operations/summary?window_days=${windowDays}`, { method: 'GET' }), [request])
@@ -4022,6 +4058,19 @@ export function useCarUpApi() {
     fetchMyInvoices,
     fetchGarageInvoicePaymentOptions,
     startGarageInvoicePayment,
+    submitPaynowOtp,
+    fetchGaragePaynowConnection,
+    connectGaragePaynow,
+    disconnectGaragePaynow,
+    fetchPaynowMerchants,
+    verifyPaynowMerchant,
+    rejectPaynowMerchant,
+    suspendPaynowMerchant,
+    setPaynowAvailability,
+    fetchPaynowProviderErrors,
+    fetchPaynowHeldCollections,
+    releasePaynowHold,
+    reconcilePaynowCollection,
     verifyGarageInvoicePayment,
     cancelGarageInvoicePayment,
     fetchGarageFinancialOverview,
