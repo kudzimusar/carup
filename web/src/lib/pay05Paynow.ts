@@ -8,7 +8,7 @@
  *  - Paynow cannot cancel a request or refund through CarUp, and the words say so instead of pretending otherwise.
  */
 import type { Decimal } from './garageBusiness'
-import type { CollectionOutcome, ProviderPayment } from './pay04GaragePayments'
+import { pay04ErrorText, type CollectionOutcome, type ProviderPayment } from './pay04GaragePayments'
 
 export type PaynowMethod = 'web' | 'ecocash' | 'onemoney' | 'innbucks' | 'omari'
 export type PaynowStatus =
@@ -131,6 +131,24 @@ export function paynowOutcomeMessage(outcome: PaynowOutcome | null, failed: bool
     return { tone: 'wait', text: 'CarUp is confirming with Paynow whether it received your payment request. Nothing is counted until it does.' }
   }
   return { tone: 'wait', text: outcome.paynow?.provider_status_label ?? 'Paynow has not confirmed this payment yet. It is not counted until it does.' }
+}
+
+/**
+ * A Paynow request the customer can still continue (its page link, an InnBucks code, an O'mari code): CarUp is still
+ * waiting on it, Paynow has neither refused it nor lost it, and its hold was not released. `needs_otp` is trusted as
+ * the server sends it — it may be true while the status is still "created" or "sent".
+ */
+export function paynowContinuable(state: string | null | undefined, view: PaynowView | null | undefined): view is PaynowView {
+  if (!view || view.hold_released) return false
+  if (state && state !== 'awaiting_provider') return false
+  if (view.initiation === 'refused' || view.initiation === 'traced_absent') return false
+  return view.needs_otp || view.provider_status === null || view.provider_status === 'created' || view.provider_status === 'sent'
+}
+
+/** A failed PAY-05 or PAY-04 call in words (the message itself when it carries no code). */
+export function paynowErrorText(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : ''
+  return (message && (pay05ErrorText(message) ?? pay04ErrorText(message))) || fallback
 }
 
 /** PAY-05 refusals in words (PAY-04 codes keep their own sentences). */
