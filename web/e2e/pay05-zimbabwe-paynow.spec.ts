@@ -86,11 +86,6 @@ const simTxFor = async (collectionId: string) => {
   return ((await sim('GET', '/transactions')) as Array<{ guid: string; reference: string }>).find((t) => t.reference === ref)
 }
 const payStatus = (collectionId: string) => sql(`select p.status from pay04_garage_collections c join payment_transactions p on p.reference = c.payment_reference where c.id = ${lit(collectionId)}`)
-async function waitFor(fn: () => boolean, ms = 30_000) {
-  const until = Date.now() + ms
-  while (Date.now() < until) { if (fn()) return true; await pause(500) }
-  return fn()
-}
 
 /** A completed, authorized job at garage C with recorded parts, invoiced (the PAY-04 product path). */
 async function invoiceAtGarageC(cost = '40.00', sellPrice = '10.00') {
@@ -146,6 +141,29 @@ async function actForGarageC(page: Page) {
 async function noHorizontalOverflow(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow, 'no lateral page overflow').toBeLessThanOrEqual(1)
+}
+/**
+ * Every visible control holds its own words at this width. A button whose label wraps must grow with it: the shared
+ * Button keeps a fixed small-screen height unless told otherwise, and the final rehearsal at ea0511ff showed "Pay … on
+ * Paynow's page" cut off at 390 px. A radio or checkbox must keep its size when the words beside it wrap (InnBucks at 768 px).
+ */
+async function noClippedControls(page: Page, include: string) {
+  const problems = await page.locator(include).evaluateAll((roots) => {
+    const out: string[] = []
+    const name = (el: HTMLElement) => el.dataset.testid ?? el.getAttribute('aria-label') ?? (el.textContent ?? '').trim().slice(0, 48)
+    const shown = (el: HTMLElement) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 }
+    for (const root of roots) {
+      for (const el of Array.from(root.querySelectorAll<HTMLElement>('button, [role="button"]'))) {
+        if (shown(el) && el.scrollHeight - el.clientHeight > 1) out.push(`${name(el)}: ${el.scrollHeight}px of words in a ${el.clientHeight}px button`)
+      }
+      for (const el of Array.from(root.querySelectorAll<HTMLElement>('input[type="radio"], input[type="checkbox"]'))) {
+        const r = el.getBoundingClientRect()
+        if (shown(el) && Math.abs(r.width - r.height) > 1) out.push(`${name(el)}: squeezed to ${Math.round(r.width)}×${Math.round(r.height)} px`)
+      }
+    }
+    return out
+  })
+  expect(problems, `every control in ${include} holds its words and keeps its size`).toEqual([])
 }
 async function axeClean(page: Page, include: string) {
   // the RESTING state: a click leaves the pointer over whatever renders next, and the shared Button fades 0.5 → 1 over
@@ -321,6 +339,7 @@ test('D/E (browser, tablet): EcoCash — "approve on your phone" is pending, nev
   await card.getByTestId('paynow-start').click()
   await expect(card.getByTestId('paynow-pending')).toBeVisible({ timeout: 60_000 })
   await expect(card.getByTestId('paynow-status-badge')).not.toContainText(/^Paid/)
+  await noClippedControls(page, '[data-testid="invoice-card"]')
   await axeClean(page, '[data-testid="invoice-card"]')
   await shot(page, invoiceCard(page, inv.number), '08-customer-ecocash-pending-tablet')
   const collectionId = sql(`select id from pay04_garage_collections where invoice_id = ${lit(inv.invoiceId)} order by initiated_at desc limit 1`)
@@ -345,12 +364,14 @@ test('D/E (browser, mobile): InnBucks — the code stays on screen, survives a r
   await page.waitForTimeout(1500) // the invoice refreshes in place behind the panel (independent review W1)
   await expect(code).toBeVisible()
   await noHorizontalOverflow(page)
+  await noClippedControls(page, '[data-testid="invoice-card"]')
   await axeClean(page, '[data-testid="invoice-card"]')
   await shot(page, invoiceCard(page, inv.number), '10-customer-innbucks-code-mobile')
   // a reload: the existing request can be continued, with the same code (independent review W2)
   const again = await openHowToPay(page, inv.number, { checkout: false })
   await expect(again.getByTestId('paynow-checkout')).toHaveCount(0)
   await expect(again.getByTestId('paynow-innbucks-code').first()).toHaveText(shown, { timeout: 30_000 })
+  await noClippedControls(page, '[data-testid="invoice-card"]')
   await shot(page, invoiceCard(page, inv.number), '11-customer-innbucks-continue-mobile')
   const collectionId = sql(`select id from pay04_garage_collections where invoice_id = ${lit(inv.invoiceId)} order by initiated_at desc limit 1`)
   const tx = await simTxFor(collectionId)
@@ -371,6 +392,7 @@ test('D/E (browser, mobile): O\'mari — a wrong code is refused in words; the r
   await card.getByTestId('paynow-otp-input').fill('000000')
   await card.getByTestId('paynow-otp-submit').click()
   await expect(card.getByText(/code/i).first()).toBeVisible()
+  await noClippedControls(page, '[data-testid="invoice-card"]')
   await shot(page, invoiceCard(page, inv.number), '12-customer-omari-wrong-code-mobile')
   const outbox = (await sim('GET', '/otp')) as Array<{ phone: string; otp: string }>
   const otp = outbox.filter((o) => o.phone === '0779000202').pop()!.otp
@@ -379,6 +401,7 @@ test('D/E (browser, mobile): O\'mari — a wrong code is refused in words; the r
   const collectionId = sql(`select id from pay04_garage_collections where invoice_id = ${lit(inv.invoiceId)} order by initiated_at desc limit 1`)
   await expect.poll(() => payStatus(collectionId), { timeout: 60_000 }).toBe('paid')
   await noHorizontalOverflow(page)
+  await noClippedControls(page, '[data-testid="invoice-card"]')
   await axeClean(page, '[data-testid="invoice-card"]')
   await shot(page, invoiceCard(page, inv.number), '13-customer-omari-confirmed-mobile')
   note('customer-omari', { collection: collectionId, status: payStatus(collectionId) })
@@ -412,18 +435,20 @@ test('E (browser, desktop): a stopped request stays HELD — the operator sees i
   await expect(held).toBeVisible({ timeout: 30_000 })
   await expect(held.getByTestId('paynow-op-release-wait')).toBeVisible()
   await expect(held.getByTestId('paynow-op-release')).toBeDisabled()
+  await noClippedControls(page, '[data-testid="paynow-operator"]')
   await axeClean(page, '[data-testid="paynow-operator"]')
   await shot(page, held, '15-operator-held-request-desktop')
   note('operator-held', { collection: started.collection_id })
 })
 
 for (const vp of VIEWPORTS) {
-  test(`E/F: Paynow checkout, garage connection and operator panel at ${vp.name} — accessible, no overflow`, async ({ page }) => {
+  test(`E/F: Paynow checkout, garage connection and operator panel at ${vp.name} — accessible, no overflow, no clipped control`, async ({ page }) => {
     const inv = await invoiceAtGarageC('15.00', '5.00')
     await page.setViewportSize({ width: vp.width, height: vp.height })
     await login(page, 'customer')
     await openHowToPay(page, inv.number)
     await noHorizontalOverflow(page)
+    await noClippedControls(page, '[data-testid="invoice-card"]')
     await axeClean(page, '[data-testid="invoice-card"]')
     await shot(page, invoiceCard(page, inv.number), `16-customer-paynow-checkout-${vp.name}`)
 
@@ -432,6 +457,7 @@ for (const vp of VIEWPORTS) {
     await page.goto('/garage/payments')
     await expect(page.getByTestId('garage-paynow-section')).toBeVisible({ timeout: 30_000 })
     await noHorizontalOverflow(page)
+    await noClippedControls(page, '[data-testid="garage-paynow-section"]')
     await axeClean(page, '[data-testid="garage-paynow-section"]')
     await shot(page, '[data-testid="garage-paynow-section"]', `17-garage-paynow-connection-${vp.name}`)
 
@@ -439,6 +465,7 @@ for (const vp of VIEWPORTS) {
     await page.goto('/admin/garage-payments')
     await expect(page.getByTestId('paynow-operator')).toBeVisible({ timeout: 30_000 })
     await noHorizontalOverflow(page)
+    await noClippedControls(page, '[data-testid="paynow-operator"]')
     await axeClean(page, '[data-testid="paynow-operator"]')
     await shot(page, '[data-testid="paynow-operator"]', `18-operator-paynow-panel-${vp.name}`)
     note(`viewport-${vp.name}`, { ok: true })

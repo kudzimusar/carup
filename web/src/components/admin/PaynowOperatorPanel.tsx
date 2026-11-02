@@ -51,6 +51,13 @@ export default function PaynowOperatorPanel() {
   const [merchants, setMerchants] = useState<PaynowMerchant[] | null>(null)
   const [availability, setAvailability] = useState<PaynowAvailability | null>(null)
   const [held, setHeld] = useState<PaynowHeldCollection[] | null>(null)
+  // the clock held requests are measured against: read at every load and every 30 s, so a release opens when CarUp's
+  // payment time passes while the panel is open (a render never reads the clock itself)
+  const [now, setNow] = useState(0)
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(tick)
+  }, [])
   const [errors, setErrors] = useState<PaynowProviderError[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [disabled, setDisabled] = useState(false)
@@ -76,13 +83,15 @@ export default function PaynowOperatorPanel() {
     try {
       const [m, h, e] = await Promise.all([fetchPaynowMerchants(), fetchPaynowHeldCollections(), fetchPaynowProviderErrors()])
       if (!Array.isArray(m?.merchants) || !Array.isArray(h?.held) || !Array.isArray(e?.errors)) throw new Error('Unexpected Paynow operator response')
-      setMerchants(m.merchants); setAvailability(m.availability); setHeld(h.held); setErrors(e.errors); setLoadError(null); setDisabled(false)
+      setMerchants(m.merchants); setAvailability(m.availability); setHeld(h.held); setNow(Date.now()); setErrors(e.errors); setLoadError(null); setDisabled(false)
     } catch (err) {
       // PAY-05 switched off on this server is a state, not a failure
       if (isPay05Disabled(err)) { setDisabled(true); setLoadError(null); return }
       setLoadError(messageOf(err, 'The Paynow operator view could not be loaded.'))
     }
   }, [fetchPaynowMerchants, fetchPaynowHeldCollections, fetchPaynowProviderErrors])
+  // loading on mount is the effect's job: every state it sets is set after the requests answer
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [load])
 
   const act = async (fn: () => Promise<unknown>, ok: string, explain: (e: unknown) => string = () => '') => {
@@ -253,7 +262,7 @@ export default function PaynowOperatorPanel() {
             const unconfirmed = h.paynow.initiation === 'sending' || h.paynow.initiation === 'unknown'
             const expires = Date.parse(h.expires_at)
             const known = Number.isFinite(expires)
-            const waiting = known && expires > Date.now()
+            const waiting = known && expires > now
             const releaseLabel = unconfirmed ? 'Close unconfirmed request' : 'Check with Paynow and release the hold'
             return (
             <li key={h.collection_id} className="space-y-2 rounded-md border p-3" data-testid="paynow-op-held">
@@ -272,7 +281,7 @@ export default function PaynowOperatorPanel() {
                   Can be released after {dateTimeLabel(h.expires_at)} (CarUp’s payment time)
                 </p>
               )}
-              <Button className={`min-h-11 h-auto whitespace-normal py-2 text-left ${MONEY_ACTION_BUTTON_CLASS}`}
+              <Button className={`min-h-11 h-auto max-sm:h-auto whitespace-normal py-2 text-left ${MONEY_ACTION_BUTTON_CLASS}`}
                 disabled={busy || waiting || reasonOf(`release-${h.collection_id}`).length < 10}
                 aria-describedby={waiting ? `${uid}-wait-${h.collection_id}` : undefined}
                 onClick={() => void act(() => releasePaynowHold(h.collection_id, reasonOf(`release-${h.collection_id}`)), unconfirmed

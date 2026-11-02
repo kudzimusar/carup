@@ -198,7 +198,7 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                     />
                     {amountProblem && <p id={`${uid}-amount-problem`} className="text-sm text-red-800" data-testid="online-payment-amount-problem">{amountProblem}</p>}
                     {problem && <p className="rounded-md bg-red-50 p-2 text-red-900" role="alert" data-testid="online-payment-error">{problem}</p>}
-                    <Button className={`min-h-11 h-auto whitespace-normal py-2 text-left ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !amount.trim() || Boolean(amountProblem)}
+                    <Button className={`min-h-11 h-auto max-sm:h-auto whitespace-normal py-2 text-left ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !amount.trim() || Boolean(amountProblem)}
                       onClick={() => void pay()} data-testid="online-payment-start">
                       {busy ? 'Opening the provider…' : amountProblem || !amount.trim() ? 'Continue to the provider' : `Continue to the provider to pay ${amount.trim()} ${option.currency}`}
                     </Button>

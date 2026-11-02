@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { CustomerInvoice } from '@/lib/garageBusiness'
 import { watchLiveRegions } from '@/test/liveRegions'
+import { fixedHeightClasses } from '@/test/controlFit'
 
 /**
  * CARUP-PAY-05 — the customer pays the garage through the garage's OWN Paynow account. Truth rules: only enabled
@@ -346,5 +347,21 @@ describe('Focus follows the payment; live regions are there before they speak (W
     expect(screen.getByTestId('paynow-outcome')).toBe(outcome)
     expect(regions.spoke()).toContain('paynow-outcome')
     regions.stop()
+  })
+})
+
+describe('Controls hold their words at every width (final rehearsal at 390 px and 768 px)', () => {
+  it('the Pay button grows with its words on a phone too: no height is pinned at any width', async () => {
+    await openPaynow()
+    // the longest label: "Pay 60.00 USD with Card, Zimswitch or another method on Paynow’s page" wraps to three lines at 390 px
+    expect(screen.getByTestId('paynow-start')).toHaveTextContent('Paynow’s page')
+    expect(fixedHeightClasses(screen.getByTestId('paynow-start'))).toEqual([])
+  })
+
+  it('every method keeps its radio at full size when the words beside it wrap', async () => {
+    await openPaynow()
+    const radios = within(screen.getByTestId('paynow-methods')).getAllByRole('radio')
+    expect(radios).toHaveLength(4)
+    for (const radio of radios) expect(radio).toHaveClass('shrink-0')
   })
 })

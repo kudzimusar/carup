@@ -103,6 +103,8 @@ export default function PaynowConnection() {
     const el = document.getElementById(focusId)
     const target = el && !el.matches('input, select, textarea, button') ? el.querySelector<HTMLElement>('input, select, textarea, button') ?? el : el
     target?.focus()
+    // the request is spent once focus has moved, so the same field can be asked for again
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFocusId(null)
   }, [focusId])
 
@@ -117,6 +119,8 @@ export default function PaynowConnection() {
       setState(isPay05Disabled(err) ? 'disabled' : 'error')
     }
   }, [fetchGaragePaynowConnection])
+  // loading on mount is the effect's job: every state it sets is set after the request answers
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [load])
 
   const fieldId = (key: FieldKey) => (key === 'currencies' ? `${uid}-USD-enabled` : `${uid}-${key}`)

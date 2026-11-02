@@ -16,6 +16,8 @@ const TONE = { ok: 'bg-green-50 text-green-900', wait: 'bg-amber-50 text-amber-9
 /** A live region that is in the page, empty, before its words arrive — so they are announced (W8). */
 function LiveText({ text, testId }: { text: string; testId: string }) {
   const [said, setSaid] = useState('')
+  // the words arrive one commit after the empty region is in the page: that delay is what makes them announced
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setSaid(text) }, [text])
   return <p role="status" aria-live="polite" data-testid={testId}>{said}</p>
 }
@@ -62,6 +64,8 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
   // a refresh of the invoice is a newer read of the request started here than the one shown: adopt it
   useEffect(() => {
     if (!latest) return
+    // the parent's newer read of this request (a prop) replaces the one this checkout holds
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPending((p) => (p && p.collectionId === latest.id ? { ...p, paynow: latest.paynow ?? p.paynow, state: latest.state } : p))
   }, [latest])
 
@@ -155,7 +159,7 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
             <legend className="text-sm font-medium">How do you want to pay?</legend>
             {option.methods.map((m) => (
               <label key={m} className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-md border p-2 ${method === m ? 'border-orange-700 bg-orange-50' : 'border-gray-300'}`}>
-                <input type="radio" name={`${uid}-method`} value={m} checked={method === m} className="mt-1 h-5 w-5"
+                <input type="radio" name={`${uid}-method`} value={m} checked={method === m} className="mt-1 h-5 w-5 shrink-0"
                   onChange={() => { setMethod(m); changed() }} data-testid={`paynow-method-${m}`} />
                 <span>
                   <span className="block font-medium">{PAYNOW_METHOD_LABEL[m]}</span>
@@ -176,7 +180,7 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
             </div>
           )}
           {problem && <p className="rounded-md bg-red-50 p-2 text-red-900" role="alert" data-testid="paynow-error">{problem}</p>}
-          <Button className={`min-h-11 h-auto whitespace-normal py-2 text-left ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !ready}
+          <Button className={`min-h-11 h-auto max-sm:h-auto whitespace-normal py-2 text-left ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !ready}
             aria-describedby={phoneMissing ? `${uid}-phone-hint` : undefined} onClick={() => void start()} data-testid="paynow-start">
             {busy ? 'Contacting Paynow…' : ready ? `Pay ${amount.trim()} ${option.currency} with ${PAYNOW_METHOD_LABEL[method]}` : 'Pay with Paynow'}
           </Button>

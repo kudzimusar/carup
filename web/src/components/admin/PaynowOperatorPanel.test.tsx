@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { dateTimeLabel } from '@/lib/garageWorkspace'
 import { watchLiveRegions } from '@/test/liveRegions'
+import { fixedHeightClasses } from '@/test/controlFit'
 
 /**
  * CARUP-PAY-05 — the operator's Paynow work. Truth rules: verification needs both human reviews and a note (the server
@@ -156,6 +157,24 @@ describe('Paynow operator panel', () => {
     expect(within(row).getByTestId('paynow-op-release')).toBeEnabled()
   })
 
+  it('contract 7: the release opens by itself when CarUp’s payment time passes while the panel is open', async () => {
+    // the panel measures held requests against a clock it keeps, never Date.now() during a render (react-hooks/purity)
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    try {
+      const expires = new Date(Date.now() + 20_000).toISOString()
+      api.fetchPaynowHeldCollections.mockResolvedValue({ held: [{ ...held, expires_at: expires }] })
+      render(<PaynowOperatorPanel />)
+      const row = await screen.findByTestId('paynow-op-held')
+      fireEvent.change(screen.getByTestId('paynow-op-reason-release-c1'), { target: { value: 'Customer abandoned the EcoCash prompt.' } })
+      expect(within(row).getByTestId('paynow-op-release')).toBeDisabled()
+      act(() => { vi.advanceTimersByTime(31_000) })
+      expect(within(row).getByTestId('paynow-op-release')).toBeEnabled()
+      expect(row).toHaveTextContent(`CarUp’s payment time ended ${dateTimeLabel(expires)}`)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('contract 7: a request Paynow never confirmed receiving is closed as such, through the same release', async () => {
     api.fetchPaynowHeldCollections.mockResolvedValue({ held: [{ ...held, paynow: { ...held.paynow, initiation: 'unknown', provider_status: null,
       provider_status_label: 'CarUp is confirming with Paynow whether the payment request was received (not counted)' } }] })
@@ -212,5 +231,15 @@ describe('The operator’s result speaks and takes the focus (W8)', () => {
     await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveTextContent('Released'))
     await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveFocus())
     regions.stop()
+  })
+})
+
+describe('Controls hold their words at every width (final rehearsal at 390 px)', () => {
+  it('the release button grows with its words on a phone: no height is pinned at any width', async () => {
+    render(<PaynowOperatorPanel />)
+    const release = await screen.findByTestId('paynow-op-release')
+    // "Check with Paynow and release the hold" wraps to two lines at 390 px
+    expect(release).toHaveTextContent('Check with Paynow and release the hold')
+    expect(fixedHeightClasses(release)).toEqual([])
   })
 })

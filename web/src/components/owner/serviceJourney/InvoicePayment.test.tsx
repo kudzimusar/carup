@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { CustomerInvoice } from '@/lib/garageBusiness'
 import { watchLiveRegions } from '@/test/liveRegions'
+import { fixedHeightClasses } from '@/test/controlFit'
 
 /**
  * CARUP-PAY-04 — "How to pay" on the customer's invoice. Truth rules, not snapshots: the garage is paid (never CarUp),
@@ -199,5 +200,17 @@ describe('How to pay', () => {
     fireEvent.click(await screen.findByTestId('my-provider-payment-check'))
     await waitFor(() => expect(screen.getByTestId('my-provider-payment-outcome')).toHaveTextContent('has not confirmed this payment yet'))
     expect(screen.getByTestId('my-provider-payment-outcome')).not.toHaveTextContent('confirmed your payment')
+  })
+})
+
+// found in PAY-05's final rehearsal (390 px): the shared Button keeps `max-sm:h-11` under `h-auto`, so a wrapped label is cut off
+describe('Controls hold their words at every width', () => {
+  it('the provider payment button grows with its words on a phone: no height is pinned at any width', async () => {
+    fetchGarageInvoicePaymentOptions.mockResolvedValue(options())
+    render(<InvoicePayment invoice={invoice} />)
+    fireEvent.click(screen.getByTestId('how-to-pay-toggle'))
+    const start = await screen.findByTestId('online-payment-start')
+    expect(start).toHaveTextContent('Continue to the provider to pay 150.00')
+    expect(fixedHeightClasses(start)).toEqual([])
   })
 })
