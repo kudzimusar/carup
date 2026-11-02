@@ -426,10 +426,15 @@ await step('INV', 'Database invariants over every invoice of garage A', async ()
   const over = sql(`select count(*) from garage_invoices i cross join lateral garage_ops07_invoice_balance(i.id) b where i.tenant_id = ${lit(accounts.garageA)} and b.paid_amount > i.total_amount`);
   const badReceipt = sql(`select count(*) from pay04_garage_provider_receipts r where r.tenant_id = ${lit(accounts.garageA)} and r.status = 'issued' and r.amount <> pay04_collection_allocated(r.collection_id)`);
   const badSource = sql(`select count(*) from garage_payment_records where source <> 'garage_recorded_external'`);
-  const carupMoney = sql(`select count(*) from payment_transactions where reference like 'pay04_gar_%' and (pay02_funds_owner <> 'garage_business_tenant' or gateway <> 'pay04_garage_provider_simulator')`);
+  // garage money is never CarUp's: every ledger row of a garage collection is owned by the garage and comes through a
+  // garage-provider gateway — the PAY-04 simulator or, since PAY-05, the garage's own Paynow integration. Any other
+  // gateway, or any other owner, is a failure (PAY-05 final UAT: the single-gateway form counted 18 garage-owned Paynow rows)
+  const GARAGE_PROVIDER_GATEWAYS = "'pay04_garage_provider_simulator', 'paynow_zimbabwe'";
+  const carupMoney = sql(`select count(*) from payment_transactions where reference like 'pay04_gar_%' and (pay02_funds_owner <> 'garage_business_tenant' or gateway not in (${GARAGE_PROVIDER_GATEWAYS}))`);
+  const byGateway = sql(`select coalesce(string_agg(gateway || ':' || n, ',' order by gateway), '') from (select gateway, count(*) n from payment_transactions where reference like 'pay04_gar_%' group by gateway) g`);
   const movementTypes = sql(`select string_agg(distinct movement_type, ',') from garage_stock_movements where tenant_id = ${lit(accounts.garageA)}`);
   return { pass: over === '0' && badReceipt === '0' && badSource === '0' && carupMoney === '0', detail: { over_allocated: over, receipts_not_equal_counted: badReceipt,
-    non_external_declared_rows: badSource, garage_money_as_carup_money: carupMoney, stock_movement_types_seen: movementTypes } };
+    non_external_declared_rows: badSource, garage_money_as_carup_money: carupMoney, garage_collection_rows_by_gateway: byGateway, stock_movement_types_seen: movementTypes } };
 });
 
 const out = { programme: 'CARUP-PAY-04-LR01', level: 'Level 1 (local simulator; no provider, no money)', recorded_at: new Date().toISOString(),
