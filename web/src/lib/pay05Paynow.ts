@@ -247,7 +247,7 @@ const PAY05_ERROR_TEXT: Record<string, string> = {
   PAY05_MERCHANT_AUTHORITY_REFUSED: 'Only the garage’s administrator can do this.',
   PAY05_REVIEWER_SEPARATION_REQUIRED: 'Refused: you are connected to this garage, so another CarUp administrator must review it.',
   PAY05_VERIFICATION_AUTHORITY_REFUSED: 'Only a CarUp platform administrator can do this.',
-  PAY05_VERIFICATION_EVIDENCE_INCOMPLETE: 'Not verified: confirm both reviews, and every integration key must prove itself with Paynow.',
+  PAY05_VERIFICATION_EVIDENCE_INCOMPLETE: 'Not verified: confirm all three reviews (legal identity, settlement account, each integration’s currency) and write a note; every integration key must also prove itself with Paynow.',
   PAY05_MERCHANT_NOT_PENDING: 'This account has already been reviewed.',
   PAY05_HOLD_NOT_RELEASABLE: 'This payment cannot be released: it is not an unpaid Paynow request past its time.',
   PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ: 'Paynow must show this request unpaid in a fresh check before its hold can be released.',

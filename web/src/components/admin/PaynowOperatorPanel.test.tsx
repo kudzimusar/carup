@@ -49,7 +49,7 @@ describe('Paynow operator panel', () => {
     expect(screen.queryByText('Merchant accounts')).toBeNull()
   })
 
-  it('verifies only with both reviews and a note, and shows the refusal in words with its code', async () => {
+  it('verifies only with all three reviews — legal identity, settlement account, each integration’s currency — and a note; refusals keep their code', async () => {
     api.verifyPaynowMerchant.mockRejectedValue(new Error('PAY05_REVIEWER_SEPARATION_REQUIRED'))
     render(<PaynowOperatorPanel />)
     const verify = await screen.findByTestId('paynow-op-verify')
@@ -58,9 +58,14 @@ describe('Paynow operator panel', () => {
     fireEvent.click(screen.getByTestId('paynow-op-settlement'))
     expect(verify).toBeDisabled()
     fireEvent.change(screen.getByTestId('paynow-op-note'), { target: { value: 'Legal name and settlement account match.' } })
+    expect(verify).toBeDisabled() // the currency review is still missing
+    const currency = screen.getByTestId('paynow-op-currency')
+    expect(currency).toHaveAccessibleName(/^I checked each integration.s currency in the garage.s Paynow account \(Paynow does not tell CarUp the currency\)$/)
+    fireEvent.click(currency)
     expect(verify).toBeEnabled()
     fireEvent.click(verify)
-    await waitFor(() => expect(api.verifyPaynowMerchant).toHaveBeenCalledWith('m1', { legal_identity_reviewed: true, settlement_account_reviewed: true, note: 'Legal name and settlement account match.' }))
+    await waitFor(() => expect(api.verifyPaynowMerchant).toHaveBeenCalledWith('m1', { legal_identity_reviewed: true, settlement_account_reviewed: true,
+      currency_configuration_reviewed: true, note: 'Legal name and settlement account match.' }))
     expect(await screen.findByTestId('paynow-op-message')).toHaveTextContent('another CarUp administrator must review it. (PAY05_REVIEWER_SEPARATION_REQUIRED)')
     expect(screen.getByText(/a1b2c3d4e5f60718/)).toBeInTheDocument()
   })

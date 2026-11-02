@@ -35,7 +35,7 @@ export default function PaynowOperatorPanel() {
   const [disabled, setDisabled] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
-  const [review, setReview] = useState<Record<string, { legal: boolean; settlement: boolean; note: string }>>({})
+  const [review, setReview] = useState<Record<string, { legal: boolean; settlement: boolean; currency: boolean; note: string }>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [availabilityNote, setAvailabilityNote] = useState('')
 
@@ -114,7 +114,9 @@ export default function PaynowOperatorPanel() {
         {merchants?.length === 0 && <p className="text-sm text-gray-700">No garage has connected a Paynow account.</p>}
         <ul className="space-y-3">
           {merchants?.map((m) => {
-            const r = review[m.id] ?? { legal: false, settlement: false, note: '' }
+            const r = review[m.id] ?? { legal: false, settlement: false, currency: false, note: '' }
+            // all three human reviews and a note; the server then proves every key with Paynow
+            const reviewed = r.legal && r.settlement && r.currency && r.note.trim().length >= 10
             return (
               <li key={m.id} className="space-y-2 rounded-md border p-3" data-testid="paynow-op-merchant" data-status={m.status}>
                 <p className="flex flex-wrap items-center gap-2">
@@ -148,12 +150,18 @@ export default function PaynowOperatorPanel() {
                         data-testid="paynow-op-settlement" />
                       The settlement account belongs to this garage
                     </label>
+                    <label className="flex min-h-11 items-center gap-2 text-sm">
+                      <input type="checkbox" className="h-5 w-5" checked={r.currency} onChange={(e) => setReview({ ...review, [m.id]: { ...r, currency: e.target.checked } })}
+                        data-testid="paynow-op-currency" />
+                      I checked each integration’s currency in the garage’s Paynow account (Paynow does not tell CarUp the currency)
+                    </label>
                     <label htmlFor={`${uid}-note-${m.id}`} className="block text-xs font-medium">Review note (at least 10 characters)</label>
                     <input id={`${uid}-note-${m.id}`} value={r.note} onChange={(e) => setReview({ ...review, [m.id]: { ...r, note: e.target.value } })}
                       className="w-full min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm" data-testid="paynow-op-note" />
                     <div className="flex flex-wrap gap-2">
-                      <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !r.legal || !r.settlement || r.note.trim().length < 10}
-                        onClick={() => void act(() => verifyPaynowMerchant(m.id, { legal_identity_reviewed: r.legal, settlement_account_reviewed: r.settlement, note: r.note.trim() }),
+                      <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !reviewed}
+                        onClick={() => void act(() => verifyPaynowMerchant(m.id, { legal_identity_reviewed: r.legal, settlement_account_reviewed: r.settlement,
+                          currency_configuration_reviewed: r.currency, note: r.note.trim() }),
                           'Verified: every integration key proved itself with Paynow. Customers can now pay this garage through it.')}
                         data-testid="paynow-op-verify">
                         Check keys with Paynow and verify
