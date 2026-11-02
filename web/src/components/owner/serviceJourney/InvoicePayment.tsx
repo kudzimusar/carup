@@ -99,6 +99,7 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
 
   const check = async (collectionId: string) => {
     setBusy(true)
+    setChecked(null) // the outcome region empties, so the same answer twice is still said twice
     try {
       const outcome = await verifyGarageInvoicePayment(collectionId)
       setChecked({ id: collectionId, outcome, failed: false })
@@ -251,9 +252,14 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                         {stopError?.id === p.id && (
                           <p role="alert" className="mt-2 rounded-md bg-red-50 p-2 text-red-900" data-testid="my-provider-payment-stop-error">{stopError.text}</p>
                         )}
-                        {checked?.id === p.id && (() => {
-                          const message = paynow ? paynowOutcomeMessage(checked.outcome as PaynowOutcome | null, checked.failed) : returnOutcomeMessage(checked.outcome, checked.failed)
-                          return <p role="status" className={`mt-2 rounded-md p-2 ${TONE[message.tone]}`} data-testid="my-provider-payment-outcome">{message.text}</p>
+                        {(() => {
+                          // a live region in the page before its words arrive (W8)
+                          const message = checked?.id !== p.id ? null : paynow
+                            ? paynowOutcomeMessage(checked.outcome as PaynowOutcome | null, checked.failed) : returnOutcomeMessage(checked.outcome, checked.failed)
+                          return (
+                            <p role="status" aria-live="polite" className={message ? `mt-2 rounded-md p-2 ${TONE[message.tone]}` : ''}
+                              data-testid="my-provider-payment-outcome">{message?.text ?? ''}</p>
+                          )
                         })()}
                       </li>
                       )

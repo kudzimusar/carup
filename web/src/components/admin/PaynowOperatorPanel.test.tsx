@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { dateTimeLabel } from '@/lib/garageWorkspace'
+import { watchLiveRegions } from '@/test/liveRegions'
 
 /**
  * CARUP-PAY-05 — the operator's Paynow work. Truth rules: verification needs both human reviews and a note (the server
@@ -63,7 +64,7 @@ describe('Paynow operator panel — words (W10)', () => {
     fireEvent.click(screen.getByTestId('paynow-op-currency'))
     fireEvent.change(screen.getByTestId('paynow-op-note'), { target: { value: 'Legal name and settlement account match.' } })
     fireEvent.click(screen.getByTestId('paynow-op-verify'))
-    expect(await screen.findByTestId('paynow-op-message')).toHaveTextContent('US dollars (USD): Paynow refused this key')
+    await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveTextContent('US dollars (USD): Paynow refused this key'))
   })
 
   it('reads a held request’s Paynow status about the customer', async () => {
@@ -114,7 +115,7 @@ describe('Paynow operator panel', () => {
     fireEvent.click(verify)
     await waitFor(() => expect(api.verifyPaynowMerchant).toHaveBeenCalledWith('m1', { legal_identity_reviewed: true, settlement_account_reviewed: true,
       currency_configuration_reviewed: true, note: 'Legal name and settlement account match.' }))
-    expect(await screen.findByTestId('paynow-op-message')).toHaveTextContent('another CarUp administrator must review it. (PAY05_REVIEWER_SEPARATION_REQUIRED)')
+    await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveTextContent('another CarUp administrator must review it. (PAY05_REVIEWER_SEPARATION_REQUIRED)'))
     expect(screen.getByText(/a1b2c3d4e5f60718/)).toBeInTheDocument()
   })
 
@@ -126,7 +127,7 @@ describe('Paynow operator panel', () => {
     fireEvent.change(screen.getByTestId('paynow-op-reason-release-c1'), { target: { value: 'Customer abandoned the EcoCash prompt.' } })
     fireEvent.click(release)
     await waitFor(() => expect(api.releasePaynowHold).toHaveBeenCalledWith('c1', 'Customer abandoned the EcoCash prompt.'))
-    expect(await screen.findByTestId('paynow-op-message')).toHaveTextContent(LATE_PAYMENT)
+    await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveTextContent(LATE_PAYMENT))
   })
 
   it('W10: the late-payment rule is said as it is, never "never counted twice"', async () => {
@@ -165,7 +166,7 @@ describe('Paynow operator panel', () => {
     fireEvent.change(screen.getByTestId('paynow-op-reason-release-c1'), { target: { value: 'Paynow has no record of it after two traces.' } })
     fireEvent.click(close)
     await waitFor(() => expect(api.releasePaynowHold).toHaveBeenCalledWith('c1', 'Paynow has no record of it after two traces.'))
-    expect(await screen.findByTestId('paynow-op-message')).toHaveTextContent(/never confirmed/)
+    await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveTextContent(/never confirmed/))
   })
 
   it('names provider errors and keeps availability changes reasoned', async () => {
@@ -173,5 +174,43 @@ describe('Paynow operator panel', () => {
     expect(await screen.findByTestId('paynow-op-errors')).toHaveTextContent('failed Paynow’s signature check')
     expect(screen.getByTestId('paynow-op-availability-toggle')).toBeDisabled()
     expect(screen.getByTestId('paynow-op-availability')).toHaveTextContent('Real Paynow: off')
+  })
+})
+
+describe('The operator’s result speaks and takes the focus (W8)', () => {
+  it('the message region is there before it speaks, and takes the focus after a reject, a refused verify and a release', async () => {
+    api.rejectPaynowMerchant.mockResolvedValue({})
+    api.verifyPaynowMerchant.mockRejectedValue(new Error('PAY05_REVIEWER_SEPARATION_REQUIRED'))
+    api.releasePaynowHold.mockResolvedValue({})
+    render(<PaynowOperatorPanel />)
+    await screen.findByTestId('paynow-op-reject')
+    const message = screen.getByTestId('paynow-op-message')
+    expect(message).toBeEmptyDOMElement()
+    expect(message).toHaveAttribute('role', 'status')
+    expect(message).toHaveAttribute('aria-live', 'polite')
+    const regions = watchLiveRegions()
+
+    fireEvent.change(screen.getByTestId('paynow-op-reason-reject-m1'), { target: { value: 'The settlement account belongs to another business.' } })
+    screen.getByTestId('paynow-op-reject').focus()
+    fireEvent.click(screen.getByTestId('paynow-op-reject'))
+    await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveFocus())
+    expect(screen.getByTestId('paynow-op-message')).toHaveTextContent('Rejected')
+    expect(regions.spoke()).toContain('paynow-op-message')
+
+    fireEvent.click(screen.getByTestId('paynow-op-legal'))
+    fireEvent.click(screen.getByTestId('paynow-op-settlement'))
+    fireEvent.click(screen.getByTestId('paynow-op-currency'))
+    fireEvent.change(screen.getByTestId('paynow-op-note'), { target: { value: 'Legal name and settlement account match.' } })
+    screen.getByTestId('paynow-op-verify').focus()
+    fireEvent.click(screen.getByTestId('paynow-op-verify'))
+    await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveTextContent('PAY05_REVIEWER_SEPARATION_REQUIRED'))
+    await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveFocus())
+
+    fireEvent.change(screen.getByTestId('paynow-op-reason-release-c1'), { target: { value: 'Customer abandoned the EcoCash prompt.' } })
+    screen.getByTestId('paynow-op-release').focus()
+    fireEvent.click(screen.getByTestId('paynow-op-release'))
+    await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveTextContent('Released'))
+    await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveFocus())
+    regions.stop()
   })
 })

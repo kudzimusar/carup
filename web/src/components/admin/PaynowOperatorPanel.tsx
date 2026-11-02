@@ -59,6 +59,9 @@ export default function PaynowOperatorPanel() {
   const [review, setReview] = useState<Record<string, { legal: boolean; settlement: boolean; currency: boolean; note: string }>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [availabilityNote, setAvailabilityNote] = useState('')
+  // after each action the result takes the focus, once React has drawn it (W8)
+  const [spoken, setSpoken] = useState(0)
+  useEffect(() => { if (spoken) document.getElementById(`${uid}-message`)?.focus() }, [spoken, uid])
   // a held request's release opens when CarUp's payment time passes: draw the page again at that moment
   const [clock, setClock] = useState(0)
   useEffect(() => {
@@ -93,6 +96,7 @@ export default function PaynowOperatorPanel() {
       setMessage({ ok: false, text: `${messageOf(e, 'The action was refused.')}${explain(e)}` })
     } finally {
       setBusy(false)
+      setSpoken((n) => n + 1)
     }
   }
   const reasonOf = (id: string) => (reasons[id] ?? '').trim()
@@ -117,7 +121,10 @@ export default function PaynowOperatorPanel() {
     <section aria-labelledby={`${uid}-title`} className="space-y-6 border-t pt-6" data-testid="paynow-operator">
       {title}
       {loadError && <p role="alert" className="rounded-md bg-red-50 p-3 text-red-900">{loadError}</p>}
-      {message && <p role={message.ok ? 'status' : 'alert'} className={`rounded-md p-3 ${message.ok ? 'bg-green-50 text-green-900' : 'bg-red-50 text-red-900'}`} data-testid="paynow-op-message">{message.text}</p>}
+      {/* in the page, empty, before its words arrive, so they are announced; it takes the focus after each action (W8) */}
+      <p id={`${uid}-message`} role="status" aria-live="polite" tabIndex={-1}
+        className={message ? `rounded-md p-3 ${message.ok ? 'bg-green-50 text-green-900' : 'bg-red-50 text-red-900'}` : ''}
+        data-testid="paynow-op-message">{message?.text ?? ''}</p>
 
       {availability && (
         <div className="space-y-2 rounded-md border p-3" data-testid="paynow-op-availability">

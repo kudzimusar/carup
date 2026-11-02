@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { CustomerInvoice } from '@/lib/garageBusiness'
+import { watchLiveRegions } from '@/test/liveRegions'
 
 /**
  * CARUP-PAY-04 — "How to pay" on the customer's invoice. Truth rules, not snapshots: the garage is paid (never CarUp),
@@ -171,6 +172,23 @@ describe('How to pay', () => {
     expect(fetchGarageInvoicePaymentOptions).toHaveBeenCalledTimes(3)
   })
 
+  it('W8: a payment’s outcome region is there, empty, before it speaks', async () => {
+    fetchGarageInvoicePaymentOptions.mockResolvedValue(options({ provider_payments: [{ id: 'c1', amount: '50.00', currency: 'USD', initiated_at: '2026-11-02T00:00:00Z',
+      expires_at: '2026-11-02T00:30:00Z', cancelled_at: null, state: 'awaiting_provider', state_label: 'Waiting for the provider to confirm', payment_status: 'pending',
+      gateway: 'pay04_garage_provider_simulator', simulated: true, source_label: '' }] }))
+    verifyGarageInvoicePayment.mockResolvedValue({ collection: { state: 'awaiting_provider' }, applied: true, money: {} })
+    render(<InvoicePayment invoice={invoice} />)
+    fireEvent.click(screen.getByTestId('how-to-pay-toggle'))
+    const outcome = await screen.findByTestId('my-provider-payment-outcome')
+    expect(outcome).toBeEmptyDOMElement()
+    expect(outcome).toHaveAttribute('aria-live', 'polite')
+    const regions = watchLiveRegions()
+    fireEvent.click(screen.getByTestId('my-provider-payment-check'))
+    await waitFor(() => expect(outcome).toHaveTextContent('has not confirmed this payment yet'))
+    expect(regions.spoke()).toContain('my-provider-payment-outcome')
+    regions.stop()
+  })
+
   it('checking a payment in progress never claims success before the provider confirms it', async () => {
     fetchGarageInvoicePaymentOptions.mockResolvedValue(options({ provider_payments: [{ id: 'c1', amount: '50.00', currency: 'USD', initiated_at: '2026-11-02T00:00:00Z',
       expires_at: '2026-11-02T00:30:00Z', cancelled_at: null, state: 'awaiting_provider', state_label: 'Waiting for the provider to confirm', payment_status: 'pending',
@@ -179,8 +197,7 @@ describe('How to pay', () => {
     render(<InvoicePayment invoice={invoice} />)
     fireEvent.click(screen.getByTestId('how-to-pay-toggle'))
     fireEvent.click(await screen.findByTestId('my-provider-payment-check'))
-    const message = await screen.findByTestId('my-provider-payment-outcome')
-    expect(message).toHaveTextContent('has not confirmed this payment yet')
-    expect(message).not.toHaveTextContent('confirmed your payment')
+    await waitFor(() => expect(screen.getByTestId('my-provider-payment-outcome')).toHaveTextContent('has not confirmed this payment yet'))
+    expect(screen.getByTestId('my-provider-payment-outcome')).not.toHaveTextContent('confirmed your payment')
   })
 })
