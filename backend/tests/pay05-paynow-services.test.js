@@ -352,6 +352,10 @@ test('Paynow cannot cancel: a stop keeps the room held; Paynow\'s Cancelled clos
   assert.match(err.details.guidance, /Paynow dashboard/);
   await sim.simulator.setStatus(await guidOf(world.webCollection), 'Disputed');
   assert.equal((await money(world.invWeb.id)).provider_paid, '0.00', 'disputed money is not counted');
+  // physical rehearsal R2: an operator cannot close a dispute Paynow still reports — and is told so, not "unavailable"
+  const dispute = await one("SELECT id FROM pay04_garage_payment_discrepancies WHERE collection_id = $1 AND discrepancy_type = 'provider_disputed' AND status = 'open'", [world.webCollection]);
+  await rejectsWith(S.resolveGaragePaymentDiscrepancy({ db, env, actor: operator(), discrepancyId: dispute.id,
+    body: { resolution: 'provider_corrected', note: 'Closing a dispute Paynow still reports.' } }), 'PAY05_DISPUTE_NOT_RESOLVED_BY_PROVIDER');
   const garageView = await S.getGarageInvoicePayments({ db, env, actor: garageA(), invoiceId: world.invWeb.id });
   assert.equal(garageView.provider_payments[0].state, 'under_review');
   assert.equal(garageView.provider_payments[0].paynow.provider_status, 'disputed');

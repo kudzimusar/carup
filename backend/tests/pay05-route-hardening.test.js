@@ -123,3 +123,20 @@ test('the resulturl refuses unknown, malformed and unauthenticated messages with
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+// physical rehearsal, HTTP case R2: PAY-05's hunks inside accepted PAY-04 functions raise PAY05_ codes (a dispute Paynow
+// still reports, a Paynow row sent down a simulator-only path, a request whose initiation is unresolved). PAY-04's routes
+// map errors with pay04Failure, which knew no PAY05_ token: the operator read a generic 503 instead of the refusal.
+test('PAY-04 routes state the PAY-05 refusals raised inside the functions PAY-05 extends', async () => {
+  const { pay04Failure } = await import('../services/payment/pay04Contract.js');
+  for (const [message, code, status] of [
+    ['PAY05_DISPUTE_NOT_RESOLVED_BY_PROVIDER', 'PAY05_DISPUTE_NOT_RESOLVED_BY_PROVIDER', 409],
+    ['PAY05_USE_PAYNOW_PATH', 'PAY05_USE_PAYNOW_PATH', 409],
+    ['PAY05_INITIATION_UNRESOLVED', 'PAY05_INITIATION_UNRESOLVED', 409],
+    ['PAY05_COLLECTION_NOT_FOUND', 'PAY05_COLLECTION_NOT_FOUND', 404],
+  ]) {
+    const e = pay04Failure({ message: `ERROR: ${message}` });
+    assert.deepEqual([e.code, e.status], [code, status], message);
+  }
+  assert.deepEqual([pay04Failure({ message: 'something unexpected' }).code, pay04Failure({ message: 'x' }).status], ['PAY04_OPERATION_UNAVAILABLE', 503]);
+});

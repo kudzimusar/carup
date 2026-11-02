@@ -65,7 +65,9 @@ const VALIDATION = /(_INVALID|_REQUIRED|CURRENCY_MISMATCH|TOO_MANY_LINES|EXCEEDS
 export function pay04Failure(error, fallback = 'PAY04_OPERATION_UNAVAILABLE') {
   if (error instanceof Pay04Error) return error;
   const message = String(error?.message || '');
-  const token = (/\b(PAY04_[A-Z0-9_]+|PAY03B_[A-Z0-9_]+|PAY01A_[A-Z0-9_]+|GARAGE_OPS0[0-9]_[A-Z0-9_]+)\b/.exec(message) || [])[1];
+  // PAY05_: PAY-05's hunks inside the accepted PAY-04 functions raise their own refusals (a dispute Paynow still reports,
+  // a Paynow row sent down a simulator-only path, an unresolved initiation); PAY-04's routes must state them too
+  const token = (/\b(PAY04_[A-Z0-9_]+|PAY05_[A-Z0-9_]+|PAY03B_[A-Z0-9_]+|PAY01A_[A-Z0-9_]+|GARAGE_OPS0[0-9]_[A-Z0-9_]+)\b/.exec(message) || [])[1];
   if (!token) return new Pay04Error(fallback, 503);
   const detail = String(error?.details ?? error?.detail ?? '');
   const details = /^(uncommitted|balance|consumed)=/.test(detail) ? { detail } : null;

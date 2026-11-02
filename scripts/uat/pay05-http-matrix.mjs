@@ -214,14 +214,17 @@ await step('M5', 'A wrong integration key fails the server probe: refused verifi
 
 // ───────────────────────────── the expiry/late-money collection starts EARLY (CarUp's TTL runs during other cases) ─────
 let LATE;
-await step('L0', 'A customer starts an EcoCash request and never approves it (it will outlive CarUp’s collection time)', async () => {
+await step('L0', 'A customer starts an EcoCash request and never approves it; while CarUp’s collection time runs, no operator can release it', async () => {
   const inv = await invoice('A', { cost: '30.00', sellPrice: '5.00' });
   const r = await start(inv.id, { method: 'ecocash', phone: '0779000001' });
   LATE = { invoice: inv, collection: r.json?.collection_id, startedAt: Date.now() };
   const p = r.json?.paynow;
   const m = money(inv.id);
-  return { pass: r.status === 201 && p?.initiation === 'attached' && p?.phone === '077*****01' && Number(m.provider_reserved) === 35 && Number(m.paid_amount) === 0,
-    detail: { status: r.status, paynow: p, money: m, expires_at: r.json?.expires_at } };
+  // the server reads Paynow first (a fresh unpaid read exists), and still refuses: the collection's time has not passed
+  const early = await call('POST', `/api/pay05/admin/collections/${LATE.collection}/release-hold`, { reason: 'Customer abandoned the EcoCash prompt (QA).' }, as.ops);
+  return { pass: r.status === 201 && p?.initiation === 'attached' && p?.phone === '077*****01' && Number(m.provider_reserved) === 35 && Number(m.paid_amount) === 0
+    && early.status === 409 && code(early) === 'PAY05_HOLD_NOT_RELEASABLE' && !txOf(LATE.collection).hold_released_at,
+  detail: { status: r.status, paynow: p, money: m, expires_at: r.json?.expires_at, release_before_expiry: [early.status, code(early)] } };
 });
 
 let UNC;
@@ -413,8 +416,11 @@ await step('S5', 'Unknown, malformed and non-Paynow collection ids get the same 
   const malformed = await postResult('not-a-uuid', 'status=Paid');
   const pay04Collection = sql(`select id from pay04_garage_collections where gateway <> 'paynow_zimbabwe' limit 1`);
   const nonPaynow = pay04Collection ? await postResult(pay04Collection, 'status=Paid') : { status: 400, json: { error: 'PAY05_STATUS_UPDATE_REFUSED' } };
-  const same = [unknown, malformed, nonPaynow].every((x) => x.status === 400 && x.json?.error === 'PAY05_STATUS_UPDATE_REFUSED' && Object.keys(x.json).length === 1);
-  return { pass: same, detail: { unknown, malformed, non_paynow: nonPaynow } };
+  const same = [unknown, nonPaynow].every((x) => x.status === 400 && x.json?.error === 'PAY05_STATUS_UPDATE_REFUSED' && Object.keys(x.json).length === 1);
+  // a malformed id never reaches Paynow handling: only a collection-shaped path is exempt from CSRF (route hardening), so
+  // it gets the generic CSRF refusal every untrusted POST gets — nothing about any collection
+  const malformedOk = malformed.status === 403 && /CSRF validation failed/.test(malformed.json?.error || '');
+  return { pass: same && malformedOk, detail: { unknown, malformed, non_paynow: nonPaynow } };
 });
 
 await step('S6', 'Authority: another customer and another garage cannot read, verify, stop, reconcile or see a garage A Paynow payment', async () => {
@@ -571,16 +577,14 @@ await step('R3', 'Paynow reports the garage refunded in its dashboard: CarUp cou
 });
 
 // ───────────────────────────── expiry, hold release, late money (the collection started in L0) ─────────────────────────────
-await step('L1', 'CarUp’s collection time passes: the request is HELD (Paynow cannot cancel); release refused before expiry; listed for the operator', async () => {
-  const early = await call('POST', `/api/pay05/admin/collections/${LATE.collection}/release-hold`, { reason: 'Customer abandoned the EcoCash prompt (QA).' }, as.ops);
+await step('L1', 'CarUp’s collection time passes: the request is still HELD (Paynow cannot cancel) and listed for the operator, never for the garage', async () => {
   const wait = LATE.startedAt + (TTL_SECONDS + 5) * 1000 - Date.now();
   if (wait > 0) { console.log(`       … waiting ${Math.ceil(wait / 1000)} s for CarUp's collection time to pass`); await pause(wait); }
   const list = await call('GET', '/api/pay05/admin/held-collections', undefined, as.ops);
   const listed = (list.json?.held || []).find((h) => h.collection_id === LATE.collection);
   const garage = await call('GET', '/api/pay05/admin/held-collections', undefined, as.adminA);
-  return { pass: (early.status === 409 || early.status === 422) && /PAY05_HOLD_NOT_RELEASABLE/.test(code(early)) && ok(list, 200) && Boolean(listed)
-    && Number(money(LATE.invoice.id).provider_reserved) === 35 && garage.status === 403,
-  detail: { release_before_expiry: [early.status, code(early)], listed: listed && { amount: listed.amount, paynow: listed.paynow?.provider_status }, garage_admin_list: garage.status } };
+  return { pass: ok(list, 200) && Boolean(listed) && Number(money(LATE.invoice.id).provider_reserved) === 35 && garage.status === 403 && !txOf(LATE.collection).hold_released_at,
+    detail: { listed: listed && { amount: listed.amount, expires_at: listed.expires_at, paynow: listed.paynow?.provider_status }, garage_admin_list: garage.status } };
 });
 
 await step('L2', 'The operator releases the hold after a FRESH authenticated unpaid read; the room is free again', async () => {
@@ -608,15 +612,19 @@ await step('U1', 'The operator releases the UNCONFIRMED request after expiry and
     && paid && Number(after.provider_paid) === 20, detail: { listed: listed && listed.paynow, release: [r.status, code(r)], freed, after } };
 });
 
-await step('L3', 'Late money: the customer approves AFTER the release — never silently counted; under review as money paid after close', async () => {
+await step('L3', 'Late money with no room left: the garage took cash for the whole balance, then the customer approves the released request — unallocated money for an operator, never a double count', async () => {
+  const cash = await call('POST', `/api/garage/invoices/${LATE.invoice.id}/payments`, { amount: '35.00', method: 'cash', reference: 'Counter (QA)',
+    idempotency_key: key('late-cash') }, as.adminA);
   const sim = await simTxFor(LATE.collection);
   await simSetStatus(sim.guid, 'Paid');
-  const seen = await waitFor(() => /provider_paid_after_close|unallocated_provider_money/.test(openDiscrepancies(LATE.collection)));
+  const seen = await waitFor(() => /unallocated_provider_money/.test(openDiscrepancies(LATE.collection)));
   const v = await verify(LATE.collection);
   const m = money(LATE.invoice.id);
   const exc = await call('GET', '/api/pay04/admin/exceptions', undefined, as.ops);
-  return { pass: seen && ['under_review', 'confirmed_unallocated'].includes(v.json?.collection?.state) && Number(m.paid_amount) <= Number(LATE.invoice.total_amount)
-    && ok(exc, 200), detail: { discrepancies: openDiscrepancies(LATE.collection), state: v.json?.collection?.state, money: m } };
+  const listed = (exc.json?.discrepancies || []).some((d) => d.collection_id === LATE.collection && d.type === 'unallocated_provider_money' && d.gateway === 'paynow_zimbabwe');
+  return { pass: ok(cash, 201) && seen && v.json?.collection?.state === 'confirmed_unallocated' && Number(m.paid_amount) === 35 && Number(m.provider_paid) === 0
+    && Number(m.declared_paid) === 35 && listed,
+  detail: { cash: [cash.status, cash.json?.payment_status], discrepancies: openDiscrepancies(LATE.collection), state: v.json?.collection?.state, money: m, operator_listed: listed } };
 });
 
 // ───────────────────────────── operator controls ─────────────────────────────
