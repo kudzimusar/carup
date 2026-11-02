@@ -8,7 +8,7 @@
 //   node scripts/uat/pay04-http-matrix.mjs     -> ~/carup-launch-evidence/pay04/uat/http-matrix-<commit>.json (0600)
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { ACCOUNTS_FILE, API, EVIDENCE_DIR, call, identity, lit, login, requirePay04UatDatabase, sql } from './pay04-uat-lib.mjs';
+import { ACCOUNTS_FILE, API, EVIDENCE_DIR, call, code, identity, lit, login, msg, paceGlobal, quietSensitiveWindow, requirePay04UatDatabase, sql } from './pay04-uat-lib.mjs';
 
 requirePay04UatDatabase();
 const accounts = JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf8'));
@@ -107,11 +107,11 @@ await step('6', 'Garage issues the correct invoice (and untrue lines are refused
   const good = await issue(J1, suggested(J1));
   INV1 = good.json?.invoice;
   const lines = INV1?.lines || [];
-  const pass = manualPart.status === 400 && /recorded as used/.test(manualPart.json?.message || manualPart.json?.error || '')
+  const pass = manualPart.status === 400 && /recorded as used/.test(msg(manualPart))
     && overQty.status === 400 && ok(good, 201) && INV1.total_amount === '210.00' && lines.length === 2 && INV1.status === 'issued'
     && /^INV-\d{6}$/.test(INV1.invoice_number);
   facts.invoice1 = INV1 && { id: INV1.id, number: INV1.invoice_number, total: INV1.total_amount };
-  return { pass, detail: { manual_part: [manualPart.status, manualPart.json?.message || manualPart.json?.error], over_quantity: [overQty.status, overQty.json?.message || overQty.json?.error],
+  return { pass, detail: { manual_part: [manualPart.status, msg(manualPart)], over_quantity: [overQty.status, msg(overQty)],
     issued: good.status, number: INV1?.invoice_number, total: INV1?.total_amount, lines: lines.map((l) => [l.category, l.quantity, l.unit_price, l.line_total]) } };
 });
 
@@ -146,7 +146,7 @@ await step('15', 'Duplicate payment request is idempotent', async () => {
 });
 await step('16', 'Overpayment fails', async () => {
   const r = await call('POST', `/api/garage/invoices/${INV1.id}/payments`, { amount: '150.01', method: 'bank_transfer', idempotency_key: key('over') }, as.adminA);
-  return { pass: r.status === 409 && /150\.00/.test(r.json?.message || r.json?.error || ''), detail: { status: r.status, message: r.json?.message || r.json?.error } };
+  return { pass: r.status === 409 && /150\.00/.test(msg(r)), detail: { status: r.status, message: msg(r) } };
 });
 await step('17', 'Wrong currency fails (never converted)', async () => {
   const r = await call('POST', `/api/garage/invoices/${INV1.id}/payments`, { amount: '10.00', currency: 'ZWG', method: 'cash', idempotency_key: key('cur') }, as.adminA);
@@ -155,8 +155,8 @@ await step('17', 'Wrong currency fails (never converted)', async () => {
   // the online path takes the invoice's own currency: a body naming another one is ignored, never converted
   const collectionCurrency = online.status === 201 ? sql(`select currency from pay04_garage_collections where id = ${lit(online.json.collection_id)}`) : null;
   if (online.status === 201) await call('POST', `/api/pay04/garage-payments/${online.json.collection_id}/cancel`, { reason: 'UAT currency probe' }, as.customer);
-  return { pass: r.status === 400 && /never converted/.test(r.json?.message || r.json?.error || '') && rows === '1' && (collectionCurrency === null || collectionCurrency === 'USD'),
-    detail: { declared: [r.status, r.json?.message || r.json?.error], online_collection_currency: collectionCurrency } };
+  return { pass: r.status === 400 && /never converted/.test(msg(r)) && rows === '1' && (collectionCurrency === null || collectionCurrency === 'USD'),
+    detail: { declared: [r.status, msg(r)], online_collection_currency: collectionCurrency } };
 });
 let P2;
 await step('10', 'Garage records the remaining payment (bank transfer)', async () => {
@@ -174,9 +174,12 @@ await step('12', 'Customer sees the correct payment provenance', async () => {
   const mine = await call('GET', '/api/service-invoices/mine', undefined, as.customer);
   const inv = (mine.json?.invoices || []).find((i) => i.id === INV1.id);
   const label = 'Recorded by the garage. CarUp has not processed or verified this payment.';
+  // (case 17's currency probe left a STOPPED provider checkout on this invoice: truthful history, never counted money)
   const pass = inv && inv.payment_status === 'paid' && inv.payments.length === 2 && inv.payments.every((p) => p.source_label === label && p.reason === undefined)
-    && inv.receipts.every((r) => r.payment_source_label === label) && (inv.provider_payments || []).length === 0 && inv.money?.provider_paid === '0.00';
-  return { pass, detail: { payment_status: inv?.payment_status, labels: inv?.payments?.map((p) => p.source_label), money: inv?.money } };
+    && inv.receipts.every((r) => r.payment_source_label === label) && (inv.provider_receipts || []).length === 0
+    && (inv.provider_payments || []).every((p) => p.state !== 'confirmed') && inv.money?.provider_paid === '0.00' && inv.money?.declared_paid === '210.00';
+  return { pass, detail: { payment_status: inv?.payment_status, labels: inv?.payments?.map((p) => p.source_label), money: inv?.money,
+    provider_payments: (inv?.provider_payments || []).map((p) => p.state) } };
 });
 await step('18', 'Payment reversal updates the balance and the receipt state', async () => {
   const r = await call('POST', `/api/garage/payments/${P2.payment_id}/reverse`, { reason: 'Bank transfer bounced', idempotency_key: key('rev') }, as.adminA);
@@ -211,6 +214,7 @@ let J2; let INV2; let C2;
 async function payViaSimulator(started, outcome = 'success') {
   const checkoutId = new URL(started.checkout_url).pathname.split('/').pop();
   const form = new URLSearchParams({ outcome });
+  await paceGlobal();
   const res = await fetch(`${API}/api/pay04/simulator/checkout/${checkoutId}/complete`, { method: 'POST', body: form, redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded' } });
   return { status: res.status, location: res.headers.get('location') };
@@ -254,7 +258,7 @@ await step('20', 'A forged webhook cannot settle an invoice', async () => {
   const body = JSON.stringify({ id: 'evt_gsim_forged_0001', object: 'event', type: 'payment.succeeded', created: Math.floor(Date.now() / 1000), livemode: false,
     gateway: 'pay04_garage_provider_simulator', merchant_reference: 'gsim_merchant_pay04_qa_garage_a',
     data: { payment: { id: paymentId, amount_minor: 6000, currency: 'USD', status: 'succeeded' } } });
-  const post = (signature) => fetch(`${API}/api/pay04/simulator/webhook`, { method: 'POST', body, headers: { 'content-type': 'application/json', ...(signature ? { 'x-pay04-simulator-signature': signature } : {}) } });
+  const post = async (signature) => { await paceGlobal(); return fetch(`${API}/api/pay04/simulator/webhook`, { method: 'POST', body, headers: { 'content-type': 'application/json', ...(signature ? { 'x-pay04-simulator-signature': signature } : {}) } }); };
   const unsigned = await post(null);
   const badSig = await post(`t=${Math.floor(Date.now() / 1000)},v1=${'0'.repeat(64)}`);
   const stale = await post(`t=${Math.floor(Date.now() / 1000) - 7200},v1=${'a'.repeat(64)}`);
@@ -284,7 +288,7 @@ await step('21', 'A partial provider refund generates the correct reconciliation
     && Number(after.provider_paid) === 90 && Number(after.balance_amount) === 30 && receipts.filter((r) => r.status === 'issued').length === 1
     && receipts.some((r) => r.status === 'issued' && Number(r.amount) === 90);
   return { pass, detail: { external_refund: ext.status, held_status: status, held_money: held, hold_listed: Boolean(hold), garage_admin_resolve: garageAdminTries.status,
-    resolved: [resolved.status, resolved.json?.paymentStatus || resolved.json?.code], money_after: after, receipts } };
+    resolved: [resolved.status, resolved.json?.paymentStatus || code(resolved)], money_after: after, receipts } };
 });
 
 await step('22', 'A provider outage does not fabricate a payment', async () => {
@@ -306,7 +310,7 @@ await step('22', 'A provider outage does not fabricate a payment', async () => {
   const declared = sql(`select count(*) from garage_payment_records where invoice_id = ${lit(inv.id)}`);
   const pass = [502, 503].includes(during.status) && [409, 502, 503].includes(startDuring.status) && declared === '0'
     && Number(m.provider_paid) <= 50;
-  return { pass, detail: { verify_during_outage: [during.status, during.json?.code], start_during_outage: [startDuring.status, startDuring.json?.code], money: m, declared_rows: declared } };
+  return { pass, detail: { verify_during_outage: [during.status, code(during)], start_during_outage: [startDuring.status, code(startDuring)], money: m, declared_rows: declared } };
 });
 
 // ───────────────────────────── case 23 (cancellation and adjustment) ─────────────────────────────
@@ -326,7 +330,7 @@ await step('23', 'Cancellation and adjustment rules preserve history', async () 
   const pass = refusedVoid.status === 409 && refusedVoid2.status === 409 && ok(stopped, 200) && ok(voided, 200) && ok(reissued, 201)
     && reissued.json.invoice.invoice_number !== inv.invoice_number && reissued.json.invoice.total_amount === '80.00'
     && (old.json?.invoice?.status || old.json?.status) === 'voided' && ['issued', 'payment_recorded', 'payment_reversed', 'voided'].every((e) => history.includes(e));
-  return { pass, detail: { void_with_declared_payment: [refusedVoid.status, refusedVoid.json?.message], void_with_online_payment_in_progress: [refusedVoid2.status, refusedVoid2.json?.message],
+  return { pass, detail: { void_with_declared_payment: [refusedVoid.status, msg(refusedVoid)], void_with_online_payment_in_progress: [refusedVoid2.status, msg(refusedVoid2)],
     checkout_stopped: stopped.status, voided: voided.status, reissued: [reissued.status, reissued.json?.invoice?.invoice_number, reissued.json?.invoice?.total_amount],
     old_invoice_history: history } };
 });
@@ -349,16 +353,18 @@ await step('R', 'The garage refunds a provider-confirmed payment in full; the cu
 await step('C1', 'Concurrency: five simultaneous online payments for the whole balance — exactly one reserves it', async () => {
   const J = await job({ cost: '90.00', partQty: 1, sellPrice: '10.00' });
   const inv = (await issue(J, suggested(J))).json.invoice;
-  const all = await Promise.all([1, 2, 3, 4, 5].map((n) => call('POST', `/api/pay04/garage-invoices/${inv.id}/payments`, { amount: '100.00' }, as.customer, { 'Idempotency-Key': key(`race${n}`) })));
+  await quietSensitiveWindow();
+  const all = await Promise.all([1, 2, 3, 4, 5].map((n) => call('POST', `/api/pay04/garage-invoices/${inv.id}/payments`, { amount: '100.00' }, as.customer,
+    { 'Idempotency-Key': key(`race${n}`) }, { pace: false })));
   const won = all.filter((r) => r.status === 201);
-  const lost = all.filter((r) => r.status === 409 && r.json?.code === 'PAY04_COLLECTION_EXCEEDS_UNCOMMITTED_BALANCE');
+  const lost = all.filter((r) => r.status === 409 && code(r) === 'PAY04_COLLECTION_EXCEEDS_UNCOMMITTED_BALANCE');
   const m = money(inv.id);
   facts.raceInvoice = inv.id; facts.raceCollection = won[0]?.json?.collection_id;
   return { pass: won.length === 1 && lost.length === 4 && Number(m.provider_reserved) === 100, detail: { statuses: all.map((r) => r.status), money: m } };
 });
 await step('C2', 'Concurrency: a cash record racing the reservation can never over-commit the invoice', async () => {
   const r = await call('POST', `/api/garage/invoices/${facts.raceInvoice}/payments`, { amount: '1.00', method: 'cash', idempotency_key: key('cashrace') }, as.adminA);
-  return { pass: r.status === 409 && /payment provider/.test(r.json?.message || ''), detail: { status: r.status, message: r.json?.message } };
+  return { pass: r.status === 409 && /payment provider/.test(msg(r)), detail: { status: r.status, message: msg(r) } };
 });
 await step('C3', 'Concurrency: five provider event deliveries at once change nothing once the money is counted (one allocation, one receipt)', async () => {
   const started = { checkout_url: sql(`select 'http://x/' || provider_checkout_id from pay04_garage_collections where id = ${lit(facts.raceCollection)}`) };

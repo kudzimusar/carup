@@ -22,17 +22,55 @@ export function requirePay04UatDatabase() {
   }
 }
 
+// Pacing (as the PAY-03B matrix): the global limiter allows 100 requests per IP per minute, and EVERY sensitive route
+// shares ONE per-IP counter whose smallest cap is 5 per minute. The harness stays under both, so a 429 is never mistaken
+// for a product refusal. Requests the backend makes to itself (simulator webhook delivery) share the IP: hence the margin.
+const SENSITIVE = [/^\/api\/auth\/login/, /^\/api\/pay04\/garage-invoices\/[^/]+\/payments$/, /^\/api\/pay04\/garage-payments\//,
+  /^\/api\/pay04\/garage\/payments\//, /^\/api\/pay03b\/admin\/reconciliation-exceptions/];
+const GLOBAL_BUDGET = 80;
+const SENSITIVE_SPACING_MS = 13_000;
+const recent = [];
+let lastSensitive = 0;
+export const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+export async function paceGlobal() {
+  for (;;) {
+    const now = Date.now();
+    while (recent.length && now - recent[0] > 60_000) recent.shift();
+    if (recent.length < GLOBAL_BUDGET) { recent.push(now); return; }
+    await pause(recent[0] + 60_000 - now + 50);
+  }
+}
+export const isSensitive = (method, path) => method !== 'GET' && SENSITIVE.some((re) => re.test(path));
+export async function paceSensitive() {
+  const wait = lastSensitive + SENSITIVE_SPACING_MS - Date.now();
+  if (wait > 0) await pause(wait);
+  lastSensitive = Date.now();
+}
+/** Let the shared sensitive window expire, for a step that fires sensitive requests at once on purpose. */
+export async function quietSensitiveWindow() {
+  const wait = lastSensitive + 61_000 - Date.now();
+  if (wait > 0) await pause(wait);
+  lastSensitive = Date.now();
+}
+
+/** The refusal text of an API error ({ error: { code, message } }, or a flat { code, message }). */
+export const msg = (r) => r?.json?.error?.message || r?.json?.message || (typeof r?.json?.error === 'string' ? r.json.error : '') || r?.json?.code || '';
+export const code = (r) => r?.json?.error?.code || r?.json?.code || '';
+
 /** Same contract as the web client: a CSRF token fetched with the same identity headers accompanies every write. */
 export async function csrf(identity = {}) {
+  await paceGlobal();
   const res = await fetch(`${API}/api/security/csrf-token`, { headers: identity });
   const body = await res.json();
   if (!body?.csrfToken) throw new Error(`csrf token unavailable (${res.status})`);
   return body.csrfToken;
 }
 
-export async function call(method, path, body, identity = {}, extra = {}, { withCsrf = true } = {}) {
+export async function call(method, path, body, identity = {}, extra = {}, { withCsrf = true, pace = true } = {}) {
+  if (pace && isSensitive(method, path)) await paceSensitive();
   const headers = { ...identity, 'content-type': 'application/json', ...extra };
   if (method !== 'GET' && withCsrf) headers['x-csrf-token'] = await csrf(identity);
+  await paceGlobal();
   const res = await fetch(`${API}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'manual' });
   let json = null;
   try { json = await res.json(); } catch { /* non-JSON */ }
