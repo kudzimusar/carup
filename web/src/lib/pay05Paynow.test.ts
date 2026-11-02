@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CURRENCY_NAME, PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_STATUS_SHORT, PROVIDER_ERROR_LABEL, needsPhone, pay05ErrorText, paynowOutcomeMessage, phoneProblem,
+  CURRENCY_NAME, PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_START_UNREACHABLE, PAYNOW_STATUS_SHORT, PROVIDER_ERROR_LABEL, needsPhone, pay05ErrorText,
+  paynowOutcomeMessage, paynowStartFailure, phoneProblem,
   type PaynowOutcome, type PaynowView,
 } from './pay05Paynow'
 
@@ -62,5 +63,24 @@ describe('Paynow inputs and labels', () => {
     expect(Object.keys(PAYNOW_STATUS_SHORT)).toHaveLength(10)
     expect(PAYNOW_STATUS_SHORT.awaiting_delivery).toBe('Held by Paynow')
     expect(Object.keys(PROVIDER_ERROR_LABEL)).toContain('callback_signature_invalid')
+  })
+})
+
+describe('A failed Paynow start (W3)', () => {
+  const failure = (message: string, status?: number) => Object.assign(new Error(message), status === undefined ? {} : { status })
+  it('only a definite 4xx refusal is definite; a lost answer, a 5xx or a 502 PAY05_PROVIDER_* may have sent the request', () => {
+    expect(paynowStartFailure(new TypeError('Failed to fetch'))).toEqual({ text: PAYNOW_START_UNREACHABLE, definite: false })
+    expect(paynowStartFailure(failure('Load failed')).definite).toBe(false)
+    expect(paynowStartFailure(failure('PAY05_PROVIDER_REFUSED', 502))).toEqual({ text: pay05ErrorText('PAY05_PROVIDER_REFUSED'), definite: false })
+    expect(paynowStartFailure(failure('PAY05_PROVIDER_RESPONSE_UNEXPECTED', 502)).definite).toBe(false)
+    expect(paynowStartFailure(failure('HTTP error! status: 504', 504))).toMatchObject({ definite: false, text: expect.stringMatching(/may still have been sent/) })
+    expect(paynowStartFailure(failure('PAY05_METHOD_NOT_AVAILABLE', 422))).toMatchObject({ definite: true, text: expect.stringMatching(/Nothing was charged/) })
+    expect(paynowStartFailure(failure('PAY04_COLLECTION_EXCEEDS_UNCOMMITTED_BALANCE', 409)).definite).toBe(true)
+    expect(paynowStartFailure(failure('Too many requests', 429))).toEqual({ text: 'The payment could not be started. Nothing was charged.', definite: true })
+  })
+  it('never shows a raw transport message, and keeps the key when nothing says the request was refused', () => {
+    expect(paynowStartFailure(failure('HTTP error! status: 500', 500)).text).not.toMatch(/HTTP error/)
+    const csrf = paynowStartFailure(failure('Could not establish a secure session. Please refresh the page and try again.'))
+    expect(csrf).toEqual({ text: 'Could not establish a secure session. Please refresh the page and try again.', definite: false })
   })
 })

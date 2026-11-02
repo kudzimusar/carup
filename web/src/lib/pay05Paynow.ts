@@ -151,6 +151,42 @@ export function paynowErrorText(err: unknown, fallback: string): string {
   return (message && (pay05ErrorText(message) ?? pay04ErrorText(message))) || fallback
 }
 
+/** Said when CarUp cannot be reached, or cannot say, whether a payment request went out: it may exist, so look first. */
+export const PAYNOW_START_UNREACHABLE =
+  'We could not reach CarUp. Your payment request may still have been sent — check this invoice’s payments below before trying again.'
+export const PAYNOW_START_UNCONFIRMED =
+  'CarUp could not confirm your payment request. It may still have been sent — check this invoice’s payments below before trying again.'
+
+const httpStatusOf = (err: unknown) => {
+  const status = (err as { status?: unknown } | null)?.status
+  return typeof status === 'number' ? status : null
+}
+
+/** The browser never got an answer: fetch rejects with a TypeError ("Failed to fetch", "Load failed", "NetworkError…"). */
+export function isNetworkFailure(err: unknown): boolean {
+  if (httpStatusOf(err) !== null) return false
+  if (err instanceof TypeError) return true
+  return /failed to fetch|networkerror|network request failed|load failed/i.test(err instanceof Error ? err.message : '')
+}
+
+/**
+ * Why starting a Paynow payment failed, in words, and whether the refusal was DEFINITE. Only a definite 4xx refusal
+ * (refused before anything was sent) makes the next try a new request with a new idempotency key. After a network error,
+ * any 5xx or a 502 PAY05_PROVIDER_* the request may exist, so the retry must reuse the key: the server then replays the
+ * request it has instead of creating a second one.
+ */
+export function paynowStartFailure(err: unknown): { text: string; definite: boolean } {
+  if (isNetworkFailure(err)) return { text: PAYNOW_START_UNREACHABLE, definite: false }
+  const status = httpStatusOf(err)
+  const definite = status !== null && status >= 400 && status < 500
+  const message = err instanceof Error ? err.message : ''
+  const coded = message ? pay05ErrorText(message) ?? (/\bPAY04_[A-Z0-9_]+\b/.test(message) ? pay04ErrorText(message) : null) : null
+  if (coded) return { text: coded, definite }
+  if (definite) return { text: 'The payment could not be started. Nothing was charged.', definite }
+  if (status !== null) return { text: PAYNOW_START_UNCONFIRMED, definite: false }
+  return { text: message || PAYNOW_START_UNCONFIRMED, definite: false }
+}
+
 /** PAY-05 refusals in words (PAY-04 codes keep their own sentences). */
 const PAY05_ERROR_TEXT: Record<string, string> = {
   PAY05_PHONE_INVALID: 'Enter a Zimbabwe mobile number, for example 0771234567. Nothing was charged.',

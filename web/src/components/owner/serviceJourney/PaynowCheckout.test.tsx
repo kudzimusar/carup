@@ -46,6 +46,8 @@ const row = (paynow: Record<string, unknown>, over: Record<string, unknown> = {}
   state: 'awaiting_provider', state_label: 'Waiting for the provider to confirm', payment_status: 'pending', gateway: 'paynow_zimbabwe', simulated: true,
   source_label: '', paynow: paynowView(paynow), ...over,
 })
+/** What useCarUpApi throws for an HTTP refusal: the server's code as the message, with its status and code. */
+const apiFailure = (message: string, status: number) => Object.assign(new Error(message), { status, code: /^PAY0\d_/.test(message) ? message : undefined })
 /** A network read answers later than the click that caused it: same-tick mocks hid W1. */
 const later = <T,>(value: T, ms = 50) => new Promise<T>((resolve) => { setTimeout(() => resolve(value), ms) })
 
@@ -143,16 +145,53 @@ describe('Paying the garage with Paynow', () => {
     expect(submitPaynowOtp).toHaveBeenCalledWith('11111111-2222-3333-4444-555555555555', '483920')
   })
 
-  it('a Paynow refusal reads as nothing charged, and the next try is a new request', async () => {
-    startGarageInvoicePayment.mockRejectedValueOnce(new Error('PAY05_PROVIDER_REFUSED'))
+  it('W3: after a network failure the retry reuses the same key, and the invoice is re-read in case the request was sent', async () => {
+    startGarageInvoicePayment.mockRejectedValueOnce(new TypeError('Failed to fetch'))
     await openPaynow()
     fireEvent.click(screen.getByTestId('paynow-start'))
-    expect(await screen.findByTestId('paynow-error')).toHaveTextContent('Paynow refused this payment request. Nothing was charged.')
-    const firstKey = startGarageInvoicePayment.mock.calls[0][2]
+    expect(await screen.findByTestId('paynow-error')).toHaveTextContent(
+      /We could not reach CarUp\. Your payment request may still have been sent — check this invoice.s payments below before trying again\./)
+    await waitFor(() => expect(fetchGarageInvoicePaymentOptions).toHaveBeenCalledTimes(2))
     startGarageInvoicePayment.mockResolvedValueOnce(started({ method: 'web', provider_status: 'created' }, 'http://127.0.0.1:5061/Payment/ConfirmPayment/y'))
     fireEvent.click(screen.getByTestId('paynow-start'))
     await waitFor(() => expect(startGarageInvoicePayment).toHaveBeenCalledTimes(2))
-    expect(startGarageInvoicePayment.mock.calls[1][2]).not.toBe(firstKey)
+    expect(startGarageInvoicePayment.mock.calls[1][2]).toBe(startGarageInvoicePayment.mock.calls[0][2])
+  })
+
+  it('W3: a 502 PAY05_PROVIDER_* or any 5xx keeps the key; only a definite 4xx refusal replaces it', async () => {
+    startGarageInvoicePayment
+      .mockRejectedValueOnce(apiFailure('PAY05_PROVIDER_REFUSED', 502))
+      .mockRejectedValueOnce(apiFailure('HTTP error! status: 503', 503))
+      .mockRejectedValueOnce(apiFailure('PAY05_METHOD_NOT_AVAILABLE', 422))
+      .mockResolvedValueOnce(started({ method: 'web', provider_status: 'created' }, 'http://127.0.0.1:5061/Payment/ConfirmPayment/y'))
+    await openPaynow()
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    expect(await screen.findByTestId('paynow-error')).toHaveTextContent('Paynow refused this payment request. Nothing was charged.')
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    await waitFor(() => expect(screen.getByTestId('paynow-error')).toHaveTextContent(/may still have been sent/))
+    expect(screen.getByTestId('paynow-error')).not.toHaveTextContent('HTTP error')
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    await waitFor(() => expect(screen.getByTestId('paynow-error')).toHaveTextContent('does not take that payment method'))
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    await waitFor(() => expect(startGarageInvoicePayment).toHaveBeenCalledTimes(4))
+    const keys = startGarageInvoicePayment.mock.calls.map((c) => c[2])
+    expect(keys[1]).toBe(keys[0])
+    expect(keys[2]).toBe(keys[0])
+    expect(keys[3]).not.toBe(keys[2])
+    expect(fetchGarageInvoicePaymentOptions).toHaveBeenCalledTimes(4) // the first read, then one after each failure
+  })
+
+  it('W3: a retry that replays a request Paynow had refused goes back to the form, and the next try is a new request', async () => {
+    startGarageInvoicePayment.mockResolvedValueOnce({ ...started({ method: 'web', provider_status: null, initiation: 'refused',
+      provider_status_label: 'Paynow refused the payment request — nothing was charged' }), replayed: true })
+      .mockResolvedValueOnce(started({ method: 'web', provider_status: 'created' }, 'http://127.0.0.1:5061/Payment/ConfirmPayment/y'))
+    await openPaynow()
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    expect(await screen.findByTestId('paynow-error')).toHaveTextContent('Paynow refused this payment request. Nothing was charged.')
+    expect(screen.queryByTestId('paynow-pending')).toBeNull()
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    await waitFor(() => expect(startGarageInvoicePayment).toHaveBeenCalledTimes(2))
+    expect(startGarageInvoicePayment.mock.calls[1][2]).not.toBe(startGarageInvoicePayment.mock.calls[0][2])
   })
 
   it('W1: a started express payment stays on screen while How to pay refreshes in place', async () => {

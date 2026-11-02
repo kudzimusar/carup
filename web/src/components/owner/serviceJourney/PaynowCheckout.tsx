@@ -5,7 +5,8 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { newIdempotencyKey } from '@/lib/garageBusiness'
 import { MONEY_ACTION_BUTTON_CLASS, onlineAmountProblem } from '@/lib/pay04GaragePayments'
 import {
-  PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_STATUS_SHORT, PAYNOW_STATUS_TONE, needsPhone, paynowErrorText, paynowOutcomeMessage, phoneProblem,
+  PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_STATUS_SHORT, PAYNOW_STATUS_TONE, needsPhone, pay05ErrorText, paynowOutcomeMessage, paynowStartFailure,
+  phoneProblem,
   type PaynowMethod, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment, type PaynowStartResult, type PaynowView,
 } from '@/lib/pay05Paynow'
 import PaynowPendingPanel from './PaynowPendingPanel'
@@ -58,6 +59,13 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
     setProblem(null)
     try {
       const started = await startGarageInvoicePayment(invoiceId, { amount: amount.trim(), method, ...(needsPhone(method) ? { phone: phone.trim() } : {}) }, key) as PaynowStartResult
+      if (started.paynow?.initiation === 'refused') {
+        // a retry replayed a request Paynow had refused: nothing exists at Paynow, so the next try is a new request
+        setProblem(pay05ErrorText('PAY05_PROVIDER_REFUSED'))
+        setKey(newIdempotencyKey())
+        onChanged?.()
+        return
+      }
       if (started.checkout_url) {
         // Paynow's own page decides; nothing is paid until CarUp reads Paynow's status
         window.location.assign(started.checkout_url)
@@ -68,8 +76,12 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
       onStarted?.(started.collection_id)
       onChanged?.()
     } catch (err) {
-      setProblem(paynowErrorText(err, 'The payment could not be started. Nothing was charged.'))
-      setKey(newIdempotencyKey())
+      const failure = paynowStartFailure(err)
+      setProblem(failure.text)
+      // only a definite refusal makes the next try a new request; after an ambiguous failure the retry replays this one
+      if (failure.definite) setKey(newIdempotencyKey())
+      // the request may exist even though the answer was lost: re-read the invoice so it shows in its payments
+      onChanged?.()
     } finally {
       setBusy(false)
     }
