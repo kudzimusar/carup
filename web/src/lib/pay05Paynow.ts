@@ -125,12 +125,42 @@ export function paynowStateBadge(state: string | null | undefined, status: Payno
   return { label: status ? PAYNOW_STATUS_SHORT[status] : 'Waiting for Paynow', tone }
 }
 
-/** The sentence about a Paynow payment, by the same rule: under review says so first, then what Paynow reported. */
-export function paynowStatusLine(state: string | null | undefined, view: PaynowView): string {
+/**
+ * Paynow's statuses written ABOUT the customer, for the garage and CarUp operators. The server's provider_status_label
+ * speaks TO the customer ("Waiting for you to approve…"); only the customer reads that one.
+ */
+export const PAYNOW_STATUS_ABOUT_CUSTOMER: Record<PaynowStatus, string> = {
+  created: 'Waiting for the customer to pay through Paynow',
+  sent: 'Waiting for the customer to approve on their phone',
+  awaiting_delivery: 'Paid to Paynow — held by Paynow until it is released to the garage (not yet counted)',
+  delivered: 'Paid to Paynow — Paynow releases it to the garage after its 24-hour window (not yet counted)',
+  paid: 'Paid — confirmed by Paynow',
+  cancelled: 'Cancelled at Paynow — nothing was charged',
+  failed: 'Not completed — Paynow reports it cancelled or failed; nothing was charged',
+  disputed: 'Disputed with Paynow — the money is held while the dispute is resolved (not counted)',
+  refunded: 'Refunded to the customer through Paynow',
+  unrecognized: 'Paynow reported a status CarUp does not recognise — under review (not counted)',
+}
+/** Before Paynow has reported any status: where the request itself stands, about the customer. */
+const PAYNOW_INITIATION_ABOUT_CUSTOMER: Record<PaynowView['initiation'], string> = {
+  attached: 'Waiting for the customer to pay through Paynow',
+  sending: 'CarUp is confirming with Paynow whether it received the payment request (not counted)',
+  unknown: 'CarUp is confirming with Paynow whether it received the payment request (not counted)',
+  refused: 'Paynow refused the payment request — nothing was charged',
+  traced_absent: 'Paynow has no record of this payment request (not counted)',
+}
+
+/**
+ * The sentence about a Paynow payment, by the same rule: under review says so first, then what Paynow reported; a paid
+ * status CarUp did not count is not called paid. The customer reads the server's second-person label; the garage and
+ * operators read it written about the customer.
+ */
+export function paynowStatusLine(state: string | null | undefined, view: PaynowView, audience: 'customer' | 'garage' = 'customer'): string {
   const status = view.provider_status
   if (state && REVIEW_STATES.has(state)) return `Under review — not counted.${status ? ` ${PAYNOW_REPORTED[status]}.` : ''}`
   if (status === 'paid' && state !== 'confirmed') return 'Paynow reports it paid, but CarUp has not counted it yet.'
-  return view.provider_status_label
+  if (audience === 'customer') return view.provider_status_label
+  return status ? PAYNOW_STATUS_ABOUT_CUSTOMER[status] : PAYNOW_INITIATION_ABOUT_CUSTOMER[view.initiation] ?? view.provider_status_label
 }
 
 /**
@@ -311,6 +341,36 @@ export const MERCHANT_STATUS_LABEL: Record<PaynowMerchant['status'], string> = {
 
 /** The currency's name for people. ZWG is the ISO code; "ZiG" is what people say. Never "ZIG" as a code. */
 export const CURRENCY_NAME: Record<string, string> = { USD: 'US dollars (USD)', ZWG: 'Zimbabwe Gold (ZiG, ISO ZWG)' }
+
+/**
+ * The server's check of an integration key (a signed trace), in words. Only Paynow's own answers are said as Paynow's;
+ * anything else is CarUp's, and no CarUp code is shown as if Paynow had said it.
+ */
+const PROBE_RESULT_LABEL: Record<string, string> = {
+  authenticated: 'Paynow accepted this integration ID and key',
+  refused: 'Paynow refused this key',
+  unreachable: 'CarUp could not reach Paynow',
+  unauthenticated: 'Paynow’s reply could not be verified',
+}
+export const probeResultText = (result: string) => PROBE_RESULT_LABEL[result] ?? 'CarUp could not check this key with Paynow'
+
+/** A merchant's audit events, in words (the operator's merchant card). */
+export const MERCHANT_EVENT_LABEL: Record<string, string> = {
+  merchant_registered: 'The garage connected its Paynow account',
+  integration_registered: 'The garage added a Paynow integration',
+  merchant_verified: 'CarUp verified the account',
+  integration_verified: 'CarUp verified an integration',
+  merchant_rejected: 'CarUp did not verify the account',
+  integration_rejected: 'CarUp did not verify an integration',
+  merchant_suspended: 'The account was suspended or disconnected',
+  integration_suspended: 'An integration was suspended',
+  availability_changed: 'Paynow payments were switched on or off',
+  hold_released: 'An operator released a held payment request',
+}
+/** Who acted, by role (never a guessed name). */
+export const ACTOR_ROLE_LABEL: Record<string, string> = {
+  garage_admin: 'garage administrator', owner: 'garage user', admin: 'CarUp administrator', platform_admin: 'CarUp administrator', system: 'CarUp',
+}
 
 export const PROVIDER_ERROR_LABEL: Record<string, string> = {
   callback_signature_invalid: 'A status message failed Paynow’s signature check (refused)',

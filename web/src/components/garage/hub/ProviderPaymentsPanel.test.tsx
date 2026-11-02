@@ -134,6 +134,15 @@ describe('Garage provider payments', () => {
     expect(screen.getByTestId('provider-stop-form-submit')).toHaveTextContent('Stop the checkout')
   })
 
+  it('W10: the garage reads Paynow’s status about the customer, not the customer’s own words', () => {
+    render(<ProviderPaymentsPanel busy={false} run={vi.fn()} canAct={false} invoice={invoice({ provider_receipts: [], provider_payments: [
+      payment('awaiting_provider', { gateway: 'paynow_zimbabwe', payment_status: 'pending', paynow: paynowView() }),
+    ] })} />)
+    const status = screen.getByTestId('provider-payment-paynow-status')
+    expect(status).toHaveTextContent('Waiting for the customer to approve on their phone')
+    expect(status).not.toHaveTextContent(/\byou(r)?\b/i)
+  })
+
   it('renders nothing where PAY-04 is not installed', () => {
     const { container } = render(<ProviderPaymentsPanel invoice={invoice({ provider_payments_supported: false })} canAct busy={false} run={vi.fn()} />)
     expect(container).toBeEmptyDOMElement()

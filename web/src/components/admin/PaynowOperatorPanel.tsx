@@ -6,12 +6,29 @@ import { formatMoney } from '@/lib/garageBusiness'
 import { dateTimeLabel } from '@/lib/garageWorkspace'
 import { MONEY_ACTION_BUTTON_CLASS, pay04ErrorText } from '@/lib/pay04GaragePayments'
 import {
-  CURRENCY_NAME, MERCHANT_STATUS_LABEL, PAY05_NOT_OFFERED, PAYNOW_METHOD_LABEL, PROVIDER_ERROR_LABEL, isPay05Disabled, pay05ErrorText,
+  ACTOR_ROLE_LABEL, CURRENCY_NAME, MERCHANT_EVENT_LABEL, MERCHANT_STATUS_LABEL, PAY05_NOT_OFFERED, PAYNOW_METHOD_LABEL, PROVIDER_ERROR_LABEL, isPay05Disabled,
+  pay05ErrorText, paynowStatusLine, probeResultText,
   type PaynowAvailability, type PaynowHeldCollection, type PaynowMerchant, type PaynowProviderError,
 } from '@/lib/pay05Paynow'
 
 /** What happens to a payment that arrives after an operator released its hold: said as it is. */
 const LATE_PAYMENT = 'If the customer pays after the release, CarUp counts it only if the invoice still has room; otherwise it is held for an operator’s review.'
+
+/** A refused verification carries each integration's key check: said in words, by currency. */
+function keyChecksOf(e: unknown, merchant: PaynowMerchant): string {
+  const probes = (e as { data?: { details?: { probes?: Record<string, unknown> } } } | null)?.data?.details?.probes
+  if (!probes || typeof probes !== 'object') return ''
+  const said = Object.entries(probes).map(([id, result]) => {
+    const integration = merchant.integrations.find((i) => i.id === id)
+    return `${integration ? CURRENCY_NAME[integration.currency] ?? integration.currency : 'An integration'}: ${probeResultText(String(result))}`
+  })
+  return said.length ? ` Key checks — ${said.join('; ')}.` : ''
+}
+/** Who did it, in words: the role, and the CarUp user's id (never a guessed name). */
+const actorOf = (e: PaynowMerchant['history'][number]) => {
+  const role = ACTOR_ROLE_LABEL[e.actor_role] ?? e.actor_role
+  return /^(system|provider):/.test(e.actor) ? role : `${role} ${e.actor}`
+}
 
 /** Operators read the refusal in words and keep its code for support. */
 function messageOf(e: unknown, fallback: string): string {
@@ -65,7 +82,7 @@ export default function PaynowOperatorPanel() {
   }, [fetchPaynowMerchants, fetchPaynowHeldCollections, fetchPaynowProviderErrors])
   useEffect(() => { void load() }, [load])
 
-  const act = async (fn: () => Promise<unknown>, ok: string) => {
+  const act = async (fn: () => Promise<unknown>, ok: string, explain: (e: unknown) => string = () => '') => {
     setBusy(true)
     setMessage(null)
     try {
@@ -73,7 +90,7 @@ export default function PaynowOperatorPanel() {
       setMessage({ ok: true, text: ok })
       await load()
     } catch (e) {
-      setMessage({ ok: false, text: messageOf(e, 'The action was refused.') })
+      setMessage({ ok: false, text: `${messageOf(e, 'The action was refused.')}${explain(e)}` })
     } finally {
       setBusy(false)
     }
@@ -147,10 +164,22 @@ export default function PaynowOperatorPanel() {
                   {m.integrations.map((i) => (
                     <li key={i.id} className="rounded border bg-gray-50 p-2">
                       {CURRENCY_NAME[i.currency] ?? i.currency}: integration {i.integration_id} ({i.mode}) · {i.methods.map((x) => PAYNOW_METHOD_LABEL[x]).join(', ')}
-                      {' '}· key <code>{i.credential_fingerprint}</code> · {MERCHANT_STATUS_LABEL[i.status]}{i.probe ? ` · key check: ${i.probe.result}` : ''}
+                      {' '}· key <code>{i.credential_fingerprint}</code> · {MERCHANT_STATUS_LABEL[i.status]}{i.probe ? ` · key check: ${probeResultText(i.probe.result)}` : ''}
                     </li>
                   ))}
                 </ul>
+                {m.history.length > 0 && (
+                  <div className="text-sm">
+                    <p className="font-medium">History</p>
+                    <ol className="mt-1 space-y-1 text-xs text-gray-700" data-testid="paynow-op-history">
+                      {m.history.slice(0, 10).map((e) => (
+                        <li key={e.seq} data-testid="paynow-op-history-row">
+                          {dateTimeLabel(e.created_at)} · {MERCHANT_EVENT_LABEL[e.event_type] ?? e.event_type} · {actorOf(e)}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
                 {m.status === 'pending_verification' && (
                   <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3" role="group" aria-label={`Review ${m.display_name}`}>
                     <label className="flex min-h-11 items-center gap-2 text-sm">
@@ -175,7 +204,7 @@ export default function PaynowOperatorPanel() {
                       <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !reviewed}
                         onClick={() => void act(() => verifyPaynowMerchant(m.id, { legal_identity_reviewed: r.legal, settlement_account_reviewed: r.settlement,
                           currency_configuration_reviewed: r.currency, note: r.note.trim() }),
-                          'Verified: every integration key proved itself with Paynow. Customers can now pay this garage through it.')}
+                          'Verified: every integration key proved itself with Paynow. Customers can now pay this garage through it.', (e) => keyChecksOf(e, m))}
                         data-testid="paynow-op-verify">
                         Check keys with Paynow and verify
                       </Button>
@@ -222,7 +251,7 @@ export default function PaynowOperatorPanel() {
             return (
             <li key={h.collection_id} className="space-y-2 rounded-md border p-3" data-testid="paynow-op-held">
               <p>{h.garage ?? 'Garage'} · invoice {h.invoice_number ?? '—'} · {formatMoney(h.amount, h.currency)} · {PAYNOW_METHOD_LABEL[h.paynow.method]}</p>
-              <p className="text-sm text-gray-700">{h.paynow.provider_status_label}{h.stopped_at ? ' · stopped by a person' : ''}</p>
+              <p className="text-sm text-gray-700">{paynowStatusLine(null, h.paynow, 'garage')}{h.stopped_at ? ' · stopped by a person' : ''}</p>
               {known && !waiting && <p className="text-sm text-gray-700">CarUp’s payment time ended {dateTimeLabel(h.expires_at)}</p>}
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="min-h-11" disabled={busy}

@@ -105,7 +105,7 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
           <p className="text-xs text-gray-500">Started {dateTimeLabel(payment.initiated_at)}</p>
           {paynow && (
             <p className="text-xs text-gray-700" data-testid="provider-payment-paynow-status">
-              {paynowStatusLine(payment.state, paynow)}{paynow.paynow_reference ? ` · Paynow reference ${paynow.paynow_reference}` : ''}
+              {paynowStatusLine(payment.state, paynow, 'garage')}{paynow.paynow_reference ? ` · Paynow reference ${paynow.paynow_reference}` : ''}
             </p>
           )}
           <p className="text-xs text-gray-600" data-testid="provider-payment-source">{payment.source_label}</p>

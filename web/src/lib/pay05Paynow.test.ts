@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   CURRENCY_NAME, PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_START_UNREACHABLE, PAYNOW_STATUS_SHORT, PROVIDER_ERROR_LABEL, needsPhone, pay05ErrorText,
-  paynowOutcomeMessage, paynowStartFailure, paynowStateBadge, paynowStatusLine, phoneProblem, type PaynowStatus,
+  PAYNOW_STATUS_ABOUT_CUSTOMER, paynowOutcomeMessage, paynowStartFailure, paynowStateBadge, paynowStatusLine, phoneProblem, probeResultText,
+  type PaynowStatus,
   type PaynowOutcome, type PaynowView,
 } from './pay05Paynow'
 
@@ -120,5 +121,22 @@ describe('Tone and words follow the collection state, never the applied Paynow s
     expect(line).not.toMatch(/^Paid/)
     expect(line).toMatch(/not counted/)
     expect(paynowStatusLine('awaiting_provider', view())).toBe('Waiting for you to approve the payment on your phone')
+  })
+})
+
+describe('Words for the garage and CarUp operators (W10)', () => {
+  it('a key check is said in words, and only Paynow’s own answers are attributed to Paynow', () => {
+    expect(probeResultText('authenticated')).toBe('Paynow accepted this integration ID and key')
+    expect(probeResultText('refused')).toBe('Paynow refused this key')
+    expect(probeResultText('unreachable')).toBe('CarUp could not reach Paynow')
+    expect(probeResultText('unauthenticated')).toBe('Paynow’s reply could not be verified')
+    for (const other of ['unavailable', 'PAY05_SOMETHING']) expect(probeResultText(other)).not.toMatch(/^Paynow|PAY05_/)
+  })
+  it('statuses are written about the customer, never to them', () => {
+    expect(PAYNOW_STATUS_ABOUT_CUSTOMER.sent).toBe('Waiting for the customer to approve on their phone')
+    for (const label of Object.values(PAYNOW_STATUS_ABOUT_CUSTOMER)) expect(label).not.toMatch(/\byou(r)?\b/i)
+    expect(paynowStatusLine('awaiting_provider', view(), 'garage')).toBe('Waiting for the customer to approve on their phone')
+    expect(paynowStatusLine('awaiting_provider', view({ provider_status: null, initiation: 'unknown' }), 'garage')).not.toMatch(/\byou(r)?\b/i)
+    expect(paynowStatusLine('awaiting_provider', view(), 'customer')).toBe('Waiting for you to approve the payment on your phone')
   })
 })
