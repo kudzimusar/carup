@@ -4,10 +4,14 @@
  * A garage collects into ITS OWN merchant account. An adapter therefore always acts for one registered garage
  * merchant (pay04_garage_merchant_accounts) and never for CarUp. Every adapter implements:
  *
- *   createCheckout({ collectionId, merchantReference, amountMinor, currency, successUrl, cancelUrl })
- *        -> { checkoutId, paymentId, url }            idempotent per collectionId
- *   cancelCheckout(checkoutId)                     -> { status, events }
- *   refund({ paymentId, amountMinor, idempotencyKey }) -> { refundId, status, events }   full refund only (policy)
+ *   createCheckout({ collectionId, merchantReference, amountMinor, currency, successUrl, cancelUrl, expiresAt })
+ *        -> { checkoutId, paymentId, url }            idempotent per collectionId; the checkout MUST take no money
+ *                                                      after expiresAt (CarUp's own collection expiry)
+ *   cancelCheckout(checkoutId)                     -> { status, events }   status 'complete' = the provider had already
+ *                                                      taken the money (never undone here); anything else = closed unpaid.
+ *                                                      Throws when the provider cannot be reached (CarUp then changes nothing)
+ *   refund({ paymentId, amountMinor, idempotencyKey }) -> { refundId, status, events }   full refund only (policy); one
+ *                                                      idempotency key per refund REQUEST, so a refused one can be retried
  *   getPaymentTruth({ paymentId })                 -> { status, amountMinor, currency, merchantReference,
  *                                                       refundedMinor, pendingRefundMinor, refundIds, mismatch, refundId }
  *   verifyWebhook({ rawBody, signature })          -> event                (signature + replay window + shape)

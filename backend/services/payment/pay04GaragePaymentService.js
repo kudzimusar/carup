@@ -71,30 +71,40 @@ export async function invoiceMoney(db, invoiceId) {
 }
 
 /** The customer- and garage-readable state of one provider collection. Never 'paid' before the provider says so. */
+const MISMATCH_TYPES = new Set(['amount_mismatch', 'currency_mismatch', 'merchant_mismatch']);
+/**
+ * The state a person reads. Nothing is "closed" or "nothing was charged" until the PROVIDER says so (a stop or CarUp's
+ * own expiry only starts that), and paid money whose evidence disagrees is under review, not confirmed.
+ */
 export function collectionState(collection, payment, { now = Date.now(), openDiscrepancies = [] } = {}) {
   const status = payment?.status || 'unknown';
   if (status === 'pending') {
     if (openDiscrepancies.some((d) => d.discrepancy_type !== 'unallocated_provider_money')) return 'under_review';
-    if (collection.cancelled_at) return 'stopped';
+    if (collection.cancelled_at) return 'stopping';
     if (Date.parse(collection.expires_at) <= now) return 'expired';
     return 'awaiting_provider';
   }
-  if (status === 'paid') return openDiscrepancies.some((d) => d.discrepancy_type === 'unallocated_provider_money') ? 'confirmed_unallocated' : 'confirmed';
+  if (status === 'paid') {
+    if (openDiscrepancies.some((d) => MISMATCH_TYPES.has(d.discrepancy_type))) return 'under_review';
+    return openDiscrepancies.some((d) => d.discrepancy_type === 'unallocated_provider_money') ? 'confirmed_unallocated' : 'confirmed';
+  }
+  if (status === 'cancelled') return collection.cancelled_at && collection.cancelled_by !== 'system:expiry' ? 'stopped' : 'cancelled';
   if (status === 'reconciliation_hold') return 'under_review';
-  return status; // refund_pending, refunded, partially_refunded, cancelled
+  return status; // refund_pending, refunded, partially_refunded
 }
 
 const STATE_LABELS = Object.freeze({
   awaiting_provider: 'Waiting for the provider to confirm',
-  stopped: 'Stopped before payment',
-  expired: 'Checkout expired before payment',
+  stopping: 'Stopped — CarUp is confirming with the provider that nothing was paid (not counted)',
+  expired: 'Expired — CarUp is confirming with the provider that nothing was paid (not counted)',
+  stopped: 'Stopped before payment — the provider confirmed nothing was charged',
   confirmed: 'Confirmed by the provider',
   confirmed_unallocated: 'Confirmed by the provider — not counted on this invoice (under review)',
   under_review: 'Under review — not counted',
   refund_pending: 'Refund in progress — not counted',
   refunded: 'Refunded to the customer',
   partially_refunded: 'Partly refunded — the remainder counts',
-  cancelled: 'Cancelled by the provider',
+  cancelled: 'Closed before payment — nothing was charged',
   unknown: 'Unavailable',
 });
 
@@ -138,7 +148,7 @@ export async function loadProviderParts(db, invoiceIds, { payerUserId = null, in
       id: c.id, amount: pay04Money(c.amount, c.currency), currency: c.currency, initiated_at: c.initiated_at,
       expires_at: c.expires_at, cancelled_at: c.cancelled_at ?? null, state, state_label: STATE_LABELS[state] || STATE_LABELS.unknown,
       payment_status: payment?.status ?? null, gateway: c.gateway, simulated: c.gateway === PAY04_SIMULATOR_GATEWAY,
-      source_label: PAY04_LABELS.providerSource,
+      source_label: PAY04_LABELS.providerChannel,
       ...(includeDiscrepancies ? {
         payer_user_id: c.payer_user_id, payment_reference: c.payment_reference, provider_payment_id: c.provider_payment_id,
         open_discrepancies: open.map((d) => ({ id: d.id, type: d.discrepancy_type, amount: pay04Money(d.detected_amount, d.currency),
@@ -228,11 +238,12 @@ export async function onlinePaymentOption(db, env, invoice, money) {
     simulation_notice: account.gateway === PAY04_SIMULATOR_GATEWAY ? PAY04_LABELS.simulatedProvider : null };
 }
 
-export async function getCustomerInvoicePayment({ db = defaultDb, env = process.env, actor = {}, invoiceId } = {}) {
+export async function getCustomerInvoicePayment({ db = defaultDb, env = process.env, provider = null, actor = {}, invoiceId } = {}) {
   const userId = actorIdOf(actor);
   const invoice = await customerInvoice(db, userId, invoiceId);
+  await refreshClosingCollections({ db, env, provider, invoiceId: invoice.id });
   const money = await invoiceMoney(db, invoice.id);
-  const [instructions, provider, option] = await Promise.all([
+  const [instructions, providerParts, option] = await Promise.all([
     activeInstructions(db, invoice.tenant_id),
     loadProviderParts(db, [invoice.id], { payerUserId: userId }),
     onlinePaymentOption(db, env, invoice, money),
@@ -240,8 +251,8 @@ export async function getCustomerInvoicePayment({ db = defaultDb, env = process.
   return {
     invoice_id: invoice.id, invoice_number: invoice.invoice_number, status: invoice.status, currency: invoice.currency,
     money, payment_instructions: instructions, instructions_missing_label: instructions ? null : PAY04_LABELS.noInstructions,
-    online_payment: option, provider_payments: provider.collections.get(invoice.id) || [],
-    provider_receipts: provider.receipts.get(invoice.id) || [],
+    online_payment: option, provider_payments: providerParts.collections.get(invoice.id) || [],
+    provider_receipts: providerParts.receipts.get(invoice.id) || [],
     labels: { declared: PAY04_LABELS.declaredSource, provider: PAY04_LABELS.providerSource, in_flight: PAY04_LABELS.inFlight },
   };
 }
@@ -259,8 +270,15 @@ export async function startGarageInvoicePayment({
   const userId = actorIdOf(actor);
   const invoice = await customerInvoice(db, userId, invoiceId);
   const key = pay04IdempotencyKey(idempotencyKey);
+  // a retry of the same request (same payer, same key) replays it, whatever the balance is now
+  const prior = one(await read(db.from('pay04_garage_collections').select('invoice_id, amount, currency')
+    .eq('payer_user_id', userId).eq('idempotency_key', key).limit(1), 'PAY04_COLLECTION_UNAVAILABLE'));
+  // checkouts the provider may have closed (stopped or expired) hold room until the provider is read: read them first
+  if (!prior) await refreshClosingCollections({ db, env, provider, invoiceId: invoice.id });
   const money = await invoiceMoney(db, invoice.id);
-  const raw = body.amount === undefined || body.amount === null || body.amount === '' ? money.uncommitted_balance : String(body.amount).trim();
+  const omitted = body.amount === undefined || body.amount === null || body.amount === '';
+  const raw = omitted ? (prior && prior.invoice_id === invoice.id ? pay04Money(prior.amount, prior.currency) : money.uncommitted_balance)
+    : String(body.amount).trim();
   if (!/^\d{1,12}(\.\d{1,2})?$/.test(raw)) throw new Pay04Error('PAY04_AMOUNT_INVALID', 422);
   const begun = await rpc(db, 'pay04_begin_garage_collection', {
     p_invoice_id: invoice.id, p_payer_user_id: userId, p_amount: raw, p_currency: invoice.currency, p_idempotency_key: key,
@@ -276,10 +294,17 @@ export async function startGarageInvoicePayment({
   const checkout = await adapter.createCheckout({
     collectionId: collection.id, merchantReference: account.merchant_reference, amountMinor: Number(collection.amount_minor),
     currency: collection.currency, successUrl: `${back}&pay04=returned`, cancelUrl: `${back}&pay04=cancelled`,
+    expiresAt: collection.expires_at,
   });
-  await rpc(db, 'pay04_attach_garage_collection', {
-    p_collection_id: collection.id, p_provider_checkout_id: checkout.checkoutId, p_provider_payment_id: checkout.paymentId,
-  });
+  try {
+    await rpc(db, 'pay04_attach_garage_collection', {
+      p_collection_id: collection.id, p_provider_checkout_id: checkout.checkoutId, p_provider_payment_id: checkout.paymentId,
+    });
+  } catch (error) {
+    // the collection closed meanwhile: its room is no longer held, so the provider checkout must not stay payable
+    if (error?.code === 'PAY04_COLLECTION_CLOSED') await adapter.cancelCheckout(checkout.checkoutId).catch(() => null);
+    throw error;
+  }
   return {
     collection_id: collection.id, checkout_url: checkout.url, replayed: Boolean(begun.replayed),
     simulated: collection.gateway === PAY04_SIMULATOR_GATEWAY, amount: pay04Money(collection.amount, collection.currency),
@@ -352,8 +377,12 @@ export async function verifyCustomerCollection({ db = defaultDb, env = process.e
   const { result } = await applyProviderTruth(db, adapter, collection);
   const notification = await notifyCollectionOutcome(db, collection, result, deps);
   const out = await collectionOutcome(db, collection, result, notification);
-  // the customer sees their payment's state, not the garage's discrepancy detail
-  if (out.collection) {
+  return forCustomer(out);
+}
+
+/** The customer sees their payment's state, not the garage's discrepancy detail or CarUp's internal references. */
+function forCustomer(out) {
+  if (out?.collection) {
     delete out.collection.open_discrepancies; delete out.collection.payer_user_id;
     delete out.collection.payment_reference; delete out.collection.provider_payment_id;
   }
@@ -365,18 +394,78 @@ export async function cancelCustomerCollection({ db = defaultDb, env = process.e
   const userId = actorIdOf(actor);
   const collection = await loadCollection(db, collectionId);
   if (collection.payer_user_id !== userId) throw new Pay04Error('PAY04_COLLECTION_NOT_FOUND', 404);
-  return cancelCollection(db, env, provider, collection, userId, pay04Reason(body.reason ?? 'Stopped by the customer', { min: 3 }));
+  return forCustomer(await cancelCollection(db, env, provider, collection, userId,
+    pay04Reason(body.reason ?? 'Stopped by the customer', { min: 3 })));
 }
 
+/**
+ * Stop a checkout. The PROVIDER is asked first: if it cannot be reached nothing changes (the money stays held). If it
+ * had already taken the money, that truth wins and the payment counts in its held room. Otherwise CarUp records who
+ * stopped it and why, and the fresh provider read (closed, unpaid) releases the room. A collection that never reached the
+ * provider closes at once in the database.
+ */
 async function cancelCollection(db, env, provider, collection, actorUserId, reason) {
-  await rpc(db, 'pay04_cancel_garage_collection', { p_collection_id: collection.id, p_actor_user_id: actorUserId, p_reason: reason });
+  const record = () => rpc(db, 'pay04_cancel_garage_collection', { p_collection_id: collection.id, p_actor_user_id: actorUserId, p_reason: reason });
   let result = null;
   if (collection.provider_checkout_id) {
     const adapter = pay04AdapterFor(collection.gateway, { env, provider });
-    await adapter.cancelCheckout(collection.provider_checkout_id);
+    let closed;
+    try {
+      closed = await adapter.cancelCheckout(collection.provider_checkout_id);
+    } catch {
+      throw new Pay04Error('PAY04_PROVIDER_CANCEL_UNAVAILABLE', 502);
+    }
+    if (closed?.status !== 'complete') await record();
     ({ result } = await applyProviderTruth(db, adapter, collection));
+  } else {
+    await record();
   }
   return collectionOutcome(db, collection, result, { attempted: 0, emitted: 0, failures: [] });
+}
+
+/**
+ * A stopped or expired checkout holds its room until the provider is read. Before room is reused (a new payment, the
+ * customer's view, a garage cash record or void), read the provider for every such checkout of the invoice; one that
+ * never reached the provider closes in the database once expired. Best effort and fail closed: a checkout that cannot
+ * be read stays held, and the caller's own guard decides. No-op where PAY-04 is off or not installed.
+ */
+export async function refreshClosingCollections({ db = defaultDb, env = process.env, provider = null, invoiceId } = {}) {
+  if (!isPay04Enabled(env) || !invoiceId) return { refreshed: 0 };
+  const { data, error } = await db.from('pay04_garage_collections').select('*').eq('invoice_id', invoiceId);
+  if (error) return { refreshed: 0, unavailable: true };
+  const now = Date.now();
+  const closing = list(data).filter((c) => c.cancelled_at || Date.parse(c.expires_at) <= now);
+  if (!closing.length) return { refreshed: 0 };
+  const { data: payments, error: paymentError } = await db.from('payment_transactions').select('reference, status')
+    .in('reference', closing.map((c) => c.payment_reference));
+  if (paymentError) return { refreshed: 0, unavailable: true };
+  const pending = new Set(list(payments).filter((p) => p.status === 'pending').map((p) => p.reference));
+  let refreshed = 0;
+  for (const c of closing.filter((x) => pending.has(x.payment_reference))) {
+    try {
+      if (c.provider_payment_id) await applyProviderTruth(db, pay04AdapterFor(c.gateway, { env, provider }), c);
+      else if (Date.parse(c.expires_at) <= now) await rpc(db, 'pay04_close_expired_unattached_collection', { p_collection_id: c.id });
+      refreshed += 1;
+    } catch {
+      // stays held: the provider could not confirm it closed
+    }
+  }
+  return { refreshed };
+}
+
+/**
+ * Room on an invoice changed (a declared payment was reversed): re-project its provider money. Best effort — the
+ * reversal itself already happened; money left uncounted is re-projected again on the next provider read. No-op where
+ * PAY-04 is off (no provider money exists there).
+ */
+export async function reprojectInvoiceRoom({ db = defaultDb, env = process.env, invoiceId } = {}) {
+  if (!isPay04Enabled(env) || !invoiceId) return { reprojected: false };
+  try {
+    const { error } = await db.rpc('pay04_reproject_invoice', { p_invoice_id: invoiceId });
+    return { reprojected: !error };
+  } catch {
+    return { reprojected: false };
+  }
 }
 
 /** Signed provider webhook: the event is a trigger and an identity; the money truth is a fresh provider read. */
@@ -405,6 +494,14 @@ export async function pay04ProviderTruthForReference({ reference, db = defaultDb
   if (truth.amountMinor !== Number(collection.amount_minor) || truth.currency !== collection.currency) {
     throw new Pay04Error('PAY04_PROVIDER_PAYMENT_AMOUNT_MISMATCH', 409);
   }
+  const account = one(await read(db.from('pay04_garage_merchant_accounts').select('merchant_reference')
+    .eq('id', collection.merchant_account_id).limit(1), 'PAY04_MERCHANT_UNAVAILABLE'));
+  if (!account || truth.merchantReference !== account.merchant_reference) {
+    throw new Pay04Error('PAY04_PROVIDER_PAYMENT_MERCHANT_MISMATCH', 409);
+  }
+  const reviews = await read(db.from('pay04_garage_payment_discrepancies').select('id').eq('collection_id', collection.id)
+    .eq('status', 'open').in('discrepancy_type', [...MISMATCH_TYPES]), 'PAY04_DISCREPANCIES_UNAVAILABLE');
+  if (list(reviews).length) throw new Pay04Error('PAY04_PROVIDER_MISMATCH_UNDER_REVIEW', 409);
   const refundedMinor = truth.status === 'paid' ? 0 : (truth.refundedMinor ?? 0);
   const pendingRefundMinor = truth.status === 'paid' ? 0 : (truth.pendingRefundMinor ?? 0);
   return { reference, status: truth.status, intentId: truth.paymentId, refundedMinor, pendingRefundMinor,
@@ -450,8 +547,9 @@ export async function refundGarageCollection({ db = defaultDb, env = process.env
   const adapter = pay04AdapterFor(collection.gateway, { env, provider });
   let providerError = null;
   try {
+    // one provider key per refund REQUEST: a refund the provider refused is asked for again under a new key
     await adapter.refund({ paymentId: collection.provider_payment_id, amountMinor: Number(collection.amount_minor),
-      idempotencyKey: `pay04-refund-${collection.id}` });
+      idempotencyKey: `pay04-refund-${collection.id}-${Number(requested?.request_seq) || 1}` });
   } catch (error) {
     providerError = error?.code || 'PAY04_PROVIDER_REFUND_FAILED';
   }
@@ -460,6 +558,8 @@ export async function refundGarageCollection({ db = defaultDb, env = process.env
   const { result } = await applyProviderTruth(db, adapter, collection);
   const notification = await notifyCollectionOutcome(db, collection, result, deps);
   const out = await collectionOutcome(db, collection, result, notification);
+  // the provider refused and still holds the payment: say so — never "refund sent"
+  if (providerError && out.payment_status === 'paid') throw new Pay04Error('PAY04_PROVIDER_REFUND_REFUSED', 502);
   return { ...out, refund_requested: !requested.replayed, provider_error: providerError };
 }
 

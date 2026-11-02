@@ -44,3 +44,11 @@ test('OPS07 tokens keep their existing meaning', () => {
   assert.ok(invoiceFailure({ message: 'GARAGE_OPS07_INVOICE_HAS_PAYMENTS' }) instanceof ConflictError);
   assert.ok(invoiceFailure({ message: 'GARAGE_OPS07_LINE_NOT_PRICED' }) instanceof ValidationError);
 });
+
+test('a part billed on an issued invoice cannot be reversed: the garage is told to void the invoice first', async () => {
+  const { stockFailure } = await import('../services/garageOperations/garageStockService.js');
+  const refused = stockFailure({ message: 'PAY04_PART_USAGE_INVOICED' }, 'Could not reverse the usage');
+  assert.ok(refused instanceof ConflictError, `got ${refused?.constructor?.name}`);
+  assert.match(refused.message, /issued invoice/);
+  assert.match(refused.message, /[Vv]oid the invoice/);
+});

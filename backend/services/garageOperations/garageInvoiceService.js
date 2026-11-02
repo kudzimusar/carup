@@ -8,7 +8,9 @@ import {
 } from '../../utils/errors.js';
 import { moneyAmount, moneyString, quantityString, quantityValue, requireCurrency, sumMoney } from '../../utils/garageMoney.js';
 import { PAY04_LABELS } from '../payment/pay04Contract.js';
-import { invoiceMoney as pay04InvoiceMoney, loadProviderParts } from '../payment/pay04GaragePaymentService.js';
+import {
+  invoiceMoney as pay04InvoiceMoney, loadProviderParts, refreshClosingCollections, reprojectInvoiceRoom,
+} from '../payment/pay04GaragePaymentService.js';
 
 /**
  * GARAGE-1.0 OPS07 — commercial closeout: invoice, payment record, receipt.
@@ -200,7 +202,7 @@ async function balanceOf(client, invoiceId, currency) {
   return { payment_status: b.payment_status, paid_amount: moneyString(b.paid_amount, currency), balance_amount: moneyString(b.balance_amount, currency) };
 }
 
-async function loadInvoiceParts(client, invoiceIds) {
+async function loadInvoiceParts(client, invoiceIds, { payerUserId = null } = {}) {
   const [lines, payments, receipts] = await Promise.all([
     client.from('garage_invoice_lines').select('invoice_id, line_no, category, description, quantity, unit_price, line_total').in('invoice_id', invoiceIds).order('line_no', { ascending: true }),
     client.from('garage_payment_records').select('id, seq, invoice_id, kind, amount, currency, method, reference, paid_at, recorded_at, source, reverses_payment_id, reason').in('invoice_id', invoiceIds).order('seq', { ascending: true }),
@@ -212,11 +214,21 @@ async function loadInvoiceParts(client, invoiceIds) {
   // `available: false` only where the PAY-04 schema is not installed, where provider money cannot exist.
   let provider;
   try {
-    provider = await loadProviderParts(client, invoiceIds);
+    // a customer sees only the provider payments and receipts they made themselves (PAY-04's own customer rule)
+    provider = await loadProviderParts(client, invoiceIds, { payerUserId });
   } catch (error) {
     throw new DatabaseError('Could not load provider payments: ' + (error?.code || error?.message || 'unavailable'));
   }
   return { lines: group(lines.data), payments: group(payments.data), receipts: group(receipts.data), provider };
+}
+
+/** The source of the money that COUNTS on an invoice; OPS07's own label wherever only the garage's declarations count. */
+function invoiceSourceLabel(money) {
+  const provider = money && Number(money.provider_paid) > 0;
+  const declared = money && Number(money.declared_paid) > 0;
+  if (provider && declared) return PAY04_LABELS.mixedSource;
+  if (provider) return PAY04_LABELS.providerSource;
+  return PAYMENT_SOURCE_LABEL;
 }
 
 async function invoiceView(client, inv, parts, { forCustomer = false } = {}) {
@@ -253,7 +265,7 @@ async function invoiceView(client, inv, parts, { forCustomer = false } = {}) {
     payment_status: bal.payment_status,
     paid_amount: bal.paid_amount,
     balance_amount: bal.balance_amount,
-    payment_source_label: PAYMENT_SOURCE_LABEL,
+    payment_source_label: invoiceSourceLabel(money),
     lines: (parts.lines.get(inv.id) || []).map((l) => lineView(l, inv.currency)),
     payments: (parts.payments.get(inv.id) || []).map(paymentView),
     receipts: (parts.receipts.get(inv.id) || []).map(receiptView),
@@ -479,8 +491,10 @@ export async function listInvoices(client = defaultClient, actor = {}, { status 
   };
 }
 
-export async function voidInvoice(client = defaultClient, actor = {}, invoiceId, body = {}) {
+export async function voidInvoice(client = defaultClient, actor = {}, invoiceId, body = {}, deps = {}) {
   const tenantId = adminTenant(actor);
+  // a checkout the provider may have closed (stopped or expired) holds room until the provider is read: read it first
+  await refreshClosingCollections({ db: client, env: deps.env ?? process.env, provider: deps.provider ?? null, invoiceId: String(invoiceId) });
   const { error } = await client.rpc('garage_ops07_void_invoice', {
     p_tenant_id: tenantId, p_invoice_id: String(invoiceId), p_reason: text(body.reason, 'reason', 300, { required: true }), p_actor_user_id: actorId(actor),
   });
@@ -504,6 +518,7 @@ export async function recordPayment(client = defaultClient, actor = {}, invoiceI
   if (Number(amount) <= 0) throw new ValidationError('amount must be greater than zero');
   const paidAt = body.paid_at ? new Date(body.paid_at) : new Date();
   if (Number.isNaN(paidAt.getTime())) throw new ValidationError('paid_at must be a date and time');
+  await refreshClosingCollections({ db: client, env: deps.env ?? process.env, provider: deps.provider ?? null, invoiceId: inv.id });
   const { data, error } = await client.rpc('garage_ops07_record_payment', {
     p_tenant_id: tenantId, p_invoice_id: inv.id, p_amount: amount, p_currency: inv.currency, p_method: method,
     p_reference: text(body.reference, 'reference', 120), p_paid_at: paidAt.toISOString(),
@@ -520,7 +535,7 @@ export async function recordPayment(client = defaultClient, actor = {}, invoiceI
   return { ...result, payment_source_label: PAYMENT_SOURCE_LABEL, invoice, notification };
 }
 
-export async function reversePayment(client = defaultClient, actor = {}, paymentId, body = {}) {
+export async function reversePayment(client = defaultClient, actor = {}, paymentId, body = {}, deps = {}) {
   const tenantId = adminTenant(actor);
   const { data: pay, error: payError } = await client.from('garage_payment_records').select('id, invoice_id').eq('id', String(paymentId)).eq('tenant_id', tenantId).maybeSingle();
   if (payError) throw new DatabaseError('Could not load the payment: ' + payError.message);
@@ -531,6 +546,8 @@ export async function reversePayment(client = defaultClient, actor = {}, payment
   });
   if (error) throw invoiceFailure(error, 'Could not reverse the payment');
   const result = typeof data === 'string' ? JSON.parse(data) : one(data);
+  // room reappeared: provider money the invoice could not absorb may count now (and its flag closes)
+  await reprojectInvoiceRoom({ db: client, env: deps.env ?? process.env, invoiceId: pay.invoice_id });
   return { ...result, invoice: await getInvoice(client, actor, pay.invoice_id) };
 }
 
@@ -545,7 +562,8 @@ export async function listMyInvoices(client = defaultClient, actor = {}) {
     .in('service_case_id', cases.map((c) => c.id)).order('issued_at', { ascending: false });
   if (error) throw new DatabaseError('Could not load invoices: ' + error.message);
   const invoices = list(data);
-  const parts = invoices.length ? await loadInvoiceParts(client, invoices.map((i) => i.id)) : { lines: new Map(), payments: new Map(), receipts: new Map() };
+  const parts = invoices.length ? await loadInvoiceParts(client, invoices.map((i) => i.id), { payerUserId: userId })
+    : { lines: new Map(), payments: new Map(), receipts: new Map() };
   const caseById = new Map(cases.map((c) => [c.id, c]));
   const out = [];
   for (const inv of invoices) {

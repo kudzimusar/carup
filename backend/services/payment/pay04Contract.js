@@ -29,6 +29,9 @@ export const PAY04_PRODUCT_CODE = 'gar.invoice.customer_payment';
 export const PAY04_LABELS = Object.freeze({
   declaredSource: 'Recorded by the garage. CarUp has not processed or verified this payment.',
   providerSource: 'Confirmed by the garage’s payment provider. The money is paid to the garage, not to CarUp.',
+  // a provider payment row states its channel only; whether it counts is its state (never "confirmed" before it is)
+  providerChannel: 'Through the garage’s own payment provider. Money paid this way goes to the garage, not to CarUp.',
+  mixedSource: 'Part recorded by the garage (CarUp has not verified it) and part confirmed by the garage’s payment provider (paid to the garage, not to CarUp).',
   simulatedProvider: 'Simulated payment provider — test environment. No real money moves.',
   instructionsDisclosure: 'These payment instructions come from the garage. Pay the garage directly. CarUp does not receive, hold or verify this money.',
   noInstructions: 'The garage has not published payment instructions on CarUp yet. Ask the garage how to pay.',
@@ -73,11 +76,15 @@ export function pay04Failure(error, fallback = 'PAY04_OPERATION_UNAVAILABLE') {
   return new Pay04Error(token, 409, details);
 }
 
+/** Currencies without minor units (the same table the database and the web use). */
+export const PAY04_ZERO_DECIMAL_CURRENCIES = Object.freeze(['BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW', 'PYG', 'RWF', 'UGX', 'UYI',
+  'VND', 'VUV', 'XAF', 'XOF', 'XPF']);
+export const pay04CurrencyScale = (currency) => (PAY04_ZERO_DECIMAL_CURRENCIES.includes(currency) ? 0 : 2);
+
 /** Money is exchanged as decimal strings in the currency's own precision; nothing is converted or summed across. */
 export function pay04Money(value, currency) {
   if (value === null || value === undefined) return null;
-  const scale = ['BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW', 'PYG', 'RWF', 'UGX', 'UYI', 'VND', 'VUV', 'XAF', 'XOF', 'XPF'].includes(currency) ? 0 : 2;
-  return Number(value).toFixed(scale);
+  return Number(value).toFixed(pay04CurrencyScale(currency));
 }
 
 export function pay04IdempotencyKey(provided) {

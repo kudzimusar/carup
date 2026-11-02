@@ -17,7 +17,7 @@ import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { authorizeSessionRole, requireActiveTenant } from '../middleware/authMiddleware.js';
 import { GARAGE_ADMIN_ROLES, GARAGE_TENANT_TYPE } from '../services/serviceNetwork/serviceAuthority.js';
-import { Pay04Error, isPay04Enabled, pay04Failure } from '../services/payment/pay04Contract.js';
+import { Pay04Error, isPay04Enabled, pay04CurrencyScale, pay04Failure } from '../services/payment/pay04Contract.js';
 import {
   cancelCustomerCollection, cancelGarageCollection, getCustomerInvoicePayment, getGarageFinancialOverview,
   getGarageInvoicePayments, getGaragePaymentInstructions, listGarageMerchantAccounts, listGaragePaymentExceptions,
@@ -120,7 +120,7 @@ async function deliverSimulatorEvents(simulator, events) {
 
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const formatMinor = (amountMinor, currency) => {
-  const scale = ['JPY', 'KRW', 'VND', 'UGX', 'RWF', 'XAF', 'XOF'].includes(currency) ? 0 : 2;
+  const scale = pay04CurrencyScale(currency);
   return `${currency} ${(Number(amountMinor) / 10 ** scale).toFixed(scale)}`;
 };
 
@@ -172,6 +172,11 @@ router.post('/api/pay04/simulator/checkout/:checkoutId/complete', async (req, re
     const outcome = ['success', 'decline', 'expire'].includes(req.body?.outcome) ? req.body.outcome : 'success';
     const result = await simulator.completeCheckout(req.params.checkoutId, { outcome });
     await deliverSimulatorEvents(simulator, result.events);
+    if (result.status === 'expired' && outcome === 'success') {
+      return res.status(410).type('html').send(simulatorPage('Checkout expired', `<div class="card"><h1>This checkout has expired (simulated)</h1>
+<p data-testid="pay04-simulator-expired">It took no payment after its expiry. Nothing was charged.</p>
+<p><a href="${escapeHtml(model.cancelUrl)}">Back to CarUp</a></p></div>`));
+    }
     if (result.declined) {
       return res.status(402).type('html').send(simulatorPage('Card declined', `<div class="card"><h1>Card declined (simulated)</h1>
 <p data-testid="pay04-simulator-declined">Nothing was charged. The garage has not been paid.</p>

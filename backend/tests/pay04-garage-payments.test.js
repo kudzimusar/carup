@@ -30,7 +30,7 @@ const { createPgSupabase } = await import('./helpers/pgSupabaseShim.js');
 
 const run = crypto.randomBytes(4).toString('hex');
 const u = (name) => `p4t_${name}_${run}`;
-const ids = { admin: u('admin'), mech: u('mech'), cust: u('cust'), out: u('out'), op: u('op'), adminB: u('adminb'), mechB: u('mechb') };
+const ids = { admin: u('admin'), mech: u('mech'), cust: u('cust'), out: u('out'), op: u('op'), adminB: u('adminb'), mechB: u('mechb'), coowner: u('coown') };
 const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pay04-svc-'));
 const env = {
   NODE_ENV: 'test', CARUP_ENV: 'test', CARUP_PAY04_ENABLED: 'true', CARUP_PAY04_PROVIDER_MODE: 'local_simulator',
@@ -48,6 +48,8 @@ const one = async (sql, params = []) => (await q(sql, params)).rows[0];
 const customer = () => ({ id: ids.cust });
 const garageAdmin = () => ({ id: ids.admin, tenantId: world.g });
 const operator = () => ({ id: ids.op, platformRole: 'admin' });
+/** The OPS07 services take the session's verified garage the way the routes pass it. */
+const garageAdminCtx = () => ({ id: ids.admin, activeTenant: { id: world.g, type: 'garage', role: 'admin' } });
 
 async function rejectsWith(promise, code) {
   try { await promise; } catch (err) {
@@ -70,14 +72,14 @@ async function seedGarage(prefix, admin, mech) {
 }
 
 /** A completed, owner-authorized job invoiced through OPS07 for `amount` (one labour line from its service record). */
-async function invoice(amount, { tenant = world.g, branch = world.branch, admin = ids.admin, mech = ids.mech, currency = 'USD' } = {}) {
-  const c = (await one("INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ($1,$2,$3,$4,'accepted') RETURNING id", [world.vin, tenant, branch, ids.cust])).id;
-  const wo = (await one("INSERT INTO mechanic_work_orders (tenant_id,vin,customer_id,service_case_id,branch_id,status,owner_authorization) VALUES ($1,$2,$3,$4,$5,'In Progress','pending') RETURNING id", [tenant, world.vin, ids.cust, c, branch])).id;
-  await q("SELECT mechanic_work_order_decide_authorization($1,$2,$3,'owner',NULL,'owner','authorized',NULL)", [wo, world.vin, ids.cust]);
+async function invoice(amount, { tenant = world.g, branch = world.branch, admin = ids.admin, mech = ids.mech, currency = 'USD', vin = world.vin, authorizer = ids.cust } = {}) {
+  const c = (await one("INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ($1,$2,$3,$4,'accepted') RETURNING id", [vin, tenant, branch, ids.cust])).id;
+  const wo = (await one("INSERT INTO mechanic_work_orders (tenant_id,vin,customer_id,service_case_id,branch_id,status,owner_authorization) VALUES ($1,$2,$3,$4,$5,'In Progress','pending') RETURNING id", [tenant, vin, ids.cust, c, branch])).id;
+  await q("SELECT mechanic_work_order_decide_authorization($1,$2,$3,'owner',NULL,'owner','authorized',NULL)", [wo, vin, authorizer]);
   await q('INSERT INTO work_order_assignments (work_order_id,tenant_id,mechanic_user_id,assigned_by_user_id) VALUES ($1,$2,$3,$4)', [wo, tenant, mech, admin]);
   await q("UPDATE service_cases SET status='active' WHERE id=$1", [c]);
   const rec = (await one("INSERT INTO service_records (work_order_id,service_case_id,tenant_id,vin,work_performed,service_authority,total_cost,currency,recorded_by_user_id,performed_at) VALUES ($1,$2,$3,$4,'Service','garage_stated',$5,$6,$7,now()) RETURNING id",
-    [wo, c, tenant, world.vin, amount, currency, mech])).id;
+    [wo, c, tenant, vin, amount, currency, mech])).id;
   await q('SELECT garage_ops05_complete_job($1,$2,$3)', [tenant, c, admin]);
   const lines = JSON.stringify([{ category: 'labour', description: 'Workshop service', quantity: 1, unit_price: amount, source_kind: 'service_record', source_id: rec }]);
   return one('SELECT * FROM garage_ops07_issue_invoice($1,$2,$3,$4::jsonb,NULL,NULL,NULL,$5)', [tenant, wo, currency, lines, admin]);
@@ -93,6 +95,16 @@ async function payAndDeliver(started, outcome = 'success') {
     out.push(await S.processGarageProviderEvent({ db, env, provider: sim, event: sim.verifyWebhook(signed), deps }));
   }
   return out;
+}
+/** A collection that expires in 1 s, attached to a provider checkout that carries the same expiry (as the start route does). */
+async function shortLivedCollection(inv, amount, key) {
+  const c = (await one("SELECT pay04_begin_garage_collection($1,$2,$3,'USD',$4,1) AS r", [inv.id, ids.cust, amount, key])).r.collection;
+  const account = await one('SELECT merchant_reference FROM pay04_garage_merchant_accounts WHERE id = $1', [c.merchant_account_id]);
+  const checkout = await sim.createCheckout({ collectionId: c.id, merchantReference: account.merchant_reference, amountMinor: Number(c.amount_minor),
+    currency: 'USD', successUrl: 'http://127.0.0.1:5193/ok', cancelUrl: 'http://127.0.0.1:5193/no', expiresAt: c.expires_at });
+  await q('SELECT pay04_attach_garage_collection($1,$2,$3)', [c.id, checkout.checkoutId, checkout.paymentId]);
+  await new Promise((resolve) => setTimeout(resolve, 1300));
+  return { collection: c, checkout };
 }
 const collectionOf = (collectionId) => one('SELECT c.*, p.status AS payment_status FROM pay04_garage_collections c JOIN payment_transactions p ON p.reference = c.payment_reference WHERE c.id = $1', [collectionId]);
 
@@ -338,6 +350,154 @@ test('the garage overview reports per currency, never sums currencies, and never
   assert.equal(overview.provider.simulated, true);
   assert.match(overview.revenue_owner_note, /CarUp is not paid any of this money/);
   assert.equal(overview.truncated, false);
+});
+
+test('collection states never call money paid, or a checkout closed, before the provider says so', { skip: false }, () => {
+  const now = Date.parse('2026-11-02T10:00:00Z');
+  const open = { cancelled_at: null, cancelled_by: null, expires_at: '2026-11-02T10:30:00Z' };
+  const stoppedBy = (who) => ({ ...open, cancelled_at: '2026-11-02T09:59:00Z', cancelled_by: who });
+  assert.equal(S.collectionState(open, { status: 'pending' }, { now }), 'awaiting_provider');
+  assert.equal(S.collectionState(stoppedBy('p4t_cust'), { status: 'pending' }, { now }), 'stopping', 'stopped by a person, provider not yet read');
+  assert.equal(S.collectionState({ ...open, expires_at: '2026-11-02T09:00:00Z' }, { status: 'pending' }, { now }), 'expired');
+  assert.equal(S.collectionState(stoppedBy('p4t_cust'), { status: 'cancelled' }, { now }), 'stopped', 'provider confirmed the stop');
+  assert.equal(S.collectionState(stoppedBy('system:expiry'), { status: 'cancelled' }, { now }), 'cancelled');
+  assert.equal(S.collectionState(open, { status: 'cancelled' }, { now }), 'cancelled');
+  assert.equal(S.collectionState(open, { status: 'paid' }, { now, openDiscrepancies: [{ discrepancy_type: 'amount_mismatch' }] }), 'under_review',
+    'paid money with disagreeing evidence is under review, not confirmed');
+  assert.equal(S.collectionState(open, { status: 'paid' }, { now, openDiscrepancies: [{ discrepancy_type: 'unallocated_provider_money' }] }), 'confirmed_unallocated');
+});
+
+test('a provider row never says "confirmed" unless the provider confirmed it; the invoice names the source that counts', { skip }, async () => {
+  const inv = await invoice(40);
+  const started = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv.id, body: { amount: '25.00' }, idempotencyKey: `p4t-lbl-${run}-01` });
+  const pending = (await S.getCustomerInvoicePayment({ db, env, actor: customer(), invoiceId: inv.id })).provider_payments.find((p) => p.id === started.collection_id);
+  assert.equal(pending.state, 'awaiting_provider');
+  assert.doesNotMatch(pending.source_label, /confirm/i, 'a waiting row does not claim confirmation');
+  await payAndDeliver(started);
+  const providerOnly = await I.getInvoice(db, garageAdminCtx(), inv.id);
+  assert.match(providerOnly.payment_source_label, /payment provider/);
+  assert.doesNotMatch(providerOnly.payment_source_label, /^Recorded by the garage/, 'not the garage-declared label when provider money counts');
+  await I.recordPayment(db, garageAdminCtx(), inv.id, { amount: '15.00', method: 'cash', idempotency_key: `p4t-lbl-cash-${run}-01` });
+  const mixed = await I.getInvoice(db, garageAdminCtx(), inv.id);
+  assert.match(mixed.payment_source_label, /recorded by the garage/i);
+  assert.match(mixed.payment_source_label, /payment provider/);
+});
+
+test('the customer card shows only the customer\'s own provider payments and receipts; the totals stay the invoice\'s', { skip }, async () => {
+  const vin2 = `P4C${run.toUpperCase()}000000`.slice(0, 17);
+  await q("INSERT INTO vehicles (vin,make,model,year,mileage,price,owner_id) VALUES ($1,'Toyota','Corolla',2019,80000,1000,$2)", [vin2, ids.coowner]);
+  const inv = await invoice(60, { vin: vin2, authorizer: ids.coowner });
+  // the case was requested by the customer; the car's current owner pays online
+  const started = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: { id: ids.coowner }, invoiceId: inv.id, body: {}, idempotencyKey: `p4t-own-${run}-01` });
+  await payAndDeliver(started);
+  const mine = (await I.listMyInvoices(db, { id: ids.cust })).invoices.find((i) => i.id === inv.id);
+  assert.equal(mine.money.provider_paid, '60.00', 'the invoice total is the invoice\'s');
+  assert.deepEqual(mine.provider_payments, [], 'another payer\'s checkout is not shown');
+  assert.deepEqual(mine.provider_receipts, [], 'another payer\'s receipt is not shown');
+  const theirs = (await I.listMyInvoices(db, { id: ids.coowner })).invoices.find((i) => i.id === inv.id);
+  assert.equal(theirs.provider_payments.length, 1);
+  assert.equal(theirs.provider_receipts.length, 1);
+});
+
+test('a refund the provider refuses is reported as refused, the payment still counts, and asking again is a new request', { skip }, async () => {
+  const inv = await invoice(35);
+  const started = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv.id, body: {}, idempotencyKey: `p4t-rr-${run}-01` });
+  await payAndDeliver(started);
+  const keys = [];
+  const refusing = Object.create(sim, { refund: { value: async (args) => { keys.push(args.idempotencyKey); throw new Pay04Error('PAY04_SIMULATOR_REFUND_REFUSED', 409); } } });
+  await rejectsWith(S.refundGarageCollection({ db, env, provider: refusing, actor: garageAdmin(), collectionId: started.collection_id,
+    body: { reason: 'Customer asked for a refund' }, deps }), 'PAY04_PROVIDER_REFUND_REFUSED');
+  assert.equal((await collectionOf(started.collection_id)).payment_status, 'paid');
+  assert.equal((await S.invoiceMoney(db, inv.id)).provider_paid, '35.00', 'nothing was refunded, so it still counts');
+  const recording = Object.create(sim, { refund: { value: async (args) => { keys.push(args.idempotencyKey); return sim.refund(args); } } });
+  const again = await S.refundGarageCollection({ db, env, provider: recording, actor: garageAdmin(), collectionId: started.collection_id,
+    body: { reason: 'Customer asked for a refund' }, deps });
+  assert.ok(['refund_pending', 'refunded'].includes(again.payment_status), again.payment_status);
+  assert.equal(keys.length, 2);
+  assert.notEqual(keys[0], keys[1], 'a refused refund is never replayed under the same provider key');
+});
+
+test('stopping a checkout asks the provider first; the room is released only when the provider confirms it closed', { skip }, async () => {
+  const inv = await invoice(45);
+  const started = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv.id, body: {}, idempotencyKey: `p4t-stop-${run}-01` });
+  const down = Object.create(sim, { cancelCheckout: { value: async () => { throw new Pay04Error('PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE', 502); } } });
+  await rejectsWith(S.cancelCustomerCollection({ db, env, provider: down, actor: customer(), collectionId: started.collection_id, body: { reason: 'Will pay cash' } }),
+    'PAY04_PROVIDER_CANCEL_UNAVAILABLE');
+  const untouched = await collectionOf(started.collection_id);
+  assert.equal(untouched.cancelled_at, null, 'nothing recorded while the provider could not be reached');
+  assert.equal((await S.invoiceMoney(db, inv.id)).provider_reserved, '45.00');
+  const stopped = await S.cancelCustomerCollection({ db, env, provider: sim, actor: customer(), collectionId: started.collection_id, body: { reason: 'Will pay cash' } });
+  assert.equal(stopped.payment_status, 'cancelled');
+  assert.equal(stopped.collection.state, 'stopped');
+  for (const k of ['payment_reference', 'provider_payment_id', 'open_discrepancies', 'payer_user_id']) {
+    assert.equal(stopped.collection[k], undefined, `the customer's response hides ${k}`);
+  }
+  assert.equal((await S.invoiceMoney(db, inv.id)).provider_reserved, '0.00');
+  // the provider had already taken the money before the stop reached it: that truth wins and the money counts
+  const inv2 = await invoice(20);
+  const s2 = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv2.id, body: {}, idempotencyKey: `p4t-stop-${run}-02` });
+  await sim.completeCheckout(new URL(s2.checkout_url).pathname.split('/').pop(), { outcome: 'success' });
+  const beaten = await S.cancelCustomerCollection({ db, env, provider: sim, actor: customer(), collectionId: s2.collection_id, body: { reason: 'Will pay cash' } });
+  assert.equal(beaten.payment_status, 'paid');
+  assert.equal(beaten.collection.state, 'confirmed');
+  assert.equal((await S.invoiceMoney(db, inv2.id)).provider_paid, '20.00');
+});
+
+test('an expired checkout is closed with the provider before its room is reused (new payment, void); the provider refuses it after expiry', { skip }, async () => {
+  const inv = await invoice(55);
+  const { collection, checkout } = await shortLivedCollection(inv, 55, `p4t-exp-${run}-01`);
+  const late = await sim.completeCheckout(checkout.checkoutId, { outcome: 'success' });
+  assert.equal(late.status, 'expired', 'the provider page takes no money after the expiry it was given');
+  assert.equal((await S.invoiceMoney(db, inv.id)).provider_reserved, '55.00', 'still held until the provider is read');
+  const fresh = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv.id, body: {}, idempotencyKey: `p4t-exp-${run}-02` });
+  assert.equal(fresh.amount, '55.00', 'the new payment read the expired one first and reused its room');
+  assert.equal((await collectionOf(collection.id)).payment_status, 'cancelled');
+  // OPS07: voiding an invoice whose only checkout expired reads the provider first
+  const inv2 = await invoice(15);
+  await shortLivedCollection(inv2, 15, `p4t-exp-${run}-03`);
+  const voided = await I.voidInvoice(db, garageAdminCtx(), inv2.id, { reason: 'Customer will not proceed' }, { env, provider: sim });
+  assert.equal(voided.status, 'voided');
+});
+
+test('retrying a start without an amount replays the original checkout', { skip }, async () => {
+  const inv = await invoice(18);
+  const first = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv.id, body: {}, idempotencyKey: `p4t-noamt-${run}-01` });
+  const again = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv.id, body: {}, idempotencyKey: `p4t-noamt-${run}-01` });
+  assert.equal(again.collection_id, first.collection_id);
+  assert.equal(again.replayed, true);
+  assert.equal(again.checkout_url, first.checkout_url);
+});
+
+test('the F5 operator path refuses provider evidence that names another merchant', { skip }, async () => {
+  const inv = await invoice(22);
+  const started = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv.id, body: {}, idempotencyKey: `p4t-f5m-${run}-01` });
+  await payAndDeliver(started);
+  const c = await collectionOf(started.collection_id);
+  await sim.misreport({ paymentId: c.provider_payment_id, merchantReference: 'gsim_merchant_someone_else' });
+  try {
+    await rejectsWith(S.pay04ProviderTruthForReference({ reference: c.payment_reference, db, env, provider: sim }), 'PAY04_PROVIDER_PAYMENT_MERCHANT_MISMATCH');
+  } finally {
+    await sim.misreport({ paymentId: c.provider_payment_id });
+  }
+});
+
+test('room that reappears (a declared payment is reversed) re-projects provider money the invoice could not absorb', { skip }, async () => {
+  const inv = await invoice(40);
+  const started = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv.id, body: {}, idempotencyKey: `p4t-oob-${run}-01` });
+  // room lost OUT OF BAND (a writer that bypasses the PAY-04 guard), then the provider confirms
+  await q('ALTER TABLE garage_payment_records DISABLE TRIGGER trg_pay04_guard_declared_payment');
+  let cash;
+  try {
+    cash = await I.recordPayment(db, garageAdminCtx(), inv.id, { amount: '40.00', method: 'cash', idempotency_key: `p4t-oob-cash-${run}-01` });
+  } finally {
+    await q('ALTER TABLE garage_payment_records ENABLE TRIGGER trg_pay04_guard_declared_payment');
+  }
+  await payAndDeliver(started);
+  assert.equal((await S.invoiceMoney(db, inv.id)).provider_paid, '0.00');
+  await I.reversePayment(db, garageAdminCtx(), cash.payment_id, { reason: 'Recorded in error', idempotency_key: `p4t-oob-rev-${run}-01` }, { env });
+  assert.equal((await S.invoiceMoney(db, inv.id)).provider_paid, '40.00', 'the reversal re-projected the provider money');
+  const flag = await one("SELECT resolution FROM pay04_garage_payment_discrepancies WHERE collection_id = $1 AND discrepancy_type = 'unallocated_provider_money'", [started.collection_id]);
+  assert.equal(flag.resolution, 'counted_on_invoice');
 });
 
 test('races on real PostgreSQL: one winner for the last unit of balance; webhook storms apply once; refunds once', { skip }, async () => {

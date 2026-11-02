@@ -65,6 +65,10 @@ export function stockFailure(error, fallback = 'Could not complete the stock act
   if (gate) return gate;
   const message = String(error?.message || error || '');
   if (/GARAGE_OPS03_ADMIN_REQUIRED/.test(message)) return new ForbiddenError('Only a garage administrator can manage stock.');
+  // CARUP-PAY-04: stock must not come back while an issued invoice still bills the part
+  if (/PAY04_PART_USAGE_INVOICED/.test(message)) {
+    return new ConflictError('This part is billed on an issued invoice. Void the invoice before reversing the part.');
+  }
   const match = /GARAGE_OPS06_([A-Z_]+)/.exec(message);
   if (match) {
     const token = match[1];

@@ -86,10 +86,28 @@ export class Pay04GarageSimulatorProvider {
 
   // ---------------------------------------------------------------- provider surface (the adapter interface)
 
-  /** One checkout per CarUp collection: a retried request returns the same checkout and payment ids. */
-  async createCheckout({ collectionId, merchantReference, amountMinor, currency, successUrl, cancelUrl }) {
+  /** A checkout past the expiry CarUp gave it: it takes no money. */
+  isDue(checkout) {
+    return Boolean(checkout && checkout.status === 'open' && checkout.expiresAt && Date.now() >= Date.parse(checkout.expiresAt));
+  }
+
+  /** Expire a due checkout (its payment is cancelled) the first time anything touches it; returns the event, or null. */
+  expireIfDue(state, checkout) {
+    if (!this.isDue(checkout)) return null;
+    checkout.status = 'expired';
+    const payment = state.payments[checkout.paymentId];
+    payment.status = 'canceled';
+    return this.event(state, 'payment.canceled', payment);
+  }
+
+  /**
+   * One checkout per CarUp collection: a retried request returns the same checkout and payment ids. The checkout takes
+   * no money after `expiresAt` (CarUp's own collection expiry), so CarUp's reservation and the provider agree.
+   */
+  async createCheckout({ collectionId, merchantReference, amountMinor, currency, successUrl, cancelUrl, expiresAt = null }) {
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0 || !/^[A-Z]{3}$/.test(String(currency))
-      || !/^gsim_merchant_[A-Za-z0-9_]{4,64}$/.test(String(merchantReference)) || !collectionId) {
+      || !/^gsim_merchant_[A-Za-z0-9_]{4,64}$/.test(String(merchantReference)) || !collectionId
+      || (expiresAt !== null && Number.isNaN(Date.parse(expiresAt)))) {
       throw new Pay04Error('PAY04_SIMULATOR_CHECKOUT_INVALID', 422);
     }
     return this.mutate((state) => {
@@ -104,7 +122,8 @@ export class Pay04GarageSimulatorProvider {
       const checkoutId = this.id(state, 'gsim_co');
       const paymentId = this.id(state, 'sim_pi_gar');
       state.checkouts[checkoutId] = { id: checkoutId, collectionId, merchantReference, amountMinor, currency, status: 'open',
-        paymentId, successUrl, cancelUrl, attempts: 0, createdAt: new Date().toISOString() };
+        paymentId, successUrl, cancelUrl, attempts: 0, createdAt: new Date().toISOString(),
+        expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString() };
       state.payments[paymentId] = { id: paymentId, checkoutId, collectionId, merchantReference, amountMinor, currency,
         status: 'requires_payment' };
       state.checkoutKeys[collectionId] = checkoutId;
@@ -116,8 +135,8 @@ export class Pay04GarageSimulatorProvider {
   checkoutPageModel(checkoutId) {
     const c = this.load().checkouts[checkoutId];
     if (!c) throw new Pay04Error('PAY04_SIMULATOR_CHECKOUT_NOT_FOUND', 404);
-    return { id: c.id, status: c.status, amountMinor: c.amountMinor, currency: c.currency, merchantReference: c.merchantReference,
-      successUrl: c.successUrl, cancelUrl: c.cancelUrl };
+    return { id: c.id, status: this.isDue(c) ? 'expired' : c.status, amountMinor: c.amountMinor, currency: c.currency,
+      merchantReference: c.merchantReference, successUrl: c.successUrl, cancelUrl: c.cancelUrl, expiresAt: c.expiresAt ?? null };
   }
 
   /** The customer acts on the simulated hosted page: pay, have the card declined, or abandon. */
@@ -125,6 +144,8 @@ export class Pay04GarageSimulatorProvider {
     return this.mutate((state) => {
       const c = state.checkouts[checkoutId];
       if (!c) throw new Pay04Error('PAY04_SIMULATOR_CHECKOUT_NOT_FOUND', 404);
+      const expired = this.expireIfDue(state, c);
+      if (expired) return { events: [expired], status: 'expired' };
       if (c.status !== 'open') return { events: [], status: c.status };
       const payment = state.payments[c.paymentId];
       if (outcome === 'decline') {
@@ -143,12 +164,13 @@ export class Pay04GarageSimulatorProvider {
     });
   }
 
-  /** CarUp (on behalf of the payer or the garage) stops an unpaid checkout. A paid one is never touched. */
+  /**
+   * CarUp (on behalf of the payer or the garage) stops an unpaid checkout. A paid one is never touched: the answer is
+   * the checkout's own status ('complete' = the provider already took the money; 'expired' = closed unpaid).
+   */
   async cancelCheckout(checkoutId) {
-    const page = this.checkoutPageModel(checkoutId);
-    if (page.status !== 'open') return { checkoutId, status: page.status, events: [] };
     const result = await this.completeCheckout(checkoutId, { outcome: 'expire' });
-    return { checkoutId, status: 'expired', events: result.events };
+    return { checkoutId, status: result.status, events: result.events };
   }
 
   /** The garage's full refund through CarUp. Idempotent per key; never more than the payment. */
@@ -215,11 +237,15 @@ export class Pay04GarageSimulatorProvider {
    * database decides whether they match), never assumed.
    */
   async getPaymentTruth({ paymentId }) {
-    const state = this.load();
+    let state = this.load();
+    if (!state.payments[paymentId]) throw new Pay04Error('PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE', 502);
+    if ((state.faults[paymentId] || {}).unavailable) throw new Pay04Error('PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE', 502);
+    if (this.isDue(state.checkouts[state.payments[paymentId].checkoutId])) {
+      // the provider closes a checkout that ran out of time the first time anything reads it
+      state = this.mutate((s) => { this.expireIfDue(s, s.checkouts[s.payments[paymentId].checkoutId]); return s; });
+    }
     const payment = state.payments[paymentId];
-    if (!payment) throw new Pay04Error('PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE', 502);
     const fault = state.faults[paymentId] || {};
-    if (fault.unavailable) throw new Pay04Error('PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE', 502);
     const reported = {
       amountMinor: fault.amountMinor ?? payment.amountMinor,
       currency: fault.currency ?? payment.currency,
