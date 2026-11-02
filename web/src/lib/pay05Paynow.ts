@@ -212,6 +212,13 @@ export function paynowStartFailure(err: unknown): { text: string; definite: bool
   return { text: message || PAYNOW_START_UNCONFIRMED, definite: false }
 }
 
+/** PAY-05 is switched off on this server (404 PAY05_DISABLED): a fact to state neutrally, not an error to alarm about. */
+export function isPay05Disabled(err: unknown): boolean {
+  if ((err as { code?: unknown } | null)?.code === 'PAY05_DISABLED') return true
+  return /\bPAY05_DISABLED\b/.test(err instanceof Error ? err.message : '')
+}
+export const PAY05_NOT_OFFERED = 'Paynow payments are not offered yet.'
+
 /** PAY-05 refusals in words (PAY-04 codes keep their own sentences). */
 const PAY05_ERROR_TEXT: Record<string, string> = {
   PAY05_PHONE_INVALID: 'Enter a Zimbabwe mobile number, for example 0771234567. Nothing was charged.',

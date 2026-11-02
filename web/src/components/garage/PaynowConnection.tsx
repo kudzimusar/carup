@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { MONEY_ACTION_BUTTON_CLASS } from '@/lib/pay04GaragePayments'
 import {
-  CURRENCY_NAME, MERCHANT_STATUS_LABEL, PAYNOW_METHOD_LABEL, pay05ErrorText, paynowErrorText, type GaragePaynowConnection, type PaynowMethod,
+  CURRENCY_NAME, MERCHANT_STATUS_LABEL, PAY05_NOT_OFFERED, PAYNOW_METHOD_LABEL, isPay05Disabled, pay05ErrorText, paynowErrorText,
+  type GaragePaynowConnection, type PaynowMethod,
 } from '@/lib/pay05Paynow'
 
 type Currency = 'USD' | 'ZWG'
@@ -84,7 +85,7 @@ export default function PaynowConnection() {
   const { fetchGaragePaynowConnection, connectGaragePaynow, disconnectGaragePaynow } = useCarUpApi()
   const uid = useId()
   const [data, setData] = useState<GaragePaynowConnection | null>(null)
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [state, setState] = useState<'loading' | 'ready' | 'error' | 'disabled'>('loading')
   const [form, setForm] = useState<ProfileForm>({ display_name: '', legal_entity_name: '', registration_number: '', settlement_bank_name: '',
     settlement_account_last4: '', settlement_account_holder: '', attest: false })
   const [drafts, setDrafts] = useState<Record<Currency, CurrencyDraft>>({ USD: blank('USD'), ZWG: blank('ZWG') })
@@ -111,8 +112,9 @@ export default function PaynowConnection() {
       if (!res || typeof res.enabled !== 'boolean') throw new Error('Unexpected Paynow connection response')
       setData(res)
       setState('ready')
-    } catch {
-      setState('error')
+    } catch (err) {
+      // PAY-05 switched off is not a failure: the garage is simply not offered Paynow yet
+      setState(isPay05Disabled(err) ? 'disabled' : 'error')
     }
   }, [fetchGaragePaynowConnection])
   useEffect(() => { void load() }, [load])
@@ -213,6 +215,7 @@ export default function PaynowConnection() {
         Customers pay your garage through your own Paynow merchant account; Paynow settles to your own bank account. CarUp never receives or holds this money.
       </p>
       {state === 'loading' && <p role="status">Loading your Paynow connection…</p>}
+      {state === 'disabled' && <p className="text-sm text-gray-700" data-testid="garage-paynow-disabled">{PAY05_NOT_OFFERED}</p>}
       {state === 'error' && (
         <div role="alert" className="rounded-md bg-red-50 p-3 text-red-900" data-testid="garage-paynow-error">
           <p>Your Paynow connection could not be loaded. This does not mean it is connected or disconnected.</p>
