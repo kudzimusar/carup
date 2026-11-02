@@ -202,7 +202,7 @@ test('cases 7, 19 (browser): the customer sees the invoice and the garage’s in
   await expect(card.getByTestId('online-payment-simulated')).toContainText('No real money moves')
   await expect(card.getByTestId('online-payment-amount')).toHaveValue('135.00')
   await card.getByTestId('online-payment-amount').fill('100.00')
-  await axeClean(page, `[data-testid="invoice-card"]:has-text("Invoice ${state.invoiceNumber}")`)
+  await axeClean(page, '[data-testid="invoice-card"]') // every invoice card the customer sees (axe takes CSS selectors only)
   await shot(page, `[data-testid="invoice-card"]:has-text("Invoice ${state.invoiceNumber}")`, '03-customer-invoice-how-to-pay-desktop')
   await card.getByTestId('online-payment-start').click()
   await page.waitForURL(/127\.0\.0\.1:5051\/api\/pay04\/simulator\/checkout\/gsim_co_/, { timeout: 60_000 })
@@ -325,7 +325,7 @@ for (const vp of VIEWPORTS) {
     await card.getByTestId('how-to-pay-toggle').click()
     await expect(card.getByTestId('how-to-pay-instructions')).toBeVisible({ timeout: 30_000 })
     await noHorizontalOverflow(page)
-    await axeClean(page, `[data-testid="invoice-card"]:has-text("Invoice ${state.invoiceNumber}")`)
+    await axeClean(page, '[data-testid="invoice-card"]') // every invoice card the customer sees (axe takes CSS selectors only)
     await shot(page, `[data-testid="invoice-card"]:has-text("Invoice ${state.invoiceNumber}")`, `11-customer-invoice-${vp.name}`)
 
     await login(page, 'adminA')
