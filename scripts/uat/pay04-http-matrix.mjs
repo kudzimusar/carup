@@ -356,6 +356,37 @@ await step('R', 'The garage refunds a provider-confirmed payment in full; the cu
   return { pass, detail: { customer_refund: customerTries.status, refund: [refund.status, refund.json?.payment_status], money: m, refunded_notifications: told } };
 });
 
+// ───────────────────────────── independent-review fixes, exercised physically ─────────────────────────────
+await step('RV1', 'A waiting provider row never claims confirmation; the invoice then names the source that counts', async () => {
+  const J = await job({ cost: '30.00', partQty: 1, sellPrice: '10.00' });
+  const inv = (await issue(J, suggested(J))).json.invoice;
+  const started = await call('POST', `/api/pay04/garage-invoices/${inv.id}/payments`, {}, as.customer, { 'Idempotency-Key': key('rv1') });
+  const view = await call('GET', `/api/pay04/garage-invoices/${inv.id}/payment`, undefined, as.customer);
+  const row = (view.json?.provider_payments || []).find((p) => p.id === started.json?.collection_id);
+  const back = await payViaSimulator(started.json);
+  const verified = await call('POST', `/api/pay04/garage-payments/${started.json.collection_id}/verify`, {}, as.customer);
+  const garage = await call('GET', `/api/garage/invoices/${inv.id}`, undefined, as.adminA);
+  const label = garage.json?.invoice?.payment_source_label || '';
+  const pass = started.status === 201 && row?.state === 'awaiting_provider' && !/confirm/i.test(row?.source_label || 'confirm')
+    && back.status === 303 && verified.json?.collection?.state === 'confirmed' && /payment provider/.test(label) && !/^Recorded by the garage/.test(label);
+  return { pass, detail: { waiting_row: row && { state: row.state, source_label: row.source_label }, confirmed_state: verified.json?.collection?.state,
+    invoice_source_label: label } };
+});
+
+await step('RV2', 'A part billed on an issued invoice cannot be reversed, even on a reopened work order; after a void it can', async () => {
+  const J = await job({ cost: '20.00', partQty: 1, sellPrice: '15.00' });
+  const inv = (await issue(J, suggested(J))).json.invoice;
+  const usageId = suggested(J).find((l) => l.source_kind === 'part_usage')?.source_id;
+  // OPS05 guards only ENTERING Completed, so a completed work order can be reopened: the billing itself must refuse
+  const reopened = await call('PATCH', `/api/mechanic/work-orders/${J.workOrderId}`, { status: 'In Progress' }, as.adminA);
+  const refused = await call('POST', `/api/garage/part-usage/${usageId}/reverse`, { reason: 'Returned to stock', idempotency_key: key('rv2a') }, as.adminA);
+  const voided = await call('POST', `/api/garage/invoices/${inv.id}/void`, { reason: 'Part returned unused' }, as.adminA);
+  const reversed = await call('POST', `/api/garage/part-usage/${usageId}/reverse`, { reason: 'Returned to stock', idempotency_key: key('rv2b') }, as.adminA);
+  const pass = ok(reopened, 200) && refused.status === 409 && /[Vv]oid the invoice/.test(msg(refused)) && ok(voided, 200) && ok(reversed, 200);
+  return { pass, detail: { reopened: reopened.status, reverse_while_billed: [refused.status, msg(refused)], voided: voided.status,
+    reverse_after_void: [reversed.status, msg(reversed)] } };
+});
+
 await step('C1', 'Concurrency: five simultaneous online payments for the whole balance — exactly one reserves it', async () => {
   const J = await job({ cost: '90.00', partQty: 1, sellPrice: '10.00' });
   const inv = (await issue(J, suggested(J))).json.invoice;

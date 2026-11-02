@@ -138,6 +138,22 @@ async function shot(page: Page, selector: string, name: string) {
 
 // The shared sensitive limiter (login, checkout, provider re-reads) is one per-IP counter: pace the journey.
 test.afterEach(async () => { await new Promise((resolve) => setTimeout(resolve, 15_000)) })
+/**
+ * Every actor here (the browser, this spec's API helper and the backend's own simulator webhook) shares 127.0.0.1, so
+ * the global per-IP limiter (100/min) is this harness's budget — never a limit a real customer meets. Each test starts in
+ * a fresh window, read from the limiter's own RateLimit headers (found in UAT: a dense return page met a 429; the page
+ * showed the truthful "could not be loaded" error with a retry, not an empty list).
+ */
+async function freshGlobalWindow(minRemaining = 85) {
+  for (let i = 0; i < 3; i += 1) {
+    const r = await fetch(`${API}/api/security/csrf-token`)
+    const remaining = Number(r.headers.get('ratelimit-remaining'))
+    const reset = Number(r.headers.get('ratelimit-reset'))
+    if (!Number.isFinite(remaining) || remaining >= minRemaining) return
+    await new Promise((resolve) => setTimeout(resolve, (Math.max(Number.isFinite(reset) ? reset : 60, 1) + 1) * 1000))
+  }
+}
+test.beforeEach(async () => { await freshGlobalWindow() })
 test.afterAll(() => {
   if (EVIDENCE_DIR) writeFileSync(`${EVIDENCE_DIR}/uat/browser-journal-${String(EXPECTED_SHA).slice(0, 8)}.json`, JSON.stringify(journal, null, 2), { mode: 0o600 })
 })
