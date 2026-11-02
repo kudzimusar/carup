@@ -87,6 +87,8 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
   const discrepancies = payment.open_discrepancies ?? []
   // PAY-05: a payment through the garage's own Paynow account
   const paynow = (payment as PaynowProviderPayment).paynow ?? null
+  // Paynow cannot cancel a request: stopping one records a decision, it does not free the invoice room
+  const viaPaynow = payment.gateway === 'paynow_zimbabwe'
   return (
     <li className="p-3 text-sm" data-testid="provider-payment-row" data-state={payment.state}>
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -147,14 +149,22 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
           onSubmit={(reason) => run('closeout', inWords(() => refundGarageProviderPayment(payment.id, reason)), 'Refund sent to the provider. The invoice shows what the provider confirmed.')}
         />
       )}
-      {open === 'stop' && (
+      {open === 'stop' && (viaPaynow ? (
+        <ReasonAction
+          testId="provider-stop-form" label="Why stop waiting for this payment?" minLength={3} busy={busy}
+          hint={'Paynow cannot cancel a payment request. Stopping records that the customer should not pay through this request; the amount stays held '
+            + 'until Paynow reports the outcome, or CarUp’s payment time passes and a CarUp operator releases it.'}
+          submitLabel="Stop waiting" onClose={() => setOpen(null)}
+          onSubmit={(reason) => run('closeout', inWords(() => cancelGarageProviderPayment(payment.id, reason)), 'Stop recorded — the amount stays held until Paynow reports the outcome.')}
+        />
+      ) : (
         <ReasonAction
           testId="provider-stop-form" label="Why stop this checkout?" minLength={3} busy={busy}
           hint="Nothing has been paid. Stopping releases the amount it was holding on the invoice."
           submitLabel="Stop the checkout" onClose={() => setOpen(null)}
           onSubmit={(reason) => run('closeout', inWords(() => cancelGarageProviderPayment(payment.id, reason)), 'Stop sent to the provider. The payment shows what the provider confirmed.')}
         />
-      )}
+      ))}
     </li>
   )
 }

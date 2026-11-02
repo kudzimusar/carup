@@ -16,6 +16,12 @@ const payment = (state: string, over: Record<string, unknown> = {}) => ({
   state, state_label: `State ${state}`, payment_status: 'paid', gateway: 'pay04_garage_provider_simulator', simulated: true,
   source_label: 'Confirmed by the garage’s payment provider. The money is paid to the garage, not to CarUp.', open_discrepancies: [], ...over,
 })
+/** The garage's view of a Paynow request (PAY-05). */
+const paynowView = (over: Record<string, unknown> = {}) => ({
+  method: 'ecocash', initiation: 'attached', provider_status: 'sent', provider_status_label: 'Waiting for you to approve the payment on your phone',
+  checkout_url: null, instructions: null, authorization_code: null, authorization_expires: null, otp_reference: null, needs_otp: false,
+  phone: '077*****67', hold_released: false, paynow_reference: 'PN-1', ...over,
+})
 const invoice = (over: Record<string, unknown> = {}) => ({
   id: 'inv-1', status: 'issued', currency: 'USD', provider_payments_supported: true,
   money: { declared_paid: '80.00', provider_paid: '100.00', provider_reserved: '20.00', uncommitted_balance: '0.00' },
@@ -95,15 +101,37 @@ describe('Garage provider payments', () => {
   })
 
   it('W5: a Paynow payment under review reads as under review — with what Paynow reported — never as paid', () => {
-    const paynow = { method: 'ecocash', initiation: 'attached', provider_status: 'paid', provider_status_label: 'Paid — confirmed by Paynow', checkout_url: null,
-      instructions: null, authorization_code: null, authorization_expires: null, otp_reference: null, needs_otp: false, phone: '077*****67', hold_released: false,
-      paynow_reference: 'PN-1' }
+    const paynow = paynowView({ provider_status: 'paid', provider_status_label: 'Paid — confirmed by Paynow' })
     render(<ProviderPaymentsPanel busy={false} run={vi.fn()} canAct invoice={invoice({ provider_receipts: [], provider_payments: [
       payment('under_review', { gateway: 'paynow_zimbabwe', state_label: 'Under review — not counted', paynow }),
     ] })} />)
     expect(screen.getByTestId('provider-payment-paynow-status')).toHaveTextContent('Under review — not counted. Paynow reports it paid.')
     expect(screen.getByTestId('provider-payment-row')).not.toHaveTextContent(/Paid — confirmed/)
     expect(screen.getByTestId('provider-payment-state').className).not.toMatch(/green/)
+  })
+
+  it('W4: stopping a Paynow request never promises a cancel — the amount stays held until Paynow reports or an operator releases it', async () => {
+    const run = vi.fn(async (_scope, fn) => { await fn(); return true })
+    render(<ProviderPaymentsPanel busy={false} run={run} canAct invoice={invoice({ provider_receipts: [], provider_payments: [
+      payment('awaiting_provider', { gateway: 'paynow_zimbabwe', payment_status: 'pending', paynow: paynowView() }),
+    ] })} />)
+    fireEvent.click(screen.getByTestId('provider-payment-stop'))
+    const form = screen.getByTestId('provider-stop-form')
+    expect(form).toHaveTextContent(new RegExp('Paynow cannot cancel a payment request\\. Stopping records that the customer should not pay through this request; '
+      + 'the amount stays held until Paynow reports the outcome, or CarUp.s payment time passes and a CarUp operator releases it\\.'))
+    expect(form).not.toHaveTextContent(/releases the amount it was holding|Nothing has been paid/)
+    expect(screen.getByTestId('provider-stop-form-submit')).toHaveTextContent(/^Stop waiting$/)
+    fireEvent.change(screen.getByTestId('provider-stop-form-reason'), { target: { value: 'Customer will pay cash at the counter' } })
+    fireEvent.click(screen.getByTestId('provider-stop-form-submit'))
+    await waitFor(() => expect(run).toHaveBeenCalledWith('closeout', expect.any(Function), 'Stop recorded — the amount stays held until Paynow reports the outcome.'))
+    expect(cancelGarageProviderPayment).toHaveBeenCalledWith('col-awaiting_provider', 'Customer will pay cash at the counter')
+  })
+
+  it('W4: a PAY-04 provider checkout keeps its own stop words', () => {
+    render(<ProviderPaymentsPanel busy={false} run={vi.fn()} canAct invoice={invoice({ provider_receipts: [], provider_payments: [payment('awaiting_provider')] })} />)
+    fireEvent.click(screen.getByTestId('provider-payment-stop'))
+    expect(screen.getByTestId('provider-stop-form')).toHaveTextContent('Nothing has been paid. Stopping releases the amount it was holding on the invoice.')
+    expect(screen.getByTestId('provider-stop-form-submit')).toHaveTextContent('Stop the checkout')
   })
 
   it('renders nothing where PAY-04 is not installed', () => {
