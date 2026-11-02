@@ -64,3 +64,31 @@ export function isPay05Enabled(env = process.env) {
 export function requirePay05Enabled(env = process.env) {
   if (!isPay05Enabled(env)) throw new Pay05Error('PAY05_DISABLED', 404);
 }
+
+const NOT_FOUND = /(_NOT_FOUND|_NOT_ATTACHED)$/;
+const FORBIDDEN = /(AUTHORITY_REFUSED|SEPARATION_REQUIRED|SELF_DEALING_REFUSED|ADMIN_REQUIRED|PAYER_NOT_CUSTOMER|PAYER_IS_GARAGE_MEMBER)$/;
+const UNAVAILABLE = /(DISABLED|NOT_PERMITTED|UNAVAILABLE|NOT_AUTHORIZED|SIMULATOR_REFUSED|ORIGIN_INVALID|KEK_UNAVAILABLE|KEK_VERSION_MISMATCH|PROVIDER_AUTHORITY_PENDING|MERCHANT_NOT_AVAILABLE)$/;
+const VALIDATION = /(_INVALID|_REQUIRED|_MISMATCH|NOT_SUPPORTED|NOT_AVAILABLE|DUPLICATE_CURRENCY|EXCEEDS_CURRENCY_PRECISION|TOO_MANY_LINES)$/;
+/** Constraint names that carry a meaning the API can state. */
+const CONSTRAINTS = Object.freeze({
+  pay05_innbucks_usd_only: 'PAY05_METHOD_NOT_AVAILABLE',
+  pay05_merchant_gateway: 'PAY05_GATEWAY_NOT_PERMITTED',
+});
+
+/** Map a database or service refusal to an HTTP-shaped Pay05Error. Unknown failures never leak details. */
+export function pay05Failure(error, fallback = 'PAY05_OPERATION_UNAVAILABLE') {
+  if (error instanceof Pay04Error) return error;
+  const message = String(error?.message || '');
+  for (const [constraint, code] of Object.entries(CONSTRAINTS)) {
+    if (message.includes(constraint)) return new Pay05Error(code, code.endsWith('NOT_PERMITTED') ? 503 : 422);
+  }
+  const token = (/\b(PAY05_[A-Z0-9_]+|PAY04_[A-Z0-9_]+|PAY03B_[A-Z0-9_]+|PAY01A_[A-Z0-9_]+|GARAGE_OPS0[0-9]_[A-Z0-9_]+)\b/.exec(message) || [])[1];
+  if (!token) return new Pay05Error(fallback, 503);
+  const detail = String(error?.details ?? error?.detail ?? '');
+  const details = /^[a-z_=0-9.:-]{1,60}$/.test(detail) ? { detail } : null;
+  if (FORBIDDEN.test(token)) return new Pay05Error(token, 403, details);
+  if (NOT_FOUND.test(token)) return new Pay05Error(token, 404, details);
+  if (UNAVAILABLE.test(token)) return new Pay05Error(token, 503, details);
+  if (VALIDATION.test(token)) return new Pay05Error(token, 422, details);
+  return new Pay05Error(token, 409, details);
+}

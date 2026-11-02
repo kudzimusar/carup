@@ -218,6 +218,9 @@ CREATE TABLE IF NOT EXISTS public.pay05_paynow_transactions (
     'created', 'sent', 'awaiting_delivery', 'delivered', 'paid', 'cancelled', 'failed', 'disputed', 'refunded', 'unrecognized')),
   provider_status_at timestamptz,
   provider_error text CHECK (provider_error IS NULL OR char_length(provider_error) <= 160),
+  -- the SHA-256 of the last signed status update applied: Paynow's messages carry no sequence number, so an identical
+  -- message right after itself is a resend (a duplicate), and after a different one it is a new event
+  last_status_update_hash text CHECK (last_status_update_hash IS NULL OR last_status_update_hash ~ '^[0-9a-f]{64}$'),
   trace_absent_count integer NOT NULL DEFAULT 0 CHECK (trace_absent_count >= 0),
   first_trace_absent_at timestamptz,
   hold_released_at timestamptz,
@@ -1236,7 +1239,7 @@ END $$;
 --     trace, O'mari OTP reply) is recorded, then applied through the PAY-04 writer — or turned into a review.
 CREATE OR REPLACE FUNCTION public.pay05_apply_paynow_observation(
   p_collection_id uuid, p_via text, p_event_id text, p_provider_status text, p_raw_status text, p_amount_minor bigint,
-  p_reference text, p_paynow_reference text, p_payment_id text)
+  p_reference text, p_paynow_reference text, p_payment_id text, p_message_hash text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_probe public.pay04_garage_collections%ROWTYPE;
@@ -1254,6 +1257,9 @@ DECLARE
   v_amount numeric;
 BEGIN
   IF p_via NOT IN ('status_update', 'poll', 'trace', 'otp_reply') THEN RAISE EXCEPTION 'PAY05_OBSERVATION_SOURCE_INVALID'; END IF;
+  IF (p_via = 'status_update') <> (p_message_hash IS NOT NULL AND p_event_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'PAY05_OBSERVATION_IDENTITY_INVALID';
+  END IF;
   IF p_provider_status NOT IN ('created', 'sent', 'awaiting_delivery', 'delivered', 'paid', 'cancelled', 'failed', 'disputed',
                                'refunded', 'unrecognized') THEN
     RAISE EXCEPTION 'PAY05_PROVIDER_STATUS_INVALID';
@@ -1286,7 +1292,8 @@ BEGIN
     RETURN jsonb_build_object('applied', false, 'duplicate_event', true, 'payment_status', v_p.status, 'provider_status', v_tx.provider_status);
   END IF;
   UPDATE public.pay05_paynow_transactions SET provider_status = p_provider_status, provider_status_at = clock_timestamp(),
-    paynow_reference = coalesce(paynow_reference, left(p_paynow_reference, 64)), updated_at = clock_timestamp()
+    paynow_reference = coalesce(paynow_reference, left(p_paynow_reference, 64)),
+    last_status_update_hash = coalesce(p_message_hash, last_status_update_hash), updated_at = clock_timestamp()
    WHERE collection_id = v_c.id RETURNING * INTO v_tx;
 
   v_via := CASE WHEN p_via = 'status_update' THEN 'signed_webhook' ELSE 'provider_readback' END;
@@ -1453,7 +1460,7 @@ REVOKE ALL ON FUNCTION
   public.pay05_attach_paynow_collection(uuid,text,text,text,jsonb),
   public.pay05_mark_paynow_initiation(uuid,text,text),
   public.pay05_record_paynow_trace_absent(uuid),
-  public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text),
+  public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text,text),
   public.pay05_release_paynow_hold(uuid,text,text,text),
   public.pay05_record_provider_error(text,uuid,uuid,uuid,jsonb)
   FROM PUBLIC, anon, authenticated;
@@ -1468,7 +1475,7 @@ GRANT EXECUTE ON FUNCTION
   public.pay05_attach_paynow_collection(uuid,text,text,text,jsonb),
   public.pay05_mark_paynow_initiation(uuid,text,text),
   public.pay05_record_paynow_trace_absent(uuid),
-  public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text),
+  public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text,text),
   public.pay05_release_paynow_hold(uuid,text,text,text),
   public.pay05_record_provider_error(text,uuid,uuid,uuid,jsonb)
   TO service_role;

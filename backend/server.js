@@ -134,6 +134,7 @@ import pay02Router from './routes/pay02Routes.js';
 import pay03aRouter from './routes/pay03aRoutes.js';
 import pay03bRouter from './routes/pay03bRoutes.js';
 import pay04GaragePaymentRouter from './routes/pay04GaragePaymentRoutes.js';
+import pay05ZimbabweCollectionRouter from './routes/pay05ZimbabweCollectionRoutes.js';
 import providerPlatformRouter from './routes/providerPlatformRoutes.js';
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 import governmentActivationRouter from './routes/governmentActivationRoutes.js';
@@ -353,6 +354,13 @@ app.use('/api/pay03b/dealer/subscription/invoices', rateLimiter({ max: 10, windo
 app.post('/api/pay04/garage-invoices/:invoiceId/payments', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay04/garage-payments', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay04/garage/payments', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+// CARUP-PAY-05: every PAY-05 route that calls Paynow (OTP, connection probes at verification, hold release, reconcile) or
+// accepts a provider POST shares the sensitive tier. Paynow resends a status update at most ten times, so its resulturl
+// gets a wider allowance than a person's action.
+app.use('/api/pay05/garage-payments', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay05/garage/paynow', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay05/admin', rateLimiter({ max: 30, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay05/paynow/webhook', rateLimiter({ max: 120, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03b/admin/reconciliation-exceptions', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03b/admin/subscriptions', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03b/admin/stripe-sandbox', rateLimiter({ max: 3, windowMs: 60 * 1000, isSensitive: true }));
@@ -619,6 +627,7 @@ app.use(pay03aRouter);
 // PAY-03B: Dealer & Business subscriptions, F5 reconciliation operator surface, local UAT simulator (404 unless enabled).
 app.use(pay03bRouter);
 app.use(pay04GaragePaymentRouter);
+app.use(pay05ZimbabweCollectionRouter);
 app.use(providerPlatformRouter);
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 app.use(governmentActivationRouter);

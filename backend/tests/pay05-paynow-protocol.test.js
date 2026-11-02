@@ -143,10 +143,13 @@ test('identifiers: a poll URL maps to one stable opaque id; merchant traces are 
   assert.equal(traces.size, 500);
   for (const t of traces) assert.match(t, /^[A-Za-z0-9]{32}$/);
   const pairs = [['reference', 'pay04_gar_x'], ['status', 'Paid'], ['hash', 'AB']];
-  assert.match(eventIdFor('c1', pairs), /^evt_pn_[0-9a-f]{40}$/);
-  assert.equal(eventIdFor('c1', pairs), eventIdFor('c1', pairs), 'a resent status update is the same event');
-  assert.notEqual(eventIdFor('c1', pairs), eventIdFor('c2', pairs), 'bound to its collection');
-  assert.notEqual(eventIdFor('c1', pairs), eventIdFor('c1', [['reference', 'pay04_gar_x'], ['status', 'Disputed'], ['hash', 'AB']]));
+  assert.match(eventIdFor('c1', pairs, 'sent'), /^evt_pn_[0-9a-f]{40}$/);
+  assert.equal(eventIdFor('c1', pairs, 'sent'), eventIdFor('c1', pairs, 'sent'), 'a resent status update is the same event');
+  assert.notEqual(eventIdFor('c1', pairs, 'sent'), eventIdFor('c2', pairs, 'sent'), 'bound to its collection');
+  assert.notEqual(eventIdFor('c1', pairs, 'sent'), eventIdFor('c1', [['reference', 'pay04_gar_x'], ['status', 'Disputed'], ['hash', 'AB']], 'sent'));
+  // Paynow's messages carry no sequence: "Paid" after a dispute is byte-identical to the first "Paid". It is a NEW event
+  // because CarUp's state changed in between — a content-only identity would silently drop it.
+  assert.notEqual(eventIdFor('c1', pairs, 'sent'), eventIdFor('c1', pairs, 'disputed'));
 });
 
 test('Zimbabwe mobile numbers normalise to the 07XXXXXXXX form Paynow documents; anything else is refused', () => {

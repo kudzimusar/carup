@@ -120,7 +120,8 @@ CREATE OR REPLACE FUNCTION pg_temp.obs(p_collection uuid, p_status text, p_via t
   p_amount_minor bigint DEFAULT NULL)
 RETURNS jsonb LANGUAGE sql AS $$
   SELECT pay05_apply_paynow_observation(c.id, p_via, p_event, p_status, initcap(replace(p_status, '_', ' ')),
-    coalesce(p_amount_minor, c.amount_minor), c.payment_reference, '9510', pg_temp.pid(c.id))
+    coalesce(p_amount_minor, c.amount_minor), c.payment_reference, '9510', pg_temp.pid(c.id),
+    CASE WHEN p_via = 'status_update' THEN encode(sha256(convert_to(coalesce(p_event, '') || p_status, 'UTF8')), 'hex') END)
   FROM pay04_garage_collections c WHERE c.id = p_collection;
 $$;
 CREATE OR REPLACE FUNCTION pg_temp.evt(p_n int) RETURNS text LANGUAGE sql AS $$
@@ -236,6 +237,7 @@ BEGIN
     'the canonical row is the garage''s third-party money through its own Paynow merchant');
   PERFORM pg_temp.expect(format($q$SELECT pay05_record_paynow_sending(%L, %L, 'onemoney', NULL)$q$, c1, pg_temp.trace(c1)), 'PAY05_METHOD_NOT_AVAILABLE');
   PERFORM pg_temp.expect(format($q$SELECT pay05_apply_paynow_observation(%L, 'poll', NULL, 'paid', 'Paid', 2500, %L, '1', %L)$q$, c1, v_pay.reference, pg_temp.pid(c1)), 'PAY05_COLLECTION_NOT_ATTACHED');
+  PERFORM pg_temp.expect(format($q$SELECT pay05_apply_paynow_observation(%L, 'status_update', NULL, 'paid', 'Paid', 2500, %L, '1', %L)$q$, c1, v_pay.reference, pg_temp.pid(c1)), 'PAY05_OBSERVATION_IDENTITY_INVALID');
   PERFORM pay05_record_paynow_sending(c1, pg_temp.trace(c1), 'web', NULL);
   v_res := pay05_record_paynow_sending(c1, 'AnotherTrace000000000000000000ZZ', 'ecocash', '077*****11');
   PERFORM pg_temp.check((v_res->>'replayed')::boolean AND v_res->'transaction'->>'merchant_trace' = pg_temp.trace(c1), 'one Paynow request per collection: a retry replays it');
@@ -416,13 +418,13 @@ BEGIN
     PERFORM pg_temp.check(NOT has_table_privilege(v_role, 'public.pay05_merchant_integrations', 'SELECT')
       AND NOT has_table_privilege(v_role, 'public.pay05_paynow_transactions', 'SELECT')
       AND NOT has_table_privilege(v_role, 'public.pay05_provider_errors', 'SELECT')
-      AND NOT has_function_privilege(v_role, 'public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text)', 'EXECUTE')
+      AND NOT has_function_privilege(v_role, 'public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text,text)', 'EXECUTE')
       AND NOT has_function_privilege(v_role, 'public.pay05_release_paynow_hold(uuid,text,text,text)', 'EXECUTE'), v_role || ' has no PAY-05 access');
   END LOOP;
   PERFORM pg_temp.check(has_table_privilege('service_role', 'public.pay05_merchant_integrations', 'SELECT')
     AND NOT has_table_privilege('service_role', 'public.pay05_merchant_integrations', 'UPDATE')
     AND NOT has_table_privilege('service_role', 'public.pay05_paynow_observations', 'INSERT')
-    AND has_function_privilege('service_role', 'public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text)', 'EXECUTE')
+    AND has_function_privilege('service_role', 'public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text,text)', 'EXECUTE')
     AND NOT has_function_privilege('service_role', 'public.pay05_hold_released(uuid)', 'EXECUTE'), 'service_role reads and calls writers only');
   PERFORM pg_temp.check((SELECT bool_and(relrowsecurity) FROM pg_class WHERE relname LIKE 'pay05\_%' AND relkind = 'r'), 'RLS on every PAY-05 table');
   PERFORM pg_temp.check(NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace

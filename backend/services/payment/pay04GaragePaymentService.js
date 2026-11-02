@@ -14,12 +14,26 @@ import { supabase as defaultDb } from '../../db/supabase.js';
 import { followedCases } from '../garageOperations/garageEstimateService.js';
 import { GARAGE_NOTIFICATION_EVENTS, notifyCaseAudience } from '../garageOperations/garageNotificationService.js';
 import {
-  PAY04_LABELS, PAY04_SIMULATOR_GATEWAY, Pay04Error, isPay04Enabled, pay04Failure, pay04IdempotencyKey, pay04Money,
-  pay04Reason, requirePay04Enabled,
+  PAY04_LABELS, PAY04_SIMULATOR_GATEWAY, Pay04Error, isPay04Enabled, isPay04ProductionRuntime, pay04Failure, pay04IdempotencyKey,
+  pay04Money, pay04Reason, requirePay04Enabled,
 } from './pay04Contract.js';
 import { pay04AdapterFor } from './pay04ProviderAdapters.js';
+import { PAY05_GATEWAY, PAY05_LABELS, Pay05Error } from './pay05Contract.js';
+
+// PAY-05: a collection through the garage's own Paynow merchant is served by the Paynow service (loaded on demand, so the
+// two modules never import each other at load time).
+const paynowService = () => import('./pay05PaynowCollectionService.js');
 
 const COLLECTION_TTL_SECONDS = 1800;
+/**
+ * PAY-05: a disposable UAT runtime may shorten CarUp's collection expiry (5–3600 s) to exercise expiry, stop and hold
+ * release physically; any production runtime always uses the accepted 30 minutes.
+ */
+export function collectionTtlSeconds(env = process.env) {
+  if (isPay04ProductionRuntime(env)) return COLLECTION_TTL_SECONDS;
+  const v = Number(env.CARUP_PAY04_UAT_COLLECTION_TTL_SECONDS);
+  return Number.isInteger(v) && v >= 5 && v <= 3600 ? v : COLLECTION_TTL_SECONDS;
+}
 const OVERVIEW_LIMIT = 500;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -71,7 +85,9 @@ export async function invoiceMoney(db, invoiceId) {
 }
 
 /** The customer- and garage-readable state of one provider collection. Never 'paid' before the provider says so. */
-const MISMATCH_TYPES = new Set(['amount_mismatch', 'currency_mismatch', 'merchant_mismatch']);
+const MISMATCH_TYPES = new Set(['amount_mismatch', 'currency_mismatch', 'merchant_mismatch',
+  // PAY-05 (Paynow): money held in a dispute, or a status no one has reviewed, is not confirmed
+  'provider_disputed', 'provider_status_unrecognized']);
 /**
  * The state a person reads. Nothing is "closed" or "nothing was charged" until the PROVIDER says so (a stop or CarUp's
  * own expiry only starts that), and paid money whose evidence disagrees is under review, not confirmed.
@@ -88,7 +104,11 @@ export function collectionState(collection, payment, { now = Date.now(), openDis
     if (openDiscrepancies.some((d) => MISMATCH_TYPES.has(d.discrepancy_type))) return 'under_review';
     return openDiscrepancies.some((d) => d.discrepancy_type === 'unallocated_provider_money') ? 'confirmed_unallocated' : 'confirmed';
   }
-  if (status === 'cancelled') return collection.cancelled_at && collection.cancelled_by !== 'system:expiry' ? 'stopped' : 'cancelled';
+  if (status === 'cancelled') {
+    // PAY-05: Paynow took money after CarUp had closed this payment — an operator settles it
+    if (openDiscrepancies.some((d) => d.discrepancy_type === 'provider_paid_after_close')) return 'under_review';
+    return collection.cancelled_at && collection.cancelled_by !== 'system:expiry' ? 'stopped' : 'cancelled';
+  }
   if (status === 'reconciliation_hold') return 'under_review';
   return status; // refund_pending, refunded, partially_refunded
 }
@@ -134,6 +154,8 @@ export async function loadProviderParts(db, invoiceIds, { payerUserId = null, in
     ids.length ? read(db.from('pay04_garage_payment_discrepancies').select('*').in('collection_id', ids), 'PAY04_PROVIDER_PAYMENTS_UNAVAILABLE') : [],
   ]);
   const paymentByRef = new Map(list(payments).map((p) => [p.reference, p]));
+  const paynowIds = rows.filter((c) => c.gateway === PAY05_GATEWAY).map((c) => c.id);
+  const paynow = paynowIds.length ? await (await paynowService()).paynowDetails(db, paynowIds, { customer: Boolean(payerUserId) }) : new Map();
   const openByCollection = new Map();
   for (const d of list(discrepancies).filter((x) => x.status === 'open')) {
     openByCollection.set(d.collection_id, [...(openByCollection.get(d.collection_id) || []), d]);
@@ -147,8 +169,10 @@ export async function loadProviderParts(db, invoiceIds, { payerUserId = null, in
     const view = {
       id: c.id, amount: pay04Money(c.amount, c.currency), currency: c.currency, initiated_at: c.initiated_at,
       expires_at: c.expires_at, cancelled_at: c.cancelled_at ?? null, state, state_label: STATE_LABELS[state] || STATE_LABELS.unknown,
-      payment_status: payment?.status ?? null, gateway: c.gateway, simulated: c.gateway === PAY04_SIMULATOR_GATEWAY,
-      source_label: PAY04_LABELS.providerChannel,
+      payment_status: payment?.status ?? null, gateway: c.gateway,
+      simulated: c.gateway === PAY04_SIMULATOR_GATEWAY || Boolean(paynow.get(c.id)?.simulated),
+      source_label: c.gateway === PAY05_GATEWAY ? PAY05_LABELS.paynowChannel : PAY04_LABELS.providerChannel,
+      ...(c.gateway === PAY05_GATEWAY ? { paynow: paynow.get(c.id) ?? null } : {}),
       ...(includeDiscrepancies ? {
         payer_user_id: c.payer_user_id, payment_reference: c.payment_reference, provider_payment_id: c.provider_payment_id,
         open_discrepancies: open.map((d) => ({ id: d.id, type: d.discrepancy_type, amount: pay04Money(d.detected_amount, d.currency),
@@ -210,7 +234,7 @@ export async function setGaragePaymentInstructions({ db = defaultDb, actor = {},
 
 // ───────────────────────────── customer: pay an invoice through the garage's provider ─────────────────────────────
 
-async function customerInvoice(db, userId, invoiceId) {
+export async function customerInvoice(db, userId, invoiceId) {
   const id = requireId(invoiceId, 'PAY04_INVOICE_NOT_FOUND');
   const inv = await read(db.from('garage_invoices').select('*').eq('id', id).maybeSingle(), 'PAY04_INVOICE_UNAVAILABLE');
   // Not following the case and not existing look the same: an invoice id never discloses another customer's invoice.
@@ -224,9 +248,12 @@ async function customerInvoice(db, userId, invoiceId) {
 export async function onlinePaymentOption(db, env, invoice, money) {
   if (!isPay04Enabled(env)) return { available: false, reason: 'not_offered' };
   if (invoice.status !== 'issued') return { available: false, reason: 'invoice_not_payable' };
-  const account = await read(db.from('pay04_garage_merchant_accounts').select('id, gateway, status, currencies, display_name')
-    .eq('tenant_id', invoice.tenant_id).eq('status', 'simulated').maybeSingle(), 'PAY04_MERCHANT_UNAVAILABLE');
+  // the live merchant pay04_begin_garage_collection would choose: the latest simulated one, or a verified Paynow one (PAY-05)
+  const account = one(await read(db.from('pay04_garage_merchant_accounts').select('id, gateway, status, currencies, display_name')
+    .eq('tenant_id', invoice.tenant_id).in('status', ['simulated', 'verified']).order('registered_at', { ascending: false }).limit(1),
+    'PAY04_MERCHANT_UNAVAILABLE'));
   if (!account) return { available: false, reason: 'garage_not_connected' };
+  if (account.gateway === PAY05_GATEWAY) return (await paynowService()).paynowOnlineOption(db, env, invoice, money, account);
   if (!(account.currencies || []).includes(invoice.currency)) return { available: false, reason: 'currency_not_supported' };
   const permitted = await rpc(db, 'pay04_gateway_permitted', { p_gateway: account.gateway });
   if (permitted !== true) return { available: false, reason: 'provider_not_enabled' };
@@ -257,7 +284,7 @@ export async function getCustomerInvoicePayment({ db = defaultDb, env = process.
   };
 }
 
-function returnOrigin(env) {
+export function returnOrigin(env) {
   const origin = String(env.CARUP_PAY04_RETURN_ORIGIN || env.CARUP_PAY01A_RETURN_ORIGIN || '').replace(/\/$/, '');
   if (!/^https?:\/\/[^/]+$/.test(origin)) throw new Pay04Error('PAY04_RETURN_ORIGIN_INVALID', 503);
   return origin;
@@ -280,11 +307,16 @@ export async function startGarageInvoicePayment({
   const raw = omitted ? (prior && prior.invoice_id === invoice.id ? pay04Money(prior.amount, prior.currency) : money.uncommitted_balance)
     : String(body.amount).trim();
   if (!/^\d{1,12}(\.\d{1,2})?$/.test(raw)) throw new Pay04Error('PAY04_AMOUNT_INVALID', 422);
+  // PAY-05: a Paynow request's own inputs (method, phone, the payer's e-mail) are checked before any room is reserved
+  if (!prior) await (await paynowService()).prevalidatePaynowStart({ db, env, invoice, body, actorId: userId });
   const begun = await rpc(db, 'pay04_begin_garage_collection', {
     p_invoice_id: invoice.id, p_payer_user_id: userId, p_amount: raw, p_currency: invoice.currency, p_idempotency_key: key,
-    p_ttl_seconds: COLLECTION_TTL_SECONDS,
+    p_ttl_seconds: collectionTtlSeconds(env),
   });
   const collection = begun.collection;
+  if (collection.gateway === PAY05_GATEWAY) {
+    return (await paynowService()).startPaynowCheckout({ db, env, actor: { id: userId }, invoice, collection, begun, body });
+  }
   const account = await read(db.from('pay04_garage_merchant_accounts').select('merchant_reference, gateway')
     .eq('id', collection.merchant_account_id).maybeSingle(), 'PAY04_MERCHANT_UNAVAILABLE');
   if (!account) throw new Pay04Error('PAY04_MERCHANT_UNAVAILABLE', 503);
@@ -315,7 +347,7 @@ export async function startGarageInvoicePayment({
 
 // ───────────────────────────── provider truth -> the one governed writer ─────────────────────────────
 
-async function loadCollection(db, collectionId) {
+export async function loadCollection(db, collectionId) {
   const id = requireId(collectionId, 'PAY04_COLLECTION_NOT_FOUND');
   const c = await read(db.from('pay04_garage_collections').select('*').eq('id', id).maybeSingle(), 'PAY04_COLLECTION_UNAVAILABLE');
   if (!c) throw new Pay04Error('PAY04_COLLECTION_NOT_FOUND', 404);
@@ -337,7 +369,7 @@ async function applyProviderTruth(db, adapter, collection, { event = null } = {}
 }
 
 /** Best-effort, after the money is written: the customer hears only what the provider confirmed. Never undoes it. */
-async function notifyCollectionOutcome(db, collection, result, deps = {}) {
+export async function notifyCollectionOutcome(db, collection, result, deps = {}) {
   try {
     const issued = result?.projection?.receipt?.issued || null;
     const refunded = result?.applied && result?.payment_status === 'refunded' && result?.prior_payment_status !== 'refunded';
@@ -356,7 +388,7 @@ async function notifyCollectionOutcome(db, collection, result, deps = {}) {
   }
 }
 
-async function collectionOutcome(db, collection, result, notification) {
+export async function collectionOutcome(db, collection, result, notification) {
   const fresh = await loadCollection(db, collection.id);
   const provider = await loadProviderParts(db, [fresh.invoice_id], { includeDiscrepancies: true });
   const view = (provider.collections.get(fresh.invoice_id) || []).find((c) => c.id === fresh.id) || null;
@@ -373,6 +405,7 @@ export async function verifyCustomerCollection({ db = defaultDb, env = process.e
   const userId = actorIdOf(actor);
   const collection = await loadCollection(db, collectionId);
   if (collection.payer_user_id !== userId) throw new Pay04Error('PAY04_COLLECTION_NOT_FOUND', 404);
+  if (collection.gateway === PAY05_GATEWAY) return (await paynowService()).verifyCustomerPaynow({ db, env, collection, deps });
   const adapter = pay04AdapterFor(collection.gateway, { env, provider });
   const { result } = await applyProviderTruth(db, adapter, collection);
   const notification = await notifyCollectionOutcome(db, collection, result, deps);
@@ -381,7 +414,7 @@ export async function verifyCustomerCollection({ db = defaultDb, env = process.e
 }
 
 /** The customer sees their payment's state, not the garage's discrepancy detail or CarUp's internal references. */
-function forCustomer(out) {
+export function forCustomer(out) {
   if (out?.collection) {
     delete out.collection.open_discrepancies; delete out.collection.payer_user_id;
     delete out.collection.payment_reference; delete out.collection.provider_payment_id;
@@ -405,6 +438,10 @@ export async function cancelCustomerCollection({ db = defaultDb, env = process.e
  * provider closes at once in the database.
  */
 async function cancelCollection(db, env, provider, collection, actorUserId, reason) {
+  if (collection.gateway === PAY05_GATEWAY) {
+    // PAY-05: Paynow cannot cancel a request — the stop is recorded and the room stays held until Paynow says it closed
+    return (await paynowService()).cancelPaynowCollection({ db, env, collection, actorUserId, reason });
+  }
   const record = () => rpc(db, 'pay04_cancel_garage_collection', { p_collection_id: collection.id, p_actor_user_id: actorUserId, p_reason: reason });
   let result = null;
   if (collection.provider_checkout_id) {
@@ -443,7 +480,8 @@ export async function refreshClosingCollections({ db = defaultDb, env = process.
   let refreshed = 0;
   for (const c of closing.filter((x) => pending.has(x.payment_reference))) {
     try {
-      if (c.provider_payment_id) await applyProviderTruth(db, pay04AdapterFor(c.gateway, { env, provider }), c);
+      if (c.gateway === PAY05_GATEWAY) await (await paynowService()).refreshPaynowCollection({ db, env, collection: c });
+      else if (c.provider_payment_id) await applyProviderTruth(db, pay04AdapterFor(c.gateway, { env, provider }), c);
       else if (Date.parse(c.expires_at) <= now) await rpc(db, 'pay04_close_expired_unattached_collection', { p_collection_id: c.id });
       refreshed += 1;
     } catch {
@@ -487,6 +525,8 @@ export async function pay04ProviderTruthForReference({ reference, db = defaultDb
   const collection = await read(db.from('pay04_garage_collections').select('*').eq('payment_reference', reference).maybeSingle(),
     'PAY04_COLLECTION_UNAVAILABLE');
   if (!collection || !collection.provider_payment_id) throw new Pay04Error('PAY04_COLLECTION_NOT_FOUND', 404);
+  // PAY-05: a Paynow payment never enters an F5 partial-refund hold (Paynow reports no refund amounts)
+  if (collection.gateway === PAY05_GATEWAY) throw new Pay05Error('PAY05_F5_NOT_APPLICABLE', 409);
   const adapter = pay04AdapterFor(collection.gateway, { env, provider });
   // Taken BEFORE the read: evidence observed after this instant supersedes it (enforced in SQL).
   const verifiedAt = new Date().toISOString();
@@ -510,7 +550,7 @@ export async function pay04ProviderTruthForReference({ reference, db = defaultDb
 
 // ───────────────────────────── garage administrator ─────────────────────────────
 
-async function garageCollection(db, actor, collectionId) {
+export async function garageCollection(db, actor, collectionId) {
   const collection = await loadCollection(db, collectionId);
   if (!actor.tenantId || collection.tenant_id !== actor.tenantId) throw new Pay04Error('PAY04_COLLECTION_NOT_FOUND', 404);
   return collection;
@@ -540,6 +580,8 @@ export async function getGarageInvoicePayments({ db = defaultDb, env = process.e
 export async function refundGarageCollection({ db = defaultDb, env = process.env, provider = null, actor = {}, collectionId, body = {}, deps = {} } = {}) {
   requirePay04Enabled(env);
   const collection = await garageCollection(db, actor, collectionId);
+  // PAY-05: Paynow has no merchant refund API — the garage refunds in its Paynow dashboard; CarUp records it when Paynow reports it
+  if (collection.gateway === PAY05_GATEWAY) throw new Pay05Error('PAY05_PROVIDER_REFUND_UNSUPPORTED', 409, { guidance: PAY05_LABELS.refundsInPaynow });
   const reason = pay04Reason(body.reason);
   const requested = await rpc(db, 'pay04_request_garage_collection_refund', {
     p_collection_id: collection.id, p_actor_user_id: actorIdOf(actor), p_reason: reason,
@@ -566,6 +608,7 @@ export async function refundGarageCollection({ db = defaultDb, env = process.env
 export async function reconcileGarageCollection({ db = defaultDb, env = process.env, provider = null, actor = {}, collectionId, deps = {} } = {}) {
   requirePay04Enabled(env);
   const collection = await garageCollection(db, actor, collectionId);
+  if (collection.gateway === PAY05_GATEWAY) return (await paynowService()).reconcilePaynowCollection({ db, env, collection, deps });
   const adapter = pay04AdapterFor(collection.gateway, { env, provider });
   const { result } = await applyProviderTruth(db, adapter, collection);
   const notification = await notifyCollectionOutcome(db, collection, result, deps);

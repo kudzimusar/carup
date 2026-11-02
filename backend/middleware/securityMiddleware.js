@@ -260,6 +260,9 @@ export function csrfMiddleware(req, res, next) {
                     // PAY-04 local garage payment-provider simulator (same rule): its signed webhook and the simulated
                     // hosted checkout the customer completes outside CarUp's session.
                     /^\/api\/pay04\/simulator\/(?:webhook|checkout\/gsim_co_[A-Za-z0-9_]+\/complete)(?:$|[?#])/.test(url) ||
+                    // PAY-05 Paynow resulturl: authenticated in-service by the SHA-512 hash with the collection's own
+                    // integration key (a provider POST carries no CarUp session or CSRF token).
+                    /^\/api\/pay05\/paynow\/webhook\/[0-9a-f-]{36}(?:$|[?#])/.test(url) ||
                     url.startsWith('/api/safepay/webhook') ||
                     /^\/api\/referrals\/channels\/(whatsapp|telegram|facebook|instagram)\/webhook(?:$|[/?#])/.test(url) ||
                     // Omnichannel communication engine webhooks (signature-verified in-service)

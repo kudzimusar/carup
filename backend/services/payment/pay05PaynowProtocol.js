@@ -167,9 +167,19 @@ export function newMerchantTrace() {
   return out;
 }
 
-/** A status update's identity: the same message resent (Paynow retries up to ten times) is the same event. */
-export function eventIdFor(collectionId, pairs) {
-  return `evt_pn_${sha256(`${collectionId}\n${encodeForm(pairs)}`).slice(0, 40)}`;
+/**
+ * A status update's identity: the same message resent (Paynow retries up to ten times) while CarUp's view is unchanged
+ * is the same event. Paynow's messages carry no sequence number — "Paid" after a dispute is byte-identical to the first
+ * "Paid" — so the previous message CarUp applied is part of the identity: a repeat right after itself is a resend, a
+ * repeat after a different message is a new event.
+ */
+export function eventIdFor(collectionId, pairs, priorMessageHash = null) {
+  return `evt_pn_${sha256(`${collectionId}\n${encodeForm(pairs)}\n${priorMessageHash ?? ''}`).slice(0, 40)}`;
+}
+
+/** The SHA-256 of a whole message as received (its identity, independent of the collection). */
+export function messageHashFor(pairs) {
+  return sha256(encodeForm(pairs));
 }
 
 /** Paynow documents mobile numbers as 07XXXXXXXX (test numbers 0771111111…0774444444). */
