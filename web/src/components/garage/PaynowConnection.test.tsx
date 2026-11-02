@@ -49,9 +49,7 @@ describe('Connecting the garage’s own Paynow account', () => {
   it('sends nothing without the ownership attestation, then sends the key once and clears it', async () => {
     connectGaragePaynow.mockResolvedValue(base({ can_connect: false, merchant }))
     await fill()
-    const key = screen.getByTestId('paynow-connect-USD-key')
-    expect(key).toHaveAttribute('type', 'password')
-    expect(key).toHaveAttribute('autocomplete', 'off')
+    expect(screen.getByTestId('paynow-connect-USD-key')).toHaveAttribute('autocomplete', 'off')
     expect(screen.getByTestId('paynow-connect-submit')).toBeDisabled()
     fireEvent.click(screen.getByTestId('paynow-connect-attest'))
     expect(screen.getByTestId('paynow-connect-submit')).toBeEnabled()
@@ -64,6 +62,27 @@ describe('Connecting the garage’s own Paynow account', () => {
     expect(screen.getByTestId('garage-paynow-integrations')).toHaveTextContent('a1b2c3d4e5f60718')
     expect(document.body.textContent).not.toContain(KEY)
     expect(screen.getByTestId('garage-paynow-refunds')).toHaveTextContent('Paynow dashboard')
+  })
+
+  it('W6: the integration key is masked text that password managers ignore — there is no password field in the form', async () => {
+    render(<PaynowConnection />)
+    const form = await screen.findByTestId('garage-paynow-connect')
+    fireEvent.click(screen.getByTestId('paynow-connect-ZWG-enabled'))
+    for (const currency of ['USD', 'ZWG']) {
+      const key = screen.getByTestId(`paynow-connect-${currency}-key`)
+      expect(key).toHaveAttribute('type', 'text')
+      expect(key).toHaveAttribute('autocomplete', 'off')
+      expect(key).toHaveAttribute('spellcheck', 'false')
+      expect(key).toHaveAttribute('autocapitalize', 'off')
+      expect(key).toHaveAttribute('autocorrect', 'off')
+      expect(key).toHaveAttribute('data-1p-ignore')
+      expect(key).toHaveAttribute('data-lpignore', 'true')
+      expect(key).toHaveAttribute('data-bwignore')
+      expect(key).toHaveAttribute('data-form-type', 'other')
+      expect((key.style as unknown as Record<string, string>).WebkitTextSecurity).toBe('disc')
+      expect(key).toHaveAccessibleDescription(/never shown again/)
+    }
+    expect(form.querySelectorAll('input[type="password"]')).toHaveLength(0)
   })
 
   it('offers InnBucks for US dollars only', async () => {
