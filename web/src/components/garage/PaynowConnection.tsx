@@ -2,13 +2,67 @@ import { useCallback, useEffect, useId, useState, type CSSProperties } from 'rea
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { MONEY_ACTION_BUTTON_CLASS, pay04ErrorText } from '@/lib/pay04GaragePayments'
+import { MONEY_ACTION_BUTTON_CLASS } from '@/lib/pay04GaragePayments'
 import {
-  CURRENCY_NAME, MERCHANT_STATUS_LABEL, PAYNOW_METHOD_LABEL, pay05ErrorText, type GaragePaynowConnection, type PaynowMethod,
+  CURRENCY_NAME, MERCHANT_STATUS_LABEL, PAYNOW_METHOD_LABEL, pay05ErrorText, paynowErrorText, type GaragePaynowConnection, type PaynowMethod,
 } from '@/lib/pay05Paynow'
 
+type Currency = 'USD' | 'ZWG'
 type CurrencyDraft = { enabled: boolean; integrationId: string; key: string; methods: PaynowMethod[] }
-const CURRENCIES: Array<'USD' | 'ZWG'> = ['USD', 'ZWG']
+const CURRENCIES: Currency[] = ['USD', 'ZWG']
+type ProfileField = 'display_name' | 'legal_entity_name' | 'registration_number' | 'settlement_bank_name' | 'settlement_account_last4' | 'settlement_account_holder'
+type ProfileForm = Record<ProfileField, string> & { attest: boolean }
+type FieldKey = ProfileField | 'currencies' | `${Currency}-id` | `${Currency}-key` | `${Currency}-methods` | 'attest'
+type Problems = Partial<Record<FieldKey, string>>
+/** The fields in the order the form shows them: the first one with a problem gets the focus. */
+const FIELD_ORDER: FieldKey[] = ['display_name', 'legal_entity_name', 'registration_number', 'settlement_bank_name', 'settlement_account_last4',
+  'settlement_account_holder', 'currencies', 'USD-id', 'USD-key', 'USD-methods', 'ZWG-id', 'ZWG-key', 'ZWG-methods', 'attest']
+const KEYS_CLEARED = 'For your security the keys were cleared — enter them again.'
+
+/** The rules the server applies to a connection, checked on submit so that each problem is named next to its own field. */
+function formProblems(form: ProfileForm, drafts: Record<Currency, CurrencyDraft>): Problems {
+  const problems: Problems = {}
+  const sized = (key: ProfileField, max: number, empty: string, short: string, long: string) => {
+    const value = form[key].trim()
+    if (!value) problems[key] = empty
+    else if (value.length < 2) problems[key] = short
+    else if (value.length > max) problems[key] = long
+  }
+  sized('display_name', 120, 'Enter the name customers see.', 'Use at least 2 characters for the name customers see.',
+    'Use at most 120 characters for the name customers see.')
+  sized('legal_entity_name', 160, 'Enter the registered business name.', 'Use at least 2 characters for the registered business name.',
+    'Use at most 160 characters for the registered business name.')
+  const registration = form.registration_number.trim()
+  if (registration && !/^[A-Za-z0-9/ .-]{2,40}$/.test(registration)) problems.registration_number = pay05ErrorText('PAY05_REGISTRATION_NUMBER_INVALID') ?? ''
+  sized('settlement_bank_name', 80, 'Enter the settlement bank.', 'Use at least 2 characters for the settlement bank.',
+    'Use at most 80 characters for the settlement bank.')
+  if (!/^\d{4}$/.test(form.settlement_account_last4.trim())) problems.settlement_account_last4 = pay05ErrorText('PAY05_SETTLEMENT_ACCOUNT_INVALID') ?? ''
+  sized('settlement_account_holder', 160, 'Enter the name of the settlement account holder.', 'Use at least 2 characters for the account holder.',
+    'Use at most 160 characters for the account holder.')
+  if (!CURRENCIES.some((c) => drafts[c].enabled)) problems.currencies = 'Choose at least one currency to take through Paynow.'
+  for (const c of CURRENCIES) {
+    if (!drafts[c].enabled) continue
+    if (!/^\d{1,12}$/.test(drafts[c].integrationId.trim())) problems[`${c}-id`] = pay05ErrorText('PAY05_INTEGRATION_ID_INVALID') ?? ''
+    if (drafts[c].key.length < 16) problems[`${c}-key`] = 'The integration key is at least 16 characters — paste it exactly as Paynow e-mailed it.'
+    if (!drafts[c].methods.length) problems[`${c}-methods`] = pay05ErrorText('PAY05_METHODS_INVALID') ?? ''
+  }
+  if (!form.attest) problems.attest = 'Confirm that this Paynow merchant account and its settlement bank account belong to this garage.'
+  return problems
+}
+
+/** The fields a server refusal is about (an ID, key or method refusal names no currency, so it marks every one being connected). */
+function refusedFields(code: string | undefined, connecting: Currency[]): FieldKey[] {
+  switch (code) {
+    case 'PAY05_REGISTRATION_NUMBER_INVALID': return ['registration_number']
+    case 'PAY05_SETTLEMENT_ACCOUNT_INVALID': return ['settlement_account_last4']
+    case 'PAY05_ATTESTATION_REQUIRED': return ['attest']
+    case 'PAY05_INTEGRATIONS_INVALID': return ['currencies']
+    case 'PAY05_INTEGRATION_ID_INVALID': return connecting.map((c) => `${c}-id` as const)
+    case 'PAY05_INTEGRATION_KEY_INVALID': return connecting.map((c) => `${c}-key` as const)
+    case 'PAY05_METHODS_INVALID': return connecting.map((c) => `${c}-methods` as const)
+    default: return []
+  }
+}
 /**
  * The integration key is a credential, not the garage administrator's password. A type="password" field makes browsers
  * and password managers offer to save it (and fill it elsewhere), so the key is plain text that the managers are told to
@@ -16,11 +70,7 @@ const CURRENCIES: Array<'USD' | 'ZWG'> = ['USD', 'ZWG']
  */
 const MASKED: CSSProperties & { WebkitTextSecurity: string } = { WebkitTextSecurity: 'disc' }
 const IGNORED_BY_PASSWORD_MANAGERS = { 'data-1p-ignore': true, 'data-lpignore': 'true', 'data-bwignore': true, 'data-form-type': 'other' } as const
-const blank = (currency: 'USD' | 'ZWG'): CurrencyDraft => ({ enabled: currency === 'USD', integrationId: '', key: '', methods: ['web'] })
-const errorText = (err: unknown, fallback: string) => {
-  const message = err instanceof Error ? err.message : ''
-  return (message && (pay05ErrorText(message) ?? pay04ErrorText(message))) || fallback
-}
+const blank = (currency: Currency): CurrencyDraft => ({ enabled: currency === 'USD', integrationId: '', key: '', methods: ['web'] })
 
 /**
  * CARUP-PAY-05 — the garage connects its OWN Paynow merchant account (garage administrator).
@@ -35,13 +85,25 @@ export default function PaynowConnection() {
   const uid = useId()
   const [data, setData] = useState<GaragePaynowConnection | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [form, setForm] = useState({ display_name: '', legal_entity_name: '', registration_number: '', settlement_bank_name: '',
+  const [form, setForm] = useState<ProfileForm>({ display_name: '', legal_entity_name: '', registration_number: '', settlement_bank_name: '',
     settlement_account_last4: '', settlement_account_holder: '', attest: false })
-  const [drafts, setDrafts] = useState<Record<'USD' | 'ZWG', CurrencyDraft>>({ USD: blank('USD'), ZWG: blank('ZWG') })
+  const [drafts, setDrafts] = useState<Record<Currency, CurrencyDraft>>({ USD: blank('USD'), ZWG: blank('ZWG') })
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [disconnectAsk, setDisconnectAsk] = useState(false)
   const [reason, setReason] = useState('')
+  const [problems, setProblems] = useState<Problems>({})
+  // set once the keys have left the page: the form says they were cleared until they are entered again
+  const [keysCleared, setKeysCleared] = useState(false)
+  // focus moves only after React has drawn what it points at (the field's message, the result)
+  const [focusId, setFocusId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!focusId) return
+    const el = document.getElementById(focusId)
+    const target = el && !el.matches('input, select, textarea, button') ? el.querySelector<HTMLElement>('input, select, textarea, button') ?? el : el
+    target?.focus()
+    setFocusId(null)
+  }, [focusId])
 
   const load = useCallback(async () => {
     try {
@@ -55,24 +117,57 @@ export default function PaynowConnection() {
   }, [fetchGaragePaynowConnection])
   useEffect(() => { void load() }, [load])
 
-  const setDraft = (currency: 'USD' | 'ZWG', patch: Partial<CurrencyDraft>) => setDrafts((d) => ({ ...d, [currency]: { ...d[currency], ...patch } }))
-  const toggleMethod = (currency: 'USD' | 'ZWG', method: PaynowMethod) => setDraft(currency, {
-    methods: drafts[currency].methods.includes(method) ? drafts[currency].methods.filter((m) => m !== method) : [...drafts[currency].methods, method],
+  const fieldId = (key: FieldKey) => (key === 'currencies' ? `${uid}-USD-enabled` : `${uid}-${key}`)
+  const errorId = (key: FieldKey) => `${uid}-${key}-error`
+  /** a field the person changes is no longer marked wrong */
+  const settle = (key: FieldKey) => setProblems((current) => {
+    if (!(key in current)) return current
+    const next = { ...current }
+    delete next[key]
+    return next
   })
+  const setDraft = (currency: Currency, patch: Partial<CurrencyDraft>) => setDrafts((d) => ({ ...d, [currency]: { ...d[currency], ...patch } }))
+  const toggleMethod = (currency: Currency, method: PaynowMethod) => {
+    setDraft(currency, {
+      methods: drafts[currency].methods.includes(method) ? drafts[currency].methods.filter((m) => m !== method) : [...drafts[currency].methods, method],
+    })
+    settle(`${currency}-methods`)
+  }
 
   const connect = async () => {
+    // checked before anything is sent; what was typed stays (the keys included) so it can be corrected
+    const found = formProblems(form, drafts)
+    const first = FIELD_ORDER.find((k) => found[k])
+    if (first) {
+      setProblems(found)
+      setMessage(null)
+      setFocusId(fieldId(first))
+      return
+    }
+    setProblems({})
     setBusy(true)
     setMessage(null)
-    const integrations = CURRENCIES.filter((c) => drafts[c].enabled).map((c) => ({
+    const connecting = CURRENCIES.filter((c) => drafts[c].enabled)
+    const integrations = connecting.map((c) => ({
       currency: c, integration_id: drafts[c].integrationId.trim(), integration_key: drafts[c].key, methods: drafts[c].methods,
     }))
-    // the keys leave the page once: clear them from memory whatever the answer
+    // the keys leave the page once: clear them from memory whatever the answer, and say so
     setDrafts((d) => ({ USD: { ...d.USD, key: '' }, ZWG: { ...d.ZWG, key: '' } }))
+    setKeysCleared(true)
     try {
       setData(await connectGaragePaynow({ ...form, integrations }))
       setMessage({ ok: true, text: 'Your Paynow account is connected and waiting for CarUp to verify it. Customers can pay through it once it is verified.' })
     } catch (err) {
-      setMessage({ ok: false, text: errorText(err, 'The Paynow account could not be connected. Nothing was saved.') })
+      const code = /\bPAY05_[A-Z0-9_]+\b/.exec(err instanceof Error ? err.message : '')?.[0]
+      const fields = refusedFields(code, connecting)
+      const text = paynowErrorText(err, 'The Paynow account could not be connected. Nothing was saved.')
+      if (fields.length) {
+        setProblems(Object.fromEntries(fields.map((f) => [f, text])))
+        setFocusId(fieldId(fields[0]))
+        setMessage({ ok: false, text: 'The Paynow account was not connected and nothing was saved — see the marked field.' })
+      } else {
+        setMessage({ ok: false, text })
+      }
     } finally {
       setBusy(false)
     }
@@ -87,7 +182,7 @@ export default function PaynowConnection() {
       setReason('')
       setMessage({ ok: true, text: 'Your Paynow account is disconnected. Customers can no longer pay through it on CarUp.' })
     } catch (err) {
-      setMessage({ ok: false, text: errorText(err, 'The Paynow account could not be disconnected. Nothing changed.') })
+      setMessage({ ok: false, text: paynowErrorText(err, 'The Paynow account could not be disconnected. Nothing changed.') })
     } finally {
       setBusy(false)
     }
@@ -95,15 +190,19 @@ export default function PaynowConnection() {
 
   const merchant = data?.merchant
   const live = merchant && (merchant.status === 'pending_verification' || merchant.status === 'verified')
-  const anyCurrency = CURRENCIES.some((c) => drafts[c].enabled)
-  const complete = anyCurrency && form.attest && form.display_name.trim() && form.legal_entity_name.trim() && form.settlement_bank_name.trim()
-    && /^\d{4}$/.test(form.settlement_account_last4) && form.settlement_account_holder.trim()
-    && CURRENCIES.every((c) => !drafts[c].enabled || (/^\d{1,12}$/.test(drafts[c].integrationId.trim()) && drafts[c].key.length >= 16 && drafts[c].methods.length > 0))
-  const field = (name: keyof typeof form, label: string, extra: Record<string, unknown> = {}) => (
+  const keysToEnter = keysCleared && CURRENCIES.some((c) => drafts[c].enabled && !drafts[c].key)
+  /** the field's problem, next to it and named by aria-describedby */
+  const problemOf = (key: FieldKey) => problems[key]
+    ? <p id={errorId(key)} className="mt-1 text-sm text-red-800" data-testid={`paynow-connect-${key}-error`}>{problems[key]}</p>
+    : null
+  const describedBy = (key: FieldKey, ...others: string[]) => [...others, ...(problems[key] ? [errorId(key)] : [])].join(' ') || undefined
+  const field = (name: ProfileField, label: string, extra: Record<string, unknown> = {}) => (
     <div>
       <label htmlFor={`${uid}-${name}`} className="block text-sm font-medium">{label}</label>
-      <input id={`${uid}-${name}`} value={String(form[name])} onChange={(e) => setForm({ ...form, [name]: e.target.value })}
+      <input id={`${uid}-${name}`} value={form[name]} onChange={(e) => { setForm({ ...form, [name]: e.target.value }); settle(name) }}
+        aria-invalid={problems[name] ? true : undefined} aria-describedby={describedBy(name)}
         className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm" data-testid={`paynow-connect-${name}`} {...extra} />
+      {problemOf(name)}
     </div>
   )
 
@@ -170,7 +269,7 @@ export default function PaynowConnection() {
             </div>
           )}
           {data.can_connect && (
-            <form className="space-y-3 rounded-md border p-3" onSubmit={(e) => { e.preventDefault(); void connect() }} data-testid="garage-paynow-connect">
+            <form className="space-y-3 rounded-md border p-3" noValidate onSubmit={(e) => { e.preventDefault(); void connect() }} data-testid="garage-paynow-connect">
               <p className="font-medium">Connect your Paynow merchant account</p>
               <p className="text-xs text-gray-700">
                 In Paynow, open “Sell or Receive” → “Receive Payment Links” → “3rd Party Site or Link Profile”. Each currency is a separate integration with its own ID and key.
@@ -181,51 +280,69 @@ export default function PaynowConnection() {
               {field('settlement_bank_name', 'Settlement bank')}
               {field('settlement_account_last4', 'Last four digits of the settlement account', { inputMode: 'numeric', maxLength: 4 })}
               {field('settlement_account_holder', 'Settlement account holder name')}
+              {keysToEnter && (
+                <p className="rounded-md bg-amber-50 p-2 text-sm text-amber-900" data-testid="garage-paynow-keys-cleared">{KEYS_CLEARED}</p>
+              )}
               {CURRENCIES.map((c) => (
                 <fieldset key={c} className="space-y-2 rounded-md border p-3" data-testid={`garage-paynow-currency-${c}`}>
                   <legend className="px-1 text-sm font-medium">{CURRENCY_NAME[c]}</legend>
                   <label className="flex min-h-11 items-center gap-2">
-                    <input type="checkbox" className="h-5 w-5" checked={drafts[c].enabled} onChange={(e) => setDraft(c, { enabled: e.target.checked })}
-                      data-testid={`paynow-connect-${c}-enabled`} />
+                    <input id={`${uid}-${c}-enabled`} type="checkbox" className="h-5 w-5" checked={drafts[c].enabled}
+                      onChange={(e) => { setDraft(c, { enabled: e.target.checked }); settle('currencies') }}
+                      aria-invalid={c === 'USD' && problems.currencies ? true : undefined}
+                      aria-describedby={c === 'USD' ? describedBy('currencies') : undefined} data-testid={`paynow-connect-${c}-enabled`} />
                     Take {c === 'USD' ? 'US dollars' : 'ZiG'} through Paynow
                   </label>
+                  {c === 'USD' && problemOf('currencies')}
                   {drafts[c].enabled && (
                     <>
                       <div>
                         <label htmlFor={`${uid}-${c}-id`} className="block text-sm font-medium">Integration ID</label>
-                        <input id={`${uid}-${c}-id`} inputMode="numeric" value={drafts[c].integrationId} onChange={(e) => setDraft(c, { integrationId: e.target.value })}
+                        <input id={`${uid}-${c}-id`} inputMode="numeric" value={drafts[c].integrationId}
+                          onChange={(e) => { setDraft(c, { integrationId: e.target.value }); settle(`${c}-id`) }}
+                          aria-invalid={problems[`${c}-id`] ? true : undefined} aria-describedby={describedBy(`${c}-id`)}
                           className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm" data-testid={`paynow-connect-${c}-id`} />
+                        {problemOf(`${c}-id`)}
                       </div>
                       <div>
                         <label htmlFor={`${uid}-${c}-key`} className="block text-sm font-medium">Integration key</label>
                         <input id={`${uid}-${c}-key`} type="text" autoComplete="off" spellCheck={false} autoCapitalize="off" autoCorrect="off"
                           {...IGNORED_BY_PASSWORD_MANAGERS} style={MASKED} value={drafts[c].key}
-                          onChange={(e) => setDraft(c, { key: e.target.value.trim() })} aria-describedby={`${uid}-${c}-key-hint`}
+                          onChange={(e) => { setDraft(c, { key: e.target.value.trim() }); settle(`${c}-key`) }}
+                          aria-invalid={problems[`${c}-key`] ? true : undefined} aria-describedby={describedBy(`${c}-key`, `${uid}-${c}-key-hint`)}
                           className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 bg-white px-3 font-mono text-sm" data-testid={`paynow-connect-${c}-key`} />
                         <p id={`${uid}-${c}-key-hint`} className="mt-1 text-xs text-gray-700">
                           Sent once and never shown again: CarUp keeps only a short fingerprint of it.
                         </p>
+                        {problemOf(`${c}-key`)}
                       </div>
-                      <div role="group" aria-label={`Payment methods enabled on the ${c} integration`} className="flex flex-wrap gap-2">
+                      <div id={`${uid}-${c}-methods`} role="group" aria-label={`Payment methods enabled on the ${c} integration`}
+                        aria-describedby={describedBy(`${c}-methods`)} className="flex flex-wrap gap-2">
                         {data.methods.filter((m) => m !== 'innbucks' || c === 'USD').map((m) => (
                           <label key={m} className="flex min-h-11 items-center gap-2 rounded border px-2">
                             <input type="checkbox" className="h-5 w-5" checked={drafts[c].methods.includes(m)} onChange={() => toggleMethod(c, m)}
+                              aria-invalid={problems[`${c}-methods`] ? true : undefined} aria-describedby={describedBy(`${c}-methods`)}
                               data-testid={`paynow-connect-${c}-method-${m}`} />
                             {PAYNOW_METHOD_LABEL[m]}
                           </label>
                         ))}
                       </div>
+                      {problemOf(`${c}-methods`)}
                       <p className="text-xs text-gray-700">Tick only the methods your Paynow integration is set up for — Paynow refuses the others.</p>
                     </>
                   )}
                 </fieldset>
               ))}
-              <label className="flex min-h-11 items-start gap-2">
-                <input type="checkbox" className="mt-1 h-5 w-5" checked={form.attest} onChange={(e) => setForm({ ...form, attest: e.target.checked })}
-                  data-testid="paynow-connect-attest" />
-                <span className="text-sm">I confirm this Paynow merchant account and its settlement bank account belong to this garage, and that I may connect them to CarUp.</span>
-              </label>
-              <Button type="submit" className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !complete} data-testid="paynow-connect-submit">
+              <div>
+                <label className="flex min-h-11 items-start gap-2">
+                  <input id={`${uid}-attest`} type="checkbox" className="mt-1 h-5 w-5" checked={form.attest}
+                    onChange={(e) => { setForm({ ...form, attest: e.target.checked }); settle('attest') }}
+                    aria-invalid={problems.attest ? true : undefined} aria-describedby={describedBy('attest')} data-testid="paynow-connect-attest" />
+                  <span className="text-sm">I confirm this Paynow merchant account and its settlement bank account belong to this garage, and that I may connect them to CarUp.</span>
+                </label>
+                {problemOf('attest')}
+              </div>
+              <Button type="submit" className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy} data-testid="paynow-connect-submit">
                 {busy ? 'Connecting…' : 'Connect Paynow account'}
               </Button>
             </form>

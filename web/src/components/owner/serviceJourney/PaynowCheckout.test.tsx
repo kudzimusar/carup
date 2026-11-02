@@ -114,6 +114,18 @@ describe('Paying the garage with Paynow', () => {
     expect(said).toHaveAttribute('data-tone', 'wait')
   })
 
+  it('W7: while the number is missing, Pay says why it cannot be pressed', async () => {
+    await openPaynow()
+    expect(screen.queryByTestId('paynow-phone-hint')).toBeNull()
+    fireEvent.click(screen.getByTestId('paynow-method-ecocash'))
+    expect(screen.getByTestId('paynow-start')).toBeDisabled()
+    expect(screen.getByTestId('paynow-phone-hint')).toHaveTextContent('Enter the mobile number to pay from.')
+    expect(screen.getByTestId('paynow-start')).toHaveAccessibleDescription('Enter the mobile number to pay from.')
+    fireEvent.change(screen.getByTestId('paynow-phone'), { target: { value: '0771234567' } })
+    expect(screen.queryByTestId('paynow-phone-hint')).toBeNull()
+    expect(screen.getByTestId('paynow-start')).toBeEnabled()
+  })
+
   it('InnBucks asks for the payer’s mobile number, sends it, then shows its code', async () => {
     startGarageInvoicePayment.mockResolvedValueOnce(started({ method: 'innbucks', authorization_code: '123456789', authorization_expires: '2-Nov-2026 18:00', phone: '077*****67' }))
     await openPaynow()
