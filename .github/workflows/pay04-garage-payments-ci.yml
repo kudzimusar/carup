@@ -6,7 +6,15 @@ name: PAY-04 garage payments CI
 # gate of both lineages that PAY-04 touches, the integrated PostgreSQL certification in both orders a real database can
 # receive the lineages, the real-PostgreSQL service/concurrency suites (a skip is a failure), the Garage race suite and
 # the full web suite. Nothing here reaches staging, production or a payment provider.
+#
+# Exact-head CI runs on every push of the PAY-04 branch (the checkout is the pushed commit itself). A pull request is
+# NOT required for it: a same-repository pull request whose diff includes this integrated line also fires
+# diaspora-phases-3-7-validation's staging-integration job, which writes (then deletes) rows on shared staging, and
+# PAY-04 has no shared-staging authority. Opening the pull request is the Owner's decision.
 on:
+  push:
+    branches:
+      - feat/carup-pay-04-garage-payments
   pull_request:
     paths:
       - 'backend/services/payment/**'
