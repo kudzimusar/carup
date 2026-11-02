@@ -50,6 +50,9 @@ const DETERMINISTIC_EVENT_IDENTITY_FIELDS = Object.freeze({
   'garage.estimate.sent': ['notificationKey'],
   'garage.invoice.issued': ['notificationKey'],
   'garage.payment.recorded': ['notificationKey'],
+  // CARUP-PAY-04: deduped by their OWN trigger (20261102120000), never by a branch in the shared function.
+  'garage.payment.confirmed': ['notificationKey'],
+  'garage.payment.refunded': ['notificationKey'],
   'garage.appointment.confirmed': ['notificationKey'],
   'garage.appointment.declined': ['notificationKey'],
   'garage.appointment.cancelled': ['notificationKey'],
@@ -73,6 +76,15 @@ export const GARAGE_DEDUPED_EVENTS = Object.freeze([
   'garage.appointment.confirmed',
   'garage.appointment.declined',
   'garage.appointment.cancelled',
+]);
+
+/**
+ * CARUP-PAY-04 garage payment events, deduped by trg_domain_events_pay04_garage_payment_dedupe (migration
+ * 20261102120000) — a dedicated trigger, so no lineage re-states the shared dedupe function for them.
+ */
+export const PAY04_DEDUPED_EVENTS = Object.freeze([
+  'garage.payment.confirmed',
+  'garage.payment.refunded',
 ]);
 
 /**

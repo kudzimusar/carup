@@ -86,7 +86,10 @@ test('another garage\'s customer, jobs and invoices never appear in this garage\
   await run({ garage: 'b', estimateTotal: 777, actualCost: 777, until: 'invoice' });
   const me = (await getGarageCustomers(client, adminA())).customers.find((c) => c.user_id === 'customer-a');
   const detail = await getGarageCustomerDetail(client, adminA(), `registered:${me.user_id}`);
-  assert.ok(!JSON.stringify(detail).includes('777'));
+  // Garage B's amounts (777) never appear in A's record. Match an AMOUNT ("777.00" or a JSON number 777), not any
+  // "777" substring: a random UUID or a ".777Z" timestamp contains one about once in eight runs (PAY-04 measured
+  // 1/8 on the unchanged 0ee715ae), which made this test flaky without telling anything about isolation.
+  assert.ok(!/777\.0{1,2}\b|[:\[,]777(?:\.0+)?[,}\]]/.test(JSON.stringify(detail)));
   const bView = await getGarageCustomers(client, garageActor('admin-b', world.T.b));
   assert.ok(bView.customers.every((c) => c.user_id !== 'customer-a'));
 });

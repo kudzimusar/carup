@@ -117,6 +117,9 @@ export const COMMUNICATION_EVENT_TYPES = [
   'garage.estimate.sent',
   'garage.invoice.issued',
   'garage.payment.recorded',
+  // CARUP-PAY-04: what the garage's payment provider confirmed (and its refund), to the person who paid.
+  'garage.payment.confirmed',
+  'garage.payment.refunded',
   'garage.appointment.confirmed',
   'garage.appointment.rescheduled',
   'garage.appointment.declined',

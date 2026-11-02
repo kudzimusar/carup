@@ -7,6 +7,8 @@ import {
   ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError,
 } from '../../utils/errors.js';
 import { moneyAmount, moneyString, quantityString, quantityValue, requireCurrency, sumMoney } from '../../utils/garageMoney.js';
+import { PAY04_LABELS } from '../payment/pay04Contract.js';
+import { invoiceMoney as pay04InvoiceMoney, loadProviderParts } from '../payment/pay04GaragePaymentService.js';
 
 /**
  * GARAGE-1.0 OPS07 — commercial closeout: invoice, payment record, receipt.
@@ -67,9 +69,32 @@ function actorId(actor = {}) {
 const one = (data) => (Array.isArray(data) ? data[0] ?? null : data ?? null);
 const list = (data) => (Array.isArray(data) ? data : data ? [data] : []);
 
+// CARUP-PAY-04: refusals the PAY-04 guards raise inside these same OPS07 calls (issue, void, record a payment).
+const PAY04_MESSAGES = Object.freeze({
+  PAYMENT_EXCEEDS_UNCOMMITTED_BALANCE: 'Part of this balance is being paid through the garage’s payment provider, so it cannot be recorded again.',
+  INVOICE_HAS_PAYMENT_IN_PROGRESS: 'A payment through the garage’s payment provider is in progress on this invoice. Wait for it to finish, or stop it, before voiding.',
+  INVOICE_HAS_PROVIDER_PAYMENTS: 'The garage’s payment provider confirmed money on this invoice. Refund it before voiding.',
+  PART_LINE_REQUIRES_RECORDED_USAGE: 'A part can only be invoiced from a part recorded as used on this job. Record the part first.',
+  LINE_SOURCE_NOT_ON_THIS_JOB: 'A line refers to a part or service record that is not on this job.',
+  LINE_SOURCE_REVERSED: 'A line refers to a part use that was reversed.',
+  LINE_QUANTITY_EXCEEDS_RECORDED_USAGE: 'A part line bills more than was used on this job.',
+  LINE_SOURCE_CATEGORY_MISMATCH: 'A line\'s category does not match its source (parts come from parts used; labour and fees from service records).',
+});
+const PAY04_CONFLICT = new Set(['PAYMENT_EXCEEDS_UNCOMMITTED_BALANCE', 'INVOICE_HAS_PAYMENT_IN_PROGRESS', 'INVOICE_HAS_PROVIDER_PAYMENTS']);
+
 export function invoiceFailure(error, fallback = 'Could not complete the invoice action') {
   const message = String(error?.message || error || '');
   if (/GARAGE_OPS03_ADMIN_REQUIRED/.test(message)) return new ForbiddenError('Only a garage administrator can do that.');
+  const pay04 = /PAY04_([A-Z_]+)/.exec(message);
+  if (pay04 && PAY04_MESSAGES[pay04[1]]) {
+    const token = pay04[1];
+    let text = PAY04_MESSAGES[token];
+    if (token === 'PAYMENT_EXCEEDS_UNCOMMITTED_BALANCE') {
+      const d = /uncommitted=([0-9.]+)/.exec(String(error?.details ?? error?.detail ?? ''));
+      if (d) text = `${text} At most ${d[1]} can be recorded now.`;
+    }
+    return PAY04_CONFLICT.has(token) ? new ConflictError(text) : new ValidationError(text);
+  }
   const match = /GARAGE_OPS07_([A-Z_]+)/.exec(message);
   if (match) {
     const token = match[1];
@@ -183,11 +208,32 @@ async function loadInvoiceParts(client, invoiceIds) {
   ]);
   for (const r of [lines, payments, receipts]) if (r.error) throw new DatabaseError('Could not load invoice details: ' + r.error.message);
   const group = (rows) => { const m = new Map(); for (const x of list(rows)) { if (!m.has(x.invoice_id)) m.set(x.invoice_id, []); m.get(x.invoice_id).push(x); } return m; };
-  return { lines: group(lines.data), payments: group(payments.data), receipts: group(receipts.data) };
+  // CARUP-PAY-04: provider-confirmed payments and their receipts. A failed read throws (never "no payments");
+  // `available: false` only where the PAY-04 schema is not installed, where provider money cannot exist.
+  let provider;
+  try {
+    provider = await loadProviderParts(client, invoiceIds);
+  } catch (error) {
+    throw new DatabaseError('Could not load provider payments: ' + (error?.code || error?.message || 'unavailable'));
+  }
+  return { lines: group(lines.data), payments: group(payments.data), receipts: group(receipts.data), provider };
 }
 
 async function invoiceView(client, inv, parts, { forCustomer = false } = {}) {
-  const bal = await balanceOf(client, inv.id, inv.currency);
+  const providerSupported = parts.provider?.available === true;
+  let bal;
+  let money = null;
+  if (providerSupported) {
+    // one canonical read: declared + provider-confirmed money, what is in flight and what is still uncommitted
+    try {
+      money = await pay04InvoiceMoney(client, inv.id);
+    } catch (error) {
+      throw new DatabaseError('Could not compute the invoice balance: ' + (error?.code || 'unavailable'));
+    }
+    bal = { payment_status: money.payment_status, paid_amount: money.paid_amount, balance_amount: money.balance_amount };
+  } else {
+    bal = await balanceOf(client, inv.id, inv.currency);
+  }
   const base = {
     id: inv.id,
     invoice_number: inv.invoice_number,
@@ -211,6 +257,15 @@ async function invoiceView(client, inv, parts, { forCustomer = false } = {}) {
     lines: (parts.lines.get(inv.id) || []).map((l) => lineView(l, inv.currency)),
     payments: (parts.payments.get(inv.id) || []).map(paymentView),
     receipts: (parts.receipts.get(inv.id) || []).map(receiptView),
+    // CARUP-PAY-04: the provider side, beside (never mixed into) the garage's declared payments
+    provider_payments_supported: providerSupported,
+    money: money ? {
+      declared_paid: money.declared_paid, provider_paid: money.provider_paid,
+      provider_reserved: money.provider_reserved, uncommitted_balance: money.uncommitted_balance,
+    } : null,
+    provider_payments: providerSupported ? (parts.provider.collections.get(inv.id) || []) : [],
+    provider_receipts: providerSupported ? (parts.provider.receipts.get(inv.id) || []) : [],
+    provider_source_label: PAY04_LABELS.providerSource,
   };
   if (forCustomer) { delete base.void_reason; return base; }
   return { ...base, internal_note: inv.internal_note ?? null, issued_by_user_id: inv.issued_by_user_id };

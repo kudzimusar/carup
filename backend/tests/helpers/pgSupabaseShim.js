@@ -76,14 +76,33 @@ export function createPgSupabase(connectionString) {
     return chain;
   }
 
+  // PAY-04: like the PGlite PostgREST shim (pgliteLedgerHarness.supabaseOver), a function returning one scalar
+  // (for example jsonb) yields that value, and a set-returning or composite-returning function yields its rows,
+  // instead of a composite rendered as a string.
+  const shapes = new Map();
+  async function shapeOf(name) {
+    if (!shapes.has(name)) {
+      const { rows: [shape] } = await pool.query(
+        `SELECT p.proretset, t.typtype FROM pg_proc p JOIN pg_type t ON t.oid = p.prorettype
+          WHERE p.proname = $1 AND p.pronamespace = 'public'::regnamespace LIMIT 1`, [name]);
+      shapes.set(name, shape || null);
+    }
+    return shapes.get(name);
+  }
+
   async function rpc(name, args = {}) {
     const keys = Object.keys(args);
-    const sql = `SELECT public.${ident(name)}(${keys.map((k, i) => `${ident(k)} => $${i + 1}`).join(', ')}) AS result`;
+    const call = keys.map((k, i) => `${ident(k)} => $${i + 1}`).join(', ');
     try {
-      const { rows } = await pool.query(sql, keys.map((k) => toPg(args[k])));
+      const shape = await shapeOf(name);
+      if (shape && (shape.proretset || shape.typtype === 'c')) {
+        const { rows } = await pool.query(`SELECT * FROM public.${ident(name)}(${call})`, keys.map((k) => toPg(args[k])));
+        return { data: rows, error: null };
+      }
+      const { rows } = await pool.query(`SELECT public.${ident(name)}(${call}) AS result`, keys.map((k) => toPg(args[k])));
       return { data: rows[0]?.result ?? null, error: null };
     } catch (err) {
-      return { data: null, error: { message: err.message, code: err.code } };
+      return { data: null, error: { message: err.message, code: err.code, details: err.detail || null } };
     }
   }
 

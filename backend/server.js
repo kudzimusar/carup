@@ -133,6 +133,7 @@ import pay01cDemoRouter from './routes/pay01cDemoRoutes.js';
 import pay02Router from './routes/pay02Routes.js';
 import pay03aRouter from './routes/pay03aRoutes.js';
 import pay03bRouter from './routes/pay03bRoutes.js';
+import pay04GaragePaymentRouter from './routes/pay04GaragePaymentRoutes.js';
 import providerPlatformRouter from './routes/providerPlatformRoutes.js';
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 import governmentActivationRouter from './routes/governmentActivationRoutes.js';
@@ -366,6 +367,8 @@ const captureWebhookRawBody = (req, _res, buf) => {
     if (/^\/api\/pay01a\/stripe\/webhook(?:$|[?#])/.test(u)) req.rawBodyBytes = Buffer.from(buf);
     // PAY-03B local provider simulator (disposable UAT only) signs its exact bytes the same way.
     if (/^\/api\/pay03b\/simulator\/webhook(?:$|[?#])/.test(u)) req.rawBodyBytes = Buffer.from(buf);
+    // PAY-04 local garage payment-provider simulator (disposable UAT only), signed the same way with its own secret.
+    if (/^\/api\/pay04\/simulator\/webhook(?:$|[?#])/.test(u)) req.rawBodyBytes = Buffer.from(buf);
   }
 };
 app.use(express.json({ limit: '15mb', verify: (req, _res, buf) => captureWebhookRawBody(req, _res, buf) }));
@@ -609,6 +612,7 @@ app.use(pay02Router);
 app.use(pay03aRouter);
 // PAY-03B: Dealer & Business subscriptions, F5 reconciliation operator surface, local UAT simulator (404 unless enabled).
 app.use(pay03bRouter);
+app.use(pay04GaragePaymentRouter);
 app.use(providerPlatformRouter);
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 app.use(governmentActivationRouter);

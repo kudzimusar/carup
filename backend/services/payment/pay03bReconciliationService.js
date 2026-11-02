@@ -10,6 +10,7 @@
 import { supabase } from '../../db/supabase.js';
 import { requirePay01aSandbox } from './pay01aContract.js';
 import { requirePay03bSimulator } from './pay03bLocalSimulator.js';
+import { requirePay04Simulator } from './pay04GarageSimulator.js';
 import { readPay01aProviderPaymentTruth } from './pay01aService.js';
 import {
   Pay03bError, requireAdminActor, pay03bAuditSucceeded, recordPay03bAudit, pay03bRpcError,
@@ -32,7 +33,10 @@ const SOURCE_OF_TRUTH = 'Money state: public.payment_transactions (canonical led
 /** The operator surface runs wherever canonical sandbox payments exist: PAY-01A sandbox or the PAY-03B UAT simulator. */
 function requireOperatorRuntime(env) {
   try { return requirePay01aSandbox(env); } catch (err) {
-    try { return requirePay03bSimulator(env); } catch { throw err; }
+    try { return requirePay03bSimulator(env); } catch {
+      // PAY-04: garage collections held by F5 in the PAY-04 garage-provider simulator runtime.
+      try { return requirePay04Simulator(env); } catch { throw err; }
+    }
   }
 }
 
@@ -85,9 +89,14 @@ async function loadException(db, exceptionId) {
  * Fresh provider truth for the payment behind an exception: PAY-01A Checkout payments through the PAY-01A reader,
  * PAY-03B recurring-invoice payments through the subscription's own provider adapter.
  */
-async function providerTruthFor(row, { db, env, stripe, provider = null }) {
+async function providerTruthFor(row, { db, env, stripe, provider = null, pay04Provider = null }) {
   const reference = String(row.payment_reference);
   if (reference.startsWith('pay01a_')) return readPay01aProviderPaymentTruth({ reference, db, env, stripe });
+  // PAY-04: a garage collection is read through ITS garage merchant's adapter, never CarUp's.
+  if (reference.startsWith('pay04_gar_')) {
+    const { pay04ProviderTruthForReference } = await import('./pay04GaragePaymentService.js');
+    return pay04ProviderTruthForReference({ reference, db, env, provider: pay04Provider });
+  }
   if (!reference.startsWith('pay03b_inv_')) throw new Pay03bError('PAY03B_RECONCILIATION_PROVIDER_READER_MISSING', 409);
   const { data: invoice, error } = await db.from('pay03b_subscription_invoices')
     .select('provider_payment_intent_id, amount_due_minor, currency, gateway').eq('payment_reference', reference).maybeSingle();
@@ -118,11 +127,11 @@ export async function listPay03bReconciliationExceptions({ status = 'open', db =
 }
 
 export async function readPay03bReconciliationException({
-  exceptionId, verify = false, db = supabase, env = process.env, stripe = null, provider = null,
+  exceptionId, verify = false, db = supabase, env = process.env, stripe = null, provider = null, pay04Provider = null,
 } = {}) {
   requireOperatorRuntime(env);
   const row = await loadException(db, exceptionId);
-  const providerTruth = verify ? await providerTruthFor(row, { db, env, stripe, provider }) : null;
+  const providerTruth = verify ? await providerTruthFor(row, { db, env, stripe, provider, pay04Provider }) : null;
   return { exception: project(row), providerTruth, sourceOfFinancialTruth: SOURCE_OF_TRUTH };
 }
 
@@ -147,7 +156,7 @@ export async function acknowledgePay03bReconciliationException({
 
 export async function resolvePay03bReconciliationException({
   exceptionId, resolution, note, adminActorId, adminActorRole = 'admin', sourceRoute = null, requestContext = null,
-  db = supabase, env = process.env, stripe = null, provider = null,
+  db = supabase, env = process.env, stripe = null, provider = null, pay04Provider = null,
 } = {}) {
   requireOperatorRuntime(env);
   const admin = requireAdminActor(adminActorId);
@@ -170,7 +179,7 @@ export async function resolvePay03bReconciliationException({
 
   let providerTruth;
   try {
-    providerTruth = await providerTruthFor(before, { db, env, stripe, provider });
+    providerTruth = await providerTruthFor(before, { db, env, stripe, provider, pay04Provider });
     const { data, error } = await db.rpc('pay03b_resolve_payment_reconciliation_exception', {
       p_exception_id: exceptionId,
       p_resolution: resolution,

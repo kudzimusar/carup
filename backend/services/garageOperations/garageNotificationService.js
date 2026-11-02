@@ -20,6 +20,10 @@ export const GARAGE_NOTIFICATION_EVENTS = Object.freeze({
   estimateSent: 'garage.estimate.sent',
   invoiceIssued: 'garage.invoice.issued',
   paymentRecorded: 'garage.payment.recorded',
+  // CARUP-PAY-04: provider-confirmed money and its refund. Distinct events because the fact is distinct: the
+  // garage's PROVIDER confirmed it — "the garage recorded a payment" would be untrue for these.
+  paymentConfirmed: 'garage.payment.confirmed',
+  paymentRefunded: 'garage.payment.refunded',
   appointmentConfirmed: 'garage.appointment.confirmed',
   appointmentRescheduled: 'garage.appointment.rescheduled',
   appointmentDeclined: 'garage.appointment.declined',
@@ -30,6 +34,8 @@ const HEADLINES = Object.freeze({
   'garage.estimate.sent': 'The garage sent you an estimate to review',
   'garage.invoice.issued': 'The garage issued an invoice for your service',
   'garage.payment.recorded': 'The garage recorded a payment on your invoice',
+  'garage.payment.confirmed': 'Your payment to the garage was confirmed by its payment provider',
+  'garage.payment.refunded': 'The garage refunded your payment',
   'garage.appointment.confirmed': 'Your appointment was confirmed',
   'garage.appointment.rescheduled': 'Your appointment time was changed',
   'garage.appointment.declined': 'The garage could not offer that appointment',
@@ -44,6 +50,8 @@ const EMITTERS = Object.freeze({
   'garage.estimate.sent': (emitEvent, payload, tenantId) => emitEvent(null, 'garage.estimate.sent', payload, tenantId),
   'garage.invoice.issued': (emitEvent, payload, tenantId) => emitEvent(null, 'garage.invoice.issued', payload, tenantId),
   'garage.payment.recorded': (emitEvent, payload, tenantId) => emitEvent(null, 'garage.payment.recorded', payload, tenantId),
+  'garage.payment.confirmed': (emitEvent, payload, tenantId) => emitEvent(null, 'garage.payment.confirmed', payload, tenantId),
+  'garage.payment.refunded': (emitEvent, payload, tenantId) => emitEvent(null, 'garage.payment.refunded', payload, tenantId),
   'garage.appointment.confirmed': (emitEvent, payload, tenantId) => emitEvent(null, 'garage.appointment.confirmed', payload, tenantId),
   'garage.appointment.rescheduled': (emitEvent, payload, tenantId) => emitEvent(null, 'garage.appointment.rescheduled', payload, tenantId),
   'garage.appointment.declined': (emitEvent, payload, tenantId) => emitEvent(null, 'garage.appointment.declined', payload, tenantId),
