@@ -6,7 +6,7 @@
 // reads the database back for every money claim. Case 24 (viewports) is the browser spec; case 25 (regressions) is CI.
 //
 //   node scripts/uat/pay04-http-matrix.mjs     -> ~/carup-launch-evidence/pay04/uat/http-matrix-<commit>.json (0600)
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { ACCOUNTS_FILE, API, EVIDENCE_DIR, call, code, identity, lit, login, msg, paceGlobal, quietSensitiveWindow, requirePay04UatDatabase, sql } from './pay04-uat-lib.mjs';
 
@@ -24,7 +24,6 @@ const as = {
   adminB: identity(accounts.adminB, tok.adminB, accounts.garageB),
   ops: identity(accounts.ops, tok.ops),
 };
-const STATE_FILE = `${EVIDENCE_DIR}/simulator/state.json`;
 
 const results = [];
 const facts = {};
@@ -295,22 +294,26 @@ await step('22', 'A provider outage does not fabricate a payment', async () => {
   const J = await job({ cost: '40.00', partQty: 1, sellPrice: '10.00' });
   const inv = (await issue(J, suggested(J))).json.invoice;
   const started = await call('POST', `/api/pay04/garage-invoices/${inv.id}/payments`, {}, as.customer, { 'Idempotency-Key': key('outage') });
-  await payViaSimulator(started.json); // the provider took the money...
-  chmodSync(STATE_FILE, 0o000); // ...and is then unreachable
-  let during;
-  let startDuring;
-  try {
-    during = await call('POST', `/api/pay04/garage-payments/${started.json.collection_id}/verify`, {}, as.customer);
-    startDuring = await call('POST', `/api/pay04/garage-invoices/${inv.id}/payments`, { amount: '1.00' }, as.customer, { 'Idempotency-Key': key('outage2') });
-  } finally {
-    chmodSync(STATE_FILE, 0o600);
-  }
-  const m = money(inv.id);
-  // the webhook the provider sent before the outage was applied from a fresh read; afterwards nothing new was fabricated
+  const paymentId = sql(`select provider_payment_id from pay04_garage_collections where id = ${lit(started.json.collection_id)}`);
+  // the provider's read API goes down for this payment (UAT fault injection, operator route) ...
+  const down = await call('POST', `/api/pay04/simulator/payments/${paymentId}/misreport`, { unavailable: true }, as.ops);
+  // ... while the customer pays at the provider: its signed webhook arrives, CarUp cannot read the provider
+  const back = await payViaSimulator(started.json);
+  const during = await call('POST', `/api/pay04/garage-payments/${started.json.collection_id}/verify`, {}, as.customer);
+  const status = sql(`select p.status from pay04_garage_collections c join payment_transactions p on p.reference = c.payment_reference where c.id = ${lit(started.json.collection_id)}`);
+  const mDuring = money(inv.id);
+  const view = await call('GET', `/api/pay04/garage-invoices/${inv.id}/payment`, undefined, as.customer);
+  const stateShown = (view.json?.provider_payments || []).find((p) => p.id === started.json.collection_id)?.state;
+  // the provider is back: its next signed event is applied from a fresh read
+  const up = await call('POST', `/api/pay04/simulator/payments/${paymentId}/misreport`, {}, as.ops);
+  const mAfter = money(inv.id);
   const declared = sql(`select count(*) from garage_payment_records where invoice_id = ${lit(inv.id)}`);
-  const pass = [502, 503].includes(during.status) && [409, 502, 503].includes(startDuring.status) && declared === '0'
-    && Number(m.provider_paid) <= 50;
-  return { pass, detail: { verify_during_outage: [during.status, code(during)], start_during_outage: [startDuring.status, code(startDuring)], money: m, declared_rows: declared } };
+  const pass = ok(down, 200) && down.json.delivered?.[0]?.status === 502 && back.status === 303 && during.status === 502
+    && code(during) === 'PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE' && status === 'pending' && Number(mDuring.paid_amount) === 0
+    && Number(mDuring.provider_reserved) === 50 && stateShown === 'awaiting_provider' && ok(up, 200) && up.json.delivered?.[0]?.status === 200
+    && Number(mAfter.provider_paid) === 50 && mAfter.payment_status === 'paid' && declared === '0';
+  return { pass, detail: { outage_webhook_delivery: down.json?.delivered, provider_redirect: back.status, verify_during_outage: [during.status, code(during)],
+    canonical_status_during: status, money_during: mDuring, customer_sees: stateShown, recovery_delivery: up.json?.delivered, money_after: mAfter, declared_rows: declared } };
 });
 
 // ───────────────────────────── case 23 (cancellation and adjustment) ─────────────────────────────
@@ -318,21 +321,24 @@ await step('23', 'Cancellation and adjustment rules preserve history', async () 
   const J = await job({ cost: '80.00', partQty: 1, sellPrice: '10.00' });
   const inv = (await issue(J, suggested(J))).json.invoice;
   const cash = await call('POST', `/api/garage/invoices/${inv.id}/payments`, { amount: '20.00', method: 'cash', idempotency_key: key('c23') }, as.adminA);
-  const refusedVoid = await call('POST', `/api/garage/invoices/${inv.id}/void`, { reason: 'Wrong labour rate' }, as.adminA);
+  const refusedDeclared = await call('POST', `/api/garage/invoices/${inv.id}/void`, { reason: 'Wrong labour rate' }, as.adminA);
   const online = await call('POST', `/api/pay04/garage-invoices/${inv.id}/payments`, { amount: '10.00' }, as.customer, { 'Idempotency-Key': key('o23') });
-  const refusedVoid2 = await call('POST', `/api/garage/invoices/${inv.id}/void`, { reason: 'Wrong labour rate' }, as.adminA);
+  const reversed = await call('POST', `/api/garage/payments/${cash.json.payment_id}/reverse`, { reason: 'Re-issuing the invoice', idempotency_key: key('r23') }, as.adminA);
+  const refusedInFlight = await call('POST', `/api/garage/invoices/${inv.id}/void`, { reason: 'Wrong labour rate' }, as.adminA);
   const stopped = await call('POST', `/api/pay04/garage-payments/${online.json.collection_id}/cancel`, { reason: 'Customer will pay in cash' }, as.customer);
-  await call('POST', `/api/garage/payments/${cash.json.payment_id}/reverse`, { reason: 'Re-issuing the invoice', idempotency_key: key('r23') }, as.adminA);
   const voided = await call('POST', `/api/garage/invoices/${inv.id}/void`, { reason: 'Wrong labour rate' }, as.adminA);
   const reissued = await issue(J, suggested(J).map((l) => (l.category === 'labour' ? { ...l, unit_price: '70.00' } : l)));
   const old = await call('GET', `/api/garage/invoices/${inv.id}`, undefined, as.adminA);
-  const history = (old.json?.invoice?.history || old.json?.history || []).map((e) => e.event_type);
-  const pass = refusedVoid.status === 409 && refusedVoid2.status === 409 && ok(stopped, 200) && ok(voided, 200) && ok(reissued, 201)
+  const history = (old.json?.invoice?.history || []).map((e) => e.event_type);
+  const providerHistory = (old.json?.invoice?.provider_history || []).map((e) => e.event_type);
+  const pass = refusedDeclared.status === 409 && /Reverse them before voiding/.test(msg(refusedDeclared)) && online.status === 201 && ok(reversed, 200)
+    && refusedInFlight.status === 409 && /in progress/.test(msg(refusedInFlight)) && ok(stopped, 200) && ok(voided, 200) && ok(reissued, 201)
     && reissued.json.invoice.invoice_number !== inv.invoice_number && reissued.json.invoice.total_amount === '80.00'
-    && (old.json?.invoice?.status || old.json?.status) === 'voided' && ['issued', 'payment_recorded', 'payment_reversed', 'voided'].every((e) => history.includes(e));
-  return { pass, detail: { void_with_declared_payment: [refusedVoid.status, msg(refusedVoid)], void_with_online_payment_in_progress: [refusedVoid2.status, msg(refusedVoid2)],
+    && old.json?.invoice?.status === 'voided' && ['issued', 'payment_recorded', 'payment_reversed', 'voided'].every((e) => history.includes(e))
+    && ['initiated', 'cancelled'].every((e) => providerHistory.includes(e));
+  return { pass, detail: { void_with_declared_payment: [refusedDeclared.status, msg(refusedDeclared)], void_with_online_payment_in_progress: [refusedInFlight.status, msg(refusedInFlight)],
     checkout_stopped: stopped.status, voided: voided.status, reissued: [reissued.status, reissued.json?.invoice?.invoice_number, reissued.json?.invoice?.total_amount],
-    old_invoice_history: history } };
+    old_invoice_history: history, old_invoice_provider_history: providerHistory } };
 });
 
 // ───────────────────────────── refund (garage) and concurrency ─────────────────────────────
