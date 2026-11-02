@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useState, type CSSProperties } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -9,6 +9,13 @@ import {
 
 type CurrencyDraft = { enabled: boolean; integrationId: string; key: string; methods: PaynowMethod[] }
 const CURRENCIES: Array<'USD' | 'ZWG'> = ['USD', 'ZWG']
+/**
+ * The integration key is a credential, not the garage administrator's password. A type="password" field makes browsers
+ * and password managers offer to save it (and fill it elsewhere), so the key is plain text that the managers are told to
+ * ignore, masked on screen with -webkit-text-security.
+ */
+const MASKED: CSSProperties & { WebkitTextSecurity: string } = { WebkitTextSecurity: 'disc' }
+const IGNORED_BY_PASSWORD_MANAGERS = { 'data-1p-ignore': true, 'data-lpignore': 'true', 'data-bwignore': true, 'data-form-type': 'other' } as const
 const blank = (currency: 'USD' | 'ZWG'): CurrencyDraft => ({ enabled: currency === 'USD', integrationId: '', key: '', methods: ['web'] })
 const errorText = (err: unknown, fallback: string) => {
   const message = err instanceof Error ? err.message : ''
@@ -190,10 +197,14 @@ export default function PaynowConnection() {
                           className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm" data-testid={`paynow-connect-${c}-id`} />
                       </div>
                       <div>
-                        <label htmlFor={`${uid}-${c}-key`} className="block text-sm font-medium">Integration key (sent once, never shown again)</label>
-                        <input id={`${uid}-${c}-key`} type="password" autoComplete="off" spellCheck={false} value={drafts[c].key}
-                          onChange={(e) => setDraft(c, { key: e.target.value.trim() })}
+                        <label htmlFor={`${uid}-${c}-key`} className="block text-sm font-medium">Integration key</label>
+                        <input id={`${uid}-${c}-key`} type="text" autoComplete="off" spellCheck={false} autoCapitalize="off" autoCorrect="off"
+                          {...IGNORED_BY_PASSWORD_MANAGERS} style={MASKED} value={drafts[c].key}
+                          onChange={(e) => setDraft(c, { key: e.target.value.trim() })} aria-describedby={`${uid}-${c}-key-hint`}
                           className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 bg-white px-3 font-mono text-sm" data-testid={`paynow-connect-${c}-key`} />
+                        <p id={`${uid}-${c}-key-hint`} className="mt-1 text-xs text-gray-700">
+                          Sent once and never shown again: CarUp keeps only a short fingerprint of it.
+                        </p>
                       </div>
                       <div role="group" aria-label={`Payment methods enabled on the ${c} integration`} className="flex flex-wrap gap-2">
                         {data.methods.filter((m) => m !== 'innbucks' || c === 'USD').map((m) => (
