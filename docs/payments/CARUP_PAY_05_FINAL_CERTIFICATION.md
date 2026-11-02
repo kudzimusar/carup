@@ -21,8 +21,8 @@ self-accept; the decision is the Moderator's.
 | Branch | `feat/carup-pay-05-zimbabwe-collections-mobile-money`, built on `b3ca4d21` |
 | **Runtime candidate** (physical UAT) | **`a0ddee281e75936da39ea1adb3d8105bead63bc3`** — served from a clean detached worktree at exactly this commit; the backend health route and the web build's provenance both report it |
 | Rehearsals before it | Three full physical runs on the same restored data, each of which changed the candidate (§7.1). `git diff --stat ea0511ff..a0ddee28` outside `web/` and `scripts/uat/` is empty: everything after `ea0511ff` is web code, web tests or UAT tooling |
-| Final evidence head | the commit that adds this document (reported in the PR and the specialist's return) — commits after `a0ddee28` are documentation, sanitized evidence and the evidence sanitizer (UAT tooling); no runtime, migration or product file |
-| Exact-head CI | Run 41451534363 at the candidate `a0ddee28`: **6/6 jobs green** (custody, workflow isolation, backend, PostgreSQL in both orders, web). Earlier runs on this branch: `ab052f3d` 41441902222 6/6; `9b91d439` 41436175937 6/6; `ea0511ff` 41434814958, where the web job failed 1 of 3,675 tests on a timing race inside that test (§7.2, CI note) |
+| Final evidence head | the commit that adds this version of the document (reported in the PR and the specialist's return). Commits after `a0ddee28` are documentation, sanitized evidence, the evidence sanitizer (UAT tooling) and one test refinement (`8595c7ec`, §7.2); no runtime, migration or product file |
+| Exact-head CI | Run 41451534363 at the candidate `a0ddee28`: **6/6 jobs green** (custody, workflow isolation, backend, PostgreSQL in both orders, web). After it: the evidence commit `71625682` run 41460540257 6/6 and `8595c7ec` run 41465047261 6/6. Earlier runs on this branch: `ab052f3d` 41441902222 6/6; `9b91d439` 41436175937 6/6; `ea0511ff` 41434814958, where the web job failed 1 of 3,675 tests on a timing race inside that test (§7.2, CI note) |
 | Merges / rebases / force-pushes | none |
 | PAY-05 pull request | Opened as a Draft (base `feat/carup-pay-04-garage-payments`) after the evidence commit, once the workflow-isolation dry run (§2) was clean at the candidate; its number is in the specialist's return. Do not merge |
 
@@ -192,6 +192,7 @@ Then everything was run again at `a0ddee28` on a freshly restored database.
 | PAY-04 26-case HTTP regression | **26/26 PASS** at the candidate `a0ddee28` (backend and harness; the accepted 1,800 s collection time), recorded 2026-11-02T14:14:10Z — `evidence/pay05/pay04-regression-http-matrix-a0ddee28.json`. Its invariant case reports the garage-collection ledger rows per gateway (PAY-04 simulator 24, Paynow 18) and none as CarUp money. The PAY-04 harness differs from the accepted head only in that invariant (§7.1, `ab052f3d`) |
 | PAY-04 browser replay | **9/9 PASS** at the candidate `a0ddee28` (headed; web and backend provenance `a0ddee28`; axe WCAG 2 A/AA at three widths) — `evidence/pay05/pay04-regression-browser-journal-a0ddee28.json`. The PAY-04 spec is byte-identical to the accepted head. At `ab052f3d` it was 8/9 (§7.1) |
 | PAY-05 browser, headed Chromium at 1440/768/390, axe WCAG 2.2 A/AA, every visible control measured | **12/12 PASS** at the candidate `a0ddee28` (headed; web and backend provenance `a0ddee28`; the control check on 9 surfaces) — `evidence/pay05/browser-journal-a0ddee28.json`. Also 12/12 at `ab052f3d`, and 12/12 at `ea0511ff` before the control check existed (§7.1) |
+| The whole backend suite, about 10,000 tests (another programme's PR workflow, CA-K3-AUTH-05 "Full backend exact head", on PR #254) | At `8595c7ec`: 10,064 tests; 13 fail, and all 13 also fail at the accepted PAY-04 head `b3ca4d21` (PR #253); none is PAY-05's (run 41465061486). PAY-05's 14 real-PostgreSQL service tests skip there (no database) and pass in PAY-05's own PostgreSQL jobs. Comparing the two PRs' runs, failure by failure, found two things: (1) one failure PAY-05 had introduced inside that already-red job. O2-X4's guard read the integration-key fingerprint column as possible biometric storage. The column holds a 16-hex digest of a key, CHECK-pinned to `^[0-9a-f]{16}$`. The guard was refined test-only in `8595c7ec`, the way it already treats Trust's presentation fingerprint; removing the CHECK, or adding a fingerprint column, still fails it. (2) One PAY-04-head failure, OC-4F (inline passwords in two CI connection strings), that PAY-05's `c53f3aae` fixes |
 
 **CI note.** At `ea0511ff` the web job failed one of 3,675 tests (W5). The test read the checkout's live region in the
 same tick as the badge, but the region takes its words one effect later by design (W8: it is in the page, empty,
@@ -234,7 +235,7 @@ activation migration, and the backend refuses it without `CARUP_PAY05_REAL_PROVI
 | B1 | Real Paynow activation (Checkpoint G): a garage's real merchant, its credentials, Owner + Paynow authorization | Owner + Paynow + the garage |
 | B2 | Paynow-only answers (design §8: 19 questions, each fail-closed today) | Paynow, through the Owner |
 | B3 | Repository settings: environment-scoped staging secrets, prevent self-review, protect `main` | Owner |
-| B4 | Other programmes' workflows are red on PR #253 (Corporate/auth, Phase C, full-backend baselines) and will be on the PAY-05 PR; none is a PAY-05 check | Their owners |
+| B4 | Other programmes' workflows are red on PR #253 and PR #254: CA-K3-AUTH-05 (full-backend baselines, custody + auth/Corporate regressions) and OC-5R REL-03A source certification. None is a PAY-05 check, and the full suite fails exactly as at the PAY-04 head (§7.2) | Their owners |
 | B5 | Independent certifier `NOT_ASSIGNED` | Moderator |
 
 **Residual observations (not PAY-05 defects, not blockers).**
@@ -243,6 +244,9 @@ activation migration, and the backend refuses it without `CARUP_PAY05_REAL_PROVI
   file, and this run did not measure its labels. Owner: PAY-03B.
 - The shared Button (`web/src/components/ui/button.tsx`) could accept wrapping labels directly. PAY-05 fixes its own
   call sites instead of changing a component the whole app uses. Owner: design system.
+- O2-X4's biometric guard now names two non-biometric fingerprints: Trust's presentation fingerprint and PAY-05's
+  16-hex key digest, the latter only where the column is CHECK-pinned to that shape (`8595c7ec`). Its owner may
+  prefer another mechanism, or a different name for the column. Owner: Operations O2.
 
 ## 11. GM-GC-001 continuity record
 
@@ -283,6 +287,7 @@ activation migration, and the backend refuses it without `CARUP_PAY05_REAL_PROVI
 | PAY-05 browser tests | 12 / 12 at the candidate (and at `ea0511ff` and `ab052f3d`) |
 | PAY-04 HTTP regression | 26 / 26 at the candidate (25 / 26 at `ab052f3d`, before the harness correction) |
 | PAY-04 browser replay | 9 / 9 at the candidate (8 / 9 at `ab052f3d`, fixed in `a0ddee28`) |
+| Backend-suite failures that PAY-05 causes | 0 of 13 (all 13 also fail at the PAY-04 head; one PAY-04-head failure is fixed) |
 | Real-provider rehearsals | 0 / 0 authorized |
 
 The CarUp Payments **portfolio** percentage remains `NOT_BASELINED` until the Owner approves the programme package
@@ -311,6 +316,8 @@ readiness: real Paynow stays off by construction, and Checkpoint G is `BLOCKED_O
   - Physical runs on the archived PAY-04 data: PAY-05 HTTP 41/41 and headed browser 12/12 at three widths, with axe
     and the control check. PAY-04's own 26-case matrix 26/26 and browser replay 9/9.
   - Mutation 58/58 at `ea0511ff`, whose non-web code the candidate shares, and web 11/11 at the candidate.
+  - The whole backend suite (10,064 tests) fails at the PAY-05 head only where it already fails at the PAY-04 head:
+    13 tests, none PAY-05's (§7.2).
 - **Review.** Four independent read-only reviews found no Critical; every High and Medium is fixed test-first or
   documented as Level 2 (§8).
 - **Rehearsals.** Three full rehearsals each changed the candidate, and each finding is fixed and now measured
