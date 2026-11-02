@@ -265,6 +265,8 @@ export type PaynowMerchant = {
   id: string; tenant_id: string; gateway: 'paynow_zimbabwe'; display_name: string; merchant_reference: string; currencies: string[]
   status: 'pending_verification' | 'verified' | 'suspended' | 'rejected'; registered_by: string; registered_at: string
   suspended_at: string | null; suspended_reason: string | null
+  /** why CarUp did not verify it (status rejected) */
+  rejected_reason?: string | null; rejected_at?: string | null
   profile: { legal_entity_name: string; registration_number: string | null; settlement_bank_name: string; settlement_account_last4: string
     settlement_account_holder: string; attested_by: string; attested_at: string } | null
   integrations: PaynowIntegrationView[]
