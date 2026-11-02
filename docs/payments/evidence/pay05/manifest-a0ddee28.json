@@ -1,0 +1,352 @@
+{
+  "candidate": "a0ddee281e75936da39ea1adb3d8105bead63bc3",
+  "rehearsals": [
+    "6424843643707ec5cac9d3f729ec2726c8637adb",
+    "dd810c286e1a222e9035bfa484bab359190dd90c",
+    "ea0511ff8826ce914244936fce3e8912d3eb4405",
+    "ab052f3d849409e6abb8dcd5df98ed2d9d400134"
+  ],
+  "published_at": "2026-11-02T14:17:04.752Z",
+  "files": [
+    {
+      "file": "http-matrix-a0ddee28.json",
+      "sha256": "07ddb4dca7bb88323acd61e4cce27a435eafffe0664fca63f8b4aaecb42651af"
+    },
+    {
+      "file": "http-matrix-a0ddee28-denominators.json",
+      "sha256": "58ab2048e5f91a788b5317a33fd2993dbced374691eef6ffbd5c11182a2a8f1d"
+    },
+    {
+      "file": "browser-journal-a0ddee28.json",
+      "sha256": "bedbf364e30dbcbda1c0a6be4b2328cd0f33b3654533819fa9d7be48b2b80703"
+    },
+    {
+      "file": "qa-seed-summary-a0ddee28.json",
+      "sha256": "9aaba5723393488fc737c4486f8b9042b69c37aefb9cbb290208e6ada9878080"
+    },
+    {
+      "file": "pay04-regression-http-matrix-a0ddee28.json",
+      "sha256": "099964147ba51ad839f583fbede9da4580e3667faf0ca843fdf8172ee73321ee"
+    },
+    {
+      "file": "pay04-regression-browser-journal-a0ddee28.json",
+      "sha256": "2fc9b2d82c0bfd0fd7fc5096d83e5efe5c03077f9c8253ab3a8a08c08da92365"
+    },
+    {
+      "file": "mutation-report-4fe9a796.json",
+      "sha256": "b30af1c6a169b42a132ec51ec80d7f5fae6f821576971efbcba839c15ed44406"
+    },
+    {
+      "file": "mutation-report-64248436-rerun.json",
+      "sha256": "539e7015e76754dea2f55332e253e5dffa4d2be94f963e3edcebfe47db79dd5b"
+    },
+    {
+      "file": "mutation-report-9b91d439-web.json",
+      "sha256": "ca078f903ef169f67e804b929f0f7926c3947ec17d870e83f190e800fa2d7f31"
+    },
+    {
+      "file": "mutation-report-a0ddee28-web.json",
+      "sha256": "e5e4963be7d5b11600b123e5378792f62fe6486466d34c4f46df614b93b502ae"
+    },
+    {
+      "file": "mutation-report-ab052f3d-web.json",
+      "sha256": "58ba8cefd1e49b584f9e3061b5dd94e15fc200362b287f17c3f71883fe144b87"
+    },
+    {
+      "file": "mutation-report-ccb1791c.json",
+      "sha256": "bf799af43b16caebfba42b5a677f33595636f3b91c856c73532de8e8ffe942af"
+    },
+    {
+      "file": "mutation-report-ea0511ff.json",
+      "sha256": "afe970b51da13d8bce527b2ca6e737e57d55b60d2cda30503e6eb3826acc0e92"
+    },
+    {
+      "file": "independent-review-37cb5c5c.md",
+      "sha256": "a1c17a4ff549f4529d4073b0275705563aa85bd39f9b75705c0192331f545e93"
+    },
+    {
+      "file": "paynow-sources.sha256",
+      "sha256": "effad85ee2aba7351d0c2aa5d15e2735a079e225415d146a3fecf14016409be4"
+    },
+    {
+      "file": "upgrade-with-real-rows.json",
+      "sha256": "6d07b2c8860ef46451e276ed310eb6827b392f0a30c726ae1c5197e90336d56f"
+    },
+    {
+      "file": "workflow-isolation-dry-run-pay05-64248436.json",
+      "sha256": "e241d7cbf0029b47dca1ccae9e909028a478b7c1529a39f792ba096da6ecb600"
+    },
+    {
+      "file": "workflow-isolation-dry-run-pay05-9b91d439.json",
+      "sha256": "572598f47b95807fc6a8b5085cb2e73148e71055e2893a179f16382a6f8f20c1"
+    },
+    {
+      "file": "workflow-isolation-dry-run-pay05-a0ddee28.json",
+      "sha256": "7ae4d2eea40aa3b2f17d0e71b5306535300e98af88d848b34025bab0bdd7babe"
+    },
+    {
+      "file": "rehearsal-http-matrix-64248436.json",
+      "sha256": "45b03bdf653e6a854f84c26869613cbbc1b77243495ec7e23927f04bdcb0316d"
+    },
+    {
+      "file": "rehearsal-browser-journal-dd810c28.json",
+      "sha256": "0c02544c6c06139f87583e58fa1af3f68905d4f28342321fc10bb72d3c34ff8e"
+    },
+    {
+      "file": "rehearsal-http-matrix-ea0511ff.json",
+      "sha256": "679d21dbac1753f653447f61df7f6cdffd0de6ac737c7430ef28de1d78dc5056"
+    },
+    {
+      "file": "rehearsal-http-matrix-ea0511ff-denominators.json",
+      "sha256": "3b13ea8f80d9452cb02b34616d358ca066f141fd5b782cfd8a4067593137f104"
+    },
+    {
+      "file": "rehearsal-browser-journal-ea0511ff.json",
+      "sha256": "b076d4cdb16bbf1ebdc8122fecf9c7f8e82fc69e894ecde04334069b845c69d3"
+    },
+    {
+      "file": "rehearsal-clipping-check-red-ea0511ff-mobile.txt",
+      "sha256": "fbe1940a57afbd20faabacea142b8e32477e0d33ba15b5dc283604af9dc39cb4"
+    },
+    {
+      "file": "rehearsal-clipping-check-red-ea0511ff-tablet.txt",
+      "sha256": "6c2335ce35db464ac0e27bf3f639ad80e267d11529e6c61d8706f4a07dbfff00"
+    },
+    {
+      "file": "screens/rehearsal-ea0511ff-16-customer-paynow-checkout-mobile.png",
+      "sha256": "88fb40c7cf4f341b299ba9fe7f81aeb1cdf16842c906de3f1c004b06ebc466ca"
+    },
+    {
+      "file": "screens/rehearsal-ea0511ff-16-customer-paynow-checkout-tablet.png",
+      "sha256": "c555c0931b29ba6d0bc619946339521ec67daba8d37fa67b096857059636f448"
+    },
+    {
+      "file": "screens/rehearsal-ea0511ff-18-operator-paynow-panel-mobile.png",
+      "sha256": "7354d0131f4a7a873d2f823bf9c48cdc732797ea59e2f3b9bf768b0ae74f4899"
+    },
+    {
+      "file": "rehearsal-http-matrix-ab052f3d.json",
+      "sha256": "1a16ee98b56ecdc84a176198e914bab5e015c467d923257c1b5147b09ed745b3"
+    },
+    {
+      "file": "rehearsal-http-matrix-ab052f3d-denominators.json",
+      "sha256": "37ab145c42fa9c3f5f28d1a4407928d8871c4d460ef116145fd7e82dbae7e981"
+    },
+    {
+      "file": "rehearsal-browser-journal-ab052f3d.json",
+      "sha256": "21f73939c59787e9b47864065c333e0b48d42f2c6aac951337b1296aebeab529"
+    },
+    {
+      "file": "rehearsal-pay04-regression-axe-red-ab052f3d-mobile.txt",
+      "sha256": "e9d383af467394b76ecf3879eca1507be3938cac9bf33b4adba9ae5bce5db59e"
+    },
+    {
+      "file": "rehearsal-pay04-regression-browser-journal-ab052f3d.json",
+      "sha256": "2f29f83b420a4d80b86c5398e791eedb3fd5ae3c864c855a203d97aa37081a8c"
+    },
+    {
+      "file": "rehearsal-pay04-regression-http-matrix-ab052f3d-run1-single-gateway-invariant.json",
+      "sha256": "39ce8fef54a8eafa108a8a9acc242f837ae52c44cec187375f489509d6326469"
+    },
+    {
+      "file": "rehearsal-pay04-regression-http-matrix-ab052f3d.json",
+      "sha256": "b189fba02211212d2b7dcc9c804c4a4524bf43a6867beb7bf3fc607fea06394b"
+    },
+    {
+      "file": "screens/01-garage-connect-field-error-desktop.png",
+      "sha256": "aa3810fff675bb98c0775474ca0dcc448bb3fd63ef52a1d313916e12ba0250ca"
+    },
+    {
+      "file": "screens/02-garage-connected-pending-desktop.png",
+      "sha256": "26b93db41da32452713e5e702023a93217b059937a386cd091d72f2fb35a3878"
+    },
+    {
+      "file": "screens/03-operator-verify-ready-desktop.png",
+      "sha256": "68d1fcf7841ee01cfa96eaeeb0009da8856a751e511d42562bcd7890c4c2e876"
+    },
+    {
+      "file": "screens/04-operator-verified-history-desktop.png",
+      "sha256": "bd3974a94488ba563f90f5ab7befb0ea1e60e909e29a1c55a0e8a37073c02630"
+    },
+    {
+      "file": "screens/05-customer-paynow-methods-desktop.png",
+      "sha256": "d34d3a241282ce8518f0d54e10a43023d53dee0f331be22d961256617ef851e4"
+    },
+    {
+      "file": "screens/06-simulated-paynow-hosted-page.png",
+      "sha256": "adb23f9d4df18921e5d3f3babfdfd9ba983875c6597d4491a134d8dcc83f0f1f"
+    },
+    {
+      "file": "screens/07-customer-return-confirmed-desktop.png",
+      "sha256": "a39b061fada9d39024baca2d5698fe5696796888c0421d0b650fa7668c0e96d0"
+    },
+    {
+      "file": "screens/08-customer-ecocash-pending-tablet.png",
+      "sha256": "950779e169ec97b3645b10d48dbe92fe3b7c94bfc51398cfb6f297fe2d432169"
+    },
+    {
+      "file": "screens/09-customer-ecocash-confirmed-tablet.png",
+      "sha256": "e098021cc26bea7989ba8c7a85e89c4c4a856fa73a807032fefdcf69c471a9c0"
+    },
+    {
+      "file": "screens/10-customer-innbucks-code-mobile.png",
+      "sha256": "baeb4688eb315fb7d540bf28b9e1200b9512597f6bc69163caaef3662c3ad40b"
+    },
+    {
+      "file": "screens/11-customer-innbucks-continue-mobile.png",
+      "sha256": "60498739cb516aa6bace4e8f000516d26436cfc2d3701b1b8f00617bc26a27fe"
+    },
+    {
+      "file": "screens/12-customer-omari-wrong-code-mobile.png",
+      "sha256": "320c24b00844530bdb881eb949373e6641888b501069ce7f394a22630415da58"
+    },
+    {
+      "file": "screens/13-customer-omari-confirmed-mobile.png",
+      "sha256": "8d74be60a559668770bb084af990873a18f12d42e3cc3af0cd746822297ba56d"
+    },
+    {
+      "file": "screens/14-garage-paynow-payments-tablet.png",
+      "sha256": "84bbeb6641a19c1266595b26ce20f3a2ee6fdad23b9583878d8a44c173c5f835"
+    },
+    {
+      "file": "screens/15-operator-held-request-desktop.png",
+      "sha256": "8135aff20159fdb7d983a5a077fed79e18bc3cd58730795c0365f2ed4dc5e076"
+    },
+    {
+      "file": "screens/16-customer-paynow-checkout-desktop.png",
+      "sha256": "c6bf1b63c5df3624982f38b05bebd6945f2f88416da98cf46439cefc0dddac92"
+    },
+    {
+      "file": "screens/16-customer-paynow-checkout-mobile.png",
+      "sha256": "b48c26a9882c4820655d06a966ff4078eacb4c047cb12bd86130596c69a86b97"
+    },
+    {
+      "file": "screens/16-customer-paynow-checkout-tablet.png",
+      "sha256": "072b2d1add862950078a38852edd111575462fb8605193511b5c46bb2e2196e6"
+    },
+    {
+      "file": "screens/17-garage-paynow-connection-desktop.png",
+      "sha256": "e3de144fb4478c26a78797356dbb7876c9982e49242009618c8c84ff4087a405"
+    },
+    {
+      "file": "screens/17-garage-paynow-connection-mobile.png",
+      "sha256": "02deacda2eacab30db207090a3f9ba28a48bd7fcf8522630def3ed91612f4308"
+    },
+    {
+      "file": "screens/17-garage-paynow-connection-tablet.png",
+      "sha256": "997791796e9efba34565d501784ba2be970426f4d87b561d272695f14019984c"
+    },
+    {
+      "file": "screens/18-operator-paynow-panel-desktop.png",
+      "sha256": "284a29dfae1abce2c9ef277943ccd691516ceef83017f9cb9523a41fcae44e6e"
+    },
+    {
+      "file": "screens/18-operator-paynow-panel-mobile.png",
+      "sha256": "61afd5548deb87d8fa1cde24905535664843190419bb3bfd19bfa571634c2c4a"
+    },
+    {
+      "file": "screens/18-operator-paynow-panel-tablet.png",
+      "sha256": "570b41671551f6eec3a010527293beb0419f821524004fef12f595f7223c908c"
+    },
+    {
+      "file": "screens/pay04-regression-01-invoice-untrue-part-line-refused-desktop.png",
+      "sha256": "fdb1887b899660480ad1b200d583faad33b6abc3fc8fef00c4f940e6afb1a90b"
+    },
+    {
+      "file": "screens/pay04-regression-02-garage-invoice-issued-desktop.png",
+      "sha256": "aee5af793656539ea201789e4beb3a53597368a21f9457cf57819ada1c7e8d06"
+    },
+    {
+      "file": "screens/pay04-regression-03-customer-invoice-how-to-pay-desktop.png",
+      "sha256": "32a70ca4d0e6260863928a4d228d08cf24589364b6c33472fe1d49221ea26d80"
+    },
+    {
+      "file": "screens/pay04-regression-04-simulated-garage-provider-checkout.png",
+      "sha256": "30f3dbfd96a8c95ff73e25e04c77b49a8d9b1162874e6e482f95602368ec247f"
+    },
+    {
+      "file": "screens/pay04-regression-05-customer-return-confirmed-desktop.png",
+      "sha256": "ed5ccd2350295a18b7f6f282f12d918a8688a41fc861a1701409114750d3208b"
+    },
+    {
+      "file": "screens/pay04-regression-06-customer-invoice-provider-confirmed-desktop.png",
+      "sha256": "3ce53d79f1a465bdd941067ea15dd8faf68f4e6a37ad9eb15c662e859c39068b"
+    },
+    {
+      "file": "screens/pay04-regression-07-garage-invoice-mixed-provenance-desktop.png",
+      "sha256": "b268557239db781e7e20534845d7729dfcaa17613a98bab7d78ad47f0b6c448c"
+    },
+    {
+      "file": "screens/pay04-regression-08-garage-refund-done-desktop.png",
+      "sha256": "3fd947a3dc2a10ec9a9b6542f43414e8544c0e754dcbe3eed10e440c26e18913"
+    },
+    {
+      "file": "screens/pay04-regression-09-customer-sees-refund-desktop.png",
+      "sha256": "b440b3c481f4bcc14f783d991511a248ef44e262d71aacf9f31688602b3f1635"
+    },
+    {
+      "file": "screens/pay04-regression-10-operator-discrepancy-desktop.png",
+      "sha256": "e2b53cf87eab2be9b520d1946e9771528e96c229ffdf2ff7461d90b574d63c9c"
+    },
+    {
+      "file": "screens/pay04-regression-11-customer-invoice-desktop.png",
+      "sha256": "b75425aba0299504d8ecc04a5339c0bc8a72c9501671cfb0e26c6370243294db"
+    },
+    {
+      "file": "screens/pay04-regression-11-customer-invoice-mobile.png",
+      "sha256": "c3c858b7f3015f7b907637e8a9ee71c87cfb9f07527caa37caa9d47fa1841c36"
+    },
+    {
+      "file": "screens/pay04-regression-11-customer-invoice-tablet.png",
+      "sha256": "86e9da87a63f1a29214d73373b882e47e713735b2c0806d87964eb3864bbb9c3"
+    },
+    {
+      "file": "screens/pay04-regression-12-garage-invoice-desktop.png",
+      "sha256": "e2555eb7b5c3bd4009ff47866a97ddd947b087a67e47c7a78d27210d221ac159"
+    },
+    {
+      "file": "screens/pay04-regression-12-garage-invoice-mobile.png",
+      "sha256": "4a5a43f053ad7f102ce896ac5cbe650934686de400835756b7d7bd448eb63188"
+    },
+    {
+      "file": "screens/pay04-regression-12-garage-invoice-tablet.png",
+      "sha256": "d8a89d0e3e7072d179ce24472a9f98054f155a236282269b1cd34b7210104fdb"
+    },
+    {
+      "file": "screens/pay04-regression-13-garage-money-desktop.png",
+      "sha256": "83798b847f0f4bc5497b26bc075f5e6acac32674b4d9cba858981c50457c7aff"
+    },
+    {
+      "file": "screens/pay04-regression-13-garage-money-mobile.png",
+      "sha256": "929cdccce1e55ba203d9aa52db805a00a9f51bbd422082ad871a79627b469301"
+    },
+    {
+      "file": "screens/pay04-regression-13-garage-money-tablet.png",
+      "sha256": "30fa9246b193c381cc096d8e68e0f88c4e66f81e7df04f060b7a2fcc89f01dc9"
+    },
+    {
+      "file": "screens/pay04-regression-14-garage-instructions-desktop.png",
+      "sha256": "8b1e1ec6a2888d6720ed327850295691c726f1517e8bcbfdcd7671f6b2aaf36a"
+    },
+    {
+      "file": "screens/pay04-regression-14-garage-instructions-mobile.png",
+      "sha256": "be12f30dda17b824ee87151648656282225b8484559999cff4e7dfbcff390052"
+    },
+    {
+      "file": "screens/pay04-regression-14-garage-instructions-tablet.png",
+      "sha256": "36a521bf83cf684e90e1a0644f64aa1f608947b13d3d61e99d6e7b687d1a2c96"
+    },
+    {
+      "file": "screens/pay04-regression-15-operator-merchants-desktop.png",
+      "sha256": "c32cd386e419e96451cb5d937f0730173c2325b1ed1da5e78b92c7660cb272aa"
+    },
+    {
+      "file": "screens/pay04-regression-15-operator-merchants-mobile.png",
+      "sha256": "97e6a4b4f8dddc3093619ed02b9da41dbb4dcb88f6bb0f720d060d15e8440ec5"
+    },
+    {
+      "file": "screens/pay04-regression-15-operator-merchants-tablet.png",
+      "sha256": "4b765f16ff3db538dbbf4688614b321c241323d67d5232d63fbc9a6139af6512"
+    }
+  ]
+}

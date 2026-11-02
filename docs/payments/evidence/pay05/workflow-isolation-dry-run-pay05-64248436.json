@@ -1,0 +1,25 @@
+{
+  "policy": "CARUP-PAY-05 workflow secret isolation",
+  "rules": {
+    "PRIVILEGED": "WSI-PRIVILEGED-PR-EVENT",
+    "PR_SECRET": "WSI-PR-SECRET",
+    "SHARED_REACH": "WSI-SHARED-DATA-REACH",
+    "SHARED_APPROVAL": "WSI-SHARED-DATA-APPROVAL"
+  },
+  "head_sha": null,
+  "event": null,
+  "workflows_scanned": 76,
+  "violations": [],
+  "pull_request_dry_run": {
+    "workflows": 30,
+    "jobs": 63,
+    "jobs_with_secret_or_environment_access": []
+  },
+  "push_dry_run": [
+    {
+      "branch": "feat/carup-pay-05-zimbabwe-collections-mobile-money",
+      "jobs": 6,
+      "sharedDataJobs": []
+    }
+  ]
+}

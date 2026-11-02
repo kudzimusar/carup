@@ -1,0 +1,141 @@
+{
+  "summary": {
+    "total": 11,
+    "killed": 10,
+    "survived": [
+      "BASE-WEB"
+    ],
+    "invalid": [],
+    "worktree_clean_after": true
+  },
+  "results": [
+    {
+      "id": "BASE-WEB",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "baseline: web suites pass unmutated",
+      "verdict": "SURVIVED",
+      "seconds": 5.1,
+      "evidence": []
+    },
+    {
+      "id": "W01-paid-word-counts",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "a Paynow \"paid\" CarUp did not count is shown as paid (W5)",
+      "verdict": "KILLED",
+      "seconds": 2.5,
+      "evidence": [
+        "    110|       }",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af"
+      ]
+    },
+    {
+      "id": "W02-review-dropped",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "money under review read as Paynow's word (W5)",
+      "verdict": "KILLED",
+      "seconds": 7.5,
+      "evidence": [
+        "    265|     verifyGarageInvoicePayment.mockResolvedValue({ collection: { state\u2026",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af"
+      ]
+    },
+    {
+      "id": "W03-refresh-unmounts",
+      "file": "web/src/components/owner/serviceJourney/InvoicePayment.tsx",
+      "why": "the started request vanishes on refresh (W1)",
+      "verdict": "KILLED",
+      "seconds": 6.8,
+      "evidence": [
+        "    240|     expect(screen.getByTestId('my-provider-payment')).toBeInTheDocumen\u2026",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[3/3]\u23af"
+      ]
+    },
+    {
+      "id": "W04-key-password-field",
+      "file": "web/src/components/garage/PaynowConnection.tsx",
+      "why": "password managers capture the integration key (W6)",
+      "verdict": "KILLED",
+      "seconds": 2.8,
+      "evidence": [
+        "     80|       expect(key).toHaveAttribute('spellcheck', 'false')",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af"
+      ]
+    },
+    {
+      "id": "W05-refusal-ambiguous",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "Paynow's refusal replays forever",
+      "verdict": "KILLED",
+      "seconds": 2.8,
+      "evidence": [
+        "    194|     expect(keys[3]).not.toBe(keys[2])",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af"
+      ]
+    },
+    {
+      "id": "W06-pay-button-pinned-on-phones",
+      "file": "web/src/components/owner/serviceJourney/PaynowCheckout.tsx",
+      "why": "the Paynow Pay button keeps the shared 44 px phone height and its wrapped label is cut off (final rehearsal)",
+      "verdict": "KILLED",
+      "seconds": 5.5,
+      "evidence": [
+        "    360|",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af"
+      ]
+    },
+    {
+      "id": "W07-method-radio-squeezed",
+      "file": "web/src/components/owner/serviceJourney/PaynowCheckout.tsx",
+      "why": "a method's radio shrinks when its description wraps (final rehearsal)",
+      "verdict": "KILLED",
+      "seconds": 2.9,
+      "evidence": [
+        "    367| })",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af"
+      ]
+    },
+    {
+      "id": "W08-release-button-pinned-on-phones",
+      "file": "web/src/components/admin/PaynowOperatorPanel.tsx",
+      "why": "the operator's release button keeps the phone height; its wrapped label is cut off (final rehearsal)",
+      "verdict": "KILLED",
+      "seconds": 2.5,
+      "evidence": [
+        "    245| })",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af"
+      ]
+    },
+    {
+      "id": "W09-provider-button-pinned-on-phones",
+      "file": "web/src/components/owner/serviceJourney/InvoicePayment.tsx",
+      "why": "PAY-04's provider button keeps the phone height; its wrapped label is cut off (inherited, final rehearsal)",
+      "verdict": "KILLED",
+      "seconds": 2.4,
+      "evidence": [
+        "    216| })",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af"
+      ]
+    },
+    {
+      "id": "W10-operator-clock-frozen",
+      "file": "web/src/components/admin/PaynowOperatorPanel.tsx",
+      "why": "an open operator panel never enables a release when CarUp's payment time passes",
+      "verdict": "KILLED",
+      "seconds": 5.1,
+      "evidence": [
+        "    173|     } finally {",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af"
+      ]
+    }
+  ]
+}

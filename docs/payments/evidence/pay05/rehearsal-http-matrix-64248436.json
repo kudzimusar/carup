@@ -1,0 +1,1170 @@
+{
+  "programme": "CARUP-PAY-05-LR01",
+  "level": "Level 1 (local Paynow protocol simulator; no provider, no money)",
+  "recorded_at": "2026-11-02T10:51:34.815Z",
+  "backend_commit": "6424843643707ec5cac9d3f729ec2726c8637adb",
+  "harness_commit": "d1a69691bed38c05a23c7541df9f2a8c40acbbe2",
+  "stack": "carup-pay04-supabase 127.0.0.1:56321/56322 (reused)",
+  "collection_ttl_seconds": 300,
+  "results": [
+    {
+      "case": "M1",
+      "title": "Garage A connects its OWN Paynow merchant (USD + ZWG); keys sealed, never returned; not payable until verified",
+      "pass": true,
+      "detail": {
+        "status": 201,
+        "key_in_response": false,
+        "merchant": {
+          "id": "d812643e-4e26-49d5-a609-e33eea22f054",
+          "status": "pending_verification",
+          "gateway": "paynow_zimbabwe",
+          "merchant_reference": "pnm_18b820ba343f4e91a7b9b125b46c84bf"
+        },
+        "integrations": [
+          {
+            "currency": "USD",
+            "status": "pending_verification",
+            "fp": "a0f51a3fdaffe556",
+            "ct_len": 48,
+            "mode": "simulator"
+          },
+          {
+            "currency": "ZWG",
+            "status": "pending_verification",
+            "fp": "7022eb20b2c8209f",
+            "ct_len": 48,
+            "mode": "simulator"
+          }
+        ],
+        "customer_option_while_pending": {
+          "available": false,
+          "reason": "garage_not_connected"
+        }
+      }
+    },
+    {
+      "case": "M2",
+      "title": "Connection refusals: mechanic, customer, InnBucks in ZWG, \"ZIG\", no attestation, another garage’s integration, a second connection",
+      "pass": true,
+      "detail": {
+        "mechanic": 403,
+        "customer": 403,
+        "innbucks_zwg": [
+          422,
+          "PAY05_METHOD_NOT_AVAILABLE"
+        ],
+        "zig": [
+          422,
+          "PAY05_CURRENCY_NOT_SUPPORTED"
+        ],
+        "no_attestation": [
+          422,
+          "PAY05_ATTESTATION_REQUIRED"
+        ],
+        "garage_a_integration_by_b": [
+          409,
+          "PAY05_INTEGRATION_ALREADY_REGISTERED"
+        ],
+        "second_connection": [
+          409,
+          "PAY05_MERCHANT_ALREADY_CONNECTED"
+        ],
+        "garage_b_rows_left": "0"
+      }
+    },
+    {
+      "case": "M3",
+      "title": "Verification refusals: the garage itself, an operator who is a garage member, incomplete evidence, no note",
+      "pass": true,
+      "detail": {
+        "garage_admin": 403,
+        "operator_member": [
+          403,
+          "PAY05_REVIEWER_SEPARATION_REQUIRED"
+        ],
+        "partial_evidence": [
+          422,
+          "PAY05_VERIFICATION_EVIDENCE_INCOMPLETE"
+        ],
+        "currency_not_reviewed": [
+          422,
+          "PAY05_VERIFICATION_EVIDENCE_INCOMPLETE"
+        ],
+        "no_note": [
+          422,
+          "PAY05_REASON_REQUIRED"
+        ],
+        "status_after": "pending_verification"
+      }
+    },
+    {
+      "case": "M4",
+      "title": "An independent operator verifies; the SERVER proves every key with an authenticated Paynow trace; the customer can now pay",
+      "pass": false,
+      "detail": {
+        "status": 200,
+        "integrations": [
+          {
+            "currency": "USD",
+            "status": "verified",
+            "probe": "authenticated",
+            "fp_matches": true,
+            "verified_by": "p5qa_ops_61879784"
+          },
+          {
+            "currency": "ZWG",
+            "status": "verified",
+            "probe": "authenticated",
+            "fp_matches": true,
+            "verified_by": "p5qa_ops_61879784"
+          }
+        ],
+        "audit": "merchant_registered,integration_registered,integration_registered,integration_verified,integration_verified,merchant_verified",
+        "option": {
+          "available": true,
+          "gateway": "paynow_zimbabwe",
+          "provider": "paynow",
+          "simulated": true,
+          "merchant_display_name": "PAY05 QA Garage A (Paynow)",
+          "max_amount": "120.00",
+          "currency": "USD",
+          "methods": [
+            "ecocash",
+            "innbucks",
+            "omari",
+            "onemoney",
+            "web"
+          ],
+          "simulation_notice": "Simulated Paynow — local test environment. No real money moves.",
+          "notices": {
+            "no_redirect_proof": "Coming back from Paynow is not proof of payment. CarUp checks with Paynow.",
+            "cannot_cancel": "Paynow cannot cancel a payment request. If you do not complete it, nothing is charged; if you do pay it, it still counts.",
+            "channel": "Paid through the garage’s own Paynow account. The money goes to the garage, not to CarUp."
+          }
+        }
+      }
+    },
+    {
+      "case": "M5",
+      "title": "A wrong integration key fails the server probe: refused verification, a recorded provider error, rejection, then a correct reconnection",
+      "pass": true,
+      "detail": {
+        "wrong_key_connect": 201,
+        "verify_wrong_key": [
+          422,
+          "PAY05_VERIFICATION_EVIDENCE_INCOMPLETE"
+        ],
+        "probe_errors": 1,
+        "rejected": 200,
+        "reconnect": 201,
+        "verify_correct_key": 200
+      }
+    },
+    {
+      "case": "L0",
+      "title": "A customer starts an EcoCash request and never approves it (it will outlive CarUp’s collection time)",
+      "pass": true,
+      "detail": {
+        "status": 201,
+        "paynow": {
+          "method": "ecocash",
+          "initiation": "attached",
+          "provider_status": null,
+          "provider_status_label": "Waiting for you to pay on Paynow",
+          "checkout_url": null,
+          "instructions": "Dial *151*2*4# and enter your EcoCash PIN to approve the payment request sent to your phone.",
+          "authorization_code": null,
+          "authorization_expires": null,
+          "otp_reference": null,
+          "needs_otp": false,
+          "phone": "077*****01",
+          "hold_released": false,
+          "paynow_reference": null,
+          "provider_error": null
+        },
+        "money": {
+          "invoice_id": "73dbe4b1-c065-4259-a6fb-d5ae9053d17a",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 35,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 35,
+          "provider_reserved": 35,
+          "uncommitted_balance": 0,
+          "payment_status": "unpaid"
+        },
+        "expires_at": "2026-11-02T10:35:44.085027+00:00"
+      }
+    },
+    {
+      "case": "U0",
+      "title": "A request whose reply is lost while Paynow's trace keeps failing stays HELD and unconfirmed (never a second request)",
+      "pass": true,
+      "detail": {
+        "start": 201,
+        "transaction": {
+          "initiation_state": "unknown",
+          "provider_status": null,
+          "method": "ecocash",
+          "phone_masked": "077*****11",
+          "has_last_hash": false,
+          "hold_released_at": null,
+          "trace_absent_count": 0
+        },
+        "simulator_transactions": 1,
+        "money": {
+          "invoice_id": "2466e34c-da03-4920-b2ca-78db10a78d77",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 20,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 20,
+          "provider_reserved": 20,
+          "uncommitted_balance": 0,
+          "payment_status": "unpaid"
+        }
+      }
+    },
+    {
+      "case": "P1",
+      "title": "Web checkout: a browser return is NOT payment; the signed status update + a fresh poll is; one canonical row, one receipt",
+      "pass": true,
+      "detail": {
+        "started": 201,
+        "replay_same": true,
+        "checkout_origin": "http://127.0.0.1:5071",
+        "reserved": {
+          "invoice_id": "07f985ea-afba-456c-899f-f5baa36777a5",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 120,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 120,
+          "provider_reserved": 60,
+          "uncommitted_balance": 60,
+          "payment_status": "unpaid"
+        },
+        "before_paying": "awaiting_provider",
+        "hosted_page_redirect": {
+          "status": 302,
+          "location": "http://127.0.0.1:5203/dashboard/service-requests?invoice=07f985ea-afba-456c-899f-f5baa36777a5&collection=fd537a97-bdff-434c-ba0a-e9b41f7fbfe8&pay05=returned"
+        },
+        "money_after": {
+          "invoice_id": "07f985ea-afba-456c-899f-f5baa36777a5",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 120,
+          "declared_paid": 0,
+          "provider_paid": 60,
+          "paid_amount": 60,
+          "balance_amount": 60,
+          "provider_reserved": 0,
+          "uncommitted_balance": 60,
+          "payment_status": "partially_paid"
+        },
+        "canonical_row": {
+          "gateway": "paynow_zimbabwe",
+          "status": "paid",
+          "currency": "USD",
+          "amount": 60,
+          "pay02_product_code": "gar.invoice.customer_payment",
+          "pay02_commercial_category": "category_b_third_party",
+          "pay02_funds_owner": "garage_business_tenant",
+          "pay02_legal_beneficiary": "tenant:b4df2d94-3937-4590-93ec-18ac0a2b009c",
+          "pay01a_actor_id": "p5qa_customer_286c501c"
+        },
+        "observations": "poll:created,status_update:paid,poll:paid",
+        "allocations": 1,
+        "receipts": 1
+      }
+    },
+    {
+      "case": "P2",
+      "title": "Duplicate callbacks: Paynow’s resend of the same signed update is a duplicate (one observation, one allocation, one receipt)",
+      "pass": true,
+      "detail": {
+        "resend": [
+          {
+            "delivered": true,
+            "attempt": 1,
+            "status": 200
+          },
+          {
+            "delivered": true,
+            "attempt": 1,
+            "status": 200
+          }
+        ],
+        "observations_before_after": [
+          3,
+          3
+        ],
+        "allocations": 1
+      }
+    },
+    {
+      "case": "E1",
+      "title": "EcoCash (Paynow test number 0771111111): pending \"approve on your phone\", then paid from Paynow’s own update",
+      "pass": false,
+      "detail": {
+        "start": 201,
+        "pending": {
+          "method": "ecocash",
+          "initiation": "attached",
+          "provider_status": null,
+          "provider_status_label": "Waiting for you to pay on Paynow",
+          "checkout_url": null,
+          "instructions": "Dial *151*2*4# and enter your EcoCash PIN to approve the payment request sent to your phone.",
+          "authorization_code": null,
+          "authorization_expires": null,
+          "otp_reference": null,
+          "needs_otp": false,
+          "phone": "077*****11",
+          "hold_released": false,
+          "paynow_reference": null,
+          "provider_error": null
+        },
+        "paid": true,
+        "state": "confirmed",
+        "money": {
+          "invoice_id": "92cc5f2b-4c20-49a2-aca4-b546adcb1636",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 50,
+          "declared_paid": 0,
+          "provider_paid": 50,
+          "paid_amount": 50,
+          "balance_amount": 0,
+          "provider_reserved": 0,
+          "uncommitted_balance": 0,
+          "payment_status": "paid"
+        }
+      }
+    },
+    {
+      "case": "E2",
+      "title": "OneMoney (test number 0773333333): Paynow reports Failed — nothing counted, the room is released",
+      "pass": true,
+      "detail": {
+        "start": 201,
+        "canonical": "cancelled",
+        "state": "cancelled",
+        "money": {
+          "invoice_id": "9d745d19-6aa1-48a2-b724-db36adc17662",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 30,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 30,
+          "provider_reserved": 0,
+          "uncommitted_balance": 30,
+          "payment_status": "unpaid"
+        },
+        "paynow": {
+          "method": "onemoney",
+          "initiation": "attached",
+          "provider_status": "failed",
+          "provider_status_label": "Not completed — Paynow reports the payment was cancelled or failed; nothing was charged",
+          "checkout_url": null,
+          "instructions": "Approve the OneMoney payment request sent to your phone with your OneMoney PIN.",
+          "authorization_code": null,
+          "authorization_expires": null,
+          "otp_reference": null,
+          "needs_otp": false,
+          "phone": "077*****33",
+          "hold_released": false,
+          "paynow_reference": null,
+          "provider_error": null
+        }
+      }
+    },
+    {
+      "case": "E3",
+      "title": "Input refusals reserve nothing: an invalid phone, a method the garage did not enable, InnBucks for ZWG",
+      "pass": true,
+      "detail": {
+        "bad_phone": [
+          422,
+          "PAY05_PHONE_INVALID"
+        ],
+        "method_not_enabled": [
+          422,
+          "PAY05_METHOD_NOT_AVAILABLE"
+        ],
+        "innbucks_zwg": [
+          422,
+          "PAY05_METHOD_NOT_AVAILABLE"
+        ],
+        "collections_created": "0"
+      }
+    },
+    {
+      "case": "E4",
+      "title": "InnBucks: the customer gets Paynow’s authorization code; the payment counts only when Paynow says Paid",
+      "pass": true,
+      "detail": {
+        "start": 201,
+        "paynow": {
+          "method": "innbucks",
+          "initiation": "attached",
+          "provider_status": null,
+          "provider_status_label": "Waiting for you to pay on Paynow",
+          "checkout_url": null,
+          "instructions": "Pay with the InnBucks app using the authorization code, USD only.",
+          "authorization_code": "(present)",
+          "authorization_expires": "2-Nov-2026 11:05",
+          "otp_reference": null,
+          "needs_otp": false,
+          "phone": "077*****09",
+          "hold_released": false,
+          "paynow_reference": null,
+          "provider_error": null
+        },
+        "paid": true
+      }
+    },
+    {
+      "case": "E5",
+      "title": "O’mari: a wrong one-time password is refused and recorded; the right one completes an authenticated payment",
+      "pass": true,
+      "detail": {
+        "start": 201,
+        "needs_otp": true,
+        "wrong": [
+          422,
+          "PAY05_OTP_REJECTED"
+        ],
+        "stranger": 404,
+        "right": [
+          200,
+          "confirmed"
+        ]
+      }
+    },
+    {
+      "case": "Z1",
+      "title": "ZWG: a ZWG invoice is paid through the garage’s ZWG integration; ISO code ZWG everywhere, never \"ZIG\"",
+      "pass": true,
+      "detail": {
+        "start": [
+          201,
+          "ZWG"
+        ],
+        "canonical": "ZWG|ZWG",
+        "simulator_integration_is_zwg": true,
+        "zig_rows": "0"
+      }
+    },
+    {
+      "case": "Z2",
+      "title": "Currency mismatch: garage B has no ZWG integration — no ZWG checkout, nothing reserved, never converted",
+      "pass": true,
+      "detail": {
+        "option": {
+          "available": false,
+          "reason": "currency_not_supported"
+        },
+        "start": [
+          503,
+          "PAY05_INTEGRATION_UNAVAILABLE"
+        ],
+        "collections": "0"
+      }
+    },
+    {
+      "case": "S1",
+      "title": "A status update signed with the WRONG key is refused (401), recorded, and changes nothing",
+      "pass": true,
+      "detail": {
+        "response": {
+          "status": 400,
+          "json": {
+            "error": "PAY05_STATUS_UPDATE_REFUSED"
+          }
+        },
+        "canonical": "pending",
+        "errors": 1
+      }
+    },
+    {
+      "case": "S2",
+      "title": "A correctly signed update TAMPERED after signing (amount), and an unsigned one, are refused",
+      "pass": true,
+      "detail": {
+        "tampered": {
+          "status": 400,
+          "json": {
+            "error": "PAY05_STATUS_UPDATE_REFUSED"
+          }
+        },
+        "unsigned": {
+          "status": 400,
+          "json": {
+            "error": "PAY05_STATUS_UPDATE_REFUSED"
+          }
+        }
+      }
+    },
+    {
+      "case": "S3",
+      "title": "Cross-garage: an update for garage A’s payment signed with garage B’s REAL key is refused",
+      "pass": true,
+      "detail": {
+        "response": {
+          "status": 400,
+          "json": {
+            "error": "PAY05_STATUS_UPDATE_REFUSED"
+          }
+        }
+      }
+    },
+    {
+      "case": "S4",
+      "title": "Cross-collection: a GENUINE signed Paid for one payment, posted to another payment’s resulturl, is refused (binding)",
+      "pass": true,
+      "detail": {
+        "response": {
+          "status": 400,
+          "json": {
+            "error": "PAY05_STATUS_UPDATE_REFUSED"
+          }
+        }
+      }
+    },
+    {
+      "case": "S5",
+      "title": "Unknown, malformed and non-Paynow collection ids get the same answer as a forgery (no oracle; independent review S5)",
+      "pass": false,
+      "detail": {
+        "unknown": {
+          "status": 400,
+          "json": {
+            "error": "PAY05_STATUS_UPDATE_REFUSED"
+          }
+        },
+        "malformed": {
+          "status": 403,
+          "json": {
+            "error": "CSRF validation failed. Request untrusted."
+          }
+        },
+        "non_paynow": {
+          "status": 400,
+          "json": {
+            "error": "PAY05_STATUS_UPDATE_REFUSED"
+          }
+        }
+      }
+    },
+    {
+      "case": "S6",
+      "title": "Authority: another customer and another garage cannot read, verify, stop, reconcile or see a garage A Paynow payment",
+      "pass": true,
+      "detail": {
+        "stranger_verify": 404,
+        "stranger_stop": 404,
+        "stranger_view": 404,
+        "garage_b_reconcile": 404,
+        "garage_b_view": 404,
+        "garage_b_connection_is_its_own": true,
+        "customer_row_paynow": {
+          "method": "ecocash",
+          "initiation": "attached",
+          "provider_status": null,
+          "provider_status_label": "Waiting for you to pay on Paynow",
+          "checkout_url": null,
+          "instructions": "Dial *151*2*4# and enter your EcoCash PIN to approve the payment request sent to your phone.",
+          "authorization_code": null,
+          "authorization_expires": null,
+          "otp_reference": null,
+          "needs_otp": false,
+          "phone": "077*****03",
+          "hold_released": false,
+          "paynow_reference": null,
+          "provider_error": null,
+          "simulated": true
+        }
+      }
+    },
+    {
+      "case": "A1",
+      "title": "Amount mismatch: Paynow reports Paid for a different amount — under review, not counted",
+      "pass": true,
+      "detail": {
+        "state": "under_review",
+        "discrepancies": "amount_mismatch",
+        "money": {
+          "invoice_id": "3f3457c9-0860-4906-84cf-5828b0e48bf2",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 70,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 70,
+          "provider_reserved": 70,
+          "uncommitted_balance": 0,
+          "payment_status": "unpaid"
+        }
+      }
+    },
+    {
+      "case": "T1",
+      "title": "A lost initiate reply is recovered by an authenticated TRACE — never by sending the payment twice",
+      "pass": true,
+      "detail": {
+        "start": 201,
+        "simulator_transactions": 1,
+        "transaction": {
+          "initiation_state": "attached",
+          "provider_status": "sent",
+          "method": "ecocash",
+          "phone_masked": "077*****04",
+          "has_last_hash": false,
+          "hold_released_at": null,
+          "trace_absent_count": 0
+        },
+        "paynow": {
+          "method": "ecocash",
+          "initiation": "attached",
+          "provider_status": "sent",
+          "provider_status_label": "Waiting for you to approve the payment on your phone",
+          "checkout_url": null,
+          "instructions": null,
+          "authorization_code": null,
+          "authorization_expires": null,
+          "otp_reference": null,
+          "needs_otp": false,
+          "phone": "077*****04",
+          "hold_released": false,
+          "paynow_reference": null,
+          "provider_error": null
+        }
+      }
+    },
+    {
+      "case": "T2",
+      "title": "Paynow refuses the request: nothing exists at Paynow, the collection closes, the room is free",
+      "pass": true,
+      "detail": {
+        "start": [
+          502,
+          "PAY05_PROVIDER_REFUSED"
+        ],
+        "collections": [
+          {
+            "cancelled": true
+          }
+        ],
+        "money": {
+          "invoice_id": "c14a88fa-5eb4-4835-ac36-6326c8866b61",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 25,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 25,
+          "provider_reserved": 0,
+          "uncommitted_balance": 25,
+          "payment_status": "unpaid"
+        }
+      }
+    },
+    {
+      "case": "T2b",
+      "title": "The refused request existed at Paynow after all: its later SIGNED Paid binds late into an operator review — never lost, never counted (independent review P1)",
+      "pass": true,
+      "detail": {
+        "discrepancies": "provider_paid_after_close",
+        "canonical": "cancelled",
+        "transaction": {
+          "initiation_state": "attached",
+          "attached_after_close": true
+        },
+        "money": {
+          "invoice_id": "c14a88fa-5eb4-4835-ac36-6326c8866b61",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 25,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 25,
+          "provider_reserved": 0,
+          "uncommitted_balance": 25,
+          "payment_status": "unpaid"
+        }
+      }
+    },
+    {
+      "case": "T3",
+      "title": "A failed provider read fabricates nothing; the next read works",
+      "pass": true,
+      "detail": {
+        "during": [
+          502,
+          "PAY05_PROVIDER_READ_FAILED"
+        ],
+        "after": "under_review"
+      }
+    },
+    {
+      "case": "X1",
+      "title": "Stop vs pay: the customer stops, Paynow cannot cancel, the room stays held — then the customer approves anyway: counted once",
+      "pass": true,
+      "detail": {
+        "stop": [
+          200,
+          "stopping",
+          "Paynow cannot cancel a payment request. If you do not complete it, nothing is charged; if you do pay it, it still counts."
+        ],
+        "held_money": {
+          "invoice_id": "6d31b82f-5823-4269-8a39-23d79e60bde5",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 55,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 55,
+          "provider_reserved": 55,
+          "uncommitted_balance": 0,
+          "payment_status": "unpaid"
+        },
+        "after_pay": {
+          "invoice_id": "6d31b82f-5823-4269-8a39-23d79e60bde5",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 55,
+          "declared_paid": 0,
+          "provider_paid": 55,
+          "paid_amount": 55,
+          "balance_amount": 0,
+          "provider_reserved": 0,
+          "uncommitted_balance": 0,
+          "payment_status": "paid"
+        }
+      }
+    },
+    {
+      "case": "X2",
+      "title": "Concurrency: five simultaneous Paynow requests for the whole balance — exactly one reserves it and exactly one reaches Paynow",
+      "pass": true,
+      "detail": {
+        "statuses": [
+          "409:PAY04_COLLECTION_EXCEEDS_UNCOMMITTED_BALANCE",
+          "201:",
+          "409:PAY04_COLLECTION_EXCEEDS_UNCOMMITTED_BALANCE",
+          "409:PAY04_COLLECTION_EXCEEDS_UNCOMMITTED_BALANCE",
+          "409:PAY04_COLLECTION_EXCEEDS_UNCOMMITTED_BALANCE"
+        ],
+        "simulator_transactions": 1,
+        "money": {
+          "invoice_id": "8e8f8b61-2c37-416a-adbe-a2b8c84d1884",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 75,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 75,
+          "provider_reserved": 75,
+          "uncommitted_balance": 0,
+          "payment_status": "unpaid"
+        }
+      }
+    },
+    {
+      "case": "X3",
+      "title": "Concurrency: five simultaneous resends of a Paid update — one allocation, one receipt",
+      "pass": true,
+      "detail": {
+        "deliveries": [
+          200,
+          200,
+          200,
+          200,
+          200
+        ],
+        "allocations": 1
+      }
+    },
+    {
+      "case": "R1",
+      "title": "A CarUp refund of a Paynow payment is refused with the truth: refund in the Paynow dashboard (no merchant refund API)",
+      "pass": true,
+      "detail": {
+        "status": 409,
+        "code": "PAY05_PROVIDER_REFUND_UNSUPPORTED",
+        "body": {
+          "error": "PAY05_PROVIDER_REFUND_UNSUPPORTED",
+          "code": "PAY05_PROVIDER_REFUND_UNSUPPORTED",
+          "details": {
+            "guidance": "Paynow does not let CarUp refund. Refund the customer in your Paynow dashboard; CarUp records it when Paynow reports it."
+          }
+        }
+      }
+    },
+    {
+      "case": "R2",
+      "title": "Dispute then resolution: Disputed holds the money (under review, not counted); Paid again counts it again — each a NEW event",
+      "pass": false,
+      "detail": {
+        "disputed_state": "under_review",
+        "money_during": {
+          "invoice_id": "92cc5f2b-4c20-49a2-aca4-b546adcb1636",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 50,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 50,
+          "provider_reserved": 50,
+          "uncommitted_balance": 0,
+          "payment_status": "unpaid"
+        },
+        "operator_force_close": [
+          503,
+          "PAY04_OPERATION_UNAVAILABLE"
+        ],
+        "after": "confirmed",
+        "status_update_observations": "paid,disputed,paid"
+      }
+    },
+    {
+      "case": "R3",
+      "title": "Paynow reports the garage refunded in its dashboard: CarUp counts nothing for it, voids the receipt, tells the customer, and asks an operator to confirm the amount",
+      "pass": true,
+      "detail": {
+        "canonical": "refunded",
+        "money": {
+          "invoice_id": "92cc5f2b-4c20-49a2-aca4-b546adcb1636",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 50,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 50,
+          "provider_reserved": 0,
+          "uncommitted_balance": 50,
+          "payment_status": "unpaid"
+        },
+        "refunded_notifications": 1,
+        "operator_review": "provider_refund_unquantified",
+        "gateway": "paynow_zimbabwe",
+        "acknowledged": [
+          200,
+          ""
+        ]
+      }
+    },
+    {
+      "case": "L1",
+      "title": "CarUp’s collection time passes: the request is HELD (Paynow cannot cancel); release refused before expiry; listed for the operator",
+      "pass": false,
+      "detail": {
+        "release_before_expiry": [
+          200,
+          ""
+        ],
+        "garage_admin_list": 403
+      }
+    },
+    {
+      "case": "L2",
+      "title": "The operator releases the hold after a FRESH authenticated unpaid read; the room is free again",
+      "pass": true,
+      "detail": {
+        "no_reason": [
+          422,
+          "PAY05_REASON_REQUIRED"
+        ],
+        "release": 200,
+        "money": {
+          "invoice_id": "73dbe4b1-c065-4259-a6fb-d5ae9053d17a",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 35,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 35,
+          "provider_reserved": 0,
+          "uncommitted_balance": 35,
+          "payment_status": "unpaid"
+        },
+        "last_read": "poll:sent"
+      }
+    },
+    {
+      "case": "U1",
+      "title": "The operator releases the UNCONFIRMED request after expiry and a fresh trace attempt; Paynow's late Paid then counts only into free room (independent review P2)",
+      "pass": true,
+      "detail": {
+        "listed": {
+          "method": "ecocash",
+          "initiation": "unknown",
+          "provider_status": null,
+          "provider_status_label": "CarUp is confirming with Paynow whether the payment request was received (not counted)",
+          "checkout_url": null,
+          "instructions": null,
+          "authorization_code": null,
+          "authorization_expires": null,
+          "otp_reference": null,
+          "needs_otp": false,
+          "phone": "077*****11",
+          "hold_released": false,
+          "paynow_reference": null,
+          "provider_error": "PAY05_PROVIDER_UNREACHABLE"
+        },
+        "release": [
+          200,
+          ""
+        ],
+        "freed": {
+          "invoice_id": "2466e34c-da03-4920-b2ca-78db10a78d77",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 20,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 20,
+          "provider_reserved": 0,
+          "uncommitted_balance": 20,
+          "payment_status": "unpaid"
+        },
+        "after": {
+          "invoice_id": "2466e34c-da03-4920-b2ca-78db10a78d77",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 20,
+          "declared_paid": 0,
+          "provider_paid": 20,
+          "paid_amount": 20,
+          "balance_amount": 0,
+          "provider_reserved": 0,
+          "uncommitted_balance": 0,
+          "payment_status": "paid"
+        }
+      }
+    },
+    {
+      "case": "L3",
+      "title": "Late money: the customer approves AFTER the release — never silently counted; under review as money paid after close",
+      "pass": false,
+      "detail": {
+        "discrepancies": "",
+        "state": "confirmed",
+        "money": {
+          "invoice_id": "73dbe4b1-c065-4259-a6fb-d5ae9053d17a",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 35,
+          "declared_paid": 0,
+          "provider_paid": 35,
+          "paid_amount": 35,
+          "balance_amount": 0,
+          "provider_reserved": 0,
+          "uncommitted_balance": 0,
+          "payment_status": "paid"
+        }
+      }
+    },
+    {
+      "case": "O1",
+      "title": "Availability: a garage cannot switch Paynow; the operator switches it off (checkouts refused) and on, with a reason",
+      "pass": true,
+      "detail": {
+        "garage_admin": 403,
+        "option_off": {
+          "available": false,
+          "reason": "provider_not_enabled"
+        },
+        "start_off": [
+          503,
+          "PAY04_GATEWAY_NOT_PERMITTED"
+        ],
+        "option_on": true
+      }
+    },
+    {
+      "case": "O2",
+      "title": "Suspension: the operator suspends garage B’s Paynow merchant — B cannot take Paynow payments; the audit trail records it",
+      "pass": true,
+      "detail": {
+        "before": true,
+        "suspend": 200,
+        "after": {
+          "available": false,
+          "reason": "garage_not_connected"
+        },
+        "start_after": [
+          503,
+          "PAY04_GARAGE_MERCHANT_NOT_AVAILABLE"
+        ],
+        "audit": "merchant_registered,integration_registered,integration_verified,merchant_verified,merchant_suspended"
+      }
+    },
+    {
+      "case": "O3",
+      "title": "Provider errors and merchant history are visible to the operator — with no key, hash or poll URL in them",
+      "pass": true,
+      "detail": {
+        "kinds": [
+          "callback_binding_mismatch",
+          "callback_signature_invalid",
+          "credential_probe_failed",
+          "otp_rejected",
+          "poll_failed",
+          "provider_refused",
+          "provider_unreachable",
+          "trace_failed"
+        ],
+        "merchants": 3,
+        "garage_admin": 403
+      }
+    },
+    {
+      "case": "INV",
+      "title": "Invariants: no key plaintext anywhere; garage money only; paid ≤ total; one Paynow request per collection; no \"ZIG\"",
+      "pass": true,
+      "detail": {
+        "key_plaintext_hits": {
+          "pay05_merchant_integrations": 0,
+          "pay05_merchant_profiles": 0,
+          "pay05_merchant_audit_events": 0,
+          "pay05_paynow_transactions": 0,
+          "pay05_paynow_observations": 0,
+          "pay05_provider_errors": 0,
+          "pay04_garage_merchant_accounts": 0,
+          "pay04_garage_collections": 0,
+          "pay04_garage_collection_events": 0,
+          "payment_transactions": 0,
+          "domain_events": 0
+        },
+        "over_allocated": "0",
+        "garage_money_as_carup_money": "0",
+        "receipts_not_equal_counted": "0",
+        "paynow_requests_per_collection_max": 1,
+        "collections_checked": 13,
+        "zig_rows": "0"
+      }
+    }
+  ],
+  "facts": {
+    "merchantA": "d812643e-4e26-49d5-a609-e33eea22f054",
+    "simTransactionsAfterProbe": 0,
+    "merchantB": "ddac4d0a-67ca-4700-aee2-f60708151b53",
+    "p1": {
+      "collection": "fd537a97-bdff-434c-ba0a-e9b41f7fbfe8",
+      "simulator_guid": "be0f1887-e667-4aa2-b479-b5b32bb74696"
+    },
+    "zwgInvoice": {
+      "id": "0996fd51-c21a-41f1-a868-b0a45dcdb150",
+      "invoice_number": "INV-000007",
+      "service_case_id": "e5c75343-5ec6-4fcb-be28-2b857f8e2c0f",
+      "work_order_id": "d1955b39-0320-4c8d-ace4-a56c61a552cc",
+      "status": "issued",
+      "currency": "ZWG",
+      "total_amount": "170.00",
+      "line_count": 2,
+      "customer_note": null,
+      "due_date": null,
+      "issued_at": "2026-11-02T10:34:30.562987+00:00",
+      "voided_at": null,
+      "void_reason": null,
+      "estimate": {
+        "version": 1,
+        "total_amount": "170.00",
+        "currency": "ZWG"
+      },
+      "variance": {
+        "state": "comparable",
+        "currency": "ZWG",
+        "estimate_total": "170.00",
+        "invoice_total": "170.00",
+        "difference": "0.00",
+        "direction": "same"
+      },
+      "payment_status": "unpaid",
+      "paid_amount": "0.00",
+      "balance_amount": "170.00",
+      "payment_source_label": "Recorded by the garage. CarUp has not processed or verified this payment.",
+      "lines": [
+        {
+          "line_no": 1,
+          "category": "labour",
+          "description": "Service — brakes",
+          "quantity": "1",
+          "unit_price": "150.00",
+          "line_total": "150.00"
+        },
+        {
+          "line_no": 2,
+          "category": "part",
+          "description": "Brake pads (PAY-05 QA ZWG)",
+          "quantity": "1",
+          "unit_price": "20.00",
+          "line_total": "20.00"
+        }
+      ],
+      "payments": [],
+      "receipts": [],
+      "provider_payments_supported": true,
+      "money": {
+        "declared_paid": "0.00",
+        "provider_paid": "0.00",
+        "provider_reserved": "0.00",
+        "uncommitted_balance": "170.00"
+      },
+      "provider_payments": [],
+      "provider_receipts": [],
+      "provider_source_label": "Confirmed by the garage’s payment provider. The money is paid to the garage, not to CarUp.",
+      "internal_note": null,
+      "issued_by_user_id": "p5qa_admina_5516ae9c",
+      "history": [
+        {
+          "event_type": "issued",
+          "actor_user_id": "p5qa_admina_5516ae9c",
+          "created_at": "2026-11-02T10:34:30.562987+00:00",
+          "detail": {
+            "currency": "ZWG",
+            "line_count": 2,
+            "total_amount": "170.00",
+            "invoice_number": "INV-000007"
+          }
+        }
+      ],
+      "provider_history": [],
+      "notification": {
+        "attempted": 1,
+        "emitted": 1,
+        "failures": []
+      }
+    }
+  },
+  "summary": {
+    "total": 41,
+    "passed": 35,
+    "failed": [
+      "M4",
+      "E1",
+      "S5",
+      "R2",
+      "L1",
+      "L3"
+    ]
+  }
+}

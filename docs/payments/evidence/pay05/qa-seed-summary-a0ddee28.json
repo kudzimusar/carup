@@ -1,0 +1,101 @@
+{
+  "recorded_at": "2026-11-02T13:20:45.725Z",
+  "authority": "MODERATOR-CARUP-PAY-05-LR01-LEVEL1-LOCAL-PAYNOW-PROTOCOL-SIMULATOR",
+  "backend_commit": "a0ddee281e75936da39ea1adb3d8105bead63bc3",
+  "garages": {
+    "A": "b4df2d94-3937-4590-93ec-18ac0a2b009c",
+    "B": "5a9b8fd1-11ed-4bdd-a41e-a0814beb88c0",
+    "C": "3926b0b7-82b7-438b-99d2-37d94b1f7ccf"
+  },
+  "simulated_integrations": {
+    "A_USD": {
+      "integration_id": "58543",
+      "currency": "USD",
+      "methods": [
+        "web",
+        "ecocash",
+        "onemoney",
+        "innbucks",
+        "omari"
+      ]
+    },
+    "A_ZWG": {
+      "integration_id": "21822",
+      "currency": "ZWG",
+      "methods": [
+        "web",
+        "ecocash",
+        "onemoney"
+      ]
+    },
+    "B_USD": {
+      "integration_id": "75789",
+      "currency": "USD",
+      "methods": [
+        "web",
+        "ecocash"
+      ]
+    },
+    "C_USD": {
+      "integration_id": "35726",
+      "currency": "USD",
+      "methods": [
+        "web",
+        "ecocash",
+        "onemoney",
+        "innbucks",
+        "omari"
+      ]
+    },
+    "C_ZWG": {
+      "integration_id": "61786",
+      "currency": "ZWG",
+      "methods": [
+        "web",
+        "ecocash"
+      ]
+    }
+  },
+  "users": {
+    "adminA": {
+      "userId": "p5qa_admina_d344d1b2",
+      "role": "owner"
+    },
+    "mechA": {
+      "userId": "p5qa_mecha_c6f29df5",
+      "role": "owner"
+    },
+    "adminB": {
+      "userId": "p5qa_adminb_d28f3b5c",
+      "role": "owner"
+    },
+    "mechB": {
+      "userId": "p5qa_mechb_c34ae48f",
+      "role": "owner"
+    },
+    "adminC": {
+      "userId": "p5qa_adminc_6d51d5ea",
+      "role": "owner"
+    },
+    "mechC": {
+      "userId": "p5qa_mechc_c488bd50",
+      "role": "owner"
+    },
+    "customer": {
+      "userId": "p5qa_customer_d9e60d1e",
+      "role": "owner"
+    },
+    "stranger": {
+      "userId": "p5qa_stranger_8c8e3f48",
+      "role": "owner"
+    },
+    "ops": {
+      "userId": "p5qa_ops_415e3af2",
+      "role": "admin"
+    },
+    "opsMemberA": {
+      "userId": "p5qa_opsmembera_dc074ff1",
+      "role": "admin"
+    }
+  }
+}

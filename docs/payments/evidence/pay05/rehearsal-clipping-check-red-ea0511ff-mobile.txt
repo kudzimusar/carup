@@ -1,0 +1,45 @@
+
+Running 1 test using 1 worker
+
+  ✘  1 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:450:3 › E/F: Paynow checkout, garage connection and operator panel at mobile — accessible, no overflow, no clipped control (20.1s)
+
+
+  1) [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:450:3 › E/F: Paynow checkout, garage connection and operator panel at mobile — accessible, no overflow, no clipped control
+
+    Error: every control in [data-testid="invoice-card"] holds its words and keeps its size
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 8
+
+    - Array []
+    + Array [
+    +   "paynow-start: 52px of words in a 44px button",
+    +   "paynow-method-ecocash: squeezed to 13×20 px",
+    +   "paynow-method-innbucks: squeezed to 13×20 px",
+    +   "paynow-method-omari: squeezed to 13×20 px",
+    +   "paynow-method-onemoney: squeezed to 13×20 px",
+    +   "paynow-method-web: squeezed to 13×20 px",
+    + ]
+
+      169 |     return out
+      170 |   })
+    > 171 |   expect(problems, `every control in ${include} holds its words and keeps its size`).toEqual([])
+          |                                                                                      ^
+      172 | }
+      173 | async function axeClean(page: Page, include: string) {
+      174 |   // the RESTING state: a click leaves the pointer over whatever renders next, and the shared Button fades 0.5 → 1 over
+        at noClippedControls (~/carup-pay05/web/e2e/pay05-zimbabwe-paynow.spec.ts:171:86)
+        at ~/carup-pay05/web/e2e/pay05-zimbabwe-paynow.spec.ts:456:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/pay05-zimbabwe-paynow-E-F--ba4ef-overflow-no-clipped-control-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/pay05-zimbabwe-paynow-E-F--ba4ef-overflow-no-clipped-control-chromium/error-context.md
+
+    Error Context: test-results/pay05-zimbabwe-paynow-E-F--ba4ef-overflow-no-clipped-control-chromium/error-context.md
+
+  1 failed
+    [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:450:3 › E/F: Paynow checkout, garage connection and operator panel at mobile — accessible, no overflow, no clipped control

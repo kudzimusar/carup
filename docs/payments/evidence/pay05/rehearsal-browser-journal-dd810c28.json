@@ -1,0 +1,28 @@
+[
+  {
+    "step": "provenance",
+    "at": "2026-11-02T11:07:46.020Z",
+    "web": "dd810c286e1a222e9035bfa484bab359190dd90c",
+    "backend": "dd810c286e1a222e9035bfa484bab359190dd90c"
+  },
+  {
+    "step": "operator-held",
+    "at": "2026-11-02T11:08:09.059Z",
+    "collection": "9fcb2b7f-8ec8-459d-8439-18e6e810dbfd"
+  },
+  {
+    "step": "viewport-desktop",
+    "at": "2026-11-02T11:09:02.009Z",
+    "ok": true
+  },
+  {
+    "step": "viewport-tablet",
+    "at": "2026-11-02T11:10:03.394Z",
+    "ok": true
+  },
+  {
+    "step": "viewport-mobile",
+    "at": "2026-11-02T11:11:05.696Z",
+    "ok": true
+  }
+]

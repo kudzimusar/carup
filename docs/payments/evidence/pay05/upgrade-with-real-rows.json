@@ -1,0 +1,12 @@
+{
+  "recorded_at": "2026-11-02T10:17:58Z",
+  "what": "PAY-05 final migration applied over the archived PAY-04 physical-UAT database (restored into a fresh carup-pay04-supabase stack)",
+  "archive": "pay04-uat-db-before-pay05-20261102T092511Z.dump (sha256 c907d925b082f589a009b811a6bbe56e8f3bc6401a498725e6793c25be00c598)",
+  "pay04_rows_present": { "garage_invoices": 16, "pay04_garage_collections": 14, "users": 13, "ledger_entries_before": 79 },
+  "pay05_migration_sha256": "75b16ae8097e6ddfc1a0b113b1ad8b68ba5336952b63f62137c45836576389a4",
+  "ledger_entries_after": 81,
+  "fingerprint_query": "md5 over pay04 merchant accounts, collections, allocations, provider receipts, collection events, discrepancies, payment_transactions and pay04_invoice_money of every invoice (same as scripts/ci/pay05-postgres-certification.sh, plus the canonical ledger)",
+  "fingerprint_before_pay04_functions": "1eb4a35f6ac52acc25decb70fb70c394",
+  "fingerprint_after_pay05_functions": "1eb4a35f6ac52acc25decb70fb70c394",
+  "identical": true
+}

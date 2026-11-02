@@ -1,0 +1,744 @@
+{
+  "summary": {
+    "total": 62,
+    "killed": 58,
+    "survived": [
+      "BASE-UNIT",
+      "BASE-SVC",
+      "BASE-SQL",
+      "BASE-WEB"
+    ],
+    "invalid": [],
+    "worktree_clean_after": true
+  },
+  "results": [
+    {
+      "id": "BASE-UNIT",
+      "file": "backend/services/payment/pay05PaynowProtocol.js",
+      "why": "baseline: unit tests pass unmutated",
+      "verdict": "SURVIVED",
+      "seconds": 0.4,
+      "evidence": []
+    },
+    {
+      "id": "BASE-SVC",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "baseline: real-PG services pass unmutated",
+      "verdict": "SURVIVED",
+      "seconds": 7.6,
+      "evidence": []
+    },
+    {
+      "id": "J01-binding",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "status update for another payment accepted",
+      "verdict": "KILLED",
+      "seconds": 7.5,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 7408.206291"
+      ]
+    },
+    {
+      "id": "J02-dedupe-hash-only",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "Paid-again after a poll-learned dispute dropped (D7)",
+      "verdict": "KILLED",
+      "seconds": 8.2,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 8057.565417"
+      ]
+    },
+    {
+      "id": "J03-no-ticket-poll",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "poll read ordering lost (D1)",
+      "verdict": "KILLED",
+      "seconds": 7.2,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 7130.406708"
+      ]
+    },
+    {
+      "id": "J04-no-late-attach",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "late signed money on a refused request lost (P1)",
+      "verdict": "KILLED",
+      "seconds": 7.3,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 7229.608042"
+      ]
+    },
+    {
+      "id": "J05-refused-not-marked",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "refused request keeps the room (S1)",
+      "verdict": "KILLED",
+      "seconds": 6.9,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 6831.951708"
+      ]
+    },
+    {
+      "id": "J06-customer-view",
+      "file": "backend/services/payment/pay04GaragePaymentService.js",
+      "why": "garage-side Paynow detail leaks to the customer (S4)",
+      "verdict": "KILLED",
+      "seconds": 7.4,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 7266.339"
+      ]
+    },
+    {
+      "id": "J07-refresh-throttle",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "every view re-reads Paynow (S10)",
+      "verdict": "KILLED",
+      "seconds": 6.9,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 6831.547375"
+      ]
+    },
+    {
+      "id": "J08-kill-switch",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "PAY-05 off still calls Paynow (S3)",
+      "verdict": "KILLED",
+      "seconds": 6.9,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 6839.646666"
+      ]
+    },
+    {
+      "id": "J09-verify-precheck",
+      "file": "backend/services/payment/pay05MerchantService.js",
+      "why": "probes run before separation (S9)",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 544.130916"
+      ]
+    },
+    {
+      "id": "J10-refund-guard",
+      "file": "backend/services/payment/pay04GaragePaymentService.js",
+      "why": "CarUp pretends to refund a Paynow payment",
+      "verdict": "KILLED",
+      "seconds": 6.8,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 6712.263417"
+      ]
+    },
+    {
+      "id": "J11-trace-reference",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "trace reply for another reference (S6; SQL is the second line)",
+      "verdict": "KILLED",
+      "seconds": 6.8,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 6737.038167"
+      ]
+    },
+    {
+      "id": "J12-otp-oracle",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "OTP route distinguishes absent from foreign (S5)",
+      "verdict": "KILLED",
+      "seconds": 6.9,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 6794.005375"
+      ]
+    },
+    {
+      "id": "J13-url-refusal-kind",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "URL refusal misreported as forgery (P6)",
+      "verdict": "KILLED",
+      "seconds": 6.9,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 6789.816375"
+      ]
+    },
+    {
+      "id": "J14-currency-evidence",
+      "file": "backend/services/payment/pay05MerchantService.js",
+      "why": "currency review not required from the operator (P3)",
+      "verdict": "KILLED",
+      "seconds": 6.9,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 6792.921042"
+      ]
+    },
+    {
+      "id": "J15-key-normalise",
+      "file": "backend/services/payment/pay05MerchantService.js",
+      "why": "pasted upper-case key not normalised (P5)",
+      "verdict": "KILLED",
+      "seconds": 0.7,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 613.988916"
+      ]
+    },
+    {
+      "id": "J20-signature-skip",
+      "file": "backend/services/payment/pay05PaynowAdapter.js",
+      "why": "status update accepted without a valid hash",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 331.297583"
+      ]
+    },
+    {
+      "id": "J21-hash-no-trim",
+      "file": "backend/services/payment/pay05PaynowProtocol.js",
+      "why": "values not trimmed (P5)",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 266.708333"
+      ]
+    },
+    {
+      "id": "J22-verify-always",
+      "file": "backend/services/payment/pay05PaynowProtocol.js",
+      "why": "every hash accepted",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 267.248792"
+      ]
+    },
+    {
+      "id": "J23-escrow-is-money",
+      "file": "backend/services/payment/pay05PaynowProtocol.js",
+      "why": "escrow counted as paid",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 245.604208"
+      ]
+    },
+    {
+      "id": "J24-url-allowlist",
+      "file": "backend/services/payment/pay05PaynowProtocol.js",
+      "why": "SSRF: any origin followed",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 249.307375"
+      ]
+    },
+    {
+      "id": "J25-webhook-oracle",
+      "file": "backend/routes/pay05ZimbabweCollectionRoutes.js",
+      "why": "resulturl discloses why (S5)",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 247.384125"
+      ]
+    },
+    {
+      "id": "J26-aad-unbound",
+      "file": "backend/services/payment/pay05CredentialVault.js",
+      "why": "sealed key opens under any binding",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 245.861916"
+      ]
+    },
+    {
+      "id": "J27-not-sent",
+      "file": "backend/services/payment/pay05PaynowAdapter.js",
+      "why": "local refusal looks like a possible request (S8)",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 250.935792"
+      ]
+    },
+    {
+      "id": "J28-timeout",
+      "file": "backend/services/payment/pay05PaynowAdapter.js",
+      "why": "initiation uses the short read timeout (P8)",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 258.189708"
+      ]
+    },
+    {
+      "id": "J29-stream-cap",
+      "file": "backend/services/payment/pay05PaynowAdapter.js",
+      "why": "oversized streamed reply accepted (P6)",
+      "verdict": "KILLED",
+      "seconds": 3.2,
+      "evidence": [
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 3162.529292"
+      ]
+    },
+    {
+      "id": "BASE-SQL",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "baseline: the smoke passes unmutated",
+      "verdict": "SURVIVED",
+      "seconds": 7.2,
+      "evidence": []
+    },
+    {
+      "id": "S01-superseded",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "stale read applied (D1)",
+      "verdict": "KILLED",
+      "seconds": 3.0,
+      "evidence": [
+        "    AND (SELECT provider_status FROM pay05_paynow_transactions WHERE collection_id = c) = 'paid', 'a stale read applied late changes nothing')\"",
+        "PL/pgSQL function inline_code_block line 18 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S02-stale-regression",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "Sent after Paid applied (D1)",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "    'escrow after Paid changes nothing')\"",
+        "PL/pgSQL function inline_code_block line 94 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S03-amount",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "wrong amount counted",
+      "verdict": "KILLED",
+      "seconds": 2.9,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay04_resolve_garage_payment_discrepancy(%L, 'provider_corrected', 'p5-op', 'admin', 'A mismatched Paid is not the end of the dispute.')$q$, v_disc), 'PAY05_DISPUTE_NOT_RESOLVED_BY_PROVIDER')\"",
+        "PL/pgSQL function inline_code_block line 36 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S04-paid-after-close",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "money after close not reviewed",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.check(pg_temp.status(c3) = 'cancelled' AND pg_temp.open_disc(c3, 'provider_paid_after_close') AND v_m.provider_paid = 0, 'money after close: recorded for an operator, never counted')\"",
+        "PL/pgSQL function inline_code_block line 16 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S05-dispute-close",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "Paid never ends a dispute",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "    AND (SELECT resolution FROM pay04_garage_payment_discrepancies WHERE id = v_disc) = 'provider_corrected', 'Paynow''s Paid ends the dispute and the money counts again')\"",
+        "PL/pgSQL function inline_code_block line 65 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S06-dispute-gate",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "mismatched Paid satisfies the dispute gate (D1)",
+      "verdict": "KILLED",
+      "seconds": 2.8,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay04_resolve_garage_payment_discrepancy(%L, 'provider_corrected', 'p5-op', 'admin', 'A mismatched Paid is not the end of the dispute.')$q$, v_disc), 'PAY05_DISPUTE_NOT_RESOLVED_BY_PROVIDER')\"",
+        "PL/pgSQL function inline_code_block line 36 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S07-late-flag",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "closed request rebinds without a signed update",
+      "verdict": "KILLED",
+      "seconds": 1.6,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_attach_paynow_collection(%L, %L, %L, %L, '{}')$q$, c4, pg_temp.trace(c4), pg_temp.poll(c4), pg_temp.pid(c4)), 'PAY05_COLLECTION_CLOSED')\"",
+        "PL/pgSQL function inline_code_block line 42 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S08-attach-reference",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "reply for another reference binds (S6)",
+      "verdict": "KILLED",
+      "seconds": 5.3,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_attach_paynow_collection(%L, %L, %L, %L, '{}', 'pay04_gar_someone-else')$q$, c, pg_temp.trace(c), pg_temp.poll(c), pg_temp.pid(c)), 'PAY05_PROVIDER_BINDING_MISMATCH')\"",
+        "PL/pgSQL function inline_code_block line 107 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S09-refused-closes",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "refusal leaves the payment pending (S1)",
+      "verdict": "KILLED",
+      "seconds": 2.8,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.check(pg_temp.status(c) = 'cancelled' AND v_m.provider_reserved = 0 AND v_m.uncommitted_balance = 13.00, 'a refusal closes the payment and frees the room')\"",
+        "PL/pgSQL function inline_code_block line 49 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S10-release-expiry",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "release before expiry",
+      "verdict": "KILLED",
+      "seconds": 6.5,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_release_paynow_hold(%L, 'p5-op', 'admin', 'Not expired: the customer may still approve.')$q$, c), '^PAY05_HOLD_NOT_RELEASABLE$')\"",
+        "PL/pgSQL function inline_code_block line 171 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S11-release-fresh",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "release on a stale read",
+      "verdict": "KILLED",
+      "seconds": 2.8,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_release_paynow_hold(%L, 'p5-op', 'admin', 'Only a stale read exists.')$q$, c5), 'PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ')\"",
+        "PL/pgSQL function inline_code_block line 54 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S12-release-trace",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "unconfirmed request released blind (P2)",
+      "verdict": "KILLED",
+      "seconds": 5.3,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_release_paynow_hold(%L, 'p5-op', 'admin', 'No trace was attempted yet.')$q$, c), 'PAY05_HOLD_RELEASE_REQUIRES_FRESH_TRACE')\"",
+        "PL/pgSQL function inline_code_block line 91 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S13-release-self-dealing",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "garage member releases a hold",
+      "verdict": "KILLED",
+      "seconds": 2.8,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_release_paynow_hold(%L, 'p5-op-member', 'admin', 'A garage member cannot release.')$q$, c5), 'PAY05_RELEASE_SELF_DEALING_REFUSED')\"",
+        "PL/pgSQL function inline_code_block line 57 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S14-sending-availability",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "sends while Paynow is switched off (D5)",
+      "verdict": "KILLED",
+      "seconds": 5.4,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_record_paynow_sending(%L, %L, 'web', NULL)$q$, c, pg_temp.trace(c)), 'PAY04_GATEWAY_NOT_PERMITTED')\"",
+        "PL/pgSQL function inline_code_block line 147 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S15-currency-review",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "verified without the currency review (P3)",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "    v_evidence - 'currency_configuration_reviewed'), 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE')\"",
+        "PL/pgSQL function inline_code_block line 67 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S16-reviewer-separation",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "the garage verifies itself",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_verify_paynow_merchant(%L, 'p5a-admin', 'admin', %L, 'self verification attempt')$q$, v_acct.id, v_evidence), 'PAY05_VERIFICATION_AUTHORITY_REFUSED')\"",
+        "PL/pgSQL function inline_code_block line 57 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S17-error-throttle",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "unthrottled provider-error rows (S5)",
+      "verdict": "KILLED",
+      "seconds": 6.6,
+      "evidence": [
+        "    'one row per collection and kind per minute')\"",
+        "PL/pgSQL function inline_code_block line 163 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S18-pay04-suspend-paynow",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "PAY-04 suspend strands Paynow integrations (D4)",
+      "verdict": "KILLED",
+      "seconds": 5.4,
+      "evidence": [
+        "    (SELECT merchant_account_id FROM pay04_garage_collections WHERE id = c)), 'PAY05_USE_PAYNOW_PATH')\"",
+        "PL/pgSQL function inline_code_block line 140 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S19-pay04-refund-paynow",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "PAY-04 refund jams a Paynow payment (D4)",
+      "verdict": "KILLED",
+      "seconds": 5.4,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay04_request_garage_collection_refund(%L, 'p5a-admin', 'Refund through the simulator path')$q$, c), 'PAY05_USE_PAYNOW_PATH')\"",
+        "PL/pgSQL function inline_code_block line 139 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S20-release-frees-room",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "released hold still reserves the room",
+      "verdict": "KILLED",
+      "seconds": 2.8,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.check(v_m.provider_reserved = 0 AND v_m.uncommitted_balance = 20.00 AND pg_temp.status(c5) = 'pending', 'released: room returns, the payment stays pending and watched')\"",
+        "PL/pgSQL function inline_code_block line 63 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S21-after-settlement",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "settled money reopens reviews (D3a)",
+      "verdict": "KILLED",
+      "seconds": 5.3,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.check(v_res->>'ignored' = 'after_settlement' AND NOT pg_temp.open_disc(c, 'amount_mismatch'), 'the same report after settlement opens nothing new')\"",
+        "PL/pgSQL function inline_code_block line 125 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S22-settlement-marker",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "settlement does not free the room (D3a)",
+      "verdict": "KILLED",
+      "seconds": 5.3,
+      "evidence": [
+        "    AND (SELECT settled_off_platform_at IS NOT NULL FROM pay05_paynow_transactions WHERE collection_id = c), 'settled: the room returns')\"",
+        "PL/pgSQL function inline_code_block line 122 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S23-trace-absent-60s",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "two quick NotFounds close a request",
+      "verdict": "KILLED",
+      "seconds": 1.6,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.check((SELECT initiation_state FROM pay05_paynow_transactions WHERE collection_id = c4) = 'unknown', 'two NotFound answers within a minute are not enough')\"",
+        "PL/pgSQL function inline_code_block line 34 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S24-cross-collection-replay",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "event replayed on another collection",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pg_temp.obs(%L, 'paid', 'status_update', %L)$q$, c2, pg_temp.evt(3)), 'PAY05_EVENT_CROSS_COLLECTION_REPLAY')\"",
+        "PL/pgSQL function inline_code_block line 51 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S25-apply-binding",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "foreign evidence applied",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_apply_paynow_observation(%L, 'poll', NULL, 'paid', 'Paid', 2500, %L, '1', 'pn_poll_%s')$q$, c1, v_pay.reference, repeat('a', 40)), 'PAY05_PROVIDER_BINDING_MISMATCH')\"",
+        "PL/pgSQL function inline_code_block line 29 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S26-begin-currency-integration",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "collection begun for a currency without a verified integration",
+      "verdict": "KILLED",
+      "seconds": 6.5,
+      "evidence": [
+        "    'PAY04_MERCHANT_CURRENCY_UNSUPPORTED')\"",
+        "PL/pgSQL function inline_code_block line 190 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S27-verified-merchant-join",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "integration of a non-verified merchant usable (defence in depth)",
+      "verdict": "KILLED",
+      "seconds": 6.7,
+      "evidence": [
+        "SQL statement \"SELECT pg_temp.expect(format($q$SELECT pay05_record_paynow_sending(%L, %L, 'web', NULL)$q$, c, pg_temp.trace(c)), 'PAY05_INTEGRATION_UNAVAILABLE')\"",
+        "PL/pgSQL function inline_code_block line 197 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "S28-refunded-amount",
+      "file": "database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql",
+      "why": "amountless Refunded rolls back (D3b)",
+      "verdict": "KILLED",
+      "seconds": 5.5,
+      "evidence": [
+        "SQL statement \"SELECT pay05_apply_paynow_observation(c, 'poll', NULL, 'refunded', 'Refunded', NULL, v_ref, '9510', pg_temp.pid(c), NULL, pay05_begin_paynow_read(c))\"",
+        "PL/pgSQL function inline_code_block line 133 at PERFORM",
+        "PAY04_CERT_REFUSED: pay05-paynow-collections-postgres-smoke.sql failed."
+      ]
+    },
+    {
+      "id": "BASE-WEB",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "baseline: web suites pass unmutated",
+      "verdict": "SURVIVED",
+      "seconds": 3.4,
+      "evidence": []
+    },
+    {
+      "id": "W01-paid-word-counts",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "a Paynow \"paid\" CarUp did not count is shown as paid (W5)",
+      "verdict": "KILLED",
+      "seconds": 2.3,
+      "evidence": [
+        "    110|       }",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af"
+      ]
+    },
+    {
+      "id": "W02-review-dropped",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "money under review read as Paynow's word (W5)",
+      "verdict": "KILLED",
+      "seconds": 7.4,
+      "evidence": [
+        "    264|     verifyGarageInvoicePayment.mockResolvedValue({ collection: { state\u2026",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af"
+      ]
+    },
+    {
+      "id": "W03-refresh-unmounts",
+      "file": "web/src/components/owner/serviceJourney/InvoicePayment.tsx",
+      "why": "the started request vanishes on refresh (W1)",
+      "verdict": "KILLED",
+      "seconds": 6.1,
+      "evidence": [
+        "    239|     expect(screen.getByTestId('my-provider-payment')).toBeInTheDocumen\u2026",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[3/3]\u23af"
+      ]
+    },
+    {
+      "id": "W04-key-password-field",
+      "file": "web/src/components/garage/PaynowConnection.tsx",
+      "why": "password managers capture the integration key (W6)",
+      "verdict": "KILLED",
+      "seconds": 2.4,
+      "evidence": [
+        "     80|       expect(key).toHaveAttribute('spellcheck', 'false')",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af"
+      ]
+    },
+    {
+      "id": "W05-refusal-ambiguous",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "Paynow's refusal replays forever",
+      "verdict": "KILLED",
+      "seconds": 2.3,
+      "evidence": [
+        "    193|     expect(keys[3]).not.toBe(keys[2])",
+        "",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af"
+      ]
+    }
+  ]
+}
