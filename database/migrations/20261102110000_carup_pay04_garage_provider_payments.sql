@@ -43,9 +43,21 @@ CREATE TABLE IF NOT EXISTS public.pay04_runtime_guard (
   singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
   garage_simulator_enabled boolean NOT NULL DEFAULT false,
   note text,
-  updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
+  updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  updated_by text NOT NULL DEFAULT session_user
 );
 INSERT INTO public.pay04_runtime_guard (singleton) VALUES (true) ON CONFLICT (singleton) DO NOTHING;
+-- Who changed the guard and when is stamped by the database, never taken from the writer.
+CREATE OR REPLACE FUNCTION public.pay04_stamp_runtime_guard()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+  NEW.updated_at := clock_timestamp();
+  NEW.updated_by := session_user;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_pay04_stamp_runtime_guard ON public.pay04_runtime_guard;
+CREATE TRIGGER trg_pay04_stamp_runtime_guard BEFORE UPDATE ON public.pay04_runtime_guard
+  FOR EACH ROW EXECUTE FUNCTION public.pay04_stamp_runtime_guard();
 
 CREATE OR REPLACE FUNCTION public.pay04_gateway_permitted(p_gateway text)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
@@ -102,6 +114,9 @@ CREATE TABLE IF NOT EXISTS public.pay04_garage_collections (
   cancel_reason text,
   last_provider_status text,
   last_observed_at timestamptz,
+  -- the provider's latest refund figures (succeeded / pending), from the governed snapshot writer only
+  observed_refunded_minor bigint CHECK (observed_refunded_minor IS NULL OR observed_refunded_minor >= 0),
+  observed_pending_refund_minor bigint CHECK (observed_pending_refund_minor IS NULL OR observed_pending_refund_minor >= 0),
   CONSTRAINT pay04_collection_invoice_fk FOREIGN KEY (invoice_id, tenant_id)
     REFERENCES public.garage_invoices(id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT pay04_collection_merchant_fk FOREIGN KEY (merchant_account_id, tenant_id)
@@ -203,7 +218,7 @@ CREATE TABLE IF NOT EXISTS public.pay04_garage_payment_discrepancies (
   collection_id uuid NOT NULL,
   payment_reference text NOT NULL REFERENCES public.payment_transactions(reference),
   discrepancy_type text NOT NULL CHECK (discrepancy_type IN (
-    'unallocated_provider_money', 'amount_mismatch', 'currency_mismatch', 'merchant_mismatch')),
+    'unallocated_provider_money', 'amount_mismatch', 'currency_mismatch', 'merchant_mismatch', 'refund_after_resolution')),
   status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
   detected_amount numeric(14,2),
   currency text,
@@ -214,7 +229,8 @@ CREATE TABLE IF NOT EXISTS public.pay04_garage_payment_discrepancies (
   observation_count integer NOT NULL DEFAULT 1 CHECK (observation_count >= 1),
   last_observed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   last_evidence jsonb,
-  resolution text CHECK (resolution IS NULL OR resolution IN ('refunded_to_customer', 'settled_off_platform', 'provider_corrected')),
+  resolution text CHECK (resolution IS NULL OR resolution IN ('refunded_to_customer', 'settled_off_platform', 'provider_corrected',
+                                                               'counted_on_invoice', 'acknowledged')),
   resolved_by text,
   resolved_role text,
   resolution_note text,
@@ -318,6 +334,31 @@ RETURNS numeric LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
     FROM public.pay04_garage_payment_allocations WHERE collection_id = p_collection_id;
 $$;
 
+-- A final partial refund (operator-verified through F5) and what the provider has reported since. The garage keeps for
+-- certain only what is left after EVERY refund the provider reports, pending ones included (counted); what it keeps
+-- only if the pending refunds fail is held (neither counted nor free for another payment). `extra_minor` is refund the
+-- provider reports beyond the operator-verified figure — the operator is told. NULL figures when no verified evidence.
+CREATE OR REPLACE FUNCTION public.pay04_partial_refund_position(p_collection public.pay04_garage_collections)
+RETURNS TABLE (verified_minor bigint, counted_minor bigint, held_minor bigint, extra_minor bigint)
+LANGUAGE plpgsql STABLE SET search_path = public, pg_temp AS $$
+DECLARE v_refunded bigint; v_pending bigint;
+BEGIN
+  SELECT (e.resolution_evidence->>'verified_refunded_minor')::bigint INTO verified_minor
+    FROM public.pay03b_payment_reconciliation_exceptions e
+   WHERE e.payment_reference = p_collection.payment_reference AND e.status = 'resolved'
+     AND e.resolution = 'revoke_access_partial_refund_final'
+   ORDER BY e.resolved_at DESC LIMIT 1;
+  IF verified_minor IS NULL OR verified_minor <= 0 OR verified_minor >= p_collection.amount_minor THEN
+    verified_minor := NULL; RETURN NEXT; RETURN;
+  END IF;
+  v_refunded := greatest(verified_minor, coalesce(p_collection.observed_refunded_minor, 0));
+  v_pending := coalesce(p_collection.observed_pending_refund_minor, 0);
+  counted_minor := greatest(p_collection.amount_minor - v_refunded - v_pending, 0);
+  held_minor := greatest(p_collection.amount_minor - v_refunded, 0) - counted_minor;
+  extra_minor := least(v_refunded + v_pending, p_collection.amount_minor) - verified_minor;
+  RETURN NEXT;
+END $$;
+
 -- The whole money picture of one invoice. 'reserved' is provider money in flight that nothing else may commit.
 CREATE OR REPLACE FUNCTION public.pay04_invoice_money(p_invoice_id uuid)
 RETURNS TABLE (
@@ -329,16 +370,23 @@ LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
           FROM public.garage_payment_records r WHERE r.invoice_id = p_invoice_id),
   a AS (SELECT COALESCE(sum(CASE WHEN x.kind = 'allocation' THEN x.amount ELSE -x.amount END), 0) AS net
           FROM public.pay04_garage_payment_allocations x WHERE x.invoice_id = p_invoice_id),
+  -- A pending checkout stays reserved until the PROVIDER says it is closed: a stop or CarUp's own expiry is not proof
+  -- that it cannot still be paid. Refunds in progress, holds and disagreeing evidence are reserved too, and so are the
+  -- pending refunds of a final partial refund (they may still fail and the money come back).
   r AS (
-    SELECT COALESCE(sum(greatest(c.amount - public.pay04_collection_allocated(c.id), 0)), 0) AS reserved
+    SELECT COALESCE(sum(CASE
+             WHEN p.status IN ('pending', 'refund_pending', 'reconciliation_hold')
+               OR EXISTS (SELECT 1 FROM public.pay04_garage_payment_discrepancies q
+                           WHERE q.collection_id = c.id AND q.status = 'open'
+                             AND q.discrepancy_type IN ('amount_mismatch', 'currency_mismatch', 'merchant_mismatch'))
+               THEN greatest(c.amount - public.pay04_collection_allocated(c.id), 0)
+             WHEN p.status = 'partially_refunded'
+               THEN coalesce((SELECT x.held_minor FROM public.pay04_partial_refund_position(c) x), 0)::numeric
+                    / (10 ^ c.currency_scale)::numeric
+             ELSE 0 END), 0) AS reserved
       FROM public.pay04_garage_collections c
       JOIN public.payment_transactions p ON p.reference = c.payment_reference
-     WHERE c.invoice_id = p_invoice_id
-       AND ((p.status = 'pending' AND c.cancelled_at IS NULL AND c.expires_at > clock_timestamp())
-            OR p.status IN ('refund_pending', 'reconciliation_hold')
-            OR EXISTS (SELECT 1 FROM public.pay04_garage_payment_discrepancies q
-                        WHERE q.collection_id = c.id AND q.status = 'open'
-                          AND q.discrepancy_type IN ('amount_mismatch', 'currency_mismatch', 'merchant_mismatch'))))
+     WHERE c.invoice_id = p_invoice_id)
   SELECT inv.id, inv.currency, inv.status, inv.total_amount::numeric(14,2), d.net::numeric(14,2), a.net::numeric(14,2),
          (d.net + a.net)::numeric(14,2), (inv.total_amount - d.net - a.net)::numeric(14,2), r.reserved::numeric(14,2),
          greatest(inv.total_amount - d.net - a.net - r.reserved, 0)::numeric(14,2),
@@ -720,7 +768,7 @@ DECLARE
   v_room numeric;
   v_declared numeric;
   v_provider numeric;
-  v_refunded_minor bigint;
+  v_pos record;
   v_unallocated numeric;
   v_receipt_out jsonb := NULL;
   v_discrepancy jsonb := NULL;
@@ -736,21 +784,33 @@ BEGIN
   IF v_p.status = 'paid' THEN
     v_target := v_c.amount;
   ELSIF v_p.status = 'partially_refunded' THEN
-    SELECT (resolution_evidence->>'verified_refunded_minor')::bigint INTO v_refunded_minor
-      FROM public.pay03b_payment_reconciliation_exceptions
-     WHERE payment_reference = v_c.payment_reference AND status = 'resolved'
-       AND resolution = 'revoke_access_partial_refund_final'
-     ORDER BY resolved_at DESC LIMIT 1;
-    IF v_refunded_minor IS NULL OR v_refunded_minor <= 0 OR v_refunded_minor >= v_c.amount_minor THEN
-      RAISE EXCEPTION 'PAY04_PARTIAL_REFUND_EVIDENCE_MISSING';
+    -- the operator's verified final partial refund is a floor, never a licence to ignore what the provider reports later
+    SELECT * INTO v_pos FROM public.pay04_partial_refund_position(v_c);
+    IF v_pos.verified_minor IS NULL THEN RAISE EXCEPTION 'PAY04_PARTIAL_REFUND_EVIDENCE_MISSING'; END IF;
+    v_target := (v_pos.counted_minor::numeric / (10 ^ v_c.currency_scale)::numeric)::numeric(14,2);
+    IF v_pos.extra_minor > 0 THEN
+      v_discrepancy := public.pay04_record_discrepancy(v_c, 'refund_after_resolution',
+        (v_pos.extra_minor::numeric / (10 ^ v_c.currency_scale)::numeric)::numeric(14,2),
+        jsonb_build_object('verified_refunded_minor', v_pos.verified_minor, 'observed_refunded_minor', v_c.observed_refunded_minor,
+                           'observed_pending_refund_minor', v_c.observed_pending_refund_minor, 'cause', p_cause),
+        'reprojection', p_event_id);
     END IF;
-    v_target := ((v_c.amount_minor - v_refunded_minor)::numeric / (10 ^ v_c.currency_scale)::numeric)::numeric(14,2);
   ELSE
     -- pending, cancelled, refund_pending, refunded, reconciliation_hold: nothing counts (fail closed)
     v_target := 0;
   END IF;
+  -- nothing counts while the provider's own evidence disagrees with the collection (a later mismatch un-counts)
+  IF EXISTS (SELECT 1 FROM public.pay04_garage_payment_discrepancies q WHERE q.collection_id = v_c.id AND q.status = 'open'
+               AND q.discrepancy_type IN ('amount_mismatch', 'currency_mismatch', 'merchant_mismatch')) THEN
+    v_target := 0;
+  END IF;
 
   v_current := public.pay04_collection_allocated(v_c.id);
+  -- money an operator settled OFF the platform never starts counting here, even if room appears later
+  IF EXISTS (SELECT 1 FROM public.pay04_garage_payment_discrepancies q WHERE q.collection_id = v_c.id
+               AND q.discrepancy_type = 'unallocated_provider_money' AND q.status = 'resolved' AND q.resolution = 'settled_off_platform') THEN
+    v_target := least(v_target, v_current);
+  END IF;
   IF v_inv.status <> 'issued' THEN
     v_alloc := least(v_current, v_target);
   ELSE
@@ -803,10 +863,20 @@ BEGIN
     UPDATE public.pay04_garage_payment_discrepancies SET
       status = 'resolved', resolution = 'refunded_to_customer', resolved_by = v_actor, resolved_role = 'provider_confirmation',
       resolution_note = 'Provider confirmed a full refund of this payment to the customer.', resolved_at = clock_timestamp()
+    WHERE collection_id = v_c.id AND discrepancy_type IN ('unallocated_provider_money', 'refund_after_resolution') AND status = 'open';
+    IF FOUND THEN
+      PERFORM public.pay04_log(v_c, 'discrepancy_resolved', v_actor,
+        jsonb_build_object('discrepancy_type', 'unallocated_provider_money|refund_after_resolution', 'resolution', 'refunded_to_customer'));
+    END IF;
+  ELSIF v_target > 0 AND v_alloc = v_target THEN
+    -- the money now counts in full: an "uncounted money" flag left from before is stale, close it with the reason
+    UPDATE public.pay04_garage_payment_discrepancies SET
+      status = 'resolved', resolution = 'counted_on_invoice', resolved_by = v_actor, resolved_role = 'reprojection',
+      resolution_note = 'The provider money now counts on the invoice.', resolved_at = clock_timestamp()
     WHERE collection_id = v_c.id AND discrepancy_type = 'unallocated_provider_money' AND status = 'open';
     IF FOUND THEN
       PERFORM public.pay04_log(v_c, 'discrepancy_resolved', v_actor,
-        jsonb_build_object('discrepancy_type', 'unallocated_provider_money', 'resolution', 'refunded_to_customer'));
+        jsonb_build_object('discrepancy_type', 'unallocated_provider_money', 'resolution', 'counted_on_invoice'));
     END IF;
   END IF;
   PERFORM set_config('carup.pay04_writer', '', true);
@@ -973,6 +1043,8 @@ BEGIN
     END IF;
     RETURN jsonb_build_object('collection', to_jsonb(v_c), 'replayed', true);
   END IF;
+  -- a stopped or expired collection has released (or is releasing) its room: a live checkout must never bind to it
+  IF v_c.cancelled_at IS NOT NULL OR v_c.expires_at <= clock_timestamp() THEN RAISE EXCEPTION 'PAY04_COLLECTION_CLOSED'; END IF;
   UPDATE public.pay04_garage_collections SET provider_checkout_id = p_provider_checkout_id, provider_payment_id = p_provider_payment_id
    WHERE id = v_c.id RETURNING * INTO v_c;
   UPDATE public.payment_transactions SET pay01a_checkout_id = p_provider_checkout_id, pay01a_intent_id = p_provider_payment_id,
@@ -1031,8 +1103,10 @@ BEGIN
     v_disc := public.pay04_record_discrepancy(v_c, 'merchant_mismatch', NULL,
       jsonb_build_object('observed_merchant_reference', p_merchant_reference, 'observed_status', p_status,
                          'event_id', p_event_id), p_detected_via, p_event_id);
+    -- recorded, never applied — and money this collection already counted stops counting until it is resolved
+    v_projection := public.pay04_reproject_garage_collection(v_c.id, 'provider_mismatch', p_event_id);
     RETURN jsonb_build_object('applied', false, 'refused', 'merchant_mismatch', 'discrepancy', v_disc,
-      'payment_status', v_p.status);
+      'payment_status', v_p.status, 'projection', v_projection);
   END IF;
   IF p_status IN ('paid', 'refund_pending', 'refunded', 'reconciliation_hold') THEN
     IF p_currency IS NULL OR p_amount_minor IS NULL THEN RAISE EXCEPTION 'PAY04_PROVIDER_AMOUNT_REQUIRED'; END IF;
@@ -1040,16 +1114,18 @@ BEGIN
       v_disc := public.pay04_record_discrepancy(v_c, 'currency_mismatch', NULL,
         jsonb_build_object('observed_currency', upper(p_currency), 'observed_amount_minor', p_amount_minor,
                            'observed_status', p_status, 'event_id', p_event_id), p_detected_via, p_event_id);
+      v_projection := public.pay04_reproject_garage_collection(v_c.id, 'provider_mismatch', p_event_id);
       RETURN jsonb_build_object('applied', false, 'refused', 'currency_mismatch', 'discrepancy', v_disc,
-        'payment_status', v_p.status);
+        'payment_status', v_p.status, 'projection', v_projection);
     END IF;
     IF p_amount_minor <> v_c.amount_minor THEN
       v_disc := public.pay04_record_discrepancy(v_c, 'amount_mismatch',
         (p_amount_minor::numeric / (10 ^ v_c.currency_scale)::numeric)::numeric(14,2),
         jsonb_build_object('observed_amount_minor', p_amount_minor, 'expected_amount_minor', v_c.amount_minor,
                            'observed_status', p_status, 'event_id', p_event_id), p_detected_via, p_event_id);
+      v_projection := public.pay04_reproject_garage_collection(v_c.id, 'provider_mismatch', p_event_id);
       RETURN jsonb_build_object('applied', false, 'refused', 'amount_mismatch', 'discrepancy', v_disc,
-        'payment_status', v_p.status);
+        'payment_status', v_p.status, 'projection', v_projection);
     END IF;
   END IF;
 
@@ -1088,7 +1164,12 @@ BEGIN
   PERFORM set_config('carup.pay03b_hold_release', '', true);
 
   UPDATE public.pay04_garage_collections SET last_provider_status = p_status,
-    last_observed_at = greatest(coalesce(last_observed_at, clock_timestamp()), clock_timestamp())
+    last_observed_at = greatest(coalesce(last_observed_at, clock_timestamp()), clock_timestamp()),
+    -- a plain 'paid' report carries no refunds; otherwise keep the provider's latest figures (absent = unchanged)
+    observed_refunded_minor = CASE WHEN p_status = 'paid' THEN coalesce(p_refunded_minor, 0)
+                                   ELSE coalesce(p_refunded_minor, observed_refunded_minor) END,
+    observed_pending_refund_minor = CASE WHEN p_status = 'paid' THEN coalesce(p_pending_refund_minor, 0)
+                                         ELSE coalesce(p_pending_refund_minor, observed_pending_refund_minor) END
    WHERE id = v_c.id RETURNING * INTO v_c;
   PERFORM public.pay04_log(v_c, 'provider_observed', 'provider:' || v_c.gateway,
     jsonb_build_object('observed_status', p_status, 'prior_payment_status', v_prior, 'payment_status', v_target,
@@ -1119,7 +1200,9 @@ BEGIN
   SELECT * INTO v_c FROM public.pay04_garage_collections WHERE id = p_collection_id FOR UPDATE;
   SELECT * INTO v_p FROM public.payment_transactions WHERE reference = v_c.payment_reference FOR UPDATE;
   IF v_p.status = 'refund_pending' THEN
-    RETURN jsonb_build_object('replayed', true, 'payment_status', v_p.status, 'payment_reference', v_p.reference);
+    RETURN jsonb_build_object('replayed', true, 'payment_status', v_p.status, 'payment_reference', v_p.reference,
+      'request_seq', (SELECT count(*) FROM public.pay04_garage_collection_events
+                       WHERE collection_id = v_c.id AND event_type = 'refund_requested'));
   END IF;
   IF v_p.status <> 'paid' THEN RAISE EXCEPTION 'PAY04_REFUND_NOT_ALLOWED' USING DETAIL = v_p.status; END IF;
   PERFORM public.pay03b_payment_transition_target(
@@ -1130,11 +1213,15 @@ BEGIN
   v_projection := public.pay04_reproject_garage_collection(v_c.id, 'refund_requested', NULL);
   RETURN jsonb_build_object('replayed', false, 'payment_status', v_p.status, 'payment_reference', v_p.reference,
     'provider_payment_id', v_c.provider_payment_id, 'amount_minor', v_c.amount_minor, 'currency', v_c.currency,
-    'projection', v_projection);
+    'projection', v_projection,
+    'request_seq', (SELECT count(*) FROM public.pay04_garage_collection_events
+                     WHERE collection_id = v_c.id AND event_type = 'refund_requested'));
 END $$;
 
--- 10f. The payer or the garage stops a checkout that has not been paid. The reservation is released at once; the
---      canonical payment stays 'pending' until the PROVIDER says otherwise (a late confirmation is still recorded).
+-- 10f. The payer or the garage stops a checkout that has not been paid (who and why). The reservation is NOT released
+--      here: the canonical payment stays 'pending' — and its room held — until the PROVIDER confirms the checkout closed
+--      (or reports it paid, which then counts in that held room). A collection that never reached the provider has
+--      nothing to confirm: its canonical payment closes at once.
 CREATE OR REPLACE FUNCTION public.pay04_cancel_garage_collection(p_collection_id uuid, p_actor_user_id text, p_reason text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
@@ -1153,15 +1240,72 @@ BEGIN
   IF char_length(btrim(coalesce(p_reason, ''))) NOT BETWEEN 3 AND 300 THEN RAISE EXCEPTION 'PAY04_REASON_REQUIRED'; END IF;
   PERFORM pg_advisory_xact_lock(hashtext('carup_pay04_inv:' || v_probe.invoice_id::text));
   PERFORM pg_advisory_xact_lock(hashtext('carup_pay03a_ref:' || v_probe.payment_reference));
+  PERFORM 1 FROM public.garage_invoices WHERE id = v_probe.invoice_id FOR UPDATE;
   SELECT * INTO v_c FROM public.pay04_garage_collections WHERE id = p_collection_id FOR UPDATE;
-  SELECT * INTO v_p FROM public.payment_transactions WHERE reference = v_c.payment_reference;
+  SELECT * INTO v_p FROM public.payment_transactions WHERE reference = v_c.payment_reference FOR UPDATE;
   IF v_c.cancelled_at IS NOT NULL THEN RETURN jsonb_build_object('replayed', true, 'collection', to_jsonb(v_c)); END IF;
   IF v_p.status <> 'pending' THEN RAISE EXCEPTION 'PAY04_COLLECTION_NOT_CANCELLABLE' USING DETAIL = v_p.status; END IF;
   UPDATE public.pay04_garage_collections SET cancelled_at = clock_timestamp(), cancelled_by = trim(p_actor_user_id),
          cancel_reason = btrim(p_reason)
    WHERE id = v_c.id RETURNING * INTO v_c;
-  PERFORM public.pay04_log(v_c, 'cancelled', trim(p_actor_user_id), jsonb_build_object('reason', btrim(p_reason)));
-  RETURN jsonb_build_object('replayed', false, 'collection', to_jsonb(v_c));
+  IF v_c.provider_payment_id IS NULL THEN
+    PERFORM public.pay03b_payment_transition_target(v_p, v_c.amount_minor, 'cancelled', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    UPDATE public.payment_transactions SET status = 'cancelled', updated_at = now() WHERE reference = v_p.reference;
+  END IF;
+  PERFORM public.pay04_log(v_c, 'cancelled', trim(p_actor_user_id), jsonb_build_object('reason', btrim(p_reason),
+    'closed_without_provider', v_c.provider_payment_id IS NULL));
+  RETURN jsonb_build_object('replayed', false, 'collection', to_jsonb(v_c),
+    'payment_status', CASE WHEN v_c.provider_payment_id IS NULL THEN 'cancelled' ELSE v_p.status END);
+END $$;
+
+-- 10f2. A collection that never reached the provider (no checkout was attached) and whose time ran out is closed by CarUp:
+--       there is no provider object that could still be paid. An attached one is closed only by a provider read.
+CREATE OR REPLACE FUNCTION public.pay04_close_expired_unattached_collection(p_collection_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_probe public.pay04_garage_collections%ROWTYPE;
+  v_c public.pay04_garage_collections%ROWTYPE;
+  v_p public.payment_transactions%ROWTYPE;
+BEGIN
+  SELECT * INTO v_probe FROM public.pay04_garage_collections WHERE id = p_collection_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PAY04_COLLECTION_NOT_FOUND'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('carup_pay04_inv:' || v_probe.invoice_id::text));
+  PERFORM pg_advisory_xact_lock(hashtext('carup_pay03a_ref:' || v_probe.payment_reference));
+  PERFORM 1 FROM public.garage_invoices WHERE id = v_probe.invoice_id FOR UPDATE;
+  SELECT * INTO v_c FROM public.pay04_garage_collections WHERE id = p_collection_id FOR UPDATE;
+  SELECT * INTO v_p FROM public.payment_transactions WHERE reference = v_c.payment_reference FOR UPDATE;
+  IF v_c.provider_payment_id IS NOT NULL THEN RAISE EXCEPTION 'PAY04_COLLECTION_ATTACHED'; END IF;
+  IF v_p.status <> 'pending' THEN RETURN jsonb_build_object('replayed', true, 'payment_status', v_p.status); END IF;
+  IF v_c.expires_at > clock_timestamp() THEN RAISE EXCEPTION 'PAY04_COLLECTION_NOT_EXPIRED'; END IF;
+  PERFORM public.pay03b_payment_transition_target(v_p, v_c.amount_minor, 'cancelled', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+  UPDATE public.payment_transactions SET status = 'cancelled', updated_at = now() WHERE reference = v_p.reference;
+  IF v_c.cancelled_at IS NULL THEN
+    UPDATE public.pay04_garage_collections SET cancelled_at = clock_timestamp(), cancelled_by = 'system:expiry',
+           cancel_reason = 'Expired before the provider checkout existed'
+     WHERE id = v_c.id RETURNING * INTO v_c;
+  END IF;
+  PERFORM public.pay04_log(v_c, 'cancelled', 'system:expiry', jsonb_build_object('reason', 'expired before reaching the provider',
+    'closed_without_provider', true));
+  RETURN jsonb_build_object('replayed', false, 'payment_status', 'cancelled', 'collection', to_jsonb(v_c));
+END $$;
+
+-- 10f3. Re-project every counting collection of one invoice (room changed, e.g. a declared payment was reversed), in the
+--       shared lock order. Money that can now count is counted; a stale "uncounted" flag closes itself.
+CREATE OR REPLACE FUNCTION public.pay04_reproject_invoice(p_invoice_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_c record; v_out jsonb := '[]'::jsonb;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.garage_invoices WHERE id = p_invoice_id) THEN RAISE EXCEPTION 'PAY04_INVOICE_NOT_FOUND'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('carup_pay04_inv:' || p_invoice_id::text));
+  FOR v_c IN SELECT c.id, c.payment_reference FROM public.pay04_garage_collections c
+               JOIN public.payment_transactions p ON p.reference = c.payment_reference
+              WHERE c.invoice_id = p_invoice_id AND p.status IN ('paid', 'partially_refunded')
+              ORDER BY c.initiated_at, c.id LOOP
+    PERFORM pg_advisory_xact_lock(hashtext('carup_pay03a_ref:' || v_c.payment_reference));
+    v_out := v_out || jsonb_build_array(jsonb_build_object('collection_id', v_c.id,
+      'projection', public.pay04_reproject_garage_collection(v_c.id, 'room_changed', NULL)));
+  END LOOP;
+  RETURN jsonb_build_object('invoice_id', p_invoice_id, 'reprojected', v_out);
 END $$;
 
 -- 10g. Operator closure of a discrepancy: platform administrator, separated from the payer and the garage, written note.
@@ -1195,6 +1339,9 @@ BEGIN
     IF v_d.discrepancy_type NOT IN ('amount_mismatch', 'currency_mismatch', 'merchant_mismatch') THEN
       RAISE EXCEPTION 'PAY04_RESOLUTION_INVALID';
     END IF;
+  ELSIF p_resolution = 'acknowledged' THEN
+    -- the invoice already counts only what the provider says the garage keeps; the operator records the review
+    IF v_d.discrepancy_type <> 'refund_after_resolution' THEN RAISE EXCEPTION 'PAY04_RESOLUTION_INVALID'; END IF;
   ELSE
     RAISE EXCEPTION 'PAY04_RESOLUTION_INVALID';
   END IF;
@@ -1203,7 +1350,11 @@ BEGIN
    WHERE id = v_d.id RETURNING * INTO v_d;
   PERFORM public.pay04_log(v_c, 'discrepancy_resolved', trim(p_actor_id),
     jsonb_build_object('discrepancy_id', v_d.id, 'discrepancy_type', v_d.discrepancy_type, 'resolution', p_resolution));
-  RETURN to_jsonb(v_d);
+  -- the closure can change what counts (a mismatch closed as corrected lets the money count again): re-project now,
+  -- in the shared lock order (the invoice lock is held; the reference lock next)
+  PERFORM pg_advisory_xact_lock(hashtext('carup_pay03a_ref:' || v_d.payment_reference));
+  RETURN to_jsonb(v_d) || jsonb_build_object('projection',
+    public.pay04_reproject_garage_collection(v_d.collection_id, 'discrepancy_resolved', NULL));
 END $$;
 
 -- ─────────────────────────── 11. privacy and least privilege ───────────────────────────
@@ -1233,7 +1384,8 @@ REVOKE ALL ON FUNCTION
   public.pay04_collection_allocated(uuid), public.pay04_is_invoice_customer(uuid,text),
   public.pay04_log(public.pay04_garage_collections,text,text,jsonb),
   public.pay04_record_discrepancy(public.pay04_garage_collections,text,numeric,jsonb,text,text),
-  public.pay04_reproject_garage_collection(uuid,text,text)
+  public.pay04_reproject_garage_collection(uuid,text,text),
+  public.pay04_partial_refund_position(public.pay04_garage_collections), public.pay04_stamp_runtime_guard()
   FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION
   public.pay04_gateway_permitted(text), public.pay04_invoice_money(uuid),
@@ -1244,6 +1396,7 @@ REVOKE ALL ON FUNCTION
   public.pay04_apply_garage_provider_snapshot(uuid,text,text,text,text,text,bigint,text,text,bigint,bigint,text[],text,text),
   public.pay04_request_garage_collection_refund(uuid,text,text),
   public.pay04_cancel_garage_collection(uuid,text,text),
+  public.pay04_close_expired_unattached_collection(uuid), public.pay04_reproject_invoice(uuid),
   public.pay04_resolve_garage_payment_discrepancy(uuid,text,text,text,text)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION
@@ -1255,6 +1408,7 @@ GRANT EXECUTE ON FUNCTION
   public.pay04_apply_garage_provider_snapshot(uuid,text,text,text,text,text,bigint,text,text,bigint,bigint,text[],text,text),
   public.pay04_request_garage_collection_refund(uuid,text,text),
   public.pay04_cancel_garage_collection(uuid,text,text),
+  public.pay04_close_expired_unattached_collection(uuid), public.pay04_reproject_invoice(uuid),
   public.pay04_resolve_garage_payment_discrepancy(uuid,text,text,text,text)
   TO service_role;
 

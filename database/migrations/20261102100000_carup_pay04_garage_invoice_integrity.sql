@@ -46,7 +46,8 @@ BEGIN
 
   IF NEW.source_kind = 'part_usage' THEN
     IF NEW.category <> 'part' THEN RAISE EXCEPTION 'PAY04_LINE_SOURCE_CATEGORY_MISMATCH'; END IF;
-    -- lock the consumption row: two issuances racing for the same usage serialize here
+    -- FOR SHARE holds off a concurrent REVERSAL of this usage until this issuance commits (the reversal guard below then
+    -- sees the billed line). Two issuances for the same usage are serialized by OPS07's lock on the work order.
     SELECT * INTO v_usage FROM garage_service_part_usage
      WHERE id = NEW.source_id AND tenant_id = NEW.tenant_id AND work_order_id = v_work_order
      FOR SHARE;
@@ -78,6 +79,23 @@ END $$;
 DROP TRIGGER IF EXISTS trg_pay04_guard_invoice_line_provenance ON garage_invoice_lines;
 CREATE TRIGGER trg_pay04_guard_invoice_line_provenance BEFORE INSERT ON garage_invoice_lines
   FOR EACH ROW EXECUTE FUNCTION pay04_guard_invoice_line_provenance();
+
+-- A part billed on an ISSUED invoice cannot be reversed: stock would come back while the invoice still bills it. OPS06
+-- refuses a reversal only while the work order is terminal, and a completed work order can be reopened, so the billing
+-- itself must refuse. Voiding the invoice (the OPS07 adjustment path) frees the usage for reversal.
+CREATE OR REPLACE FUNCTION pay04_guard_billed_usage_reversal()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+  IF NEW.reversed_at IS NOT NULL AND OLD.reversed_at IS NULL AND EXISTS (
+       SELECT 1 FROM garage_invoice_lines l JOIN garage_invoices i ON i.id = l.invoice_id
+        WHERE l.source_kind = 'part_usage' AND l.source_id = OLD.id AND i.status = 'issued') THEN
+    RAISE EXCEPTION 'PAY04_PART_USAGE_INVOICED';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_pay04_guard_billed_usage_reversal ON garage_service_part_usage;
+CREATE TRIGGER trg_pay04_guard_billed_usage_reversal BEFORE UPDATE ON garage_service_part_usage
+  FOR EACH ROW EXECUTE FUNCTION pay04_guard_billed_usage_reversal();
 
 -- ─────────────────────────── garage payment instructions ───────────────────────────
 
@@ -178,6 +196,7 @@ GRANT SELECT ON TABLE pay04_garage_payment_instructions TO service_role;
 
 REVOKE ALL ON FUNCTION pay04_guard_invoice_line_provenance() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION pay04_guard_payment_instructions() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION pay04_guard_billed_usage_reversal() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION pay04_set_garage_payment_instructions(UUID,TEXT,TEXT,TEXT,TEXT[],TEXT[]) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION pay04_set_garage_payment_instructions(UUID,TEXT,TEXT,TEXT,TEXT[],TEXT[]) TO service_role;
 
@@ -186,5 +205,7 @@ DROP FUNCTION IF EXISTS pay04_set_garage_payment_instructions(UUID,TEXT,TEXT,TEX
 DROP TRIGGER IF EXISTS trg_pay04_guard_payment_instructions ON pay04_garage_payment_instructions;
 DROP FUNCTION IF EXISTS pay04_guard_payment_instructions();
 DROP TABLE IF EXISTS pay04_garage_payment_instructions;
+DROP TRIGGER IF EXISTS trg_pay04_guard_billed_usage_reversal ON garage_service_part_usage;
+DROP FUNCTION IF EXISTS pay04_guard_billed_usage_reversal();
 DROP TRIGGER IF EXISTS trg_pay04_guard_invoice_line_provenance ON garage_invoice_lines;
 DROP FUNCTION IF EXISTS pay04_guard_invoice_line_provenance();

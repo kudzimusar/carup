@@ -4,6 +4,7 @@
 --       for more than was consumed; a labour/fee line that names a service record must name one of this job's;
 --       history (lines issued before PAY-04) is never re-judged.
 --   S   invoicing never moves stock: issue, void and re-issue leave every stock movement and on-hand balance alone.
+--   I14 a part billed on an issued invoice cannot be reversed (stock would return while the invoice bills it); void first.
 --   P   garage payment instructions: garage-owned, versioned, append-only, admin-only, least privilege.
 --
 -- Runs after scripts/ci/pay04-postgres-certification.sh has applied both lineages and the PAY-04 migrations.
@@ -172,6 +173,18 @@ BEGIN
     RAISE EXCEPTION 'PAY04_SMOKE_LEGACY_HISTORY_MISSING';
   END IF;
   PERFORM pg_temp.expect(format('UPDATE garage_invoice_lines SET description = ''x'' WHERE invoice_id = %L', v_inv.id), 'GARAGE_OPS07_APPEND_ONLY');
+
+  -- I14: a part billed on an ISSUED invoice cannot be reversed: stock would come back while the invoice still bills it.
+  --      OPS06 refuses a reversal only while the work order is terminal, and OPS05 guards only ENTERING Completed, so a
+  --      completed work order can be reopened (PATCH /api/mechanic/work-orders/:id) — reproduce exactly that.
+  UPDATE mechanic_work_orders SET status = 'In Progress' WHERE id = (j1->>'wo')::uuid;
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops06_reverse_usage(%L, %L, 'Returned to stock', 'p4i-admin', 'p4i-rev-key-0002')$q$, g1, u1), 'PAY04_PART_USAGE_INVOICED');
+  PERFORM garage_ops07_void_invoice(g1, v_inv.id, 'Pads returned unused', 'p4i-admin');
+  PERFORM garage_ops06_reverse_usage(g1, u1, 'Returned to stock', 'p4i-admin', 'p4i-rev-key-0003');
+  IF (SELECT stock_level FROM mechanic_parts WHERE id = p1) <> 9 THEN
+    RAISE EXCEPTION 'PAY04_SMOKE_REVERSAL_AFTER_VOID: on hand %', (SELECT stock_level FROM mechanic_parts WHERE id = p1);
+  END IF;
+  RAISE NOTICE 'PAY04_INTEGRITY_SMOKE I13 I14 PASS: legacy lines are history; a billed part reverses only after its invoice is voided';
 END $$;
 
 -- P: garage payment instructions.

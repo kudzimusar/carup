@@ -4,12 +4,16 @@
 --   A   initiation authority: the invoice's customer only (not a garage member, not an outsider); currency, precision,
 --       uncommitted balance; idempotent per (payer, key); the canonical row is third-party money of the garage
 --   R   reservation: money in flight cannot be committed by a declared payment, a second collection or a void
+--   X   a stopped or expired checkout stays reserved until the PROVIDER confirms it closed; money that beat the stop
+--       counts in its held room; nothing attaches to a closed collection; an unattached one is closed by expiry
 --   L   lifecycle on F5: attach once, provider-confirmed paid -> allocation + receipt, replay-safe, cross-collection replay
 --       refused, garage refund -> refund_pending (deallocated, receipt voided) -> refunded
 --   H   F5 hold: provider partial refund holds and deallocates; direct release refused; operator final partial refund
---       re-projects the remainder; operator restore re-allocates; separation of duties includes garage members
---   D   discrepancies: merchant / amount / currency mismatch recorded, never applied; late money the invoice cannot
---       absorb is unallocated + open; a provider-confirmed refund closes it
+--       re-projects the remainder; a LATER provider refund beyond the verified one de-counts (pending refunds held) and
+--       tells the operator; operator restore re-allocates; separation of duties includes garage members
+--   D   discrepancies: merchant / amount / currency mismatch recorded, never applied; nothing counts while any mismatch
+--       is open (a later mismatch un-counts); room lost out of band leaves late money unallocated + open; a provider refund
+--       closes it, an operator's off-platform settlement sticks, and room that reappears re-projects it (flag closes)
 --   I   invariants: append-only ledger and history, one live receipt per collection equal to the counted amount, shared
 --       gapless receipt numbering, no over-allocation even for a direct writer, no stock movement, least privilege
 \set ON_ERROR_STOP on
@@ -176,8 +180,12 @@ BEGIN
   b2 := pay04_begin_garage_collection(inv_void.id, 'p4p-cust', 30, 'USD', 'p4p-key-void-0001');
   PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'customer changed their mind', 'p4p-admin')$q$, g, inv_void.id), 'PAY04_INVOICE_HAS_PAYMENT_IN_PROGRESS');
   PERFORM pay04_cancel_garage_collection(pg_temp.collection(b2), 'p4p-cust', 'Will pay at the counter');
+  -- it never reached the provider: stopping it closes the canonical payment at once, and nothing can attach to it later
+  PERFORM pg_temp.check(pg_temp.status(pg_temp.collection(b2)) = 'cancelled'
+    AND (SELECT provider_reserved FROM pay04_invoice_money(inv_void.id)) = 0, 'an unattached stop closes the canonical payment');
+  PERFORM pg_temp.expect(format($q$SELECT pg_temp.attach(%L::uuid)$q$, pg_temp.collection(b2)), 'PAY04_COLLECTION_CLOSED');
   PERFORM garage_ops07_void_invoice(g, inv_void.id, 'customer changed their mind', 'p4p-admin');
-  RAISE NOTICE 'PAY04_PROVIDER_SMOKE R PASS: in-flight money reserved against declared payments, new collections and void; cancel releases it';
+  RAISE NOTICE 'PAY04_PROVIDER_SMOKE R PASS: in-flight money reserved against declared payments, new collections and void; an unattached stop closes it';
 
   -- L: attach once, then the provider confirms.
   PERFORM pg_temp.expect(format($q$SELECT pay04_attach_garage_collection(%L, 'cs_test_123', 'pi_123')$q$, c1), 'PAY04_PROVIDER_REFERENCE_INVALID');
@@ -231,6 +239,59 @@ BEGIN
   RAISE NOTICE 'PAY04_PROVIDER_SMOKE L PASS: attach once, confirmed money allocated with the next shared receipt number, replay-safe, garage refund lifecycle';
 END $$;
 
+-- ═══════════════════════════ X: stopped / expired checkouts stay reserved until the provider confirms closure ═══════════════════════════
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; inv2 garage_invoices%ROWTYPE; inv3 garage_invoices%ROWTYPE;
+  c uuid; c2 uuid; c3 uuid; c4 uuid; c5 uuid; v_m record;
+BEGIN
+  SELECT id INTO g FROM tenants WHERE name = 'p4p Garage';
+  -- X1: the payer stops an attached checkout. CarUp has not heard from the provider, so the money stays reserved:
+  --     the checkout might still be paid, and a cash record or a void must not take its room.
+  inv := pg_temp.invoice(g, 'p4p', 'PAY04PROVVIN000001', 'p4p-cust', 50);
+  c := pg_temp.collection(pay04_begin_garage_collection(inv.id, 'p4p-cust', 50, 'USD', 'p4p-key-stop-0001'));
+  PERFORM pg_temp.attach(c);
+  PERFORM pay04_cancel_garage_collection(c, 'p4p-cust', 'Changed my mind');
+  v_m := pg_temp.money(inv.id);
+  PERFORM pg_temp.check(pg_temp.status(c) = 'pending' AND v_m.provider_reserved = 50 AND v_m.uncommitted_balance = 0, 'a stop alone does not release the reservation');
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'customer stopped the checkout', 'p4p-admin')$q$, g, inv.id), 'PAY04_INVOICE_HAS_PAYMENT_IN_PROGRESS');
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_record_payment(%L, %L, 50, 'USD', 'cash', NULL, now(), 'p4p-admin', 'p4p-cash-stop-0001')$q$, g, inv.id), 'PAY04_PAYMENT_EXCEEDS_UNCOMMITTED_BALANCE');
+  PERFORM pg_temp.snap(c, 'cancelled', 'evt_gsim_stop_closed_0001');
+  v_m := pg_temp.money(inv.id);
+  PERFORM pg_temp.check(pg_temp.status(c) = 'cancelled' AND v_m.provider_reserved = 0 AND v_m.uncommitted_balance = 50, 'provider-confirmed closure releases it');
+  PERFORM garage_ops07_record_payment(g, inv.id, 50, 'USD', 'cash', 'till 3', now(), 'p4p-admin', 'p4p-cash-stop-0002');
+
+  -- X2: the provider says the stopped checkout was PAID before the stop reached it: the held room absorbs it.
+  inv2 := pg_temp.invoice(g, 'p4p', 'PAY04PROVVIN000001', 'p4p-cust', 40);
+  c2 := pg_temp.collection(pay04_begin_garage_collection(inv2.id, 'p4p-cust', 40, 'USD', 'p4p-key-stop-0002'));
+  PERFORM pg_temp.attach(c2);
+  PERFORM pay04_cancel_garage_collection(c2, 'p4p-admin', 'Customer said they will pay cash');
+  PERFORM pg_temp.snap(c2, 'paid', 'evt_gsim_stop_paid_0001');
+  v_m := pg_temp.money(inv2.id);
+  PERFORM pg_temp.check(pg_temp.status(c2) = 'paid' AND v_m.provider_paid = 40 AND v_m.payment_status = 'paid'
+    AND NOT EXISTS (SELECT 1 FROM pay04_garage_payment_discrepancies WHERE collection_id = c2), 'money that beat the stop counts in its held room');
+
+  -- X3: an ATTACHED checkout past CarUp's expiry stays reserved until the provider is read; CarUp cannot close it alone.
+  inv3 := pg_temp.invoice(g, 'p4p', 'PAY04PROVVIN000001', 'p4p-cust', 30);
+  c3 := pg_temp.collection(pay04_begin_garage_collection(inv3.id, 'p4p-cust', 30, 'USD', 'p4p-key-exp-0001', 1));
+  PERFORM pg_temp.attach(c3);
+  PERFORM pg_sleep(1.2);
+  PERFORM pg_temp.check((SELECT provider_reserved FROM pay04_invoice_money(inv3.id)) = 30, 'expired but unconfirmed: still reserved');
+  PERFORM pg_temp.expect(format('SELECT pay04_close_expired_unattached_collection(%L)', c3), 'PAY04_COLLECTION_ATTACHED');
+  PERFORM pg_temp.snap(c3, 'cancelled', 'evt_gsim_exp_closed_0001');
+  PERFORM pg_temp.check((SELECT provider_reserved FROM pay04_invoice_money(inv3.id)) = 0, 'provider-confirmed expiry releases it');
+
+  -- X4: an UNATTACHED collection past its expiry never reached the provider: CarUp closes it; nothing attaches to it.
+  c4 := pg_temp.collection(pay04_begin_garage_collection(inv3.id, 'p4p-cust', 30, 'USD', 'p4p-key-exp-0002', 1));
+  PERFORM pg_sleep(1.2);
+  PERFORM pg_temp.expect(format($q$SELECT pg_temp.attach(%L::uuid)$q$, c4), 'PAY04_COLLECTION_CLOSED');
+  PERFORM pay04_close_expired_unattached_collection(c4);
+  PERFORM pg_temp.check(pg_temp.status(c4) = 'cancelled' AND (SELECT provider_reserved FROM pay04_invoice_money(inv3.id)) = 0, 'expired unattached collection closed');
+  c5 := pg_temp.collection(pay04_begin_garage_collection(inv3.id, 'p4p-cust', 30, 'USD', 'p4p-key-exp-0003'));
+  PERFORM pg_temp.expect(format('SELECT pay04_close_expired_unattached_collection(%L)', c5), 'PAY04_COLLECTION_NOT_EXPIRED');
+  PERFORM pay04_cancel_garage_collection(c5, 'p4p-cust', 'Tidy up');
+  RAISE NOTICE 'PAY04_PROVIDER_SMOKE X PASS: stop/expiry hold the room until the provider confirms closure; money that beat a stop counts; closed collections never attach';
+END $$;
+
 -- ═══════════════════════════ H: F5 hold, operator resolution, separation of duties ═══════════════════════════
 DO $$
 DECLARE
@@ -275,6 +336,30 @@ BEGIN
   PERFORM pg_temp.check((SELECT amount FROM pay04_garage_provider_receipts WHERE collection_id = c1 AND status = 'issued') = 90
     AND (SELECT count(*) FROM pay04_garage_provider_receipts WHERE collection_id = c1) = 2, 'new live receipt for the remaining 90; the first stays voided');
 
+  -- H5: the provider later reports MORE refund than the operator verified (30 -> 40). The remainder follows the
+  --     provider (80) with its receipt, and the operator is told: a final resolution never licenses later refunds.
+  v_res := pg_temp.snap(c1, 'reconciliation_hold', 'evt_gsim_hold_more_0001', NULL, 4000, 0,
+    ARRAY['sim_re_gar_partial_0001','sim_re_gar_partial_0002'], 'partial_refund_succeeded');
+  PERFORM pg_temp.check(v_res->>'payment_status' = 'partially_refunded', 'F5 keeps the final partial-refund state');
+  v_m := pg_temp.money(inv1.id);
+  PERFORM pg_temp.check(v_m.provider_paid = 80 AND v_m.provider_reserved = 0 AND v_m.balance_amount = 40, 'the remainder follows the provider: 80 counts');
+  PERFORM pg_temp.check((SELECT amount FROM pay04_garage_provider_receipts WHERE collection_id = c1 AND status = 'issued') = 80, 'the live receipt follows it');
+  PERFORM pg_temp.check((SELECT detected_amount FROM pay04_garage_payment_discrepancies WHERE collection_id = c1
+    AND discrepancy_type = 'refund_after_resolution' AND status = 'open') = 10, 'the operator is told of the extra 10');
+  -- a PENDING refund of the rest (the classifier reports 40 refunded + 80 pending as partial_refund_succeeded): none of
+  -- it counts, and it is held (it may still fail and come back)
+  PERFORM pg_temp.snap(c1, 'reconciliation_hold', 'evt_gsim_hold_more_0002', NULL, 4000, 8000,
+    ARRAY['sim_re_gar_partial_0001','sim_re_gar_partial_0002','sim_re_gar_partial_0003'], 'partial_refund_succeeded');
+  v_m := pg_temp.money(inv1.id);
+  PERFORM pg_temp.check(v_m.provider_paid = 0 AND v_m.provider_reserved = 80 AND v_m.uncommitted_balance = 40, 'pending refund: not counted, held');
+  -- the provider confirms the whole refund: refunded, and the operator's flag closes on that provider evidence
+  PERFORM pg_temp.snap(c1, 'refunded', 'evt_gsim_hold_more_0003', 'sim_re_gar_partial_0003', 12000, 0,
+    ARRAY['sim_re_gar_partial_0001','sim_re_gar_partial_0002','sim_re_gar_partial_0003']);
+  v_m := pg_temp.money(inv1.id);
+  PERFORM pg_temp.check(pg_temp.status(c1) = 'refunded' AND v_m.provider_paid = 0 AND v_m.provider_reserved = 0 AND v_m.uncommitted_balance = 120, 'fully refunded');
+  PERFORM pg_temp.check((SELECT resolution FROM pay04_garage_payment_discrepancies WHERE collection_id = c1
+    AND discrepancy_type = 'refund_after_resolution') = 'refunded_to_customer', 'flag closed by the provider refund');
+
   -- H4: another hold that the operator restores (the provider shows no refund after all) -> full allocation again.
   inv2 := pg_temp.invoice(g, 'p4p', 'PAY04PROVVIN000001', 'p4p-cust', 60);
   c2 := pg_temp.collection(pay04_begin_garage_collection(inv2.id, 'p4p-cust', 60, 'USD', 'p4p-key-hold-0002'));
@@ -287,13 +372,14 @@ BEGIN
     'The pending partial refund was cancelled at the provider', 'paid', 0, 0, ARRAY[]::text[], clock_timestamp());
   PERFORM pg_temp.check(v_res->>'payment_status' = 'paid' AND (SELECT provider_paid FROM pay04_invoice_money(inv2.id)) = 60
     AND (SELECT payment_status FROM pay04_invoice_money(inv2.id)) = 'paid', 'restore re-allocates the full amount');
-  RAISE NOTICE 'PAY04_PROVIDER_SMOKE H PASS: F5 partial-refund hold reused, sticky, governed release only, operator final/restore re-project the garage invoice, garage members conflicted';
+  RAISE NOTICE 'PAY04_PROVIDER_SMOKE H PASS: F5 partial-refund hold reused, sticky, governed release only, operator final/restore re-project the garage invoice, later refunds de-count, garage members conflicted';
 END $$;
 
 -- ═══════════════════════════ D: discrepancies ═══════════════════════════
 DO $$
 DECLARE
-  g uuid; inv garage_invoices%ROWTYPE; inv_late garage_invoices%ROWTYPE; c uuid; c_late uuid; v_res jsonb; v_m record; v_d uuid;
+  g uuid; inv garage_invoices%ROWTYPE; inv_late garage_invoices%ROWTYPE; inv_late2 garage_invoices%ROWTYPE; inv_late3 garage_invoices%ROWTYPE;
+  c uuid; c_late uuid; c_late2 uuid; c_late3 uuid; v_res jsonb; v_m record; v_d uuid; v_cash uuid;
 BEGIN
   SELECT id INTO g FROM tenants WHERE name = 'p4p Garage';
   inv := pg_temp.invoice(g, 'p4p', 'PAY04PROVVIN000001', 'p4p-cust', 75);
@@ -319,17 +405,35 @@ BEGIN
   PERFORM pg_temp.expect(format($q$SELECT pay04_resolve_garage_payment_discrepancy(%L, 'settled_off_platform', 'p4p-op', 'admin', 'Not applicable to a mismatch')$q$, v_d), 'PAY04_RESOLUTION_INVALID');
   PERFORM pay04_resolve_garage_payment_discrepancy(v_d, 'provider_corrected', 'p4p-op', 'admin', 'Provider support confirmed the 74.00 event was a test artefact');
   PERFORM pg_temp.expect(format($q$SELECT pay04_resolve_garage_payment_discrepancy(%L, 'provider_corrected', 'p4p-op', 'admin', 'Second closure attempt')$q$, v_d), 'PAY04_DISCREPANCY_NOT_OPEN');
-  -- the correct evidence then applies normally
+  -- correct evidence is recorded, but nothing counts while any mismatch is still open (the money stays held)
   v_res := pg_temp.snap(c, 'paid', 'evt_gsim_disc_ok_0001');
-  PERFORM pg_temp.check((v_res->>'applied')::boolean AND (SELECT provider_paid FROM pay04_invoice_money(inv.id)) = 75, 'correct evidence applies');
+  v_m := pg_temp.money(inv.id);
+  PERFORM pg_temp.check((v_res->>'applied')::boolean AND pg_temp.status(c) = 'paid' AND v_m.provider_paid = 0 AND v_m.provider_reserved = 75,
+    'paid while two mismatches are open: recorded, not counted, held');
+  PERFORM pay04_resolve_garage_payment_discrepancy((SELECT id FROM pay04_garage_payment_discrepancies WHERE collection_id = c
+    AND discrepancy_type = 'merchant_mismatch' AND status = 'open'), 'provider_corrected', 'p4p-op', 'admin', 'Provider confirmed the merchant on its own records');
+  PERFORM pay04_resolve_garage_payment_discrepancy((SELECT id FROM pay04_garage_payment_discrepancies WHERE collection_id = c
+    AND discrepancy_type = 'currency_mismatch' AND status = 'open'), 'provider_corrected', 'p4p-op', 'admin', 'Provider confirmed the currency on its own records');
+  PERFORM pg_temp.check((SELECT provider_paid FROM pay04_invoice_money(inv.id)) = 75, 'once every mismatch is closed the money counts');
+  -- a mismatch reported AFTER the money counted un-counts it until it is resolved
+  v_res := pg_temp.snap(c, 'paid', 'evt_gsim_disc_a_0003', p_amount_minor => 7600);
+  v_m := pg_temp.money(inv.id);
+  PERFORM pg_temp.check(v_res->>'refused' = 'amount_mismatch' AND v_m.provider_paid = 0 AND v_m.provider_reserved = 75
+    AND (SELECT count(*) FROM pay04_garage_provider_receipts WHERE collection_id = c AND status = 'issued') = 0, 'a later mismatch un-counts counted money');
+  PERFORM pay04_resolve_garage_payment_discrepancy((SELECT id FROM pay04_garage_payment_discrepancies WHERE collection_id = c
+    AND discrepancy_type = 'amount_mismatch' AND status = 'open'), 'provider_corrected', 'p4p-op', 'admin', 'Provider support withdrew the 76.00 report');
+  PERFORM pg_temp.check((SELECT provider_paid FROM pay04_invoice_money(inv.id)) = 75
+    AND (SELECT count(*) FROM pay04_garage_provider_receipts WHERE collection_id = c AND status = 'issued') = 1, 'resolution re-counts it with one live receipt');
 
-  -- late money: the customer's checkout is cancelled, the garage records cash for the whole invoice, then the provider
-  -- confirms the old checkout. Truth: the money arrived (paid) but the invoice cannot absorb it -> unallocated + open.
+  -- Late money. A stop keeps the room until the provider confirms closure (section X), so money that arrives late
+  -- always has its room. Defence in depth: if the room is lost OUT OF BAND (a writer that bypasses the PAY-04 guard,
+  -- simulated here by disabling it for one insert), the late money is recorded, never counted, and flagged.
   inv_late := pg_temp.invoice(g, 'p4p', 'PAY04PROVVIN000001', 'p4p-cust', 40);
   c_late := pg_temp.collection(pay04_begin_garage_collection(inv_late.id, 'p4p-cust', 40, 'USD', 'p4p-key-late-0001'));
   PERFORM pg_temp.attach(c_late);
-  PERFORM pay04_cancel_garage_collection(c_late, 'p4p-admin', 'Customer paid cash at the counter');
+  ALTER TABLE garage_payment_records DISABLE TRIGGER trg_pay04_guard_declared_payment;
   PERFORM garage_ops07_record_payment(g, inv_late.id, 40, 'USD', 'cash', 'till 2', now(), 'p4p-admin', 'p4p-cash-late-0001');
+  ALTER TABLE garage_payment_records ENABLE TRIGGER trg_pay04_guard_declared_payment;
   v_res := pg_temp.snap(c_late, 'paid', 'evt_gsim_late_0001');
   PERFORM pg_temp.check(pg_temp.status(c_late) = 'paid' AND (v_res->'projection'->>'allocated')::numeric = 0
     AND (v_res->'projection'->>'unallocated')::numeric = 40, 'late money is recorded, not counted');
@@ -341,7 +445,39 @@ BEGIN
   PERFORM pay04_request_garage_collection_refund(c_late, 'p4p-admin', 'Customer already paid this invoice in cash');
   PERFORM pg_temp.snap(c_late, 'refunded', 'evt_gsim_late_refund_0001', 'sim_re_gar_late_0001');
   PERFORM pg_temp.check((SELECT resolution FROM pay04_garage_payment_discrepancies WHERE collection_id = c_late AND discrepancy_type = 'unallocated_provider_money') = 'refunded_to_customer', 'provider refund closes the unallocated discrepancy');
-  RAISE NOTICE 'PAY04_PROVIDER_SMOKE D PASS: merchant/currency/amount mismatches recorded never applied, operator closure governed, late money unallocated until refunded';
+
+  -- An operator's off-platform settlement sticks: later reads do not reopen it, and the money never starts counting,
+  -- even when room appears.
+  inv_late2 := pg_temp.invoice(g, 'p4p', 'PAY04PROVVIN000001', 'p4p-cust', 40);
+  c_late2 := pg_temp.collection(pay04_begin_garage_collection(inv_late2.id, 'p4p-cust', 40, 'USD', 'p4p-key-late-0002'));
+  PERFORM pg_temp.attach(c_late2);
+  ALTER TABLE garage_payment_records DISABLE TRIGGER trg_pay04_guard_declared_payment;
+  v_cash := (garage_ops07_record_payment(g, inv_late2.id, 40, 'USD', 'cash', 'till 4', now(), 'p4p-admin', 'p4p-cash-late-0002')->>'payment_id')::uuid;
+  ALTER TABLE garage_payment_records ENABLE TRIGGER trg_pay04_guard_declared_payment;
+  PERFORM pg_temp.snap(c_late2, 'paid', 'evt_gsim_late2_0001');
+  SELECT id INTO v_d FROM pay04_garage_payment_discrepancies WHERE collection_id = c_late2 AND discrepancy_type = 'unallocated_provider_money' AND status = 'open';
+  PERFORM pay04_resolve_garage_payment_discrepancy(v_d, 'settled_off_platform', 'p4p-op', 'admin', 'The garage returned the 40 USD to the customer in cash');
+  PERFORM pay04_apply_garage_provider_snapshot(c_late2, 'paid', pg_temp.pid(c_late2), NULL, NULL, NULL, 4000, 'USD', 'gsim_merchant_p4p_main', NULL, NULL, NULL, NULL, 'provider_readback');
+  PERFORM pg_temp.check(NOT EXISTS (SELECT 1 FROM pay04_garage_payment_discrepancies WHERE collection_id = c_late2 AND status = 'open'), 'the operator closure sticks');
+  PERFORM garage_ops07_reverse_payment(g, v_cash, 'Cash was recorded in error', 'p4p-admin', 'p4p-rev-late-0002');
+  PERFORM pay04_reproject_invoice(inv_late2.id);
+  PERFORM pg_temp.check((SELECT provider_paid FROM pay04_invoice_money(inv_late2.id)) = 0
+    AND NOT EXISTS (SELECT 1 FROM pay04_garage_payment_discrepancies WHERE collection_id = c_late2 AND status = 'open'), 'settled-off-platform money never starts counting');
+
+  -- Room that reappears (the out-of-band cash is reversed) re-projects unallocated money, and its flag closes itself.
+  inv_late3 := pg_temp.invoice(g, 'p4p', 'PAY04PROVVIN000001', 'p4p-cust', 40);
+  c_late3 := pg_temp.collection(pay04_begin_garage_collection(inv_late3.id, 'p4p-cust', 40, 'USD', 'p4p-key-late-0003'));
+  PERFORM pg_temp.attach(c_late3);
+  ALTER TABLE garage_payment_records DISABLE TRIGGER trg_pay04_guard_declared_payment;
+  v_cash := (garage_ops07_record_payment(g, inv_late3.id, 40, 'USD', 'cash', 'till 5', now(), 'p4p-admin', 'p4p-cash-late-0003')->>'payment_id')::uuid;
+  ALTER TABLE garage_payment_records ENABLE TRIGGER trg_pay04_guard_declared_payment;
+  PERFORM pg_temp.snap(c_late3, 'paid', 'evt_gsim_late3_0001');
+  PERFORM pg_temp.check((SELECT count(*) FROM pay04_garage_payment_discrepancies WHERE collection_id = c_late3 AND status = 'open') = 1, 'late money flagged');
+  PERFORM garage_ops07_reverse_payment(g, v_cash, 'Cash was recorded in error', 'p4p-admin', 'p4p-rev-late-0003');
+  PERFORM pay04_reproject_invoice(inv_late3.id);
+  PERFORM pg_temp.check((SELECT provider_paid FROM pay04_invoice_money(inv_late3.id)) = 40
+    AND (SELECT resolution FROM pay04_garage_payment_discrepancies WHERE collection_id = c_late3) = 'counted_on_invoice', 'room re-projects it and the flag closes itself');
+  RAISE NOTICE 'PAY04_PROVIDER_SMOKE D PASS: mismatches recorded never applied and block counting, operator closure governed and sticky, late money unallocated until refunded or re-projected';
 END $$;
 
 -- ═══════════════════════════ I: invariants and least privilege ═══════════════════════════
@@ -393,7 +529,8 @@ BEGIN
       'pay04_apply_garage_provider_snapshot(uuid,text,text,text,text,text,bigint,text,text,bigint,bigint,text[],text,text)',
       'pay04_request_garage_collection_refund(uuid,text,text)', 'pay04_cancel_garage_collection(uuid,text,text)',
       'pay04_resolve_garage_payment_discrepancy(uuid,text,text,text,text)', 'pay04_invoice_money(uuid)',
-      'pay04_register_garage_merchant_account(uuid,text,text,text,text[],text,text,text)', 'pay04_suspend_garage_merchant_account(uuid,text,text,text)'] LOOP
+      'pay04_register_garage_merchant_account(uuid,text,text,text,text[],text,text,text)', 'pay04_suspend_garage_merchant_account(uuid,text,text,text)',
+      'pay04_close_expired_unattached_collection(uuid)', 'pay04_reproject_invoice(uuid)'] LOOP
     PERFORM pg_temp.check(NOT has_function_privilege('anon', v_f, 'EXECUTE') AND NOT has_function_privilege('authenticated', v_f, 'EXECUTE')
       AND has_function_privilege('service_role', v_f, 'EXECUTE'), 'execute on ' || v_f);
   END LOOP;
