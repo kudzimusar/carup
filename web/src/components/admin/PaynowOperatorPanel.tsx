@@ -3,11 +3,15 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney } from '@/lib/garageBusiness'
+import { dateTimeLabel } from '@/lib/garageWorkspace'
 import { MONEY_ACTION_BUTTON_CLASS, pay04ErrorText } from '@/lib/pay04GaragePayments'
 import {
   CURRENCY_NAME, MERCHANT_STATUS_LABEL, PAY05_NOT_OFFERED, PAYNOW_METHOD_LABEL, PROVIDER_ERROR_LABEL, isPay05Disabled, pay05ErrorText,
   type PaynowAvailability, type PaynowHeldCollection, type PaynowMerchant, type PaynowProviderError,
 } from '@/lib/pay05Paynow'
+
+/** What happens to a payment that arrives after an operator released its hold: said as it is. */
+const LATE_PAYMENT = 'If the customer pays after the release, CarUp counts it only if the invoice still has room; otherwise it is held for an operator’s review.'
 
 /** Operators read the refusal in words and keep its code for support. */
 function messageOf(e: unknown, fallback: string): string {
@@ -38,6 +42,15 @@ export default function PaynowOperatorPanel() {
   const [review, setReview] = useState<Record<string, { legal: boolean; settlement: boolean; currency: boolean; note: string }>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [availabilityNote, setAvailabilityNote] = useState('')
+  // a held request's release opens when CarUp's payment time passes: draw the page again at that moment
+  const [clock, setClock] = useState(0)
+  useEffect(() => {
+    const now = Date.now()
+    const next = (held ?? []).map((h) => Date.parse(h.expires_at)).filter((t) => Number.isFinite(t) && t > now).sort((a, b) => a - b)[0]
+    if (next === undefined) return
+    const timer = setTimeout(() => setClock((c) => c + 1), Math.min(next - now + 500, 2_147_000_000))
+    return () => clearTimeout(timer)
+  }, [held, clock])
 
   const load = useCallback(async () => {
     try {
@@ -194,30 +207,47 @@ export default function PaynowOperatorPanel() {
       <div className="space-y-3">
         <h3 className="font-semibold">Paynow requests still holding invoice room</h3>
         <p className="text-sm text-gray-700">
-          Paynow cannot cancel a payment request. A stopped or expired request keeps its room until Paynow closes it, or until you release it after Paynow shows it unpaid in a fresh check.
-          If it is paid later, CarUp never counts it twice: it becomes money for review.
+          Paynow cannot cancel a payment request. A stopped or expired request keeps its room until Paynow closes it, or until you release it after Paynow shows it
+          unpaid in a fresh check. A request Paynow never confirmed receiving is closed the same way. {LATE_PAYMENT}
         </p>
         {held?.length === 0 && <p className="text-sm text-gray-700" data-testid="paynow-op-held-empty">Nothing is held.</p>}
         <ul className="space-y-2">
-          {held?.map((h) => (
+          {held?.map((h) => {
+            // Paynow never confirmed receiving this request: there is nothing at Paynow to wait for, only a request to close
+            const unconfirmed = h.paynow.initiation === 'sending' || h.paynow.initiation === 'unknown'
+            const expires = Date.parse(h.expires_at)
+            const known = Number.isFinite(expires)
+            const waiting = known && expires > Date.now()
+            const releaseLabel = unconfirmed ? 'Close unconfirmed request' : 'Check with Paynow and release the hold'
+            return (
             <li key={h.collection_id} className="space-y-2 rounded-md border p-3" data-testid="paynow-op-held">
               <p>{h.garage ?? 'Garage'} · invoice {h.invoice_number ?? '—'} · {formatMoney(h.amount, h.currency)} · {PAYNOW_METHOD_LABEL[h.paynow.method]}</p>
-              <p className="text-sm text-gray-700">{h.paynow.provider_status_label}{h.stopped_at ? ' · stopped by a person' : ' · past CarUp’s time'}</p>
+              <p className="text-sm text-gray-700">{h.paynow.provider_status_label}{h.stopped_at ? ' · stopped by a person' : ''}</p>
+              {known && !waiting && <p className="text-sm text-gray-700">CarUp’s payment time ended {dateTimeLabel(h.expires_at)}</p>}
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="min-h-11" disabled={busy}
                   onClick={() => void act(() => reconcilePaynowCollection(h.collection_id), 'Checked with Paynow.')} data-testid="paynow-op-held-check">
                   Check with Paynow
                 </Button>
               </div>
-              {reasonInput(`release-${h.collection_id}`, 'Reason to release the hold')}
-              <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || reasonOf(`release-${h.collection_id}`).length < 10}
-                onClick={() => void act(() => releasePaynowHold(h.collection_id, reasonOf(`release-${h.collection_id}`)),
-                  'Released after a fresh check with Paynow. The invoice room is free; a late payment would be reviewed, never counted twice.')}
+              {reasonInput(`release-${h.collection_id}`, unconfirmed ? 'Reason to close the request' : 'Reason to release the hold')}
+              {waiting && (
+                <p id={`${uid}-wait-${h.collection_id}`} className="text-sm text-gray-700" data-testid="paynow-op-release-wait">
+                  Can be released after {dateTimeLabel(h.expires_at)} (CarUp’s payment time)
+                </p>
+              )}
+              <Button className={`min-h-11 h-auto whitespace-normal py-2 text-left ${MONEY_ACTION_BUTTON_CLASS}`}
+                disabled={busy || waiting || reasonOf(`release-${h.collection_id}`).length < 10}
+                aria-describedby={waiting ? `${uid}-wait-${h.collection_id}` : undefined}
+                onClick={() => void act(() => releasePaynowHold(h.collection_id, reasonOf(`release-${h.collection_id}`)), unconfirmed
+                  ? `Closed: Paynow never confirmed receiving this request, and its invoice room is free. ${LATE_PAYMENT}`
+                  : `Released after a fresh check with Paynow. The invoice room is free. ${LATE_PAYMENT}`)}
                 data-testid="paynow-op-release">
-                Check with Paynow and release the hold
+                {releaseLabel}
               </Button>
             </li>
-          ))}
+            )
+          })}
         </ul>
       </div>
 

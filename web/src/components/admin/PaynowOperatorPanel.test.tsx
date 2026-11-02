@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { dateTimeLabel } from '@/lib/garageWorkspace'
 
 /**
  * CARUP-PAY-05 — the operator's Paynow work. Truth rules: verification needs both human reviews and a note (the server
@@ -23,7 +24,9 @@ const merchant = {
     credential_fingerprint: 'a1b2c3d4e5f60718', registered_at: '', verified_at: null, verified_by: null, closed_at: null, closed_reason: null, probe: null }],
   history: [],
 }
-const held = { collection_id: 'c1', garage: 'P5 Garage', invoice_number: 'INV-000009', amount: '60.00', currency: 'USD', initiated_at: '', expires_at: '',
+const minutesFromNow = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString()
+const LATE_PAYMENT = /If the customer pays after the release, CarUp counts it only if the invoice still has room; otherwise it is held for an operator.s review\./
+const held = { collection_id: 'c1', garage: 'P5 Garage', invoice_number: 'INV-000009', amount: '60.00', currency: 'USD', initiated_at: '', expires_at: minutesFromNow(-60),
   stopped_at: null, paynow: { method: 'ecocash', initiation: 'attached', provider_status: 'sent', provider_status_label: 'Waiting for you to approve the payment on your phone',
     checkout_url: null, instructions: null, authorization_code: null, authorization_expires: null, otp_reference: null, needs_otp: false, phone: null, hold_released: false } }
 
@@ -78,7 +81,46 @@ describe('Paynow operator panel', () => {
     fireEvent.change(screen.getByTestId('paynow-op-reason-release-c1'), { target: { value: 'Customer abandoned the EcoCash prompt.' } })
     fireEvent.click(release)
     await waitFor(() => expect(api.releasePaynowHold).toHaveBeenCalledWith('c1', 'Customer abandoned the EcoCash prompt.'))
-    expect(await screen.findByTestId('paynow-op-message')).toHaveTextContent('never counted twice')
+    expect(await screen.findByTestId('paynow-op-message')).toHaveTextContent(LATE_PAYMENT)
+  })
+
+  it('W10: the late-payment rule is said as it is, never "never counted twice"', async () => {
+    render(<PaynowOperatorPanel />)
+    const section = (await screen.findByTestId('paynow-op-held')).closest('div') as HTMLElement
+    expect(section).toHaveTextContent(LATE_PAYMENT)
+    expect(screen.getByTestId('paynow-operator')).not.toHaveTextContent(/never count(s|ed)? (it )?twice/)
+  })
+
+  it('contract 7: a held request shows CarUp’s payment time and cannot be released before it passes', async () => {
+    const expires = minutesFromNow(90)
+    api.fetchPaynowHeldCollections.mockResolvedValue({ held: [{ ...held, expires_at: expires }] })
+    render(<PaynowOperatorPanel />)
+    const row = await screen.findByTestId('paynow-op-held')
+    expect(row).toHaveTextContent(`Can be released after ${dateTimeLabel(expires)} (CarUp’s payment time)`)
+    fireEvent.change(screen.getByTestId('paynow-op-reason-release-c1'), { target: { value: 'Customer abandoned the EcoCash prompt.' } })
+    expect(within(row).getByTestId('paynow-op-release')).toBeDisabled()
+    expect(within(row).getByTestId('paynow-op-release')).toHaveAccessibleDescription(`Can be released after ${dateTimeLabel(expires)} (CarUp’s payment time)`)
+  })
+
+  it('contract 7: a past payment time is shown, and the release is open', async () => {
+    render(<PaynowOperatorPanel />)
+    const row = await screen.findByTestId('paynow-op-held')
+    expect(row).toHaveTextContent(`CarUp’s payment time ended ${dateTimeLabel(held.expires_at)}`)
+    fireEvent.change(screen.getByTestId('paynow-op-reason-release-c1'), { target: { value: 'Customer abandoned the EcoCash prompt.' } })
+    expect(within(row).getByTestId('paynow-op-release')).toBeEnabled()
+  })
+
+  it('contract 7: a request Paynow never confirmed receiving is closed as such, through the same release', async () => {
+    api.fetchPaynowHeldCollections.mockResolvedValue({ held: [{ ...held, paynow: { ...held.paynow, initiation: 'unknown', provider_status: null,
+      provider_status_label: 'CarUp is confirming with Paynow whether the payment request was received (not counted)' } }] })
+    api.releasePaynowHold.mockResolvedValue({})
+    render(<PaynowOperatorPanel />)
+    const close = await screen.findByTestId('paynow-op-release')
+    expect(close).toHaveTextContent(/^Close unconfirmed request$/)
+    fireEvent.change(screen.getByTestId('paynow-op-reason-release-c1'), { target: { value: 'Paynow has no record of it after two traces.' } })
+    fireEvent.click(close)
+    await waitFor(() => expect(api.releasePaynowHold).toHaveBeenCalledWith('c1', 'Paynow has no record of it after two traces.'))
+    expect(await screen.findByTestId('paynow-op-message')).toHaveTextContent(/never confirmed/)
   })
 
   it('names provider errors and keeps availability changes reasoned', async () => {
