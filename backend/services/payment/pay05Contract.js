@@ -26,7 +26,8 @@ export const PAY05_CURRENCIES = Object.freeze(['USD', 'ZWG']);
 /** 'web' = Paynow's hosted page (card, Zimswitch and whatever else the integration offers there). */
 export const PAY05_METHODS = Object.freeze(['web', 'ecocash', 'onemoney', 'innbucks', 'omari']);
 export const PAY05_EXPRESS_METHODS = Object.freeze(['ecocash', 'onemoney', 'innbucks', 'omari']);
-export const PAY05_PHONE_METHODS = Object.freeze(['ecocash', 'onemoney', 'omari']);
+// Paynow's Express checkout takes the payer's phone for every mobile-money method, InnBucks included (independent review P8)
+export const PAY05_PHONE_METHODS = Object.freeze(['ecocash', 'onemoney', 'innbucks', 'omari']);
 /** Integration credentials belong to exactly one world: the local protocol simulator, Paynow test mode, or live. */
 export const PAY05_MODES = Object.freeze(['simulator', 'paynow_test', 'paynow_live']);
 

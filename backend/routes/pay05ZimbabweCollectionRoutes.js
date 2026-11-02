@@ -5,7 +5,8 @@
  * dispatch a Paynow collection to the PAY-05 service). This router adds only what Paynow needs:
  *  - POST /api/pay05/paynow/webhook/:collectionId   Paynow's resulturl. No session and no CSRF token can exist on a
  *    provider's POST: it is authenticated by the SHA-512 hash with THIS collection's own integration key, bound to the
- *    collection's reference and poll URL, and its money effect is a fresh poll. Rate-limited in server.js.
+ *    collection's reference and poll URL, and its money effect is a fresh poll. Rate-limited in server.js. Every refusal
+ *    gets one identical answer (400 PAY05_STATUS_UPDATE_REFUSED); a transient failure 503 PAY05_STATUS_UPDATE_RETRY.
  *  - O'mari one-time password (the customer, own collection only).
  *  - The garage administrator's Paynow connection (connect / view / disconnect). Identity and tenant come from the session;
  *    the integration key is sealed before storage and never returned.
@@ -76,8 +77,12 @@ router.post('/api/pay05/paynow/webhook/:collectionId', requirePay05, async (req,
     return res.status(200).json({ ok: true, duplicate: Boolean(out.duplicate_event), applied: Boolean(out.applied) });
   } catch (err) {
     const e = err instanceof Pay04Error ? err : pay05Failure(err);
-    // Paynow resends on an HTTP error: a refused message gets the bare code, never internal detail
-    return res.status(e.status || 409).json({ error: e.code });
+    // Paynow resends on any HTTP error. A caller without the integration key learns nothing here: every refusal (no such
+    // collection, malformed, unsigned, forged, foreign) gets the same answer, and only a transient failure on CarUp's side
+    // (Paynow unreachable for the confirming poll, credentials unavailable) asks for the retry (independent review S5).
+    // The specific reason is recorded for the operator (pay05_provider_errors), not returned.
+    if ((e.status || 409) >= 500) return res.status(503).json({ error: 'PAY05_STATUS_UPDATE_RETRY' });
+    return res.status(400).json({ error: 'PAY05_STATUS_UPDATE_REFUSED' });
   }
 });
 
@@ -86,7 +91,7 @@ router.post('/api/pay05/garage-payments/:collectionId/otp', requirePay05, member
   ...args(req), collectionId: req.params.collectionId, body: req.body || {} })));
 
 // ------------------------------------------------------------------------------------------ garage administrator
-router.get('/api/pay05/garage/paynow', GARAGE_ADMIN, handle((req) => getGaragePaynowConnection(args(req))));
+router.get('/api/pay05/garage/paynow', requirePay05, GARAGE_ADMIN, handle((req) => getGaragePaynowConnection(args(req))));
 router.post('/api/pay05/garage/paynow/connect', requirePay05, GARAGE_ADMIN, handle((req) => connectGaragePaynow({
   ...args(req), body: req.body || {} }), 201));
 router.post('/api/pay05/garage/paynow/disconnect', requirePay05, GARAGE_ADMIN, handle((req) => disconnectGaragePaynow({

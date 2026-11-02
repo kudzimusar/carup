@@ -16,7 +16,7 @@ import { isPay04ProductionRuntime } from './pay04Contract.js';
 import { Pay05Error, PAY05_CURRENCIES, PAY05_METHODS } from './pay05Contract.js';
 import { encodeForm, parseForm, signPairs, verifyPairs, parsePaynowAmountMinor } from './pay05PaynowProtocol.js';
 
-const PHONE_METHODS = new Set(['ecocash', 'onemoney', 'omari']);
+const PHONE_METHODS = new Set(['ecocash', 'onemoney', 'innbucks', 'omari']);
 const TEST_NUMBERS = Object.freeze({
   '0771111111': { after: 5_000, status: 'Paid' },
   '0772222222': { after: 30_000, status: 'Paid' },
@@ -30,7 +30,7 @@ const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
 
 export class PaynowProtocolSimulator {
   /**
-   * @param origin   the simulator's own origin, e.g. http://127.0.0.1:5061 (all returned URLs use it)
+   * @param origin   the simulator's own origin, e.g. http://127.0.0.1:5071 (all returned URLs use it)
    * @param deliver  async (url, body) => httpStatus — posts a status update to a merchant resulturl
    * @param now      clock (ms)
    */
@@ -272,9 +272,19 @@ button.pay{background:#14532d;color:#fff;border-color:#14532d}</style></head>
 
   // ── explicit TEST controls (never part of the merchant API) ─────────────────────────────────────────────────
 
-  async setStatus(guid, status, { notify = true } = {}) {
+  /**
+   * TEST control: move a transaction to a Paynow status. `amount` (Paynow's two-decimal text) makes later messages report
+   * a DIFFERENT amount than was requested — how the UAT exercises CarUp's amount-mismatch review.
+   */
+  async setStatus(guid, status, { notify = true, amount = null } = {}) {
     const tx = this.transactions.get(guid);
     if (!tx) throw new Pay05Error('PAY05_SIMULATOR_TRANSACTION_UNKNOWN', 404);
+    if (amount !== null && amount !== undefined) {
+      const minor = parsePaynowAmountMinor(String(amount));
+      if (!minor) throw new Pay05Error('PAY05_SIMULATOR_AMOUNT_INVALID', 422);
+      tx.amount = String(amount);
+      tx.amountMinor = minor;
+    }
     this.transition(tx, status, 'control');
     return notify ? this.notify(tx) : { delivered: false, reason: 'not_requested' };
   }

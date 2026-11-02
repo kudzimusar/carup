@@ -17,7 +17,7 @@ import { pay04Money } from './pay04Contract.js';
 import {
   Pay05Error, PAY05_GATEWAY, PAY05_LABELS, PAY05_PHONE_METHODS, isPay05Enabled, pay05Failure, requirePay05Enabled,
 } from './pay05Contract.js';
-import { eventIdFor, messageHashFor, newMerchantTrace, normalizeZimbabweMobile } from './pay05PaynowProtocol.js';
+import { eventIdFor, isPaynowAuthEmail, messageHashFor, newMerchantTrace, normalizeZimbabweMobile } from './pay05PaynowProtocol.js';
 import { adapterForIntegrationRow, paynowAvailability } from './pay05MerchantService.js';
 import {
   collectionOutcome, forCustomer, invoiceMoney, loadCollection, moneyView, notifyCollectionOutcome, returnOrigin,
@@ -106,13 +106,20 @@ function publicResultUrl(env, collectionId) {
   return `${origin}/api/pay05/paynow/webhook/${collectionId}`;
 }
 
+/**
+ * A DB read ticket, taken BEFORE a Paynow read is sent (independent review D1): reads run outside any lock, so the order
+ * they arrive in is not the order Paynow answered them; the writer supersedes a read older than one it already evaluated.
+ */
+const beginRead = (db, collection) => rpc(db, 'pay05_begin_paynow_read', { p_collection_id: collection.id });
+
 /** Apply one authenticated Paynow message to a collection through the governed writer. */
-async function applyTruth(db, collection, truth, { via, eventId = null, messageHash = null }) {
+async function applyTruth(db, collection, truth, { via, eventId = null, messageHash = null, readTicket = null }) {
   try {
     return await rpc(db, 'pay05_apply_paynow_observation', {
       p_collection_id: collection.id, p_via: via, p_event_id: eventId, p_provider_status: truth.providerStatus,
       p_raw_status: truth.rawStatus, p_amount_minor: truth.amountMinor, p_reference: truth.reference,
       p_paynow_reference: truth.paynowReference, p_payment_id: truth.paymentId, p_message_hash: messageHash,
+      p_read_ticket: readTicket,
     });
   } catch (error) {
     if (error.code === 'PAY05_PROVIDER_BINDING_MISMATCH') {
@@ -140,12 +147,29 @@ export function paynowView(tx, { customer = false } = {}) {
     authorization_code: customer && tx.method === 'innbucks' && !TERMINAL.has(status) ? tx.authorization_code : null,
     authorization_expires: tx.method === 'innbucks' ? tx.authorization_expires : null,
     otp_reference: tx.method === 'omari' ? tx.otp_reference : null,
-    needs_otp: tx.method === 'omari' && tx.initiation_state === 'attached' && (!status || status === 'sent'),
+    // real express polling may report Created before Sent (independent review P8): the code is still expected
+    needs_otp: tx.method === 'omari' && tx.initiation_state === 'attached' && (!status || status === 'created' || status === 'sent'),
     phone: tx.phone_masked ?? null,
     hold_released: Boolean(tx.hold_released_at),
     paynow_reference: customer ? null : tx.paynow_reference ?? null,
     provider_error: customer ? null : tx.provider_error ?? null,
   };
+}
+
+const REVIEW_STATES = new Set(['under_review', 'confirmed_unallocated']);
+const STATUS_WORDS = Object.freeze({
+  created: 'not paid yet', sent: 'waiting for approval on the phone', awaiting_delivery: 'paid into Paynow escrow',
+  delivered: 'paid into Paynow escrow', paid: 'paid', cancelled: 'cancelled', failed: 'failed', disputed: 'disputed',
+  refunded: 'refunded', unrecognized: 'a status CarUp does not recognise',
+});
+/**
+ * The label a person reads follows the COLLECTION's state: while CarUp is reviewing a payment, Paynow's word (say,
+ * "Paid") is reported as Paynow's word, never as confirmation (independent review W5).
+ */
+export function withCollectionState(view, state) {
+  if (!view || !REVIEW_STATES.has(state)) return view;
+  const said = view.provider_status ? STATUS_WORDS[view.provider_status] : null;
+  return { ...view, provider_status_label: `Under review — not counted${said ? ` (Paynow reported: ${said})` : ''}` };
 }
 
 /** Paynow detail for the collections PAY-04's loadProviderParts lists. */
@@ -205,7 +229,8 @@ async function validateStartInput({ db, integration, currency, body, actorId }) 
   let authEmail = null;
   if (method !== 'web') {
     authEmail = one(await read(db.from('users').select('email').eq('id', actorId).limit(1)))?.email ?? null;
-    if (!authEmail) throw new Pay05Error('PAY05_AUTH_EMAIL_REQUIRED', 422);
+    // the adapter's own rule, checked before anything is recorded (independent review S8)
+    if (!isPaynowAuthEmail(authEmail)) throw new Pay05Error('PAY05_AUTH_EMAIL_REQUIRED', 422);
   }
   return { method, phone, authEmail };
 }
@@ -249,8 +274,16 @@ export async function startPaynowCheckout({ db = defaultDb, env = process.env, t
   const back = `${returnOrigin(env)}/dashboard/service-requests?invoice=${invoice.id}&collection=${collection.id}`;
   const resultUrl = publicResultUrl(env, collection.id);
   const trace = newMerchantTrace();
-  const sending = await rpc(db, 'pay05_record_paynow_sending', { p_collection_id: collection.id, p_merchant_trace: trace,
-    p_method: method, p_phone_masked: phone ? maskPhone(phone) : null });
+  let sending;
+  try {
+    sending = await rpc(db, 'pay05_record_paynow_sending', { p_collection_id: collection.id, p_merchant_trace: trace,
+      p_method: method, p_phone_masked: phone ? maskPhone(phone) : null });
+  } catch (error) {
+    // nothing was sent (Paynow switched off by the operator, the integration gone): the begun collection holds no room
+    await rpc(db, 'pay04_cancel_garage_collection', { p_collection_id: collection.id, p_actor_user_id: actor.id,
+      p_reason: `Payment request not sent: ${String(error?.code || 'unavailable')}` }).catch(() => null);
+    throw error;
+  }
   if (sending?.replayed) return checkoutResponse(db, collection, { replayed: true });
   try {
     const checkout = await adapter.createCheckout({
@@ -266,13 +299,17 @@ export async function startPaynowCheckout({ db = defaultDb, env = process.env, t
         paynow_reference: checkout.paynowReference ?? null },
     });
   } catch (error) {
-    if (error?.details?.outcome === 'refused') {
-      // Paynow said no: nothing exists at Paynow, so the collection closes at once and its room is free again
-      await recordProviderError(db, 'provider_refused', collection, { code: error.code, provider_error: error.details.provider_error ?? null });
+    const outcome = error?.details?.outcome;
+    if (outcome === 'refused' || outcome === 'not_sent') {
+      // Paynow said no, or CarUp refused locally before sending: marking the request refused closes the payment and frees
+      // its room in the same transaction, even if a stop arrived meanwhile (independent review S1, S8). Should Paynow's
+      // signed update ever show the request exists after all, it binds late into an operator review.
+      if (outcome === 'refused') {
+        await recordProviderError(db, 'provider_refused', collection, { code: error.code, provider_error: error.details.provider_error ?? null });
+      }
       await rpc(db, 'pay05_mark_paynow_initiation', { p_collection_id: collection.id, p_state: 'refused',
-        p_error: String(error.details.provider_error || error.code).slice(0, 160) });
-      await rpc(db, 'pay04_cancel_garage_collection', { p_collection_id: collection.id, p_actor_user_id: actor.id,
-        p_reason: `Paynow refused the request: ${String(error.details.provider_error || 'no reason given').slice(0, 200)}` });
+        p_error: String(outcome === 'refused' ? (error.details.provider_error || error.code) : `not sent: ${error.code}`).slice(0, 160) });
+      if (outcome === 'not_sent') throw error;
       throw new Pay05Error('PAY05_PROVIDER_REFUSED', 502, { provider_error: error.details.provider_error ?? null });
     }
     // Anything else after the intent was recorded: a request may exist at Paynow. Hold the room; recover by trace.
@@ -288,32 +325,43 @@ export async function recoverByTrace({ db = defaultDb, env = process.env, transp
   const tx = await transactionOf(db, collection.id);
   if (!tx || !['sending', 'unknown'].includes(tx.initiation_state)) return { state: tx?.initiation_state ?? null };
   const adapter = await adapterFor(db, env, transport, collection, tx);
+  const readTicket = await beginRead(db, collection);
   let traced;
   try {
     traced = await adapter.trace({ merchantTrace: tx.merchant_trace });
   } catch (error) {
     await recordProviderError(db, 'trace_failed', collection, { code: error?.code ?? 'unknown' });
+    // the attempt's time lets an operator release a request Paynow never confirmed (independent review P2)
+    await rpc(db, 'pay05_record_paynow_trace_failed', { p_collection_id: collection.id }).catch(() => null);
     return { state: tx.initiation_state, traced: 'failed' };
   }
   if (!traced.found) {
     const r = await rpc(db, 'pay05_record_paynow_trace_absent', { p_collection_id: collection.id });
     return { state: r?.initiation_state ?? tx.initiation_state, traced: 'absent' };
   }
+  // a trace reply that names another payment never binds this one (independent review S6)
+  if (traced.truth.reference !== collection.payment_reference) {
+    await recordProviderError(db, 'callback_binding_mismatch', collection, { via: 'trace', reference_matches: false });
+    return { state: tx.initiation_state, traced: 'mismatch' };
+  }
   await rpc(db, 'pay05_attach_paynow_collection', { p_collection_id: collection.id, p_merchant_trace: tx.merchant_trace,
-    p_poll_url: traced.truth.pollUrl, p_payment_id: traced.truth.paymentId,
+    p_poll_url: traced.truth.pollUrl, p_payment_id: traced.truth.paymentId, p_reference: traced.truth.reference,
     p_reply: { paynow_reference: traced.truth.paynowReference, recovered_by_trace: true } });
-  const result = await applyTruth(db, await loadCollection(db, collection.id), traced.truth, { via: 'trace' });
+  const result = await applyTruth(db, await loadCollection(db, collection.id), traced.truth, { via: 'trace', readTicket });
   return { state: 'attached', traced: 'found', result };
 }
 
 /** A fresh, authenticated read of one Paynow collection, applied through the governed writer. */
 export async function checkPaynowCollection({ db = defaultDb, env = process.env, transport = null, collection, deps = {} }) {
+  // PAY-05 switched off: Paynow is not called, whichever route asked (independent review S3)
+  requirePay05Enabled(env);
   const tx = await transactionOf(db, collection.id);
   let result = null;
   if (tx && ['sending', 'unknown'].includes(tx.initiation_state)) {
     result = (await recoverByTrace({ db, env, transport, collection }))?.result ?? null;
   } else if (tx && tx.initiation_state === 'attached') {
     const adapter = await adapterFor(db, env, transport, collection, tx);
+    const readTicket = await beginRead(db, collection);
     let truth;
     try {
       truth = await adapter.getPaymentTruth({ pollUrl: tx.poll_url });
@@ -321,7 +369,7 @@ export async function checkPaynowCollection({ db = defaultDb, env = process.env,
       await recordProviderError(db, 'poll_failed', collection, { code: error?.code ?? 'unknown' });
       throw new Pay05Error('PAY05_PROVIDER_READ_FAILED', 502);
     }
-    result = await applyTruth(db, collection, truth, { via: 'poll' });
+    result = await applyTruth(db, collection, truth, { via: 'poll', readTicket });
   }
   const notification = result ? await notifyCollectionOutcome(db, collection, result, deps) : { attempted: 0, emitted: 0, failures: [] };
   const out = await collectionOutcome(db, collection, result, notification);
@@ -336,11 +384,19 @@ export async function verifyCustomerPaynow({ db = defaultDb, env = process.env, 
 /** O'mari: the customer's one-time password, sent to Paynow's remote OTP URL (allowlisted), then applied. */
 export async function submitPaynowOtp({ db = defaultDb, env = process.env, transport = null, actor = {}, collectionId, body = {}, deps = {} }) {
   requirePay05Enabled(env);
-  const collection = await loadCollection(db, collectionId);
+  let collection;
+  try {
+    collection = await loadCollection(db, collectionId);
+  } catch (error) {
+    // a collection that does not exist looks exactly like someone else's (independent review S5)
+    if (error?.code === 'PAY04_COLLECTION_NOT_FOUND') throw new Pay05Error('PAY05_COLLECTION_NOT_FOUND', 404);
+    throw error;
+  }
   if (collection.payer_user_id !== actor.id || collection.gateway !== PAY05_GATEWAY) throw new Pay05Error('PAY05_COLLECTION_NOT_FOUND', 404);
   const tx = await transactionOf(db, collection.id);
   if (!tx || tx.method !== 'omari' || tx.initiation_state !== 'attached' || !tx.remote_otp_url) throw new Pay05Error('PAY05_OTP_NOT_EXPECTED', 409);
   const adapter = await adapterFor(db, env, transport, collection, tx);
+  const readTicket = await beginRead(db, collection);
   let truth;
   try {
     truth = await adapter.submitOtp({ remoteOtpUrl: tx.remote_otp_url, otp: String(body.otp ?? '').trim() });
@@ -348,7 +404,7 @@ export async function submitPaynowOtp({ db = defaultDb, env = process.env, trans
     if (error?.code === 'PAY05_OTP_REJECTED') await recordProviderError(db, 'otp_rejected', collection, { provider_error: error.details?.provider_error ?? null });
     throw error;
   }
-  const result = await applyTruth(db, collection, truth, { via: 'otp_reply' });
+  const result = await applyTruth(db, collection, truth, { via: 'otp_reply', readTicket });
   const notification = await notifyCollectionOutcome(db, collection, result, deps);
   return { ...forCustomer(await collectionOutcome(db, collection, result, notification)), paynow: paynowView(await transactionOf(db, collection.id), { customer: true }) };
 }
@@ -373,9 +429,13 @@ export async function processPaynowStatusUpdate({ db = defaultDb, env = process.
   try {
     update = adapter.verifyStatusUpdate(rawBody);
   } catch (error) {
-    await recordProviderError(db, error?.code === 'PAY05_PROVIDER_MESSAGE_MALFORMED' ? 'callback_malformed' : 'callback_signature_invalid',
-      collection, { code: error?.code ?? 'unknown' });
-    throw error?.code === 'PAY05_PROVIDER_MESSAGE_MALFORMED' ? new Pay05Error('PAY05_CALLBACK_MALFORMED', 400) : new Pay05Error('PAY05_CALLBACK_SIGNATURE_INVALID', 401);
+    // a message that verified but names a poll URL that is not Paynow's is a URL refusal, not a forgery (independent review P6)
+    const kind = error?.code === 'PAY05_PROVIDER_MESSAGE_MALFORMED' ? 'callback_malformed'
+      : error?.code === 'PAY05_PROVIDER_URL_REFUSED' ? 'provider_url_refused' : 'callback_signature_invalid';
+    await recordProviderError(db, kind, collection, { code: error?.code ?? 'unknown' });
+    if (kind === 'callback_malformed') throw new Pay05Error('PAY05_CALLBACK_MALFORMED', 400);
+    if (kind === 'provider_url_refused') throw new Pay05Error('PAY05_PROVIDER_URL_REFUSED', 409);
+    throw new Pay05Error('PAY05_CALLBACK_SIGNATURE_INVALID', 401);
   }
   if (update.truth.reference !== collection.payment_reference || !update.truth.pollUrl
       || (tx.poll_url && update.truth.pollUrl !== tx.poll_url)) {
@@ -383,20 +443,25 @@ export async function processPaynowStatusUpdate({ db = defaultDb, env = process.
       poll_url_matches: Boolean(tx.poll_url) && update.truth.pollUrl === tx.poll_url });
     throw new Pay05Error('PAY05_PROVIDER_BINDING_MISMATCH', 409);
   }
-  // A resend of the message CarUp applied last is a duplicate (no second poll). The same words after a DIFFERENT message
-  // (Paid, Disputed, Paid) are a new event: Paynow's messages carry no sequence number.
+  // A resend of the message CarUp applied last — while CarUp still holds the status it reported — is a duplicate (no
+  // second poll). The same words after Paynow's status changed (Paid, Disputed, Paid — the dispute perhaps learned by a
+  // poll) are a new event: Paynow's messages carry no sequence number (independent review D7).
   const messageHash = messageHashFor(update.pairs);
-  if (tx.last_status_update_hash === messageHash) return { duplicate_event: true, applied: false };
+  if (tx.last_status_update_hash === messageHash && tx.provider_status === update.truth.providerStatus) {
+    return { duplicate_event: true, applied: false };
+  }
   const eventId = eventIdFor(collection.id, update.pairs, tx.last_status_update_hash);
   const seen = one(await read(db.from('pay05_paynow_observations').select('id').eq('event_id', eventId).limit(1)));
   if (seen) return { event_id: eventId, duplicate_event: true, applied: false };
   if (tx.initiation_state !== 'attached') {
-    // Paynow's own signed message carries the poll URL our lost reply would have: bind it now
+    // Paynow's own signed message carries the poll URL our lost reply would have: bind it now — LATE if CarUp had already
+    // closed the request as refused or absent, whose money is then an operator review, never lost (independent review P1)
     await rpc(db, 'pay05_attach_paynow_collection', { p_collection_id: collection.id, p_merchant_trace: tx.merchant_trace,
-      p_poll_url: update.truth.pollUrl, p_payment_id: update.truth.paymentId,
+      p_poll_url: update.truth.pollUrl, p_payment_id: update.truth.paymentId, p_reference: update.truth.reference, p_late: true,
       p_reply: { paynow_reference: update.truth.paynowReference, recovered_by_status_update: true } });
     tx = await transactionOf(db, collection.id);
   }
+  const readTicket = await beginRead(db, collection);
   let truth;
   try {
     truth = await adapter.getPaymentTruth({ pollUrl: tx.poll_url });
@@ -406,7 +471,7 @@ export async function processPaynowStatusUpdate({ db = defaultDb, env = process.
     throw new Pay05Error('PAY05_PROVIDER_READ_FAILED', 503);
   }
   const current = await loadCollection(db, collection.id);
-  const result = await applyTruth(db, current, truth, { via: 'status_update', eventId, messageHash });
+  const result = await applyTruth(db, current, truth, { via: 'status_update', eventId, messageHash, readTicket });
   const notification = await notifyCollectionOutcome(db, current, result, deps);
   return { event_id: eventId, collection_id: collection.id, applied: Boolean(result?.applied), duplicate_event: Boolean(result?.duplicate_event),
     provider_status: truth.providerStatus, payment_status: result?.payment_status ?? null, notification };
@@ -416,6 +481,7 @@ export async function processPaynowStatusUpdate({ db = defaultDb, env = process.
 
 /** A stop: recorded (who, why); the room stays held — Paynow cannot cancel — then one fresh read. */
 export async function cancelPaynowCollection({ db = defaultDb, env = process.env, transport = null, collection, actorUserId, reason }) {
+  requirePay05Enabled(env);
   await rpc(db, 'pay04_cancel_garage_collection', { p_collection_id: collection.id, p_actor_user_id: actorUserId, p_reason: reason });
   let out;
   try {
@@ -427,9 +493,21 @@ export async function cancelPaynowCollection({ db = defaultDb, env = process.env
 }
 
 /** PAY-04's refreshClosingCollections, for one Paynow collection that is stopped or past its time. Fail closed. */
+const RECENT_READ_MS = 60_000;
+const recently = (ts) => Boolean(ts) && Date.now() - Date.parse(ts) < RECENT_READ_MS;
+
 export async function refreshPaynowCollection({ db = defaultDb, env = process.env, transport = null, collection }) {
+  if (!isPay05Enabled(env)) return;
   const tx = await transactionOf(db, collection.id);
   const expired = Date.parse(collection.expires_at) <= Date.now();
+  // A released or settled request is not re-read on every view (Paynow's own update still reports late money), and
+  // none is read more than once a minute however often a customer looks (independent review S10).
+  if (tx && (tx.hold_released_at || tx.settled_off_platform_at || recently(tx.last_trace_at))) return;
+  if (tx) {
+    const last = one(await read(db.from('pay05_paynow_observations').select('observed_at').eq('collection_id', collection.id)
+      .order('seq', { ascending: false }).limit(1)));
+    if (recently(last?.observed_at)) return;
+  }
   if (!tx) {
     if (expired) await rpc(db, 'pay04_close_expired_unattached_collection', { p_collection_id: collection.id });
     return;

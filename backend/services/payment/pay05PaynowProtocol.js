@@ -25,9 +25,12 @@ export const PAYNOW_REAL_ALLOWLIST = Object.freeze({ hosts: Object.freeze([PAYNO
 const MAX_MESSAGE_CHARS = 64 * 1024;
 const malformed = () => new Pay05Error('PAY05_PROVIDER_MESSAGE_MALFORMED', 502);
 
+/** A value as Paynow hashes it: trimmed (generating_hash's own example; its published vector matches only trimmed text). */
+const hashValue = (v) => (v === null || v === undefined ? '' : String(v).trim());
+
 export function paynowHash(values, integrationKey) {
   if (typeof integrationKey !== 'string' || integrationKey.length === 0) throw new Pay05Error('PAY05_CREDENTIAL_UNAVAILABLE', 503);
-  const material = values.map((v) => (v === null || v === undefined ? '' : String(v))).join('') + integrationKey;
+  const material = values.map(hashValue).join('') + integrationKey;
   return crypto.createHash('sha512').update(material, 'utf8').digest('hex').toUpperCase();
 }
 
@@ -64,8 +67,9 @@ export function parseForm(body) {
   return pairs;
 }
 
+/** The message to send, signed: values are sent exactly as hashed (trimmed), so Paynow can never disagree about spaces. */
 export function signPairs(pairs, integrationKey) {
-  const body = pairs.filter(([k]) => String(k).toLowerCase() !== 'hash');
+  const body = pairs.filter(([k]) => String(k).toLowerCase() !== 'hash').map(([k, v]) => [k, hashValue(v)]);
   return [...body, ['hash', paynowHash(body.map(([, v]) => v), integrationKey)]];
 }
 
@@ -99,8 +103,24 @@ const STATUSES = Object.freeze({
   // money held in suspense by Paynow: never a payment-state transition by itself (a review is opened instead)
   disputed: Object.freeze({ code: 'disputed', snapshot: null, moneyReceived: true }),
   refunded: Object.freeze({ code: 'refunded', snapshot: 'refunded', moneyReceived: false }),
+  // used by Paynow's own .NET SDK and plugins for a request the customer has not paid yet: pending, never money
+  'created but not paid': Object.freeze({ code: 'created', snapshot: 'pending', moneyReceived: false }),
+  'awaiting redirect': Object.freeze({ code: 'created', snapshot: 'pending', moneyReceived: false }),
 });
 const UNRECOGNIZED = Object.freeze({ code: 'unrecognized', snapshot: null, moneyReceived: false });
+
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A pasted integration key as Paynow renders it: trimmed, and a GUID in lower case (as its C# example concatenates it). */
+export function normalizeIntegrationKey(key) {
+  const k = String(key ?? '').trim();
+  return GUID.test(k) ? k.toLowerCase() : k;
+}
+
+const AUTH_EMAIL = /^[^\s@<>]{1,64}@[^\s@<>]{1,190}\.[A-Za-z]{2,24}$/;
+/** The payer e-mail an express (mobile) request carries as Paynow's `authemail`. */
+export function isPaynowAuthEmail(value) {
+  return AUTH_EMAIL.test(String(value ?? ''));
+}
 
 export function classifyPaynowStatus(raw) {
   const word = String(raw ?? '').trim().toLowerCase().replace(/\s+/g, ' ');

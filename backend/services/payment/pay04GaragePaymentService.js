@@ -18,7 +18,7 @@ import {
   pay04Money, pay04Reason, requirePay04Enabled,
 } from './pay04Contract.js';
 import { pay04AdapterFor } from './pay04ProviderAdapters.js';
-import { PAY05_GATEWAY, PAY05_LABELS, Pay05Error } from './pay05Contract.js';
+import { PAY05_GATEWAY, PAY05_LABELS, Pay05Error, isPay05Enabled } from './pay05Contract.js';
 
 // PAY-05: a collection through the garage's own Paynow merchant is served by the Paynow service (loaded on demand, so the
 // two modules never import each other at load time).
@@ -155,7 +155,8 @@ export async function loadProviderParts(db, invoiceIds, { payerUserId = null, in
   ]);
   const paymentByRef = new Map(list(payments).map((p) => [p.reference, p]));
   const paynowIds = rows.filter((c) => c.gateway === PAY05_GATEWAY).map((c) => c.id);
-  const paynow = paynowIds.length ? await (await paynowService()).paynowDetails(db, paynowIds, { customer: Boolean(payerUserId) }) : new Map();
+  const paynowModule = paynowIds.length ? await paynowService() : null;
+  const paynow = paynowModule ? await paynowModule.paynowDetails(db, paynowIds, { customer: Boolean(payerUserId) }) : new Map();
   const openByCollection = new Map();
   for (const d of list(discrepancies).filter((x) => x.status === 'open')) {
     openByCollection.set(d.collection_id, [...(openByCollection.get(d.collection_id) || []), d]);
@@ -172,7 +173,8 @@ export async function loadProviderParts(db, invoiceIds, { payerUserId = null, in
       payment_status: payment?.status ?? null, gateway: c.gateway,
       simulated: c.gateway === PAY04_SIMULATOR_GATEWAY || Boolean(paynow.get(c.id)?.simulated),
       source_label: c.gateway === PAY05_GATEWAY ? PAY05_LABELS.paynowChannel : PAY04_LABELS.providerChannel,
-      ...(c.gateway === PAY05_GATEWAY ? { paynow: paynow.get(c.id) ?? null } : {}),
+      // PAY-05: while CarUp reviews a payment, Paynow's word is shown as Paynow's word, never as confirmation
+      ...(c.gateway === PAY05_GATEWAY ? { paynow: paynowModule.withCollectionState(paynow.get(c.id) ?? null, state) } : {}),
       ...(includeDiscrepancies ? {
         payer_user_id: c.payer_user_id, payment_reference: c.payment_reference, provider_payment_id: c.provider_payment_id,
         open_discrepancies: open.map((d) => ({ id: d.id, type: d.discrepancy_type, amount: pay04Money(d.detected_amount, d.currency),
@@ -414,11 +416,16 @@ export async function verifyCustomerCollection({ db = defaultDb, env = process.e
 }
 
 /** The customer sees their payment's state, not the garage's discrepancy detail or CarUp's internal references. */
+/** PAY-05: the garage-side Paynow reference and provider error are not the customer's to read (independent review S4). */
+const customerPaynow = (view) => (view ? { ...view, paynow_reference: null, provider_error: null } : view);
+
 export function forCustomer(out) {
   if (out?.collection) {
     delete out.collection.open_discrepancies; delete out.collection.payer_user_id;
     delete out.collection.payment_reference; delete out.collection.provider_payment_id;
+    if (out.collection.paynow) out.collection.paynow = customerPaynow(out.collection.paynow);
   }
+  if (out?.paynow) out.paynow = customerPaynow(out.paynow);
   return out;
 }
 
@@ -480,7 +487,11 @@ export async function refreshClosingCollections({ db = defaultDb, env = process.
   let refreshed = 0;
   for (const c of closing.filter((x) => pending.has(x.payment_reference))) {
     try {
-      if (c.gateway === PAY05_GATEWAY) await (await paynowService()).refreshPaynowCollection({ db, env, collection: c });
+      if (c.gateway === PAY05_GATEWAY) {
+        // PAY-05 switched off: no Paynow call from a PAY-04 view (independent review S3)
+        if (!isPay05Enabled(env)) continue;
+        await (await paynowService()).refreshPaynowCollection({ db, env, collection: c });
+      }
       else if (c.provider_payment_id) await applyProviderTruth(db, pay04AdapterFor(c.gateway, { env, provider }), c);
       else if (Date.parse(c.expires_at) <= now) await rpc(db, 'pay04_close_expired_unattached_collection', { p_collection_id: c.id });
       refreshed += 1;
@@ -685,6 +696,10 @@ export async function listGaragePaymentExceptions({ db = defaultDb, env = proces
   ]);
   const tenantIds = [...new Set(list(discrepancies).map((d) => d.tenant_id))];
   const refs = list(holds).map((h) => h.payment_reference);
+  const discrepancyCollectionIds = [...new Set(list(discrepancies).map((d) => d.collection_id))];
+  // which provider each review concerns: the operator's options differ for Paynow (independent review, D3a)
+  const gateways = new Map(list(discrepancyCollectionIds.length ? await read(db.from('pay04_garage_collections').select('id, gateway')
+    .in('id', discrepancyCollectionIds), 'PAY04_EXCEPTIONS_UNAVAILABLE') : []).map((c) => [c.id, c.gateway]));
   const [tenants, holdCollections] = await Promise.all([
     tenantIds.length ? read(db.from('tenants').select('id, name').in('id', tenantIds), 'PAY04_EXCEPTIONS_UNAVAILABLE') : [],
     refs.length ? read(db.from('pay04_garage_collections').select('id, tenant_id, invoice_id, payment_reference').in('payment_reference', refs),
@@ -701,7 +716,7 @@ export async function listGaragePaymentExceptions({ db = defaultDb, env = proces
   return {
     discrepancies: list(discrepancies).map((d) => ({
       id: d.id, type: d.discrepancy_type, garage: nameOf.get(d.tenant_id) || null, tenant_id: d.tenant_id, invoice_id: d.invoice_id,
-      collection_id: d.collection_id, amount: pay04Money(d.detected_amount, d.currency), currency: d.currency, evidence: d.evidence,
+      collection_id: d.collection_id, gateway: gateways.get(d.collection_id) ?? null, amount: pay04Money(d.detected_amount, d.currency), currency: d.currency, evidence: d.evidence,
       detected_via: d.detected_via, first_detected_at: d.first_detected_at, observation_count: d.observation_count,
       history: trailOf(d.collection_id),
     })),
@@ -716,7 +731,9 @@ export async function resolveGaragePaymentDiscrepancy({ db = defaultDb, env = pr
   requirePay04Enabled(env);
   const id = requireId(discrepancyId, 'PAY04_DISCREPANCY_NOT_FOUND');
   const resolution = String(body.resolution || '');
-  if (!['refunded_to_customer', 'settled_off_platform', 'provider_corrected'].includes(resolution)) {
+  // 'acknowledged' is offered by the database and the operator UI (PAY-04 refund_after_resolution; PAY-05 reviews) but was
+  // refused here (independent review D9)
+  if (!['refunded_to_customer', 'settled_off_platform', 'provider_corrected', 'acknowledged'].includes(resolution)) {
     throw new Pay04Error('PAY04_RESOLUTION_INVALID', 422);
   }
   return rpc(db, 'pay04_resolve_garage_payment_discrepancy', {

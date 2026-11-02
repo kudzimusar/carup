@@ -25,6 +25,8 @@ import {
   newMerchantTrace,
   eventIdFor,
   normalizeZimbabweMobile,
+  normalizeIntegrationKey,
+  isPaynowAuthEmail,
 } from '../services/payment/pay05PaynowProtocol.js';
 
 const DOC_KEY = '3e9fed89-60e1-4ce5-ab6e-6b1eb2d4f977';
@@ -86,7 +88,8 @@ test('status vocabulary: each documented status keeps its own meaning; only Paid
   assert.deepEqual([c('Failed').code, c('Failed').snapshot], ['failed', 'cancelled'], 'test mode documents FAILED as the user cancelling');
   assert.deepEqual([c('Disputed').code, c('Disputed').snapshot, c('Disputed').moneyReceived], ['disputed', null, true]);
   assert.deepEqual([c('Refunded').code, c('Refunded').snapshot], ['refunded', 'refunded']);
-  for (const odd of ['Awaiting Redirect', 'Created but not paid', 'PAID!', '', null, 'Ok', 'NotFound', 'Error']) {
+  // ('Awaiting Redirect' / 'Created but not paid' are Paynow SDK words for an unpaid request: pinned as pending below)
+  for (const odd of ['PAID!', 'Paid out', '', null, 'Ok', 'NotFound', 'Error']) {
     assert.deepEqual([c(odd).code, c(odd).snapshot], ['unrecognized', null], String(odd));
   }
   assert.equal(c('awaiting delivery').code, 'awaiting_delivery', 'case and spacing as Paynow sends them (Awaiting+Delivery)');
@@ -158,5 +161,42 @@ test('Zimbabwe mobile numbers normalise to the 07XXXXXXXX form Paynow documents;
   assert.equal(normalizeZimbabweMobile('263711234567'), '0711234567');
   for (const bad of ['077111111', '07711111111', '0871111111', '+27771111111', 'abc', '', null, '0701111111']) {
     assert.throws(() => normalizeZimbabweMobile(bad), /PAY05_PHONE_INVALID/, String(bad));
+  }
+});
+
+// ── independent review P5 / P8 (2026-11-02) ──
+
+test('values are trimmed before hashing, as Paynow\'s own example does: the published message EXACTLY as printed matches 2A033FC3…', () => {
+  // generating_hash prints "returnurl= http://www.google.com/search?q=returnurl" (a leading space) and its C# example
+  // trims every value: the published hash matches only the trimmed text
+  const asPrinted = ['1201', 'TEST REF', '99.99', 'A test ticket transaction', ' http://www.google.com/search?q=returnurl',
+    'http://www.google.com/search?q=resulturl', 'Message'];
+  assert.equal(paynowHash(asPrinted, DOC_KEY),
+    '2A033FC38798D913D42ECB786B9B19645ADEDBDE788862032F1BD82CF3B92DEF84F316385D5B40DBB35F1A4FD7D5BFE73835174136463CDD48C9366B0749C689');
+});
+
+test('signPairs sends exactly what it signs: trimmed values (a trailing space can never make Paynow refuse the hash)', () => {
+  const signed = signPairs([['id', ' 1201 '], ['additionalinfo', 'Harare Auto ']], DOC_KEY);
+  assert.deepEqual(signed.slice(0, 2), [['id', '1201'], ['additionalinfo', 'Harare Auto']]);
+  assert.equal(verifyPairs(signed, DOC_KEY).valid, true);
+});
+
+test('statuses Paynow\'s SDK and plugins use for a request not yet paid are pending, never money', () => {
+  for (const raw of ['Created but not paid', 'Awaiting Redirect', 'awaiting  redirect']) {
+    const s = classifyPaynowStatus(raw);
+    assert.deepEqual([s.code, s.snapshot, s.moneyReceived], ['created', 'pending', false], raw);
+  }
+});
+
+test('an integration key is normalised the way Paynow renders a GUID (trimmed, lower-case); other keys only trimmed', () => {
+  assert.equal(normalizeIntegrationKey('  3E9FED89-60E1-4CE5-AB6E-6B1EB2D4F977 '), DOC_KEY);
+  assert.equal(normalizeIntegrationKey(' NotAGuid-Key_Keep-Case '), 'NotAGuid-Key_Keep-Case');
+  assert.equal(normalizeIntegrationKey(undefined), '');
+});
+
+test('the payer e-mail Paynow takes for express checkout', () => {
+  for (const ok of ['payer@example.co.zw', 'a.b+c@mail.example.com']) assert.equal(isPaynowAuthEmail(ok), true, ok);
+  for (const bad of ['', 'payer', 'payer@host', 'pay er@example.com', 'p@xn--p1ai', `${'a'.repeat(65)}@example.com`]) {
+    assert.equal(isPaynowAuthEmail(bad), false, bad);
   }
 });

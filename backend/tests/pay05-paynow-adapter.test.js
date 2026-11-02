@@ -6,7 +6,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PaynowProtocolSimulator, simulatorTransport } from '../services/payment/pay05PaynowSimulator.js';
-import { PaynowAdapter, createPaynowAdapter } from '../services/payment/pay05PaynowAdapter.js';
+import http from 'node:http';
+import { PaynowAdapter, createPaynowAdapter, httpTransport, PAYNOW_TIMEOUTS } from '../services/payment/pay05PaynowAdapter.js';
 import { PAYNOW_ENDPOINTS, newMerchantTrace } from '../services/payment/pay05PaynowProtocol.js';
 
 const ORIGIN = 'http://127.0.0.1:5061';
@@ -92,16 +93,23 @@ test('express needs the payer e-mail and a valid phone; methods the integration 
   await rejects(w.adapter.createCheckout(checkout({ method: 'vmc' })), 'PAY05_METHOD_NOT_AVAILABLE');
   await rejects(w.adapter.createCheckout(checkout({ currency: 'ZWG' })), 'PAY05_CURRENCY_MISMATCH');
   await rejects(w.adapter.createCheckout(checkout({ merchantTrace: 'x'.repeat(33) })), 'PAY05_MERCHANT_TRACE_INVALID');
+  await rejects(w.adapter.createCheckout(checkout({ method: 'ecocash', phone: '0771111111', authEmail: 'p@xn--p1ai' })), 'PAY05_AUTH_EMAIL_REQUIRED');
   assert.equal(w.calls.length, 0, 'every refusal happened before any provider call');
+  // independent review S8: a local refusal says so — nothing was sent, so nothing can exist at Paynow
+  const err = await rejects(w.adapter.createCheckout(checkout({ method: 'ecocash', phone: '12345', authEmail: 'p@example.invalid' })), 'PAY05_PHONE_INVALID');
+  assert.equal(err.details?.outcome, 'not_sent');
 });
 
 test('InnBucks returns an authorization code and expiry to show the customer — USD only', async () => {
   const w = world();
-  const out = await w.adapter.createCheckout(checkout({ method: 'innbucks', authEmail: 'p@example.invalid' }));
+  // independent review P8: Paynow's Express checkout takes the payer's phone for every mobile-money method, InnBucks too
+  await rejects(w.adapter.createCheckout(checkout({ method: 'innbucks', authEmail: 'p@example.invalid' })), 'PAY05_PHONE_INVALID');
+  const out = await w.adapter.createCheckout(checkout({ method: 'innbucks', phone: '0771234567', authEmail: 'p@example.invalid' }));
+  assert.equal(w.sim.list().at(-1).phone, '0771234567', 'the phone is sent');
   assert.match(out.express.authorizationCode, /^\d{9}$/);
   assert.match(out.express.authorizationExpires, /^\d{1,2}-[A-Z][a-z]{2}-\d{4} \d{2}:\d{2}$/);
   const zwg = world({ currency: 'ZWG' });
-  await rejects(zwg.adapter.createCheckout(checkout({ currency: 'ZWG', method: 'innbucks', authEmail: 'p@example.invalid' })), 'PAY05_METHOD_NOT_AVAILABLE');
+  await rejects(zwg.adapter.createCheckout(checkout({ currency: 'ZWG', method: 'innbucks', phone: '0771234567', authEmail: 'p@example.invalid' })), 'PAY05_METHOD_NOT_AVAILABLE');
   assert.equal(zwg.calls.length, 0);
 });
 
@@ -202,4 +210,51 @@ test('the factory: simulator credentials only reach the loopback simulator; real
 test('the simulator itself refuses production and non-loopback origins', () => {
   assert.throws(() => new PaynowProtocolSimulator({ origin: ORIGIN, env: { NODE_ENV: 'production' } }), /PAY05_SIMULATOR_REFUSED/);
   assert.throws(() => new PaynowProtocolSimulator({ origin: 'https://www.paynow.co.zw', env }), /PAY05_SIMULATOR_REFUSED/);
+});
+
+// ── independent review P6 / P8 (2026-11-02) ──
+
+test('initiation waits as long as Paynow\'s own plugins (45 s); reads keep a short timeout', async () => {
+  assert.deepEqual(PAYNOW_TIMEOUTS, { initiateMs: 45_000, readMs: 15_000 });
+  const w = world();
+  const seen = [];
+  const inner = w.adapter.transport;
+  w.adapter.transport = async (url, opts) => { seen.push([new URL(url).pathname.toLowerCase(), opts.timeoutMs]); return inner(url, opts); };
+  const out = await w.adapter.createCheckout(checkout({ method: 'ecocash', phone: '0771111111', authEmail: 'p@example.invalid' }));
+  await w.adapter.getPaymentTruth({ pollUrl: out.pollUrl });
+  assert.deepEqual(seen, [['/interface/remotetransaction', 45_000], ['/interface/checkpayment/', 15_000]]);
+});
+
+test('the HTTP transport refuses an oversized reply without buffering it (declared length or streamed bytes)', async () => {
+  const big = 'x'.repeat(70 * 1024);
+  const server = http.createServer((req, res) => {
+    if (req.url === '/declared') { res.writeHead(200, { 'content-length': String(big.length) }); res.end(big); return; }
+    res.writeHead(200); res.write(big.slice(0, 40 * 1024)); res.write(big.slice(40 * 1024)); res.end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    const transport = httpTransport();
+    await assert.rejects(transport(`http://127.0.0.1:${port}/declared`, { body: '' }), /reply too large/);
+    await assert.rejects(transport(`http://127.0.0.1:${port}/streamed`, { body: '' }), /reply too large/);
+    server.closeAllConnections?.();
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('the simulator\'s amount control: Paynow reporting a DIFFERENT amount reaches CarUp as that amount (UAT amount-mismatch case)', async () => {
+  const w = world();
+  const out = await w.adapter.createCheckout(checkout({ method: 'ecocash', phone: '0779000001', authEmail: 'p@example.invalid' }));
+  const guid = new URL(out.pollUrl).searchParams.get('guid');
+  await w.sim.setStatus(guid, 'Paid', { notify: false, amount: '1.00' });
+  const truth = await w.adapter.getPaymentTruth({ pollUrl: out.pollUrl });
+  assert.deepEqual([truth.providerStatus, truth.amountMinor], ['paid', 100]);
+  await assert.rejects(w.sim.setStatus(guid, 'Paid', { notify: false, amount: '1' }), /amount/i, 'only Paynow\'s two-decimal format');
+});
+
+test('the simulator server listens where fetch may reach it: never a WHATWG "bad port" such as 5061 (SIP)', async () => {
+  const src = (await import('node:fs')).readFileSync(new URL('../../scripts/uat/pay05-paynow-simulator-server.mjs', import.meta.url), 'utf8');
+  assert.match(src, /\?\? 5071\)/);
+  assert.doesNotMatch(src, /\?\? 5061\)|--port 5061/);
 });

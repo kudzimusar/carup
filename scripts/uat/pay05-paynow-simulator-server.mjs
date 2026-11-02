@@ -9,13 +9,14 @@
  * Test controls (never part of Paynow's merchant API) live under /__control/ and require the per-run control token:
  *   POST /__control/integrations            issue a simulated integration (what Paynow would give the garage)
  *   GET  /__control/transactions            list transactions (no keys)
- *   POST /__control/transactions/:guid/status   { status, notify }  e.g. Paid, Disputed, Refunded, Cancelled
+ *   POST /__control/transactions/:guid/status   { status, notify, amount }  e.g. Paid, Disputed, Refunded, Cancelled
  *   POST /__control/transactions/:guid/resend   resend the current signed status update (Paynow's duplicate)
  *   POST /__control/transactions/:guid/forged   { status, tamper }  a status update signed with the WRONG key (body only)
  *   POST /__control/faults                  { kind: initiate|poll|trace, fault: { kind: … } }
  *   GET  /__control/otp                     the simulated SMS inbox (O'mari OTPs)
  *
- * CLI: node scripts/uat/pay05-paynow-simulator-server.mjs --port 5061 --control-token-file <path>
+ * CLI: node scripts/uat/pay05-paynow-simulator-server.mjs --port 5071 --control-token-file <path>
+ *      (never a WHATWG fetch "bad port" such as 5060/5061 (SIP): fetch, and so CarUp's adapter, refuses to connect to it)
  */
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -75,7 +76,7 @@ export async function startPaynowSimulatorServer({ port = 0, controlToken = cryp
         if (req.method === 'POST' && route === '/run-due') return json(res, 200, { applied: await simulator.runDue() });
         const m = /^\/transactions\/([0-9a-f-]{36})\/(status|resend|forged)$/.exec(route);
         if (req.method === 'POST' && m) {
-          if (m[2] === 'status') return json(res, 200, await simulator.setStatus(m[1], input.status, { notify: input.notify !== false }));
+          if (m[2] === 'status') return json(res, 200, await simulator.setStatus(m[1], input.status, { notify: input.notify !== false, amount: input.amount ?? null }));
           if (m[2] === 'resend') return json(res, 200, await simulator.resend(m[1]));
           return json(res, 200, { body: simulator.forgedStatusMessage(m[1], { status: input.status ?? 'Paid', tamper: input.tamper === true }) });
         }
@@ -110,7 +111,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const get = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
   const tokenFile = get('--control-token-file');
   const controlToken = tokenFile ? readFileSync(tokenFile, 'utf8').trim() : undefined;
-  const started = await startPaynowSimulatorServer({ port: Number(get('--port') ?? 5061), controlToken });
+  const started = await startPaynowSimulatorServer({ port: Number(get('--port') ?? 5071), controlToken });
   console.log(`PAY05_PAYNOW_SIMULATOR_READY ${started.origin} (SIMULATED PAYNOW — no real money moves)`);
   const stop = async () => { await started.close(); process.exit(0); };
   process.on('SIGINT', stop);

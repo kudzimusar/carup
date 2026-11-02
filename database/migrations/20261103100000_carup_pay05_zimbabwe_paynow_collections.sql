@@ -226,6 +226,17 @@ CREATE TABLE IF NOT EXISTS public.pay05_paynow_transactions (
   hold_released_at timestamptz,
   hold_released_by text,
   hold_release_reason text,
+  -- independent review D1: the highest DB read ticket among the Paynow reads CarUp evaluated; a read that started
+  -- earlier is superseded (recorded, never applied)
+  last_read_ticket bigint CHECK (last_read_ticket IS NULL OR last_read_ticket > 0),
+  -- independent review P2: when CarUp last asked Paynow (trace) about a request it never confirmed
+  last_trace_at timestamptz,
+  -- independent review P1/D2/S2: bound by Paynow's own signed update after CarUp had closed the request
+  attached_after_close boolean NOT NULL DEFAULT false,
+  -- independent review D3a: an operator settled this request's money outside CarUp; later reports are recorded only
+  settled_off_platform_at timestamptz,
+  settled_off_platform_by text,
+  settled_off_platform_note text CHECK (settled_off_platform_note IS NULL OR char_length(settled_off_platform_note) <= 1000),
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   CONSTRAINT pay05_tx_collection_fk FOREIGN KEY (collection_id, tenant_id)
@@ -234,6 +245,8 @@ CREATE TABLE IF NOT EXISTS public.pay05_paynow_transactions (
     REFERENCES public.pay05_merchant_integrations(id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT pay05_tx_hold_release_truth CHECK (
     (hold_released_at IS NULL) = (hold_released_by IS NULL) AND (hold_released_at IS NULL) = (hold_release_reason IS NULL)),
+  CONSTRAINT pay05_tx_settlement_truth CHECK (
+    (settled_off_platform_at IS NULL) = (settled_off_platform_by IS NULL) AND (settled_off_platform_at IS NULL) = (settled_off_platform_note IS NULL)),
   CONSTRAINT pay05_tx_attached_truth CHECK ((initiation_state = 'attached') = (poll_url IS NOT NULL))
 );
 
@@ -249,11 +262,18 @@ CREATE TABLE IF NOT EXISTS public.pay05_paynow_observations (
   raw_status text CHECK (raw_status IS NULL OR char_length(raw_status) <= 160),
   amount_minor bigint,
   paynow_reference text CHECK (paynow_reference IS NULL OR char_length(paynow_reference) <= 64),
+  read_ticket bigint CHECK (read_ticket IS NULL OR read_ticket > 0),
+  -- what CarUp did with it: applied to the money, turned into a review, or recorded only (independent review D1, D3a)
+  outcome text NOT NULL CHECK (outcome IN ('applied', 'review', 'superseded', 'stale_regression', 'after_settlement', 'after_close')),
   observed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   CONSTRAINT pay05_observation_collection_fk FOREIGN KEY (collection_id, tenant_id)
     REFERENCES public.pay04_garage_collections(id, tenant_id) ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS idx_pay05_observations_collection ON public.pay05_paynow_observations (collection_id, seq);
+-- Every Paynow read (poll, trace, O'mari OTP reply, the poll a status update triggers) takes a ticket BEFORE it is sent:
+-- reads are taken outside any lock, so their order of arrival is not the order in which Paynow answered them.
+CREATE SEQUENCE IF NOT EXISTS public.pay05_paynow_read_ticket_seq AS bigint START WITH 1 NO CYCLE;
+REVOKE ALL ON SEQUENCE public.pay05_paynow_read_ticket_seq FROM PUBLIC, anon, authenticated, service_role;
 
 CREATE TABLE IF NOT EXISTS public.pay05_provider_errors (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -324,9 +344,17 @@ BEGIN
      OR (OLD.poll_url IS NOT NULL AND NEW.poll_url IS DISTINCT FROM OLD.poll_url)
      OR (OLD.hold_released_at IS NOT NULL AND (NEW.hold_released_at IS DISTINCT FROM OLD.hold_released_at
          OR NEW.hold_released_by IS DISTINCT FROM OLD.hold_released_by OR NEW.hold_release_reason IS DISTINCT FROM OLD.hold_release_reason))
+     OR (OLD.settled_off_platform_at IS NOT NULL AND (NEW.settled_off_platform_at IS DISTINCT FROM OLD.settled_off_platform_at
+         OR NEW.settled_off_platform_by IS DISTINCT FROM OLD.settled_off_platform_by
+         OR NEW.settled_off_platform_note IS DISTINCT FROM OLD.settled_off_platform_note))
+     OR (OLD.last_read_ticket IS NOT NULL AND (NEW.last_read_ticket IS NULL OR NEW.last_read_ticket < OLD.last_read_ticket))
+     OR (OLD.last_trace_at IS NOT NULL AND (NEW.last_trace_at IS NULL OR NEW.last_trace_at < OLD.last_trace_at))
+     OR (OLD.attached_after_close AND NOT NEW.attached_after_close)
      OR NOT (NEW.initiation_state = OLD.initiation_state
              OR (OLD.initiation_state = 'sending' AND NEW.initiation_state IN ('attached', 'refused', 'unknown'))
-             OR (OLD.initiation_state = 'unknown' AND NEW.initiation_state IN ('attached', 'traced_absent'))) THEN
+             OR (OLD.initiation_state = 'unknown' AND NEW.initiation_state IN ('attached', 'traced_absent'))
+             -- Paynow's own signed update for a request CarUp closed as refused or absent binds it late
+             OR (OLD.initiation_state IN ('refused', 'traced_absent') AND NEW.initiation_state = 'attached' AND NEW.attached_after_close)) THEN
     RAISE EXCEPTION 'PAY05_TRANSACTION_IMMUTABLE';
   END IF;
   RETURN NEW;
@@ -351,6 +379,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.pay05_verified_integration(p_merchant_account_id uuid, p_currency text)
 RETURNS uuid LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
   SELECT i.id FROM public.pay05_merchant_integrations i
+    JOIN public.pay04_garage_merchant_accounts m ON m.id = i.merchant_account_id AND m.status = 'verified'
    WHERE i.merchant_account_id = p_merchant_account_id AND i.currency = p_currency AND i.status = 'verified'
      AND public.pay05_mode_permitted(i.mode)
    ORDER BY i.verified_at DESC LIMIT 1;
@@ -358,8 +387,29 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.pay05_latest_provider_status(p_collection_id uuid)
 RETURNS text LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
-  SELECT provider_status FROM public.pay05_paynow_transactions WHERE collection_id = p_collection_id;
+  -- the latest Paynow read CarUp evaluated, and only as "<status>" when CarUp APPLIED it: a Paid of the wrong amount, or
+  -- one superseded by a later read, is not "Paynow reports Paid" (independent review D1)
+  SELECT CASE WHEN o.outcome = 'applied' THEN o.provider_status ELSE 'review:' || o.provider_status END
+    FROM public.pay05_paynow_observations o
+   WHERE o.collection_id = p_collection_id AND o.outcome IN ('applied', 'review')
+   ORDER BY o.seq DESC LIMIT 1;
 $$;
+
+-- An operator settled a Paynow request's money outside CarUp (independent review D3a): its room is released and later
+-- Paynow reports about it are recorded only. Called by the PAY-05 hunk of pay04_resolve_garage_payment_discrepancy.
+CREATE OR REPLACE FUNCTION public.pay05_mark_settled_off_platform(p_collection_id uuid, p_actor_id text, p_note text)
+RETURNS void LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+  UPDATE public.pay05_paynow_transactions SET
+    settled_off_platform_at = coalesce(settled_off_platform_at, clock_timestamp()),
+    settled_off_platform_by = coalesce(settled_off_platform_by, p_actor_id),
+    settled_off_platform_note = coalesce(settled_off_platform_note, left(p_note, 1000)),
+    hold_released_at = coalesce(hold_released_at, clock_timestamp()),
+    hold_released_by = coalesce(hold_released_by, p_actor_id),
+    hold_release_reason = coalesce(hold_release_reason, left('Settled outside CarUp: ' || p_note, 300)),
+    updated_at = clock_timestamp()
+   WHERE collection_id = p_collection_id;
+END $$;
 
 -- ─────────────────────────── 6. accepted functions, replaced by exact copies + bounded Paynow hunks ───────────────────────────
 
@@ -871,7 +921,12 @@ BEGIN
   IF p_resolution = 'refunded_to_customer' THEN
     IF v_p.status <> 'refunded' THEN RAISE EXCEPTION 'PAY04_RESOLUTION_REQUIRES_PROVIDER_REFUND'; END IF;
   ELSIF p_resolution = 'settled_off_platform' THEN
-    IF v_d.discrepancy_type NOT IN ('unallocated_provider_money', 'provider_paid_after_close') THEN RAISE EXCEPTION 'PAY04_RESOLUTION_INVALID'; END IF;
+    IF v_d.discrepancy_type NOT IN ('unallocated_provider_money', 'provider_paid_after_close')
+       -- PAY-05: Paynow paid a different amount, or reported a word no one recognises, and the garage settled it in Paynow or
+       -- with the customer (independent review D3a)
+       AND NOT (v_c.gateway = 'paynow_zimbabwe' AND v_d.discrepancy_type IN ('amount_mismatch', 'provider_status_unrecognized')) THEN
+      RAISE EXCEPTION 'PAY04_RESOLUTION_INVALID';
+    END IF;
   ELSIF p_resolution = 'provider_corrected' THEN
     IF v_d.discrepancy_type NOT IN ('amount_mismatch', 'currency_mismatch', 'merchant_mismatch', 'provider_disputed',
                                     'provider_status_unrecognized') THEN
@@ -896,8 +951,80 @@ BEGIN
   -- the closure can change what counts (a mismatch closed as corrected lets the money count again): re-project now,
   -- in the shared lock order (the invoice lock is held; the reference lock next)
   PERFORM pg_advisory_xact_lock(hashtext('carup_pay03a_ref:' || v_d.payment_reference));
+  -- PAY-05: settled outside CarUp — the Paynow request's room is released and later reports of the same money are only
+  -- recorded (independent review D3a)
+  IF p_resolution = 'settled_off_platform' AND v_c.gateway = 'paynow_zimbabwe' THEN
+    PERFORM public.pay05_mark_settled_off_platform(v_c.id, trim(p_actor_id), btrim(p_note));
+  END IF;
   RETURN to_jsonb(v_d) || jsonb_build_object('projection',
     public.pay04_reproject_garage_collection(v_d.collection_id, 'discrepancy_resolved', NULL));
+END $$;
+
+
+-- pay04_suspend_garage_merchant_account: accepted text of 20261102110000 + the PAY-05 hunks marked "PAY-05" (drift-tested)
+CREATE OR REPLACE FUNCTION public.pay04_suspend_garage_merchant_account(
+  p_account_id uuid, p_actor_id text, p_actor_role text, p_reason text)
+RETURNS public.pay04_garage_merchant_accounts
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_row public.pay04_garage_merchant_accounts%ROWTYPE;
+BEGIN
+  IF coalesce(p_actor_role, '') NOT IN ('admin', 'super_admin') OR NOT public.pay03b_is_platform_admin(p_actor_id) THEN
+    RAISE EXCEPTION 'PAY04_MERCHANT_AUTHORITY_REFUSED';
+  END IF;
+  IF char_length(btrim(coalesce(p_reason, ''))) < 10 THEN RAISE EXCEPTION 'PAY04_REASON_REQUIRED'; END IF;
+  SELECT * INTO v_row FROM public.pay04_garage_merchant_accounts WHERE id = p_account_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PAY04_MERCHANT_ACCOUNT_NOT_FOUND'; END IF;
+  -- PAY-05: a Paynow merchant is suspended through its own writer, which closes its integrations (independent review D4)
+  IF v_row.gateway = 'paynow_zimbabwe' THEN RAISE EXCEPTION 'PAY05_USE_PAYNOW_PATH'; END IF;
+  IF v_row.status = 'suspended' THEN RETURN v_row; END IF;
+  UPDATE public.pay04_garage_merchant_accounts SET status = 'suspended', suspended_by = trim(p_actor_id),
+    suspended_reason = btrim(p_reason), suspended_at = clock_timestamp() WHERE id = p_account_id RETURNING * INTO v_row;
+  INSERT INTO public.trust_audit_events (event_type, trust_fact, new_value, actor_user_id, actor_role, actor_tenant_id, actor_type, source_route)
+  VALUES ('GARAGE_MERCHANT_ACCOUNT_SUSPENDED', 'service_relationship',
+    jsonb_build_object('merchant_account_id', v_row.id, 'reason', v_row.suspended_reason),
+    trim(p_actor_id), p_actor_role, v_row.tenant_id::text, 'user', '/api/admin/garage-payments/merchant-accounts');
+  RETURN v_row;
+END $$;
+
+
+-- pay04_request_garage_collection_refund: accepted text of 20261102110000 + the PAY-05 hunks marked "PAY-05" (drift-tested)
+CREATE OR REPLACE FUNCTION public.pay04_request_garage_collection_refund(
+  p_collection_id uuid, p_actor_user_id text, p_reason text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_probe public.pay04_garage_collections%ROWTYPE;
+  v_c public.pay04_garage_collections%ROWTYPE;
+  v_p public.payment_transactions%ROWTYPE;
+  v_projection jsonb;
+BEGIN
+  SELECT * INTO v_probe FROM public.pay04_garage_collections WHERE id = p_collection_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PAY04_COLLECTION_NOT_FOUND'; END IF;
+  -- PAY-05: Paynow has no merchant refund API — a garage refunds in its Paynow dashboard (independent review D4)
+  IF v_probe.gateway = 'paynow_zimbabwe' THEN RAISE EXCEPTION 'PAY05_USE_PAYNOW_PATH'; END IF;
+  PERFORM public.garage_ops03_assert_admin(v_probe.tenant_id, p_actor_user_id);
+  IF char_length(btrim(coalesce(p_reason, ''))) NOT BETWEEN 10 AND 300 THEN RAISE EXCEPTION 'PAY04_REASON_REQUIRED'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('carup_pay04_inv:' || v_probe.invoice_id::text));
+  PERFORM pg_advisory_xact_lock(hashtext('carup_pay03a_ref:' || v_probe.payment_reference));
+  PERFORM 1 FROM public.garage_invoices WHERE id = v_probe.invoice_id FOR UPDATE;
+  SELECT * INTO v_c FROM public.pay04_garage_collections WHERE id = p_collection_id FOR UPDATE;
+  SELECT * INTO v_p FROM public.payment_transactions WHERE reference = v_c.payment_reference FOR UPDATE;
+  IF v_p.status = 'refund_pending' THEN
+    RETURN jsonb_build_object('replayed', true, 'payment_status', v_p.status, 'payment_reference', v_p.reference,
+      'request_seq', (SELECT count(*) FROM public.pay04_garage_collection_events
+                       WHERE collection_id = v_c.id AND event_type = 'refund_requested'));
+  END IF;
+  IF v_p.status <> 'paid' THEN RAISE EXCEPTION 'PAY04_REFUND_NOT_ALLOWED' USING DETAIL = v_p.status; END IF;
+  PERFORM public.pay03b_payment_transition_target(
+    v_p, v_c.amount_minor, 'refund_pending', v_c.provider_payment_id, NULL, NULL, NULL, NULL, NULL, NULL);
+  UPDATE public.payment_transactions SET status = 'refund_pending', updated_at = now()
+   WHERE reference = v_p.reference RETURNING * INTO v_p;
+  PERFORM public.pay04_log(v_c, 'refund_requested', trim(p_actor_user_id), jsonb_build_object('reason', btrim(p_reason)));
+  v_projection := public.pay04_reproject_garage_collection(v_c.id, 'refund_requested', NULL);
+  RETURN jsonb_build_object('replayed', false, 'payment_status', v_p.status, 'payment_reference', v_p.reference,
+    'provider_payment_id', v_c.provider_payment_id, 'amount_minor', v_c.amount_minor, 'currency', v_c.currency,
+    'projection', v_projection,
+    'request_seq', (SELECT count(*) FROM public.pay04_garage_collection_events
+                     WHERE collection_id = v_c.id AND event_type = 'refund_requested'));
 END $$;
 
 
@@ -1019,7 +1146,10 @@ BEGIN
   PERFORM public.pay05_assert_independent_reviewer(v_acct, p_actor_id, p_actor_role);
   IF char_length(btrim(coalesce(p_note, ''))) < 10 THEN RAISE EXCEPTION 'PAY05_REASON_REQUIRED'; END IF;
   IF v_acct.status <> 'pending_verification' THEN RAISE EXCEPTION 'PAY05_MERCHANT_NOT_PENDING' USING DETAIL = v_acct.status; END IF;
-  IF coalesce(p_evidence->>'legal_identity_reviewed', '') <> 'true' OR coalesce(p_evidence->>'settlement_account_reviewed', '') <> 'true' THEN
+  -- Paynow's API reports no currency (independent review P3): the operator confirms each integration's currency
+  -- configuration in the garage's Paynow account; CarUp cannot verify it with Paynow
+  IF coalesce(p_evidence->>'legal_identity_reviewed', '') <> 'true' OR coalesce(p_evidence->>'settlement_account_reviewed', '') <> 'true'
+     OR coalesce(p_evidence->>'currency_configuration_reviewed', '') <> 'true' THEN
     RAISE EXCEPTION 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE';
   END IF;
   FOR v_int IN SELECT * FROM public.pay05_merchant_integrations
@@ -1040,8 +1170,8 @@ BEGIN
   IF v_count = 0 THEN RAISE EXCEPTION 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE'; END IF;
   UPDATE public.pay04_garage_merchant_accounts SET status = 'verified' WHERE id = v_acct.id RETURNING * INTO v_acct;
   PERFORM public.pay05_audit(v_acct.tenant_id, v_acct.id, NULL, 'merchant_verified', trim(p_actor_id), p_actor_role,
-    jsonb_build_object('legal_identity_reviewed', true, 'settlement_account_reviewed', true, 'note', btrim(p_note),
-                       'integrations_verified', v_count));
+    jsonb_build_object('legal_identity_reviewed', true, 'settlement_account_reviewed', true, 'currency_configuration_reviewed', true,
+                       'note', btrim(p_note), 'integrations_verified', v_count));
   RETURN jsonb_build_object('merchant', to_jsonb(v_acct), 'integrations_verified', v_count);
 END $$;
 
@@ -1128,6 +1258,8 @@ BEGIN
     -- one Paynow request per collection, ever: a retry gets the existing request back, never a second one
     RETURN jsonb_build_object('replayed', true, 'transaction', to_jsonb(v_tx));
   END IF;
+  -- the operator's availability switch also stops a collection that was begun but not yet sent (independent review D5)
+  IF NOT public.pay04_gateway_permitted('paynow_zimbabwe') THEN RAISE EXCEPTION 'PAY04_GATEWAY_NOT_PERMITTED'; END IF;
   IF v_p.status <> 'pending' OR v_c.provider_payment_id IS NOT NULL OR v_c.cancelled_at IS NOT NULL OR v_c.expires_at <= clock_timestamp() THEN
     RAISE EXCEPTION 'PAY05_COLLECTION_NOT_SENDABLE';
   END IF;
@@ -1145,7 +1277,8 @@ END $$;
 --     cannot be cancelled, so a still-pending collection is bound even if it was stopped or its time ran out meanwhile:
 --     the room stays held and a late payment is still seen.
 CREATE OR REPLACE FUNCTION public.pay05_attach_paynow_collection(
-  p_collection_id uuid, p_merchant_trace text, p_poll_url text, p_payment_id text, p_reply jsonb)
+  p_collection_id uuid, p_merchant_trace text, p_poll_url text, p_payment_id text, p_reply jsonb,
+  p_reference text DEFAULT NULL, p_late boolean DEFAULT false)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_probe public.pay04_garage_collections%ROWTYPE;
@@ -1162,6 +1295,8 @@ BEGIN
   SELECT * INTO v_p FROM public.payment_transactions WHERE reference = v_c.payment_reference FOR UPDATE;
   SELECT * INTO v_tx FROM public.pay05_paynow_transactions WHERE collection_id = v_c.id FOR UPDATE;
   IF NOT FOUND OR v_tx.merchant_trace IS DISTINCT FROM p_merchant_trace THEN RAISE EXCEPTION 'PAY05_TRACE_MISMATCH'; END IF;
+  -- a Paynow message that names another payment's reference never binds this one (independent review S6)
+  IF p_reference IS NOT NULL AND p_reference IS DISTINCT FROM v_c.payment_reference THEN RAISE EXCEPTION 'PAY05_PROVIDER_BINDING_MISMATCH'; END IF;
   IF coalesce(p_payment_id, '') !~ '^pn_poll_[0-9a-f]{40}$' OR coalesce(p_poll_url, '') !~ '^https?://[^\s]+$' THEN
     RAISE EXCEPTION 'PAY05_PROVIDER_REFERENCE_INVALID';
   END IF;
@@ -1169,9 +1304,35 @@ BEGIN
     IF v_c.provider_payment_id <> p_payment_id OR v_tx.poll_url IS DISTINCT FROM p_poll_url THEN
       RAISE EXCEPTION 'PAY05_PROVIDER_REFERENCE_CHANGE_REFUSED';
     END IF;
+    -- an early attach (a trace, or Paynow's own status update) could not know the reply's page, OTP URL or InnBucks code:
+    -- the reply that lands later fills them, never overwriting what is there (independent review S7)
+    UPDATE public.pay05_paynow_transactions SET
+      browser_url = coalesce(browser_url, p_reply->>'browser_url'), remote_otp_url = coalesce(remote_otp_url, p_reply->>'remote_otp_url'),
+      instructions = coalesce(instructions, left(p_reply->>'instructions', 500)),
+      authorization_code = coalesce(authorization_code, p_reply->>'authorization_code'),
+      authorization_expires = coalesce(authorization_expires, left(p_reply->>'authorization_expires', 40)),
+      otp_reference = coalesce(otp_reference, left(p_reply->>'otp_reference', 64)),
+      paynow_reference = coalesce(paynow_reference, left(p_reply->>'paynow_reference', 64)), updated_at = clock_timestamp()
+     WHERE collection_id = v_c.id;
     RETURN jsonb_build_object('replayed', true, 'collection_id', v_c.id);
   END IF;
-  IF v_p.status <> 'pending' OR v_tx.initiation_state NOT IN ('sending', 'unknown') THEN RAISE EXCEPTION 'PAY05_COLLECTION_CLOSED'; END IF;
+  IF v_p.status <> 'pending' OR v_tx.initiation_state NOT IN ('sending', 'unknown') THEN
+    -- Paynow's own SIGNED update for a request CarUp had closed (refused, or traced absent) proves the request exists: it
+    -- binds LATE, never reopening the payment, so its money becomes an operator review instead of being lost
+    -- (independent review P1 / D2 / S2). Only the status-update path, after the hash verified, asks for this.
+    IF NOT coalesce(p_late, false) OR v_tx.initiation_state NOT IN ('refused', 'traced_absent', 'sending', 'unknown') THEN
+      RAISE EXCEPTION 'PAY05_COLLECTION_CLOSED';
+    END IF;
+    UPDATE public.pay04_garage_collections SET provider_checkout_id = v_checkout, provider_payment_id = p_payment_id
+     WHERE id = v_c.id RETURNING * INTO v_c;
+    UPDATE public.pay05_paynow_transactions SET initiation_state = 'attached', attached_after_close = true, poll_url = p_poll_url,
+      paynow_reference = coalesce(paynow_reference, left(p_reply->>'paynow_reference', 64)), updated_at = clock_timestamp()
+     WHERE collection_id = v_c.id RETURNING * INTO v_tx;
+    PERFORM public.pay04_log(v_c, 'provider_attached', 'provider:paynow_zimbabwe',
+      jsonb_build_object('provider_checkout_id', v_checkout, 'provider_payment_id', p_payment_id, 'method', v_tx.method,
+                         'attached_after_close', true, 'payment_status', v_p.status));
+    RETURN jsonb_build_object('replayed', false, 'collection_id', v_c.id, 'method', v_tx.method, 'attached_after_close', true);
+  END IF;
   UPDATE public.pay04_garage_collections SET provider_checkout_id = v_checkout, provider_payment_id = p_payment_id
    WHERE id = v_c.id RETURNING * INTO v_c;
   UPDATE public.payment_transactions SET pay01a_checkout_id = v_checkout, pay01a_intent_id = p_payment_id, updated_at = now()
@@ -1188,26 +1349,47 @@ BEGIN
                        'recovered_by_trace', p_reply->>'recovered_by_trace'));
   RETURN jsonb_build_object('replayed', false, 'collection_id', v_c.id, 'method', v_tx.method);
 END $$;
-
 -- 7e. Paynow refused the request (nothing exists at Paynow) or its reply could not be authenticated (something may).
 CREATE OR REPLACE FUNCTION public.pay05_mark_paynow_initiation(p_collection_id uuid, p_state text, p_error text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
-DECLARE v_probe public.pay04_garage_collections%ROWTYPE; v_tx public.pay05_paynow_transactions%ROWTYPE;
+DECLARE
+  v_probe public.pay04_garage_collections%ROWTYPE;
+  v_c public.pay04_garage_collections%ROWTYPE;
+  v_p public.payment_transactions%ROWTYPE;
+  v_tx public.pay05_paynow_transactions%ROWTYPE;
+  v_closed boolean := false;
 BEGIN
   IF p_state NOT IN ('refused', 'unknown') THEN RAISE EXCEPTION 'PAY05_INITIATION_STATE_INVALID'; END IF;
   SELECT * INTO v_probe FROM public.pay04_garage_collections WHERE id = p_collection_id;
   IF NOT FOUND OR v_probe.gateway <> 'paynow_zimbabwe' THEN RAISE EXCEPTION 'PAY05_COLLECTION_NOT_FOUND'; END IF;
   PERFORM pg_advisory_xact_lock(hashtext('carup_pay04_inv:' || v_probe.invoice_id::text));
   PERFORM pg_advisory_xact_lock(hashtext('carup_pay03a_ref:' || v_probe.payment_reference));
+  PERFORM 1 FROM public.garage_invoices WHERE id = v_probe.invoice_id FOR UPDATE;
+  SELECT * INTO v_c FROM public.pay04_garage_collections WHERE id = p_collection_id FOR UPDATE;
+  SELECT * INTO v_p FROM public.payment_transactions WHERE reference = v_c.payment_reference FOR UPDATE;
   SELECT * INTO v_tx FROM public.pay05_paynow_transactions WHERE collection_id = p_collection_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'PAY05_TRANSACTION_NOT_FOUND'; END IF;
   IF v_tx.initiation_state = p_state THEN RETURN jsonb_build_object('replayed', true, 'initiation_state', v_tx.initiation_state); END IF;
   IF v_tx.initiation_state <> 'sending' THEN RAISE EXCEPTION 'PAY05_INITIATION_STATE_INVALID' USING DETAIL = v_tx.initiation_state; END IF;
   UPDATE public.pay05_paynow_transactions SET initiation_state = p_state, provider_error = left(p_error, 160), updated_at = clock_timestamp()
    WHERE collection_id = p_collection_id RETURNING * INTO v_tx;
-  RETURN jsonb_build_object('replayed', false, 'initiation_state', v_tx.initiation_state);
+  -- Paynow refused it: nothing waits at Paynow, so the payment closes now and its room is free — even if a stop arrived
+  -- while the request was in flight (independent review S1: a stop alone never closes an unresolved request). Should
+  -- Paynow's signed update ever show the request exists after all, it binds late into an operator review.
+  IF p_state = 'refused' AND v_p.status = 'pending' AND v_c.provider_payment_id IS NULL THEN
+    PERFORM public.pay03b_payment_transition_target(v_p, v_c.amount_minor, 'cancelled', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    UPDATE public.payment_transactions SET status = 'cancelled', updated_at = now() WHERE reference = v_p.reference;
+    IF v_c.cancelled_at IS NULL THEN
+      UPDATE public.pay04_garage_collections SET cancelled_at = clock_timestamp(), cancelled_by = 'provider:paynow_zimbabwe',
+             cancel_reason = left('Paynow refused the payment request: ' || coalesce(nullif(btrim(p_error), ''), 'no reason given'), 300)
+       WHERE id = v_c.id RETURNING * INTO v_c;
+    END IF;
+    PERFORM public.pay04_log(v_c, 'cancelled', 'provider:paynow_zimbabwe',
+      jsonb_build_object('reason', 'refused by Paynow', 'closed_without_provider', true));
+    v_closed := true;
+  END IF;
+  RETURN jsonb_build_object('replayed', false, 'initiation_state', v_tx.initiation_state, 'payment_closed', v_closed);
 END $$;
-
 -- 7f. An authenticated trace result for a request whose reply was lost. Two authenticated "NotFound" answers at least a
 --     minute apart resolve it as absent (the collection may then close as never reaching Paynow).
 CREATE OR REPLACE FUNCTION public.pay05_record_paynow_trace_absent(p_collection_id uuid)
@@ -1226,6 +1408,7 @@ BEGIN
   UPDATE public.pay05_paynow_transactions SET
     trace_absent_count = trace_absent_count + 1,
     first_trace_absent_at = coalesce(first_trace_absent_at, clock_timestamp()),
+    last_trace_at = clock_timestamp(),
     initiation_state = CASE WHEN initiation_state = 'sending' THEN 'unknown'
                             WHEN trace_absent_count + 1 >= 2 AND first_trace_absent_at <= clock_timestamp() - interval '60 seconds'
                               THEN 'traced_absent'
@@ -1235,11 +1418,42 @@ BEGIN
   RETURN jsonb_build_object('replayed', false, 'initiation_state', v_tx.initiation_state, 'trace_absent_count', v_tx.trace_absent_count);
 END $$;
 
+-- 7f'. A trace that got no authenticated answer: its time is kept, so an operator's release of a request Paynow never
+--      confirmed rests on a FRESH attempt (independent review P2).
+CREATE OR REPLACE FUNCTION public.pay05_record_paynow_trace_failed(p_collection_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_probe public.pay04_garage_collections%ROWTYPE; v_tx public.pay05_paynow_transactions%ROWTYPE;
+BEGIN
+  SELECT * INTO v_probe FROM public.pay04_garage_collections WHERE id = p_collection_id;
+  IF NOT FOUND OR v_probe.gateway <> 'paynow_zimbabwe' THEN RAISE EXCEPTION 'PAY05_COLLECTION_NOT_FOUND'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('carup_pay04_inv:' || v_probe.invoice_id::text));
+  PERFORM pg_advisory_xact_lock(hashtext('carup_pay03a_ref:' || v_probe.payment_reference));
+  SELECT * INTO v_tx FROM public.pay05_paynow_transactions WHERE collection_id = p_collection_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PAY05_TRANSACTION_NOT_FOUND'; END IF;
+  IF v_tx.initiation_state NOT IN ('sending', 'unknown') THEN
+    RETURN jsonb_build_object('replayed', true, 'initiation_state', v_tx.initiation_state);
+  END IF;
+  UPDATE public.pay05_paynow_transactions SET last_trace_at = clock_timestamp(), updated_at = clock_timestamp()
+   WHERE collection_id = p_collection_id RETURNING * INTO v_tx;
+  RETURN jsonb_build_object('replayed', false, 'initiation_state', v_tx.initiation_state, 'last_trace_at', v_tx.last_trace_at);
+END $$;
+
+-- 7f''. A read ticket, taken BEFORE a Paynow read is sent (independent review D1). Reads run outside any lock; the
+--       observation writer supersedes a read that started before the latest read it already evaluated.
+CREATE OR REPLACE FUNCTION public.pay05_begin_paynow_read(p_collection_id uuid)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.pay04_garage_collections WHERE id = p_collection_id AND gateway = 'paynow_zimbabwe') THEN
+    RAISE EXCEPTION 'PAY05_COLLECTION_NOT_FOUND';
+  END IF;
+  RETURN nextval('public.pay05_paynow_read_ticket_seq');
+END $$;
+
 -- 7g. THE Paynow observation writer: every authenticated Paynow message for a collection (signed status update, poll,
 --     trace, O'mari OTP reply) is recorded, then applied through the PAY-04 writer — or turned into a review.
 CREATE OR REPLACE FUNCTION public.pay05_apply_paynow_observation(
   p_collection_id uuid, p_via text, p_event_id text, p_provider_status text, p_raw_status text, p_amount_minor bigint,
-  p_reference text, p_paynow_reference text, p_payment_id text, p_message_hash text DEFAULT NULL)
+  p_reference text, p_paynow_reference text, p_payment_id text, p_message_hash text DEFAULT NULL, p_read_ticket bigint DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_probe public.pay04_garage_collections%ROWTYPE;
@@ -1252,6 +1466,8 @@ DECLARE
   v_via text;
   v_money boolean;
   v_snapshot text;
+  v_branch text;
+  v_ignored text;
   v_result jsonb;
   v_disc jsonb := NULL;
   v_amount numeric;
@@ -1264,6 +1480,7 @@ BEGIN
                                'refunded', 'unrecognized') THEN
     RAISE EXCEPTION 'PAY05_PROVIDER_STATUS_INVALID';
   END IF;
+  IF p_read_ticket IS NOT NULL AND p_read_ticket <= 0 THEN RAISE EXCEPTION 'PAY05_READ_TICKET_INVALID'; END IF;
   SELECT * INTO v_probe FROM public.pay04_garage_collections WHERE id = p_collection_id;
   IF NOT FOUND OR v_probe.gateway <> 'paynow_zimbabwe' THEN RAISE EXCEPTION 'PAY05_COLLECTION_NOT_FOUND'; END IF;
   -- the lock order every garage-collection writer shares: invoice -> payment reference -> rows
@@ -1281,94 +1498,140 @@ BEGIN
   IF p_payment_id IS DISTINCT FROM v_c.provider_payment_id OR p_reference IS DISTINCT FROM v_c.payment_reference THEN
     RAISE EXCEPTION 'PAY05_PROVIDER_BINDING_MISMATCH';
   END IF;
+  -- a resend of a signed status update CarUp already recorded: nothing again
+  IF p_event_id IS NOT NULL THEN
+    SELECT collection_id INTO v_event_collection FROM public.pay05_paynow_observations WHERE event_id = p_event_id;
+    IF FOUND THEN
+      IF v_event_collection IS DISTINCT FROM v_c.id THEN RAISE EXCEPTION 'PAY05_EVENT_CROSS_COLLECTION_REPLAY'; END IF;
+      RETURN jsonb_build_object('applied', false, 'duplicate_event', true, 'payment_status', v_p.status, 'provider_status', v_tx.provider_status);
+    END IF;
+  END IF;
 
-  INSERT INTO public.pay05_paynow_observations (tenant_id, collection_id, event_id, via, provider_status, raw_status, amount_minor, paynow_reference)
-  VALUES (v_c.tenant_id, v_c.id, p_event_id, p_via, p_provider_status, left(p_raw_status, 160), p_amount_minor, left(p_paynow_reference, 64))
+  v_money := p_provider_status IN ('paid', 'awaiting_delivery', 'delivered', 'disputed');
+  -- What this read may do (independent review D1, D3a). Paynow is read outside any lock, so arrival order is not
+  -- Paynow's order: a read that started before the latest read CarUp evaluated is superseded; a pre-payment status after
+  -- money is a lagging read (stale regression); after an operator settled the money outside CarUp, or once the payment
+  -- is closed, a non-money status changes nothing. Each is recorded, never applied.
+  IF v_tx.settled_off_platform_at IS NOT NULL THEN
+    v_ignored := 'after_settlement';
+  ELSIF p_read_ticket IS NOT NULL AND v_tx.last_read_ticket IS NOT NULL AND p_read_ticket < v_tx.last_read_ticket THEN
+    v_ignored := 'superseded';
+  ELSIF (p_provider_status IN ('created', 'sent')
+         AND v_tx.provider_status IN ('awaiting_delivery', 'delivered', 'paid', 'disputed', 'refunded', 'cancelled', 'failed'))
+     OR (p_provider_status IN ('awaiting_delivery', 'delivered') AND v_tx.provider_status IN ('paid', 'disputed', 'refunded')) THEN
+    v_ignored := 'stale_regression';
+  ELSIF v_p.status = 'cancelled' AND NOT v_money THEN
+    v_ignored := 'after_close';
+  END IF;
+
+  v_amount := CASE WHEN p_amount_minor IS NULL THEN NULL ELSE (p_amount_minor::numeric / (10 ^ v_c.currency_scale)::numeric)::numeric(14,2) END;
+  IF v_ignored IS NULL THEN
+    IF v_money AND p_amount_minor IS DISTINCT FROM v_c.amount_minor THEN
+      v_branch := 'amount_mismatch';
+    ELSIF v_money AND v_p.status = 'cancelled' THEN
+      v_branch := 'paid_after_close';
+    ELSIF p_provider_status = 'disputed' THEN
+      v_branch := 'disputed';
+    ELSE
+      v_snapshot := CASE p_provider_status
+        WHEN 'paid' THEN 'paid'
+        WHEN 'refunded' THEN 'refunded'
+        WHEN 'cancelled' THEN 'cancelled'
+        WHEN 'failed' THEN 'cancelled'
+        WHEN 'unrecognized' THEN NULL
+        ELSE 'pending' END;
+      v_branch := CASE WHEN v_snapshot IS NULL
+                          OR NOT ((v_p.status = 'pending' AND v_snapshot IN ('pending', 'paid', 'cancelled', 'refunded'))
+                                  OR (v_p.status = 'paid' AND v_snapshot IN ('paid', 'refunded'))
+                                  OR (v_p.status = 'refunded' AND v_snapshot = 'refunded')
+                                  OR (v_p.status = 'cancelled' AND v_snapshot = 'cancelled'))
+                       THEN 'unrecognized' ELSE 'snapshot' END;
+    END IF;
+  END IF;
+
+  INSERT INTO public.pay05_paynow_observations (tenant_id, collection_id, event_id, via, provider_status, raw_status, amount_minor,
+    paynow_reference, read_ticket, outcome)
+  VALUES (v_c.tenant_id, v_c.id, p_event_id, p_via, p_provider_status, left(p_raw_status, 160), p_amount_minor, left(p_paynow_reference, 64),
+    p_read_ticket, coalesce(v_ignored, CASE WHEN v_branch = 'snapshot' THEN 'applied' ELSE 'review' END))
   ON CONFLICT (event_id) DO NOTHING
   RETURNING id INTO v_obs;
   IF v_obs IS NULL THEN
-    SELECT collection_id INTO v_event_collection FROM public.pay05_paynow_observations WHERE event_id = p_event_id;
-    IF v_event_collection IS DISTINCT FROM v_c.id THEN RAISE EXCEPTION 'PAY05_EVENT_CROSS_COLLECTION_REPLAY'; END IF;
     RETURN jsonb_build_object('applied', false, 'duplicate_event', true, 'payment_status', v_p.status, 'provider_status', v_tx.provider_status);
   END IF;
+  IF v_ignored IS NOT NULL THEN
+    RETURN jsonb_build_object('applied', false, 'ignored', v_ignored, 'observation_id', v_obs, 'provider_status', v_tx.provider_status,
+      'payment_status', v_p.status);
+  END IF;
+  -- the latest Paynow status CarUp evaluated (never one it ignored), and the newest read it considered
   UPDATE public.pay05_paynow_transactions SET provider_status = p_provider_status, provider_status_at = clock_timestamp(),
     paynow_reference = coalesce(paynow_reference, left(p_paynow_reference, 64)),
-    last_status_update_hash = coalesce(p_message_hash, last_status_update_hash), updated_at = clock_timestamp()
+    last_status_update_hash = coalesce(p_message_hash, last_status_update_hash),
+    last_read_ticket = CASE WHEN p_read_ticket IS NULL THEN last_read_ticket ELSE greatest(coalesce(last_read_ticket, p_read_ticket), p_read_ticket) END,
+    updated_at = clock_timestamp()
    WHERE collection_id = v_c.id RETURNING * INTO v_tx;
 
   v_via := CASE WHEN p_via = 'status_update' THEN 'signed_webhook' ELSE 'provider_readback' END;
-  v_money := p_provider_status IN ('paid', 'awaiting_delivery', 'delivered', 'disputed');
-  v_amount := CASE WHEN p_amount_minor IS NULL THEN NULL ELSE (p_amount_minor::numeric / (10 ^ v_c.currency_scale)::numeric)::numeric(14,2) END;
-
-  IF v_money AND p_amount_minor IS DISTINCT FROM v_c.amount_minor THEN
+  IF v_branch = 'amount_mismatch' THEN
     v_disc := public.pay04_record_discrepancy(v_c, 'amount_mismatch', v_amount,
       jsonb_build_object('observed_amount_minor', p_amount_minor, 'expected_amount_minor', v_c.amount_minor,
                          'observed_status', p_provider_status, 'via', p_via, 'event_id', p_event_id), v_via, p_event_id);
     v_result := jsonb_build_object('applied', false, 'refused', 'amount_mismatch', 'discrepancy', v_disc,
       'projection', public.pay04_reproject_garage_collection(v_c.id, 'provider_mismatch', NULL));
-  ELSIF v_money AND v_p.status = 'cancelled' THEN
+  ELSIF v_branch = 'paid_after_close' THEN
     -- Paynow took money after CarUp had closed this payment: never counted here; an operator settles it
     v_disc := public.pay04_record_discrepancy(v_c, 'provider_paid_after_close', v_amount,
       jsonb_build_object('observed_status', p_provider_status, 'via', p_via, 'event_id', p_event_id,
-                         'payment_status', v_p.status), v_via, p_event_id);
+                         'payment_status', v_p.status, 'attached_after_close', v_tx.attached_after_close), v_via, p_event_id);
     v_result := jsonb_build_object('applied', false, 'refused', 'paid_after_close', 'discrepancy', v_disc);
-  ELSIF p_provider_status = 'disputed' THEN
+  ELSIF v_branch = 'disputed' THEN
     v_disc := public.pay04_record_discrepancy(v_c, 'provider_disputed', v_amount,
       jsonb_build_object('observed_status', p_provider_status, 'via', p_via, 'event_id', p_event_id,
                          'payment_status', v_p.status), v_via, p_event_id);
     v_result := jsonb_build_object('applied', false, 'review', 'provider_disputed', 'discrepancy', v_disc,
       'projection', public.pay04_reproject_garage_collection(v_c.id, 'provider_disputed', NULL));
+  ELSIF v_branch = 'unrecognized' THEN
+    -- a word Paynow does not document, or a step backwards from money: recorded for an operator, never applied
+    v_disc := public.pay04_record_discrepancy(v_c, 'provider_status_unrecognized', v_amount,
+      jsonb_build_object('observed_status', p_provider_status, 'raw_status', left(p_raw_status, 160), 'via', p_via,
+                         'event_id', p_event_id, 'payment_status', v_p.status), v_via, p_event_id);
+    v_result := jsonb_build_object('applied', false, 'review', 'provider_status_unrecognized', 'discrepancy', v_disc,
+      'projection', public.pay04_reproject_garage_collection(v_c.id, 'provider_status_unrecognized', NULL));
   ELSE
-    v_snapshot := CASE p_provider_status
-      WHEN 'paid' THEN 'paid'
-      WHEN 'refunded' THEN 'refunded'
-      WHEN 'cancelled' THEN 'cancelled'
-      WHEN 'failed' THEN 'cancelled'
-      WHEN 'unrecognized' THEN NULL
-      ELSE 'pending' END;
-    IF v_snapshot IS NULL
-       OR NOT ((v_p.status = 'pending' AND v_snapshot IN ('pending', 'paid', 'cancelled', 'refunded'))
-               OR (v_p.status = 'paid' AND v_snapshot IN ('paid', 'refunded'))
-               OR (v_p.status = 'refunded' AND v_snapshot = 'refunded')
-               OR (v_p.status = 'cancelled' AND v_snapshot = 'cancelled')) THEN
-      -- a word Paynow does not document, or a step backwards: recorded for an operator, never applied
-      v_disc := public.pay04_record_discrepancy(v_c, 'provider_status_unrecognized', v_amount,
-        jsonb_build_object('observed_status', p_provider_status, 'raw_status', left(p_raw_status, 160), 'via', p_via,
-                           'event_id', p_event_id, 'payment_status', v_p.status), v_via, p_event_id);
-      v_result := jsonb_build_object('applied', false, 'review', 'provider_status_unrecognized', 'discrepancy', v_disc,
-        'projection', public.pay04_reproject_garage_collection(v_c.id, 'provider_status_unrecognized', NULL));
-    ELSE
-      IF v_snapshot = 'paid' THEN
-        -- Paynow reports the money released again: an open dispute is over (the provider says so)
-        UPDATE public.pay04_garage_payment_discrepancies SET status = 'resolved', resolution = 'provider_corrected',
-          resolved_by = 'provider:paynow_zimbabwe', resolved_role = 'provider_confirmation',
-          resolution_note = 'Paynow reports the payment Paid again: the dispute is over.', resolved_at = clock_timestamp()
-         WHERE collection_id = v_c.id AND discrepancy_type = 'provider_disputed' AND status = 'open';
-        IF FOUND THEN
-          PERFORM public.pay04_log(v_c, 'discrepancy_resolved', 'provider:paynow_zimbabwe',
-            jsonb_build_object('discrepancy_type', 'provider_disputed', 'resolution', 'provider_corrected'));
-        END IF;
+    IF v_snapshot = 'paid' THEN
+      -- Paynow reports the money released again: an open dispute is over (the provider says so)
+      UPDATE public.pay04_garage_payment_discrepancies SET status = 'resolved', resolution = 'provider_corrected',
+        resolved_by = 'provider:paynow_zimbabwe', resolved_role = 'provider_confirmation',
+        resolution_note = 'Paynow reports the payment Paid again: the dispute is over.', resolved_at = clock_timestamp()
+       WHERE collection_id = v_c.id AND discrepancy_type = 'provider_disputed' AND status = 'open';
+      IF FOUND THEN
+        PERFORM public.pay04_log(v_c, 'discrepancy_resolved', 'provider:paynow_zimbabwe',
+          jsonb_build_object('discrepancy_type', 'provider_disputed', 'resolution', 'provider_corrected'));
       END IF;
-      v_result := public.pay04_apply_garage_provider_snapshot(
-        v_c.id, v_snapshot, v_c.provider_payment_id, NULL, NULL, NULL, p_amount_minor, v_c.currency, v_acct.merchant_reference,
-        CASE WHEN v_snapshot = 'refunded' THEN v_c.amount_minor ELSE NULL END,
-        CASE WHEN v_snapshot = 'refunded' THEN 0 ELSE NULL END, NULL, NULL, v_via);
-      IF v_snapshot = 'refunded' THEN
-        -- Paynow's "Refunded" carries no amount and partial refunds are undocumented: CarUp counts nothing for this
-        -- payment and asks an operator to confirm the refund in the merchant's Paynow records
-        v_disc := public.pay04_record_discrepancy(v_c, 'provider_refund_unquantified', v_amount,
-          jsonb_build_object('observed_status', p_provider_status, 'via', p_via, 'event_id', p_event_id), v_via, p_event_id);
-      END IF;
+    END IF;
+    -- a Refunded whose amount did not parse is still the whole transaction refunded (independent review D3b): Paynow's
+    -- "Refunded" names no refund amount, so the operator review below confirms it either way
+    v_result := public.pay04_apply_garage_provider_snapshot(
+      v_c.id, v_snapshot, v_c.provider_payment_id, NULL, NULL, NULL,
+      CASE WHEN v_snapshot = 'refunded' THEN coalesce(p_amount_minor, v_c.amount_minor) ELSE p_amount_minor END,
+      v_c.currency, v_acct.merchant_reference,
+      CASE WHEN v_snapshot = 'refunded' THEN v_c.amount_minor ELSE NULL END,
+      CASE WHEN v_snapshot = 'refunded' THEN 0 ELSE NULL END, NULL, NULL, v_via);
+    IF v_snapshot = 'refunded' THEN
+      -- Paynow's "Refunded" carries no amount and partial refunds are undocumented: CarUp counts nothing for this
+      -- payment and asks an operator to confirm the refund in the merchant's Paynow records
+      v_disc := public.pay04_record_discrepancy(v_c, 'provider_refund_unquantified', v_amount,
+        jsonb_build_object('observed_status', p_provider_status, 'observed_amount_minor', p_amount_minor, 'via', p_via,
+                           'event_id', p_event_id), v_via, p_event_id);
     END IF;
   END IF;
   RETURN coalesce(v_result, '{}'::jsonb) || jsonb_build_object('observation_id', v_obs, 'provider_status', p_provider_status,
     'discrepancy', coalesce(v_disc, v_result->'discrepancy'),
     'payment_status', (SELECT status FROM public.payment_transactions WHERE reference = v_c.payment_reference));
 END $$;
-
 -- 7h. An operator releases the room held by an UNPAID Paynow checkout that Paynow cannot cancel: only once the
---     collection's own time has run out and a fresh authenticated read (poll or trace, within 15 minutes) shows it
---     unpaid. The payment stays pending and watched: if Paynow later reports it paid, the money counts if room remains,
+--     collection's own time has run out and the LATEST authenticated read of any kind (within 15 minutes; independent
+--     review D6) shows it unpaid — or, for a request Paynow never confirmed (reply lost, trace failing; independent review
+--     P2), after a fresh trace attempt. The payment stays pending and watched: if Paynow later reports it paid, the money counts if room remains,
 --     and otherwise becomes PAY-04 unallocated provider money for an operator — never a double count.
 CREATE OR REPLACE FUNCTION public.pay05_release_paynow_hold(p_collection_id uuid, p_actor_id text, p_actor_role text, p_reason text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
@@ -1379,6 +1642,7 @@ DECLARE
   v_tx public.pay05_paynow_transactions%ROWTYPE;
   v_obs public.pay05_paynow_observations%ROWTYPE;
   v_m record;
+  v_last text;
 BEGIN
   IF coalesce(p_actor_role, '') NOT IN ('admin', 'super_admin') OR NOT public.pay03b_is_platform_admin(p_actor_id) THEN
     RAISE EXCEPTION 'PAY05_RELEASE_AUTHORITY_REFUSED';
@@ -1393,22 +1657,32 @@ BEGIN
   SELECT * INTO v_c FROM public.pay04_garage_collections WHERE id = p_collection_id FOR UPDATE;
   SELECT * INTO v_p FROM public.payment_transactions WHERE reference = v_c.payment_reference FOR UPDATE;
   SELECT * INTO v_tx FROM public.pay05_paynow_transactions WHERE collection_id = v_c.id FOR UPDATE;
-  IF NOT FOUND OR v_tx.initiation_state <> 'attached' THEN RAISE EXCEPTION 'PAY05_COLLECTION_NOT_ATTACHED'; END IF;
+  IF NOT FOUND OR v_tx.initiation_state NOT IN ('attached', 'sending', 'unknown') THEN RAISE EXCEPTION 'PAY05_COLLECTION_NOT_ATTACHED'; END IF;
   IF v_tx.hold_released_at IS NOT NULL THEN RETURN jsonb_build_object('replayed', true, 'hold_released_at', v_tx.hold_released_at); END IF;
   IF v_p.status <> 'pending' THEN RAISE EXCEPTION 'PAY05_HOLD_NOT_RELEASABLE' USING DETAIL = v_p.status; END IF;
   IF v_c.expires_at > clock_timestamp() THEN RAISE EXCEPTION 'PAY05_HOLD_NOT_RELEASABLE' USING DETAIL = 'not_expired'; END IF;
-  SELECT * INTO v_obs FROM public.pay05_paynow_observations
-   WHERE collection_id = v_c.id AND via IN ('poll', 'trace') ORDER BY seq DESC LIMIT 1;
-  IF NOT FOUND OR v_obs.observed_at < clock_timestamp() - interval '15 minutes' OR v_obs.provider_status NOT IN ('created', 'sent') THEN
-    RAISE EXCEPTION 'PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ';
+  IF v_tx.initiation_state IN ('sending', 'unknown') THEN
+    -- a request Paynow never confirmed: released only after a FRESH trace attempt. If it exists after all, Paynow's
+    -- signed update still binds it, and its money counts only into free room (otherwise unallocated, for an operator).
+    IF v_tx.last_trace_at IS NULL OR v_tx.last_trace_at < clock_timestamp() - interval '15 minutes' THEN
+      RAISE EXCEPTION 'PAY05_HOLD_RELEASE_REQUIRES_FRESH_TRACE';
+    END IF;
+    v_last := 'unconfirmed:' || v_tx.initiation_state;
+  ELSE
+    SELECT * INTO v_obs FROM public.pay05_paynow_observations
+     WHERE collection_id = v_c.id AND outcome IN ('applied', 'review') ORDER BY seq DESC LIMIT 1;
+    IF NOT FOUND OR v_obs.observed_at < clock_timestamp() - interval '15 minutes' OR v_obs.provider_status NOT IN ('created', 'sent') THEN
+      RAISE EXCEPTION 'PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ';
+    END IF;
+    v_last := v_obs.provider_status;
   END IF;
   UPDATE public.pay05_paynow_transactions SET hold_released_at = clock_timestamp(), hold_released_by = trim(p_actor_id),
     hold_release_reason = btrim(p_reason), updated_at = clock_timestamp()
    WHERE collection_id = v_c.id RETURNING * INTO v_tx;
   PERFORM public.pay04_log(v_c, 'hold_released', trim(p_actor_id), jsonb_build_object('reason', btrim(p_reason),
-    'last_provider_status', v_obs.provider_status, 'observed_at', v_obs.observed_at));
+    'last_provider_status', v_last, 'observed_at', v_obs.observed_at, 'last_trace_at', v_tx.last_trace_at));
   PERFORM public.pay05_audit(v_c.tenant_id, v_c.merchant_account_id, v_tx.integration_row_id, 'hold_released', trim(p_actor_id),
-    p_actor_role, jsonb_build_object('collection_id', v_c.id, 'reason', btrim(p_reason), 'last_provider_status', v_obs.provider_status));
+    p_actor_role, jsonb_build_object('collection_id', v_c.id, 'reason', btrim(p_reason), 'last_provider_status', v_last));
   SELECT * INTO v_m FROM public.pay04_invoice_money(v_c.invoice_id);
   RETURN jsonb_build_object('replayed', false, 'hold_released_at', v_tx.hold_released_at, 'money', to_jsonb(v_m));
 END $$;
@@ -1419,6 +1693,15 @@ CREATE OR REPLACE FUNCTION public.pay05_record_provider_error(
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE v_id uuid;
 BEGIN
+  -- An unauthenticated caller can make CarUp record a refusal for a collection it knows: one row per collection and kind
+  -- per minute keeps genuine provider errors visible to the operator (independent review S5).
+  IF p_collection_id IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtext('carup_pay05_err:' || p_collection_id::text || ':' || coalesce(p_kind, '')));
+    IF EXISTS (SELECT 1 FROM public.pay05_provider_errors WHERE collection_id = p_collection_id AND kind = p_kind
+                AND created_at > clock_timestamp() - interval '60 seconds') THEN
+      RETURN NULL;
+    END IF;
+  END IF;
   INSERT INTO public.pay05_provider_errors (kind, tenant_id, collection_id, merchant_account_id, detail)
   VALUES (p_kind, p_tenant_id, p_collection_id, p_merchant_account_id, coalesce(p_detail, '{}'::jsonb))
   RETURNING id INTO v_id;
@@ -1445,6 +1728,7 @@ GRANT SELECT ON TABLE public.pay05_runtime_guard, public.pay05_merchant_profiles
 REVOKE ALL ON FUNCTION
   public.pay05_guard_integration(), public.pay05_guard_paynow_transaction(), public.pay05_hold_released(uuid),
   public.pay05_initiation_unresolved(uuid), public.pay05_verified_integration(uuid,text), public.pay05_latest_provider_status(uuid),
+  public.pay05_mark_settled_off_platform(uuid,text,text),
   public.pay05_integration_view(public.pay05_merchant_integrations),
   public.pay05_audit(uuid,uuid,uuid,text,text,text,jsonb),
   public.pay05_assert_independent_reviewer(public.pay04_garage_merchant_accounts,text,text)
@@ -1457,10 +1741,12 @@ REVOKE ALL ON FUNCTION
   public.pay05_suspend_paynow_merchant(uuid,text,text,text),
   public.pay05_set_paynow_availability(boolean,text,text,text),
   public.pay05_record_paynow_sending(uuid,text,text,text),
-  public.pay05_attach_paynow_collection(uuid,text,text,text,jsonb),
+  public.pay05_attach_paynow_collection(uuid,text,text,text,jsonb,text,boolean),
   public.pay05_mark_paynow_initiation(uuid,text,text),
   public.pay05_record_paynow_trace_absent(uuid),
-  public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text,text),
+  public.pay05_record_paynow_trace_failed(uuid),
+  public.pay05_begin_paynow_read(uuid),
+  public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text,text,bigint),
   public.pay05_release_paynow_hold(uuid,text,text,text),
   public.pay05_record_provider_error(text,uuid,uuid,uuid,jsonb)
   FROM PUBLIC, anon, authenticated;
@@ -1472,10 +1758,12 @@ GRANT EXECUTE ON FUNCTION
   public.pay05_suspend_paynow_merchant(uuid,text,text,text),
   public.pay05_set_paynow_availability(boolean,text,text,text),
   public.pay05_record_paynow_sending(uuid,text,text,text),
-  public.pay05_attach_paynow_collection(uuid,text,text,text,jsonb),
+  public.pay05_attach_paynow_collection(uuid,text,text,text,jsonb,text,boolean),
   public.pay05_mark_paynow_initiation(uuid,text,text),
   public.pay05_record_paynow_trace_absent(uuid),
-  public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text,text),
+  public.pay05_record_paynow_trace_failed(uuid),
+  public.pay05_begin_paynow_read(uuid),
+  public.pay05_apply_paynow_observation(uuid,text,text,text,text,bigint,text,text,text,text,bigint),
   public.pay05_release_paynow_hold(uuid,text,text,text),
   public.pay05_record_provider_error(text,uuid,uuid,uuid,jsonb)
   TO service_role;

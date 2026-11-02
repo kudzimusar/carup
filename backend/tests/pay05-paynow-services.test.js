@@ -23,6 +23,8 @@ const M = await import('../services/payment/pay05MerchantService.js');
 const P = await import('../services/payment/pay05PaynowCollectionService.js');
 const { startPaynowSimulatorServer } = await import('../../scripts/uat/pay05-paynow-simulator-server.mjs');
 const { createPgSupabase } = await import('./helpers/pgSupabaseShim.js');
+const A = await import('../services/payment/pay05PaynowAdapter.js');
+const { signPairs, encodeForm } = await import('../services/payment/pay05PaynowProtocol.js');
 
 const run = crypto.randomBytes(4).toString('hex');
 const u = (name) => `p5s_${name}_${run}`;
@@ -131,7 +133,8 @@ test('the garage connects its OWN Paynow merchant; the key is sealed, never retu
   world.usd = usd;
   const body = { ...profile('P5S Motors (Pvt) Ltd'), integrations: [
     { currency: 'USD', integration_id: usd.integrationId, integration_key: usd.key, methods: usd.methods },
-    { currency: 'ZWG', integration_id: zwg.integrationId, integration_key: zwg.key, methods: zwg.methods }] };
+    // independent review P5: a key pasted in upper case is normalised as Paynow renders a GUID
+    { currency: 'ZWG', integration_id: zwg.integrationId, integration_key: ` ${zwg.key.toUpperCase()} `, methods: zwg.methods }] };
   await rejectsWith(M.connectGaragePaynow({ db, env, actor: { id: ids.mech, tenantId: world.g }, body }), 'PAY05_MERCHANT_AUTHORITY_REFUSED');
   await rejectsWith(M.connectGaragePaynow({ db, env, actor: garageA(), body: { ...body, attest: false } }), 'PAY05_ATTESTATION_REQUIRED');
   await rejectsWith(M.connectGaragePaynow({ db, env: { ...env, CARUP_PAY05_PAYNOW_MODE: 'paynow_live' }, actor: garageA(), body }), 'PAY05_REAL_PROVIDER_NOT_AUTHORIZED');
@@ -153,12 +156,21 @@ test('the garage connects its OWN Paynow merchant; the key is sealed, never retu
   // verification: not by the registrant, not by a garage member, not without the reviews; the server probes every key
   await rejectsWith(M.verifyPaynowMerchant({ db, env, actor: { id: ids.admin, platformRole: 'owner' }, merchantAccountId: world.merchant,
     body: { legal_identity_reviewed: true, settlement_account_reviewed: true, note: 'Self verification attempt.' } }), 'PAY05_VERIFICATION_AUTHORITY_REFUSED');
-  await rejectsWith(M.verifyPaynowMerchant({ db, env, actor: { id: ids.opMember, platformRole: 'admin' }, merchantAccountId: world.merchant,
-    body: { legal_identity_reviewed: true, settlement_account_reviewed: true, note: 'A garage member cannot verify.' } }), 'PAY05_REVIEWER_SEPARATION_REQUIRED');
+  // independent review S9: a garage member is refused BEFORE any key is opened or Paynow is called
+  const probeCalls = [];
+  const spy = async (url, opts) => { probeCalls.push(url); return A.httpTransport()(url, opts); };
+  await rejectsWith(M.verifyPaynowMerchant({ db, env, transport: spy, actor: { id: ids.opMember, platformRole: 'admin' }, merchantAccountId: world.merchant,
+    body: { legal_identity_reviewed: true, settlement_account_reviewed: true, currency_configuration_reviewed: true, note: 'A garage member cannot verify.' } }),
+  'PAY05_REVIEWER_SEPARATION_REQUIRED');
+  assert.equal(probeCalls.length, 0, 'no probe before the separation check');
+  // independent review P3: Paynow reports no currency, so the operator must have checked each integration's currency
+  await rejectsWith(M.verifyPaynowMerchant({ db, env, actor: operator(), merchantAccountId: world.merchant,
+    body: { legal_identity_reviewed: true, settlement_account_reviewed: true, note: 'Currency configuration not reviewed.' } }), 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE');
   await rejectsWith(M.verifyPaynowMerchant({ db, env, actor: operator(), merchantAccountId: world.merchant,
     body: { legal_identity_reviewed: true, settlement_account_reviewed: false, note: 'Settlement account not reviewed.' } }), 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE');
   const verified = await M.verifyPaynowMerchant({ db, env, actor: operator(), merchantAccountId: world.merchant,
-    body: { legal_identity_reviewed: true, settlement_account_reviewed: true, note: 'Legal name and settlement account match the garage.' } });
+    body: { legal_identity_reviewed: true, settlement_account_reviewed: true, currency_configuration_reviewed: true,
+      note: 'Legal name and settlement account match the garage.' } });
   assert.equal(verified.merchant.status, 'verified');
   assert.deepEqual(Object.values(verified.probes).map((p) => p.result), ['authenticated', 'authenticated']);
 
@@ -167,12 +179,17 @@ test('the garage connects its OWN Paynow merchant; the key is sealed, never retu
   const wrong = await M.connectGaragePaynow({ db, env, actor: garageB(), body: { ...profile('P5T Auto Ltd'), integrations: [
     { currency: 'USD', integration_id: other.integrationId, integration_key: crypto.randomUUID(), methods: ['web'] }] } });
   const refused = await rejectsWith(M.verifyPaynowMerchant({ db, env, actor: operator(), merchantAccountId: wrong.merchant.id,
-    body: { legal_identity_reviewed: true, settlement_account_reviewed: true, note: 'Reviewed, but the key must prove itself.' } }),
+    body: { legal_identity_reviewed: true, settlement_account_reviewed: true, currency_configuration_reviewed: true, note: 'Reviewed, but the key must prove itself.' } }),
   'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE');
   // with the wrong key OUR request hash is wrong, so Paynow refuses it unsigned ("Invalid Hash") — never authenticated
   assert.deepEqual(Object.values(refused.details.probes), ['refused']);
   assert.equal(Number((await one("SELECT count(*)::int AS n FROM pay05_provider_errors WHERE merchant_account_id = $1 AND kind = 'credential_probe_failed'", [wrong.merchant.id])).n), 1);
   await M.rejectPaynowMerchant({ db, env, actor: operator(), merchantAccountId: wrong.merchant.id, body: { reason: 'The integration key does not match the integration ID.' } });
+  // independent review W9: the garage sees why
+  const rejectedView = await M.getGaragePaynowConnection({ db, env, actor: garageB() });
+  assert.equal(rejectedView.merchant.status, 'rejected');
+  assert.equal(rejectedView.merchant.rejected_reason, 'The integration key does not match the integration ID.');
+  assert.ok(rejectedView.merchant.rejected_at);
   // ...and garage B can never take over garage A's integration
   await rejectsWith(M.connectGaragePaynow({ db, env, actor: garageB(), body: { ...profile('P5T Auto Ltd'), integrations: [
     { currency: 'USD', integration_id: usd.integrationId, integration_key: usd.key, methods: ['web'] }] } }), 'PAY05_INTEGRATION_ALREADY_REGISTERED');
@@ -245,7 +262,8 @@ test('express: EcoCash approval counts; a user-cancelled request closes; "insuff
 
 test('InnBucks shows its authorization code (USD only); O\'mari completes only with the right one-time password', { skip }, async () => {
   const inv = await invoice(18);
-  const inn = await start(inv, { method: 'innbucks' }, `p5s-inn-${run}-1`);
+  await rejectsWith(start(inv, { method: 'innbucks' }, `p5s-inn-${run}-0`), 'PAY05_PHONE_INVALID');
+  const inn = await start(inv, { method: 'innbucks', phone: '0771234567' }, `p5s-inn-${run}-1`);
   assert.match(inn.paynow.authorization_code, /^\d{9}$/);
   assert.ok(inn.paynow.authorization_expires);
   await sim.simulator.setStatus(await guidOf(inn.collection_id), 'Paid');
@@ -254,7 +272,7 @@ test('InnBucks shows its authorization code (USD only); O\'mari completes only w
   const zwgInv = await invoice(500, { currency: 'ZWG' });
   const zwgOption = (await S.getCustomerInvoicePayment({ db, env, actor: customer(), invoiceId: zwgInv.id })).online_payment;
   assert.deepEqual([...zwgOption.methods].sort(), ['ecocash', 'web'], 'ZWG offers what the ZWG integration enables — no InnBucks');
-  await rejectsWith(start(zwgInv, { method: 'innbucks' }, `p5s-inn-${run}-2`), 'PAY05_METHOD_NOT_AVAILABLE');
+  await rejectsWith(start(zwgInv, { method: 'innbucks', phone: '0771234567' }, `p5s-inn-${run}-2`), 'PAY05_METHOD_NOT_AVAILABLE');
 
   const inv2 = await invoice(22);
   const om = await start(inv2, { method: 'omari', phone: '0712345678' }, `p5s-om-${run}-1`);
@@ -262,6 +280,8 @@ test('InnBucks shows its authorization code (USD only); O\'mari completes only w
   assert.match(om.paynow.otp_reference, /^OTP/);
   await rejectsWith(P.submitPaynowOtp({ db, env, actor: customer(), collectionId: om.collection_id, body: { otp: '000000' } }), 'PAY05_OTP_REJECTED');
   await rejectsWith(P.submitPaynowOtp({ db, env, actor: { id: ids.adminB }, collectionId: om.collection_id, body: { otp: '000000' } }), 'PAY05_COLLECTION_NOT_FOUND');
+  // independent review S5: a collection that does not exist looks exactly like someone else's
+  await rejectsWith(P.submitPaynowOtp({ db, env, actor: { id: ids.adminB }, collectionId: crypto.randomUUID(), body: { otp: '000000' } }), 'PAY05_COLLECTION_NOT_FOUND');
   const { otp } = sim.simulator.otpOutbox.at(-1);
   const done = await P.submitPaynowOtp({ db, env, actor: customer(), collectionId: om.collection_id, body: { otp }, deps });
   assert.equal(done.paynow.provider_status, 'paid');
@@ -300,11 +320,19 @@ test('status updates: forged, tampered, foreign and cross-garage messages are re
   const other = await start(await invoice(45), { method: 'web' }, `p5s-cb-${run}-2`);
   const otherBody = sim.simulator.forgedStatusMessage(await guidOf(other.collection_id), { key: world.usd.key, status: 'Paid' });
   await rejectsWith(P.processPaynowStatusUpdate({ db, env, collectionId: s.collection_id, rawBody: otherBody }), 'PAY05_PROVIDER_BINDING_MISMATCH');
-  assert.equal(await errorsOf(s.collection_id, 'callback_signature_invalid'), 2);
+  // independent review S5: repeated refusals for one collection are recorded once a minute
+  assert.equal(await errorsOf(s.collection_id, 'callback_signature_invalid'), 1);
   assert.equal(await errorsOf(s.collection_id, 'callback_binding_mismatch'), 1);
   assert.equal(await paymentStatus(s.collection_id), 'pending');
   assert.equal((await money(inv.id)).provider_paid, '0.00');
   await rejectsWith(P.processPaynowStatusUpdate({ db, env, collectionId: crypto.randomUUID(), rawBody: otherBody }), 'PAY05_COLLECTION_NOT_FOUND');
+  // independent review P6: a correctly signed update whose poll URL is not Paynow's is a URL refusal, not a forgery
+  const tx = sim.simulator.list().find((t) => t.guid === guid);
+  const foreign = encodeForm(signPairs([['reference', tx.reference], ['paynowreference', tx.paynowReference], ['amount', tx.amount],
+    ['status', 'Paid'], ['pollurl', `https://attacker.example/Interface/CheckPayment/?guid=${guid}`]], world.usd.key));
+  await rejectsWith(P.processPaynowStatusUpdate({ db, env, collectionId: s.collection_id, rawBody: foreign }), 'PAY05_PROVIDER_URL_REFUSED');
+  assert.equal(await errorsOf(s.collection_id, 'provider_url_refused'), 1);
+  assert.equal(await paymentStatus(s.collection_id), 'pending');
 });
 
 test('Paynow cannot cancel: a stop keeps the room held; Paynow\'s Cancelled closes it; refunds happen in Paynow; disputes hold', { skip }, async () => {
@@ -333,6 +361,14 @@ test('Paynow cannot cancel: a stop keeps the room held; Paynow\'s Cancelled clos
   assert.equal(await paymentStatus(world.webCollection), 'refunded');
   assert.equal((await money(world.invWeb.id)).provider_paid, '0.00');
   assert.equal(Number((await one("SELECT count(*)::int AS n FROM pay04_garage_payment_discrepancies WHERE collection_id = $1 AND discrepancy_type = 'provider_refund_unquantified' AND status = 'open'", [world.webCollection])).n), 1);
+  // independent review C-exceptions: the operator's list names each discrepancy's gateway
+  const exceptions = await S.listGaragePaymentExceptions({ db, env });
+  const row = exceptions.discrepancies.find((d) => d.collection_id === world.webCollection && d.type === 'provider_refund_unquantified');
+  assert.equal(row?.gateway, 'paynow_zimbabwe');
+  // independent review D9: 'acknowledged' was refused by the backend although the database and the operator UI offer it
+  const ack = await S.resolveGaragePaymentDiscrepancy({ db, env, actor: operator(), discrepancyId: row.id,
+    body: { resolution: 'acknowledged', note: 'Paynow merchant records show the full amount refunded to the customer.' } });
+  assert.equal(ack.status, 'resolved');
 });
 
 test('hold release: only an operator, only after expiry, only after a fresh unpaid read; late money is never double counted', { skip }, async () => {
@@ -355,6 +391,78 @@ test('hold release: only an operator, only after expiry, only after a fresh unpa
   const after = await money(inv.id);
   assert.deepEqual([after.paid_amount, after.provider_paid, after.payment_status], ['70.00', '0.00', 'paid']);
   assert.equal(Number((await one("SELECT count(*)::int AS n FROM pay04_garage_payment_discrepancies WHERE collection_id = $1 AND discrepancy_type = 'unallocated_provider_money' AND status = 'open'", [s.collection_id])).n), 1);
+});
+
+test('independent review D1: a Paynow read that started before the read CarUp applied is superseded — a stale Sent never reverses counted money', { skip }, async () => {
+  const inv = await invoice(41);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000101' }, `p5s-race-${run}-1`);
+  const guid = await guidOf(s.collection_id);
+  const real = A.httpTransport();
+  let replied; const gotReply = new Promise((resolve) => { replied = resolve; });
+  let release; const gate = new Promise((resolve) => { release = resolve; });
+  const slow = async (url, opts) => { const out = await real(url, opts); if (/checkpayment/i.test(url)) { replied(); await gate; } return out; };
+  // the customer's check takes its ticket and reads "Sent" ... and is slow to come back
+  const stale = P.checkPaynowCollection({ db, env, transport: slow, collection: await S.loadCollection(db, s.collection_id), deps });
+  await gotReply;
+  // meanwhile Paynow posts its signed "Paid": a later ticket, applied, counted
+  await sim.simulator.setStatus(guid, 'Paid');
+  assert.equal(await paymentStatus(s.collection_id), 'paid');
+  release();
+  await stale;
+  assert.equal(await paymentStatus(s.collection_id), 'paid');
+  assert.equal((await money(inv.id)).provider_paid, '41.00');
+  assert.equal((await one('SELECT outcome FROM pay05_paynow_observations WHERE collection_id = $1 ORDER BY seq DESC LIMIT 1', [s.collection_id])).outcome, 'superseded');
+  assert.equal(Number((await one("SELECT count(*)::int AS n FROM pay04_garage_payment_discrepancies WHERE collection_id = $1 AND status = 'open'", [s.collection_id])).n), 0);
+});
+
+test('independent review P1/D2/S2: Paynow answered Error but the request existed — its later SIGNED Paid binds late into an operator review', { skip }, async () => {
+  const inv = await invoice(43);
+  sim.simulator.inject('initiate', { kind: 'error', message: 'Simulated: temporarily unable' });
+  await rejectsWith(start(inv, { method: 'ecocash', phone: '0779000102' }, `p5s-late-${run}-1`), 'PAY05_PROVIDER_REFUSED');
+  const c = await one('SELECT id, payment_reference FROM pay04_garage_collections WHERE invoice_id = $1', [inv.id]);
+  assert.equal(await paymentStatus(c.id), 'cancelled');
+  assert.equal((await money(inv.id)).uncommitted_balance, '43.00', 'refused: the room is free');
+  const tx = sim.simulator.list().find((t) => t.reference === c.payment_reference);
+  assert.ok(tx, 'the (simulated) Paynow had created the transaction before answering Error');
+  await sim.simulator.setStatus(tx.guid, 'Paid');
+  assert.equal(Number((await one("SELECT count(*)::int AS n FROM pay04_garage_payment_discrepancies WHERE collection_id = $1 AND discrepancy_type = 'provider_paid_after_close' AND status = 'open'", [c.id])).n), 1);
+  assert.equal((await money(inv.id)).provider_paid, '0.00');
+  assert.equal((await txOf(c.id)).attached_after_close, true);
+});
+
+test('independent review D7: Paynow\'s "Paid" again after a dispute CarUp learned by POLL is a new event, not a resend', { skip }, async () => {
+  const inv = await invoice(46);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000103' }, `p5s-d7-${run}-1`);
+  const guid = await guidOf(s.collection_id);
+  await sim.simulator.setStatus(guid, 'Paid');
+  await sim.simulator.setStatus(guid, 'Disputed', { notify: false });
+  await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: s.collection_id, deps });
+  assert.equal((await money(inv.id)).provider_paid, '0.00', 'the dispute, learned by poll, holds the money');
+  await sim.simulator.setStatus(guid, 'Paid'); // byte-identical to the first Paid update
+  assert.equal((await money(inv.id)).provider_paid, '46.00', 'polled and applied, not dropped as a resend');
+});
+
+test('independent review S3/S4/S10: the kill switch reaches PAY-04 routes; customers get the customer view; refresh is throttled', { skip }, async () => {
+  const inv = await invoice(47);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000104' }, `p5s-ks-${run}-1`);
+  const v = await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: s.collection_id, deps });
+  assert.equal(v.collection.paynow?.paynow_reference ?? null, null, 'no garage-side Paynow reference for the customer');
+  assert.equal(v.collection.paynow?.provider_error ?? null, null);
+  const stopped = await S.cancelCustomerCollection({ db, env, actor: customer(), collectionId: s.collection_id, body: { reason: 'Changed my mind' } });
+  assert.equal(stopped.paynow.paynow_reference, null);
+  assert.equal(stopped.collection?.paynow?.paynow_reference ?? null, null);
+  const observations = async () => Number((await one('SELECT count(*)::int AS n FROM pay05_paynow_observations WHERE collection_id = $1', [s.collection_id])).n);
+  const before = await observations();
+  await S.getCustomerInvoicePayment({ db, env, actor: customer(), invoiceId: inv.id });
+  await S.getCustomerInvoicePayment({ db, env, actor: customer(), invoiceId: inv.id });
+  assert.equal(await observations(), before, 'a request read in the last minute is not re-read on every view');
+  const off = { ...env, CARUP_PAY05_ENABLED: 'false' };
+  await rejectsWith(S.verifyCustomerCollection({ db, env: off, actor: customer(), collectionId: s.collection_id, deps }), 'PAY05_DISABLED');
+  await rejectsWith(S.reconcileGarageCollection({ db, env: off, actor: garageA(), collectionId: s.collection_id, deps }), 'PAY05_DISABLED');
+  await rejectsWith(S.cancelCustomerCollection({ db, env: off, actor: customer(), collectionId: s.collection_id, body: { reason: 'Again' } }), 'PAY05_DISABLED');
+  const view = await S.getCustomerInvoicePayment({ db, env: off, actor: customer(), invoiceId: inv.id });
+  assert.equal(view.online_payment.available, false);
+  assert.equal(await observations(), before, 'PAY-05 off: nothing called Paynow');
 });
 
 test('operations: Paynow availability is the operator\'s switch; a disconnected garage offers no Paynow', { skip }, async () => {

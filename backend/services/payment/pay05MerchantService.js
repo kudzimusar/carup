@@ -17,9 +17,9 @@ import {
   Pay05Error, PAY05_CURRENCIES, PAY05_GATEWAY, PAY05_METHODS, PAY05_MODES, PAY05_PAYNOW_CAPABILITIES, isPay05Enabled,
   pay05Failure, requirePay05Enabled,
 } from './pay05Contract.js';
-import { integrationKeyAad, openIntegrationKey, sealIntegrationKey } from './pay05CredentialVault.js';
+import { integrationKeyAad, integrationKeyFingerprint, openIntegrationKey, sealIntegrationKey } from './pay05CredentialVault.js';
 import { createPaynowAdapter } from './pay05PaynowAdapter.js';
-import { newMerchantTrace } from './pay05PaynowProtocol.js';
+import { newMerchantTrace, normalizeIntegrationKey } from './pay05PaynowProtocol.js';
 
 const list = (data) => (Array.isArray(data) ? data : data ? [data] : []);
 const text = (value, { min = 2, max = 160 } = {}) => {
@@ -90,6 +90,11 @@ async function merchantBundle(db, account) {
     suspended_reason: account.suspended_reason, profile: profile || null,
     integrations: list(integrations).map(integrationView),
     history: list(history),
+    // independent review W9: the garage sees why CarUp did not verify it
+    ...(() => {
+      const closed = account.status === 'rejected' ? list(integrations).find((i) => i.status === 'rejected' && i.closed_reason) : null;
+      return { rejected_reason: closed?.closed_reason ?? null, rejected_at: closed?.closed_at ?? null };
+    })(),
   };
 }
 
@@ -140,7 +145,8 @@ function connectionInput(body) {
     if (!/^[0-9]{1,12}$/.test(integrationId)) throw new Pay05Error('PAY05_INTEGRATION_ID_INVALID', 422);
     if (!methods.length || methods.some((m) => !PAY05_METHODS.includes(m))) throw new Pay05Error('PAY05_METHODS_INVALID', 422);
     if (methods.includes('innbucks') && currency !== 'USD') throw new Pay05Error('PAY05_METHOD_NOT_AVAILABLE', 422);
-    return { currency, integrationId, methods, key: item?.integration_key };
+    // a key pasted with spaces or in upper case is normalised as Paynow renders a GUID (independent review P5)
+    return { currency, integrationId, methods, key: normalizeIntegrationKey(item?.integration_key) };
   });
   return { display, legal, bank, holder, last4, registration: registration || null, integrations };
 }
@@ -200,16 +206,24 @@ export async function listPaynowMerchants({ db = defaultDb, env = process.env } 
   return { merchants, availability: await paynowAvailability(db) };
 }
 
-/** Open a stored integration key (inside this process only) and build its adapter. */
-export function adapterForIntegrationRow(row, merchantAccount, { env = process.env, transport = null } = {}) {
-  const key = openIntegrationKey({ ciphertext: row.credential_ciphertext, iv: row.credential_iv, tag: row.credential_tag,
+/** Open a stored integration key (inside this process only): AES-GCM authenticates it against its row's binding. */
+function openRowKey(row, env) {
+  return openIntegrationKey({ ciphertext: row.credential_ciphertext, iv: row.credential_iv, tag: row.credential_tag,
     keyVersion: row.credential_key_version }, {
     aad: integrationKeyAad({ tenantId: row.tenant_id, merchantAccountId: row.merchant_account_id, currency: row.currency,
       integrationId: row.integration_id, mode: row.mode }),
     env,
   });
+}
+
+function adapterWithKey(row, merchantAccount, key, { env, transport }) {
   return createPaynowAdapter({ integration: { integrationId: row.integration_id, key, currency: row.currency, methods: row.methods, mode: row.mode },
     merchantReference: merchantAccount.merchant_reference, env, transport });
+}
+
+/** Open a stored integration key (inside this process only) and build its adapter. */
+export function adapterForIntegrationRow(row, merchantAccount, { env = process.env, transport = null } = {}) {
+  return adapterWithKey(row, merchantAccount, openRowKey(row, env), { env, transport });
 }
 
 /**
@@ -220,8 +234,12 @@ export async function probeIntegration(db, env, row, merchantAccount, { transpor
   const probedAt = new Date().toISOString();
   let result;
   let providerError = null;
+  // the fingerprint is DERIVED from the key actually opened and proved, never copied from the row (independent review S9)
+  let fingerprint = null;
   try {
-    const adapter = adapterForIntegrationRow(row, merchantAccount, { env, transport });
+    const key = openRowKey(row, env);
+    fingerprint = integrationKeyFingerprint(key);
+    const adapter = adapterWithKey(row, merchantAccount, key, { env, transport });
     const traced = await adapter.trace({ merchantTrace: newMerchantTrace() });
     result = traced.authenticated ? 'authenticated' : 'unauthenticated';
   } catch (error) {
@@ -234,7 +252,7 @@ export async function probeIntegration(db, env, row, merchantAccount, { transpor
     await db.rpc('pay05_record_provider_error', { p_kind: 'credential_probe_failed', p_tenant_id: row.tenant_id, p_collection_id: null,
       p_merchant_account_id: row.merchant_account_id, p_detail: { integration_row_id: row.id, currency: row.currency, result, provider_error: providerError } });
   }
-  return { result, credential_fingerprint: row.credential_fingerprint, probed_at: probedAt, provider_error: providerError };
+  return { result, credential_fingerprint: fingerprint, probed_at: probedAt, provider_error: providerError };
 }
 
 async function paynowAccount(db, merchantAccountId) {
@@ -245,18 +263,36 @@ async function paynowAccount(db, merchantAccountId) {
   return account;
 }
 
+/**
+ * Separation of duties, checked BEFORE any key is opened or Paynow is called (independent review S9). The database
+ * re-checks all of it (pay05_assert_independent_reviewer): this only refuses earlier.
+ */
+async function assertIndependentReviewer(db, account, actor, userId) {
+  if (!['admin', 'super_admin'].includes(actor.platformRole)) throw new Pay05Error('PAY05_VERIFICATION_AUTHORITY_REFUSED', 403);
+  const [member, registrant] = await Promise.all([
+    read(db.from('tenant_users').select('user_id').eq('tenant_id', account.tenant_id).eq('user_id', userId).limit(1)),
+    read(db.from('pay05_merchant_integrations').select('id').eq('merchant_account_id', account.id).eq('registered_by', userId).limit(1)),
+  ]);
+  if (account.registered_by === userId || list(member).length || list(registrant).length) {
+    throw new Pay05Error('PAY05_REVIEWER_SEPARATION_REQUIRED', 403);
+  }
+}
+
 export async function verifyPaynowMerchant({ db = defaultDb, env = process.env, actor = {}, merchantAccountId, body = {}, transport = null } = {}) {
   requirePay05Enabled(env);
   const userId = actorId(actor);
   const account = await paynowAccount(db, merchantAccountId);
+  await assertIndependentReviewer(db, account, actor, userId);
   const note = text(body.note, { min: 10, max: 300 });
   if (!note) throw new Pay05Error('PAY05_REASON_REQUIRED', 422);
   const pending = list(await read(db.from('pay05_merchant_integrations').select('*').eq('merchant_account_id', account.id)
     .eq('status', 'pending_verification')));
   const probes = {};
   for (const row of pending) probes[row.id] = await probeIntegration(db, env, row, account, { transport });
+  // Paynow reports no currency: the operator attests each integration's currency configuration (independent review P3)
   const evidence = { legal_identity_reviewed: body.legal_identity_reviewed === true,
-    settlement_account_reviewed: body.settlement_account_reviewed === true, credential_probes: probes };
+    settlement_account_reviewed: body.settlement_account_reviewed === true,
+    currency_configuration_reviewed: body.currency_configuration_reviewed === true, credential_probes: probes };
   try {
     await rpc(db, 'pay05_verify_paynow_merchant', { p_merchant_account_id: account.id, p_actor_id: userId,
       p_actor_role: actor.platformRole || null, p_evidence: evidence, p_note: note });

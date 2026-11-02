@@ -23,10 +23,13 @@ import {
 } from './pay05Contract.js';
 import {
   PAYNOW_ENDPOINTS, PAYNOW_REAL_ALLOWLIST, encodeForm, parseForm, signPairs, verifyPairs, classifyPaynowStatus,
-  formatPaynowAmount, parsePaynowAmountMinor, assertProviderUrl, pollIdFor, normalizeZimbabweMobile,
+  formatPaynowAmount, parsePaynowAmountMinor, assertProviderUrl, pollIdFor, normalizeZimbabweMobile, isPaynowAuthEmail,
 } from './pay05PaynowProtocol.js';
 
-const EMAIL = /^[^\s@<>]{1,64}@[^\s@<>]{1,190}\.[A-Za-z]{2,24}$/;
+/** Initiation waits as long as Paynow's own plugins do; reads (poll, trace, OTP) stay short (independent review P8). */
+export const PAYNOW_TIMEOUTS = Object.freeze({ initiateMs: 45_000, readMs: 15_000 });
+/** A refusal before anything was sent: nothing can exist at Paynow (independent review S8). */
+const notSent = (error) => new Pay05Error(error?.code || 'PAY05_REQUEST_INVALID', error?.status || 422, { outcome: 'not_sent' });
 const providerText = (value) => String(value ?? '').replace(/[^\x20-\x7e]/g, '').slice(0, 160);
 
 export class PaynowAdapter {
@@ -47,11 +50,11 @@ export class PaynowAdapter {
 
   toJSON() { return { gateway: this.gateway, integration: this.integration, merchantReference: this.merchantReference }; }
 
-  async post(url, pairs) {
+  async post(url, pairs, { timeoutMs = PAYNOW_TIMEOUTS.readMs } = {}) {
     const target = assertProviderUrl(url, this.allow);
     let reply;
     try {
-      reply = await this.transport(target, { body: encodeForm(pairs), method: 'POST' });
+      reply = await this.transport(target, { body: encodeForm(pairs), method: 'POST', timeoutMs });
     } catch {
       throw new Pay05Error('PAY05_PROVIDER_UNREACHABLE', 504, { outcome: 'unknown' });
     }
@@ -66,8 +69,8 @@ export class PaynowAdapter {
   }
 
   /** A reply is either Paynow's unsigned Error (refused) or a message signed with this integration's key. */
-  async exchange(url, pairs, refusedCode) {
-    const reply = await this.post(url, pairs);
+  async exchange(url, pairs, refusedCode, options = {}) {
+    const reply = await this.post(url, pairs, options);
     const map = new Map(reply);
     if (String(map.get('status') ?? '').toLowerCase() === 'error') {
       throw new Pay05Error(refusedCode, refusedCode === 'PAY05_OTP_REJECTED' ? 422 : 502,
@@ -102,20 +105,26 @@ export class PaynowAdapter {
 
   async createCheckout({ reference, amountMinor, currency, method = 'web', phone = null, authEmail = null, returnUrl, resultUrl,
     additionalInfo = '', merchantTrace }) {
-    if (currency !== this.integration.currency) throw new Pay05Error('PAY05_CURRENCY_MISMATCH', 422);
-    if (!PAY05_METHODS.includes(method) || !this.integration.methods.includes(method)
-        || (method === 'innbucks' && currency !== 'USD')) {
-      throw new Pay05Error('PAY05_METHOD_NOT_AVAILABLE', 422);
+    // every check that can refuse locally runs before anything is sent, and says so (outcome 'not_sent')
+    let express; let normalizedPhone; let amount;
+    try {
+      if (currency !== this.integration.currency) throw new Pay05Error('PAY05_CURRENCY_MISMATCH', 422);
+      if (!PAY05_METHODS.includes(method) || !this.integration.methods.includes(method)
+          || (method === 'innbucks' && currency !== 'USD')) {
+        throw new Pay05Error('PAY05_METHOD_NOT_AVAILABLE', 422);
+      }
+      if (!/^[A-Za-z0-9]{8,32}$/.test(String(merchantTrace ?? ''))) throw new Pay05Error('PAY05_MERCHANT_TRACE_INVALID', 422);
+      if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(String(reference ?? ''))) throw new Pay05Error('PAY05_REFERENCE_INVALID', 422);
+      for (const u of [returnUrl, resultUrl]) {
+        if (!/^https?:\/\/[^\s]+$/.test(String(u ?? ''))) throw new Pay05Error('PAY05_RETURN_URL_INVALID', 503);
+      }
+      express = method !== 'web';
+      normalizedPhone = PAY05_PHONE_METHODS.includes(method) ? normalizeZimbabweMobile(phone) : null;
+      if (express && !isPaynowAuthEmail(authEmail)) throw new Pay05Error('PAY05_AUTH_EMAIL_REQUIRED', 422);
+      amount = formatPaynowAmount(amountMinor, currency);
+    } catch (error) {
+      throw notSent(error);
     }
-    if (!/^[A-Za-z0-9]{8,32}$/.test(String(merchantTrace ?? ''))) throw new Pay05Error('PAY05_MERCHANT_TRACE_INVALID', 422);
-    if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(String(reference ?? ''))) throw new Pay05Error('PAY05_REFERENCE_INVALID', 422);
-    for (const u of [returnUrl, resultUrl]) {
-      if (!/^https?:\/\/[^\s]+$/.test(String(u ?? ''))) throw new Pay05Error('PAY05_RETURN_URL_INVALID', 503);
-    }
-    const express = method !== 'web';
-    const normalizedPhone = PAY05_PHONE_METHODS.includes(method) ? normalizeZimbabweMobile(phone) : null;
-    if (express && !EMAIL.test(String(authEmail ?? ''))) throw new Pay05Error('PAY05_AUTH_EMAIL_REQUIRED', 422);
-    const amount = formatPaynowAmount(amountMinor, currency);
 
     const pairs = [['id', this.integration.integrationId], ['reference', reference], ['amount', amount]];
     if (additionalInfo) pairs.push(['additionalinfo', providerText(additionalInfo).slice(0, 120)]);
@@ -126,7 +135,7 @@ export class PaynowAdapter {
     pairs.push(['merchanttrace', merchantTrace], ['status', 'Message']);
 
     const fields = await this.exchange(express ? this.endpoints.remote : this.endpoints.initiate, signPairs(pairs, this.key),
-      'PAY05_PROVIDER_REFUSED');
+      'PAY05_PROVIDER_REFUSED', { timeoutMs: PAYNOW_TIMEOUTS.initiateMs });
     if (String(fields.get('status') ?? '').toLowerCase() !== 'ok') {
       throw new Pay05Error('PAY05_PROVIDER_RESPONSE_UNEXPECTED', 502, { outcome: 'unknown' });
     }
@@ -194,19 +203,31 @@ export class PaynowAdapter {
   async refund() { throw new Pay05Error('PAY05_PROVIDER_REFUND_UNSUPPORTED', 409); }
 }
 
-/** fetch with a hard timeout, no redirects followed, and a reply-size cap. */
-export function httpTransport({ timeoutMs = 15_000, maxChars = 65_536 } = {}) {
-  return async (url, { body = '', method = 'POST' } = {}) => {
+/** fetch with a hard timeout, no redirects followed, and a reply-size cap enforced while reading (never buffered first). */
+export function httpTransport({ timeoutMs = PAYNOW_TIMEOUTS.readMs, maxBytes = 65_536 } = {}) {
+  return async (url, { body = '', method = 'POST', timeoutMs: callTimeoutMs } = {}) => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), callTimeoutMs ?? timeoutMs);
     try {
       const res = await fetch(url, {
         method, body, redirect: 'manual', signal: controller.signal,
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
       });
-      const text = await res.text();
-      if (text.length > maxChars) throw new Error('reply too large');
-      return { status: res.status, text };
+      const declared = Number(res.headers.get('content-length'));
+      if (Number.isFinite(declared) && declared > maxBytes) { controller.abort(); throw new Error('reply too large'); }
+      const chunks = [];
+      let size = 0;
+      if (res.body) {
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > maxBytes) { controller.abort(); throw new Error('reply too large'); }
+          chunks.push(value);
+        }
+      }
+      return { status: res.status, text: Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8') };
     } finally {
       clearTimeout(timer);
     }
