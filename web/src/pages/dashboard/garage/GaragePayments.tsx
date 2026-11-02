@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney } from '@/lib/garageBusiness'
-import { PAYMENT_METHOD_OPTIONS, type GarageFinancialOverview, type GaragePaymentInstructionsView } from '@/lib/pay04GaragePayments'
+import { MONEY_ACTION_BUTTON_CLASS, PAYMENT_METHOD_OPTIONS, type GarageFinancialOverview, type GaragePaymentInstructionsView } from '@/lib/pay04GaragePayments'
 import { SN_PAGE } from '@/lib/serviceNetworkLayout'
 
 function messageOf(e: unknown, fallback: string): string {
@@ -209,7 +209,7 @@ export default function GaragePayments() {
                 {saveMessage.text}
               </p>
             )}
-            <Button className="min-h-11 bg-orange-600 text-white hover:bg-orange-700" disabled={saving} onClick={() => void save()} data-testid="instructions-save">
+            <Button className={MONEY_ACTION_BUTTON_CLASS} disabled={saving} onClick={() => void save()} data-testid="instructions-save">
               {saving ? 'Saving…' : instructions?.active ? 'Publish a new version' : 'Publish instructions'}
             </Button>
             {instructions && instructions.history.length > 0 && (

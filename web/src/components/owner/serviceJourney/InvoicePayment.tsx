@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney, newIdempotencyKey, type CustomerInvoice } from '@/lib/garageBusiness'
 import {
-  ONLINE_PAYMENT_REASON_LABEL, PAYMENT_METHOD_OPTIONS, PROVIDER_STATE_TONE, returnOutcomeMessage,
+  MONEY_ACTION_BUTTON_CLASS, ONLINE_PAYMENT_REASON_LABEL, PAYMENT_METHOD_OPTIONS, PROVIDER_STATE_TONE, returnOutcomeMessage,
   type CollectionOutcome, type CustomerInvoicePayment,
 } from '@/lib/pay04GaragePayments'
 import { requestDate } from '@/lib/serviceRequests'
@@ -139,7 +139,7 @@ export default function InvoicePayment({ invoice }: { invoice: CustomerInvoice }
                       className="w-full min-h-11 rounded-lg border border-gray-300 px-3 text-sm bg-white" data-testid="online-payment-amount"
                     />
                     {problem && <p className="rounded-md bg-red-50 p-2 text-red-900" role="alert" data-testid="online-payment-error">{problem}</p>}
-                    <Button className="min-h-11 bg-orange-600 text-white hover:bg-orange-700" disabled={busy || !amount.trim()} onClick={() => void pay()} data-testid="online-payment-start">
+                    <Button className={MONEY_ACTION_BUTTON_CLASS} disabled={busy || !amount.trim()} onClick={() => void pay()} data-testid="online-payment-start">
                       {busy ? 'Opening the provider…' : `Continue to the provider to pay ${amount || '…'} ${option.currency}`}
                     </Button>
                   </div>

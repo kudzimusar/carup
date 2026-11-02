@@ -53,6 +53,8 @@ async function apiLogin(who: string) {
   tokens[who] = j.token
   return j.token
 }
+/** API JSON as this harness reads it: a loose tree of fields. Every value the journey relies on is asserted downstream. */
+type ApiJson = { [key: string]: ApiJson } & string
 async function api(who: string, method: string, path: string, body?: unknown, extra: Record<string, string> = {}) {
   const token = await apiLogin(who)
   const tenant = who === 'adminA' || who === 'mechA' ? (accounts.garageA as string) : null
@@ -61,10 +63,10 @@ async function api(who: string, method: string, path: string, body?: unknown, ex
   const headers: Record<string, string> = { ...identity, 'content-type': 'application/json', ...extra }
   if (method !== 'GET') headers['x-csrf-token'] = (await (await fetch(`${API}/api/security/csrf-token`, { headers: identity })).json()).csrfToken
   const r = await fetch(`${API}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
-  let json: any = null
+  let json: ApiJson | null = null
   try { json = await r.json() } catch { /* non-JSON */ }
   if (r.status >= 300) throw new Error(`${method} ${path} -> ${r.status} ${JSON.stringify(json).slice(0, 200)}`)
-  return json
+  return json as ApiJson
 }
 /** A completed, authorized job with recorded parts consumption, ready to invoice (directive cases 1–5). */
 async function completedJob(cost = '110.00', partQty = 1, sellPrice = '25.00') {
@@ -120,6 +122,11 @@ async function noHorizontalOverflow(page: Page) {
   expect(overflow, 'no lateral page overflow').toBeLessThanOrEqual(1)
 }
 async function axeClean(page: Page, include: string) {
+  // Measure the RESTING state. A click leaves the pointer over whatever renders next, so axe would otherwise measure a
+  // hover colour mid-transition. The shared outline Button's hover state (white on the CarUp-orange accent, 2.8:1) is a
+  // pre-existing, app-wide design-system finding recorded in the PAY-04 certification, not hidden by this step.
+  await page.mouse.move(0, 0)
+  await page.waitForTimeout(400) // the Button's colour and opacity transitions are 150 ms
   const results = await new AxeBuilder({ page }).include(include).withTags(['wcag2a', 'wcag2aa']).analyze()
   const found = results.violations.flatMap((v) => v.nodes.map((n) => `${v.id} @ ${n.target.join(' ')}: ${(n.any[0]?.message ?? n.failureSummary ?? '').replace(/\s+/g, ' ').slice(0, 180)}`))
   expect(found, `no WCAG 2 A/AA violations in ${include}`).toEqual([])

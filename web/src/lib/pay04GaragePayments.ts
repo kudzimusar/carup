@@ -200,6 +200,12 @@ export const DISCREPANCY_LABEL: Record<string, string> = {
   merchant_mismatch: 'Provider evidence named another merchant',
 }
 
+/**
+ * The money-action button (record, pay, save, confirm). WCAG 2 AA: white on orange-700 is 5.2:1 at rest and on
+ * orange-800 7.3:1 on hover; the orange-500/600 shades it replaces were 2.7:1 and 3.6:1 (found by axe in physical UAT).
+ */
+export const MONEY_ACTION_BUTTON_CLASS = 'min-h-11 bg-orange-700 text-white hover:bg-orange-800'
+
 const zero = (v: Decimal | null | undefined) => v === null || v === undefined || Number(v) === 0
 
 const ZERO_DECIMAL = new Set(['BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW', 'PYG', 'RWF', 'UGX', 'UYI', 'VND', 'VUV', 'XAF', 'XOF', 'XPF'])

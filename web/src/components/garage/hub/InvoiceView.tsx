@@ -6,7 +6,7 @@ import {
   formatMoney, newIdempotencyKey, PAYMENT_STATUS_LABEL, type CaseHub, type GarageInvoice, type PaymentRecord,
 } from '@/lib/garageBusiness'
 import { categoryLabel, dateTimeLabel, isAllowed, PAYMENT_METHOD_LABEL, whenLabel } from '@/lib/garageWorkspace'
-import { paymentStatusLabel } from '@/lib/pay04GaragePayments'
+import { MONEY_ACTION_BUTTON_CLASS, paymentStatusLabel } from '@/lib/pay04GaragePayments'
 import { FormError, INPUT_CLASS, type HubRun } from './hubUi'
 import { PaymentForm } from './PaymentForm'
 import { InvoiceMoneyBreakdown, ProviderPaymentsPanel } from './ProviderPaymentsPanel'
@@ -35,7 +35,7 @@ function ReasonForm({ testId, label, hint, submitLabel, busy, onSubmit, onClose 
       <FormError message={problem} testId={`${testId}-error`} />
       <div className="flex flex-wrap gap-2">
         <Button
-          className="min-h-11 bg-orange-500 hover:bg-orange-600" disabled={busy} data-testid={`${testId}-submit`}
+          className={MONEY_ACTION_BUTTON_CLASS} disabled={busy} data-testid={`${testId}-submit`}
           onClick={async () => {
             if (!reason.trim()) { setProblem('Give a reason.'); return }
             setProblem(null)
@@ -193,7 +193,7 @@ export function InvoiceView({ hub, invoice, busy, run }: {
         paying ? (
           <PaymentForm invoice={invoice} busy={busy} run={run} onDone={() => setPaying(false)} />
         ) : (
-          <Button className="min-h-11 bg-orange-500 hover:bg-orange-600" disabled={busy} data-testid="record-payment" onClick={() => setPaying(true)}>
+          <Button className={MONEY_ACTION_BUTTON_CLASS} disabled={busy} data-testid="record-payment" onClick={() => setPaying(true)}>
             Record a payment
           </Button>
         )
