@@ -16,7 +16,6 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { authorizeSessionRole, requireActiveTenant } from '../middleware/authMiddleware.js';
-import { rateLimiter } from '../middleware/securityMiddleware.js';
 import { GARAGE_ADMIN_ROLES, GARAGE_TENANT_TYPE } from '../services/serviceNetwork/serviceAuthority.js';
 import { Pay04Error, isPay04Enabled, pay04Failure } from '../services/payment/pay04Contract.js';
 import {
@@ -32,8 +31,7 @@ const router = express.Router();
 const memberSession = authorizeSessionRole([]);
 const adminSession = authorizeSessionRole(['admin']);
 const GARAGE_ADMIN = [authorizeSessionRole(), requireActiveTenant({ types: [GARAGE_TENANT_TYPE], roles: GARAGE_ADMIN_ROLES })];
-// Money-moving requests: a tight, sensitive bucket per client (checkout, refund, provider re-reads).
-const moneyLimiter = rateLimiter({ max: 30, windowMs: 15 * 60 * 1000, isSensitive: true });
+// Provider-calling routes are rate-limited in server.js (shared sensitive tier, 60 s window, mounted before this router).
 
 const local = (req, key) => (req.app?.locals && Object.prototype.hasOwnProperty.call(req.app.locals, key) ? req.app.locals[key] : undefined);
 const dbFor = (req) => local(req, 'pay04Db') ?? supabase;
@@ -68,9 +66,9 @@ const args = (req) => ({ db: dbFor(req), env: envFor(req), provider: providerFor
 // ------------------------------------------------------------------------------------------ customer
 router.get('/api/pay04/garage-invoices/:invoiceId/payment', memberSession, handle((req) => getCustomerInvoicePayment({
   ...args(req), invoiceId: req.params.invoiceId })));
-router.post('/api/pay04/garage-invoices/:invoiceId/payments', requirePay04, memberSession, moneyLimiter, handle((req) => startGarageInvoicePayment({
+router.post('/api/pay04/garage-invoices/:invoiceId/payments', requirePay04, memberSession, handle((req) => startGarageInvoicePayment({
   ...args(req), invoiceId: req.params.invoiceId, body: req.body || {}, idempotencyKey: idempotencyKey(req) }), 201));
-router.post('/api/pay04/garage-payments/:collectionId/verify', requirePay04, memberSession, moneyLimiter, handle((req) =>
+router.post('/api/pay04/garage-payments/:collectionId/verify', requirePay04, memberSession, handle((req) =>
   verifyCustomerCollection({ ...args(req), collectionId: req.params.collectionId })));
 router.post('/api/pay04/garage-payments/:collectionId/cancel', requirePay04, memberSession, handle((req) =>
   cancelCustomerCollection({ ...args(req), collectionId: req.params.collectionId, body: req.body || {} })));
@@ -82,9 +80,9 @@ router.put('/api/pay04/garage/payment-instructions', GARAGE_ADMIN, handle((req) 
 router.get('/api/pay04/garage/financial-overview', GARAGE_ADMIN, handle((req) => getGarageFinancialOverview(args(req))));
 router.get('/api/pay04/garage/invoices/:invoiceId/payments', GARAGE_ADMIN, handle((req) => getGarageInvoicePayments({
   ...args(req), invoiceId: req.params.invoiceId })));
-router.post('/api/pay04/garage/payments/:collectionId/refund', requirePay04, GARAGE_ADMIN, moneyLimiter, handle((req) =>
+router.post('/api/pay04/garage/payments/:collectionId/refund', requirePay04, GARAGE_ADMIN, handle((req) =>
   refundGarageCollection({ ...args(req), collectionId: req.params.collectionId, body: req.body || {} })));
-router.post('/api/pay04/garage/payments/:collectionId/reconcile', requirePay04, GARAGE_ADMIN, moneyLimiter, handle((req) =>
+router.post('/api/pay04/garage/payments/:collectionId/reconcile', requirePay04, GARAGE_ADMIN, handle((req) =>
   reconcileGarageCollection({ ...args(req), collectionId: req.params.collectionId })));
 router.post('/api/pay04/garage/payments/:collectionId/cancel', requirePay04, GARAGE_ADMIN, handle((req) =>
   cancelGarageCollection({ ...args(req), collectionId: req.params.collectionId, body: req.body || {} })));

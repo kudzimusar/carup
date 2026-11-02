@@ -347,6 +347,12 @@ app.use('/api/pay03b/dealer/subscription/change-preview', rateLimiter({ max: 10,
 app.use('/api/pay03b/dealer/subscription/cancel', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03b/dealer/subscription/payment-method', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03b/dealer/subscription/invoices', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+// CARUP-PAY-04: every PAY-04 route that calls the garage's payment provider (checkout creation, provider re-read,
+// checkout stop, refund) shares the sensitive tier, with the same 60 s window, before the PAY-04 router. Reading how to
+// pay, the garage overview and the instructions only read CarUp's own tables and stay on the global limiter.
+app.post('/api/pay04/garage-invoices/:invoiceId/payments', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay04/garage-payments', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay04/garage/payments', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03b/admin/reconciliation-exceptions', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03b/admin/subscriptions', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03b/admin/stripe-sandbox', rateLimiter({ max: 3, windowMs: 60 * 1000, isSensitive: true }));

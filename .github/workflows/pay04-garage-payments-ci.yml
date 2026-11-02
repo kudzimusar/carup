@@ -107,7 +107,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: PAY-04 static contracts (F5 drift, notification identity, refusal mapping, HTTP error shape)
-        run: node --test backend/tests/pay04-f5-extension-drift.test.js backend/tests/pay04-garage-notifications.test.js backend/tests/pay04-invoice-failure-mapping.test.js backend/tests/pay04-product-inventory.test.js backend/tests/pay04-garage-payments.test.js
+        run: node --test backend/tests/pay04-f5-extension-drift.test.js backend/tests/pay04-garage-notifications.test.js backend/tests/pay04-invoice-failure-mapping.test.js backend/tests/pay04-product-inventory.test.js backend/tests/pay04-route-hardening.test.js backend/tests/pay04-garage-payments.test.js
       - name: Garage new domains (OPS04-OPS07, hub, communications, summary, history)
         run: |
           node --test --test-concurrency=1 \
