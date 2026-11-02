@@ -76,6 +76,16 @@ describe('Garage payments operations', () => {
     expect([...(within(simulatorRow).getByTestId('operator-resolution') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['provider_corrected'])
   })
 
+  // PAY-05 final UAT (PAY-04 browser replay at 390 px): a Paynow "money after close" exception's evidence overflowed its
+  // capped box, and axe refused the page (scrollable-region-focusable): a keyboard could not scroll what it could not reach
+  it('an exception’s evidence is a named region a keyboard can reach, so it can be scrolled on a phone', async () => {
+    page()
+    const evidence = await screen.findByTestId('operator-discrepancy-evidence')
+    expect(evidence).toHaveAttribute('tabindex', '0')
+    expect(evidence).toHaveAttribute('role', 'region')
+    expect(evidence).toHaveAccessibleName('Evidence: Provider reported a different amount')
+  })
+
   it('a failed load is an error, not "no exceptions"', async () => {
     fetchGaragePaymentExceptions.mockRejectedValue(new Error('503'))
     page()

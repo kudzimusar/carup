@@ -152,7 +152,8 @@ export default function GaragePaymentsOperator() {
                 <li key={d.id} className="rounded-lg border p-3 text-sm" data-testid="operator-discrepancy" data-type={d.type}>
                   <p className="font-medium">{DISCREPANCY_LABEL[d.type] ?? d.type}{d.amount ? ` — ${formatMoney(d.amount, d.currency)}` : ''}</p>
                   <p className="text-xs text-gray-600">{d.garage ?? 'Garage'} · detected via {d.detected_via.replace('_', ' ')} · {new Date(d.first_detected_at).toLocaleString()} · seen {d.observation_count}×</p>
-                  <pre className="mt-2 max-h-40 overflow-auto rounded bg-gray-50 p-2 text-xs" data-testid="operator-discrepancy-evidence">{JSON.stringify(d.evidence, null, 2)}</pre>
+                  <pre className="mt-2 max-h-40 overflow-auto rounded bg-gray-50 p-2 text-xs" role="region" tabIndex={0}
+                    aria-label={`Evidence: ${DISCREPANCY_LABEL[d.type] ?? d.type}`} data-testid="operator-discrepancy-evidence">{JSON.stringify(d.evidence, null, 2)}</pre>
                   <Trail history={d.history} />
                   {resolving?.id === d.id ? (
                     <div className="mt-2 space-y-2 rounded-lg bg-gray-50 p-3">
