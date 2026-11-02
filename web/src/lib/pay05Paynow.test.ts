@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CURRENCY_NAME, PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_START_UNREACHABLE, PAYNOW_STATUS_SHORT, PROVIDER_ERROR_LABEL, needsPhone, pay05ErrorText,
-  paynowOutcomeMessage, paynowStartFailure, phoneProblem,
+  paynowOutcomeMessage, paynowStartFailure, paynowStateBadge, paynowStatusLine, phoneProblem, type PaynowStatus,
   type PaynowOutcome, type PaynowView,
 } from './pay05Paynow'
 
@@ -82,5 +82,35 @@ describe('A failed Paynow start (W3)', () => {
     expect(paynowStartFailure(failure('HTTP error! status: 500', 500)).text).not.toMatch(/HTTP error/)
     const csrf = paynowStartFailure(failure('Could not establish a secure session. Please refresh the page and try again.'))
     expect(csrf).toEqual({ text: 'Could not establish a secure session. Please refresh the page and try again.', definite: false })
+  })
+})
+
+describe('Tone and words follow the collection state, never the applied Paynow status alone (W5)', () => {
+  const STATUSES: Array<PaynowStatus | null> = [null, 'created', 'sent', 'awaiting_delivery', 'delivered', 'paid', 'cancelled', 'failed', 'disputed', 'refunded', 'unrecognized']
+  const NOT_COUNTED = [null, 'awaiting_provider', 'stopping', 'stopped', 'expired', 'confirmed_unallocated', 'under_review', 'refund_pending', 'refunded',
+    'partially_refunded', 'cancelled', 'unknown']
+  it('green and "Paid" only when the state is confirmed', () => {
+    expect(paynowStateBadge('confirmed', 'paid').tone).toMatch(/green/)
+    expect(paynowStateBadge('confirmed', 'paid').label).toMatch(/^Paid/)
+    for (const state of NOT_COUNTED) {
+      for (const status of STATUSES) {
+        const badge = paynowStateBadge(state, status)
+        expect(badge.tone, `${state}/${status}`).not.toMatch(/green/)
+        expect(badge.label, `${state}/${status}`).not.toMatch(/^Paid/)
+      }
+    }
+  })
+  it('under review says so, then what Paynow reported in words', () => {
+    expect(paynowStateBadge('under_review', 'paid').label).toBe('Under review — not counted')
+    expect(paynowStatusLine('under_review', view({ provider_status: 'paid', provider_status_label: 'Paid — confirmed by Paynow' })))
+      .toBe('Under review — not counted. Paynow reports it paid.')
+    expect(paynowStatusLine('under_review', view({ provider_status: null }))).toBe('Under review — not counted.')
+    expect(paynowStatusLine('confirmed_unallocated', view({ provider_status: 'paid' }))).toMatch(/^Under review — not counted\./)
+  })
+  it('a paid status CarUp did not count is never worded as paid', () => {
+    const line = paynowStatusLine('awaiting_provider', view({ provider_status: 'paid', provider_status_label: 'Paid — confirmed by Paynow' }))
+    expect(line).not.toMatch(/^Paid/)
+    expect(line).toMatch(/not counted/)
+    expect(paynowStatusLine('awaiting_provider', view())).toBe('Waiting for you to approve the payment on your phone')
   })
 })

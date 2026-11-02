@@ -6,7 +6,7 @@ import { formatMoney, type GarageInvoice } from '@/lib/garageBusiness'
 import { dateTimeLabel } from '@/lib/garageWorkspace'
 import { activityActor, DISCREPANCY_LABEL, PROVIDER_EVENT_LABEL, PROVIDER_STATE_TONE, type ProviderPayment, pay04ErrorText } from '@/lib/pay04GaragePayments'
 import { FormError, INPUT_CLASS, type HubRun } from './hubUi'
-import { PAYNOW_METHOD_LABEL, pay05ErrorText, type PaynowProviderPayment } from '@/lib/pay05Paynow'
+import { PAYNOW_METHOD_LABEL, pay05ErrorText, paynowStatusLine, type PaynowProviderPayment } from '@/lib/pay05Paynow'
 
 /**
  * CARUP-PAY-04 — what the invoice's money is made of, for the garage.
@@ -103,7 +103,7 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
           <p className="text-xs text-gray-500">Started {dateTimeLabel(payment.initiated_at)}</p>
           {paynow && (
             <p className="text-xs text-gray-700" data-testid="provider-payment-paynow-status">
-              Paynow: {paynow.provider_status_label}{paynow.paynow_reference ? ` · Paynow reference ${paynow.paynow_reference}` : ''}
+              {paynowStatusLine(payment.state, paynow)}{paynow.paynow_reference ? ` · Paynow reference ${paynow.paynow_reference}` : ''}
             </p>
           )}
           <p className="text-xs text-gray-600" data-testid="provider-payment-source">{payment.source_label}</p>
