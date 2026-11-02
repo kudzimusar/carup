@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney, type GarageInvoice } from '@/lib/garageBusiness'
 import { dateTimeLabel } from '@/lib/garageWorkspace'
-import { DISCREPANCY_LABEL, PROVIDER_STATE_TONE, type ProviderPayment } from '@/lib/pay04GaragePayments'
+import { activityActor, DISCREPANCY_LABEL, PROVIDER_EVENT_LABEL, PROVIDER_STATE_TONE, type ProviderPayment } from '@/lib/pay04GaragePayments'
 import { FormError, INPUT_CLASS, type HubRun } from './hubUi'
 
 /**
@@ -161,6 +161,18 @@ export function ProviderPaymentsPanel({ invoice, canAct, busy, run }: {
         <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200" data-testid="provider-payment-list">
           {payments.map((p) => <PaymentRow key={p.id} payment={p} currency={invoice.currency} canAct={canAct && invoice.status === 'issued'} busy={busy} run={run} />)}
         </ul>
+      )}
+      {(invoice.provider_history?.length ?? 0) > 0 && (
+        <details className="text-sm" data-testid="provider-activity">
+          <summary className="min-h-11 flex items-center cursor-pointer font-medium">Provider payment activity ({invoice.provider_history?.length})</summary>
+          <ol className="mt-2 space-y-1">
+            {invoice.provider_history?.map((e, i) => (
+              <li key={`${e.created_at}-${i}`} className="text-xs text-gray-700" data-testid="provider-activity-row">
+                {dateTimeLabel(e.created_at)} · {PROVIDER_EVENT_LABEL[e.event_type] ?? e.event_type} · {activityActor(e.actor)}
+              </li>
+            ))}
+          </ol>
+        </details>
       )}
       {receipts.length > 0 && (
         <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200" data-testid="provider-receipts">

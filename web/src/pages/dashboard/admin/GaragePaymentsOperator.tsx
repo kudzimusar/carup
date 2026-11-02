@@ -4,7 +4,21 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney } from '@/lib/garageBusiness'
-import { DISCREPANCY_LABEL, minorToMajor, type GarageMerchantAccount, type GaragePaymentExceptions } from '@/lib/pay04GaragePayments'
+import { activityActor, DISCREPANCY_LABEL, minorToMajor, PROVIDER_EVENT_LABEL, type GarageMerchantAccount, type GaragePaymentExceptions, type ProviderActivity } from '@/lib/pay04GaragePayments'
+
+function Trail({ history }: { history?: ProviderActivity[] }) {
+  if (!history?.length) return null
+  return (
+    <details className="mt-2 text-xs" data-testid="operator-trail">
+      <summary className="min-h-11 flex items-center cursor-pointer">Audit trail ({history.length})</summary>
+      <ol className="mt-1 space-y-1">
+        {history.map((e, i) => (
+          <li key={`${e.created_at}-${i}`}>{new Date(e.created_at).toLocaleString()} · {PROVIDER_EVENT_LABEL[e.event_type] ?? e.event_type} · {activityActor(e.actor)}</li>
+        ))}
+      </ol>
+    </details>
+  )
+}
 
 function messageOf(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
@@ -103,6 +117,7 @@ export default function GaragePaymentsOperator() {
                   <p className="font-medium">{DISCREPANCY_LABEL[d.type] ?? d.type}{d.amount ? ` — ${formatMoney(d.amount, d.currency)}` : ''}</p>
                   <p className="text-xs text-gray-600">{d.garage ?? 'Garage'} · detected via {d.detected_via.replace('_', ' ')} · {new Date(d.first_detected_at).toLocaleString()} · seen {d.observation_count}×</p>
                   <pre className="mt-2 max-h-40 overflow-auto rounded bg-gray-50 p-2 text-xs" data-testid="operator-discrepancy-evidence">{JSON.stringify(d.evidence, null, 2)}</pre>
+                  <Trail history={d.history} />
                   {resolving?.id === d.id ? (
                     <div className="mt-2 space-y-2 rounded-lg bg-gray-50 p-3">
                       <label htmlFor={`${uid}-res-${d.id}`} className="block text-sm font-medium">Resolution</label>
@@ -134,6 +149,7 @@ export default function GaragePaymentsOperator() {
                   <p className="font-medium">Refund-policy hold (F5): {h.mismatch.replaceAll('_', ' ')}</p>
                   <p className="text-xs text-gray-600">{minorToMajor(h.payment_amount_minor, h.currency)} · refunded {minorToMajor(h.detected_refunded_minor, h.currency)} · refund pending {minorToMajor(h.detected_pending_refund_minor, h.currency)}</p>
                   <p className="mt-1 text-xs">Resolve it with a fresh provider read in the <Link className="underline" to="/admin/commercial-foundation">payment reconciliation console</Link>; the garage invoice is re-counted in the same step.</p>
+                  <Trail history={h.history} />
                 </li>
               ))}
             </ul>

@@ -191,6 +191,10 @@ test('start -> simulated pay -> signed webhook -> fresh readback -> counted, rec
   assert.equal(view.provider_payments[0].state, 'confirmed');
   assert.equal(view.provider_receipts.filter((r) => r.status === 'issued').length, 1);
   assert.equal(view.payments.length, 0, 'no declared payment was fabricated for provider money');
+  assert.deepEqual(view.provider_history.map((e) => e.event_type),
+    ['initiated', 'provider_attached', 'provider_observed', 'allocated', 'receipt_issued'], 'the append-only provider activity, in order');
+  assert.equal(view.provider_history[0].actor, ids.cust, 'the payer started it');
+  assert.equal(view.provider_history[3].actor, 'provider:pay04_garage_provider_simulator', 'the provider confirmed it');
   const mine = await I.listMyInvoices(db, { id: ids.cust });
   const myInv = mine.invoices.find((x) => x.id === world.inv.id);
   assert.equal(myInv.provider_receipts.length, 1);
@@ -276,6 +280,7 @@ test('a provider that misreports the amount opens a discrepancy and changes no m
   const { discrepancies } = await S.listGaragePaymentExceptions({ db, env });
   const d = discrepancies.find((x) => x.collection_id === started.collection_id && x.type === 'amount_mismatch');
   assert.ok(d);
+  assert.ok(d.history.some((e) => e.event_type === 'discrepancy_opened'), 'the operator sees the audit trail');
   await rejectsWith(S.resolveGaragePaymentDiscrepancy({ db, env, actor: { id: ids.cust, platformRole: 'admin' }, discrepancyId: d.id,
     body: { resolution: 'provider_corrected', note: 'Customer says it is fine' } }), 'PAY04_RESOLUTION_AUTHORITY_REFUSED');
   await sim.misreport({ paymentId: c.provider_payment_id });

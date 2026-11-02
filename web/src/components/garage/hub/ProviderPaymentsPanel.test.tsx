@@ -44,6 +44,16 @@ describe('Garage provider payments', () => {
     expect(screen.queryByTestId('provider-payment-refund')).toBeNull()
   })
 
+  it('shows the append-only provider activity, naming the provider or a CarUp user', () => {
+    render(<ProviderPaymentsPanel invoice={invoice({ provider_history: [
+      { event_type: 'initiated', actor: 'cust-1', detail: {}, created_at: '2026-11-02T00:00:00Z' },
+      { event_type: 'allocated', actor: 'provider:pay04_garage_provider_simulator', detail: {}, created_at: '2026-11-02T00:01:00Z' },
+    ] })} canAct={false} busy={false} run={vi.fn()} />)
+    const rows = screen.getAllByTestId('provider-activity-row')
+    expect(rows[0]).toHaveTextContent('Customer started a payment through the provider · CarUp user')
+    expect(rows[1]).toHaveTextContent('Counted on the invoice · Payment provider')
+  })
+
   it('a refund needs a real reason and goes through the hub runner', async () => {
     const run = vi.fn(async (_scope, fn) => { await fn(); return true })
     render(<ProviderPaymentsPanel invoice={invoice()} canAct busy={false} run={run} />)

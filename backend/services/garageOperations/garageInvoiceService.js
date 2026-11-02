@@ -438,7 +438,15 @@ export async function getInvoice(client = defaultClient, actor = {}, invoiceId) 
   const { data: ev, error: evError } = await client.from('garage_invoice_events')
     .select('event_type, actor_user_id, created_at, detail').eq('invoice_id', data.id).order('seq', { ascending: true });
   if (evError) throw new DatabaseError('Could not load invoice history: ' + evError.message);
-  return { ...view, history: list(ev) };
+  // CARUP-PAY-04: the append-only provider-payment activity of this invoice (garage view only)
+  let providerHistory = [];
+  if (view.provider_payments_supported) {
+    const { data: pev, error: pevError } = await client.from('pay04_garage_collection_events')
+      .select('event_type, actor, detail, created_at, collection_id').eq('invoice_id', data.id).order('seq', { ascending: true });
+    if (pevError) throw new DatabaseError('Could not load provider payment history: ' + pevError.message);
+    providerHistory = list(pev);
+  }
+  return { ...view, history: list(ev), provider_history: providerHistory };
 }
 
 export async function listInvoices(client = defaultClient, actor = {}, { status } = {}) {

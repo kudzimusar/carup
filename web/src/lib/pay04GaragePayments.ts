@@ -51,6 +51,8 @@ export type ProviderReceipt = {
   payment_source_label: string
 }
 
+export type ProviderActivity = { event_type: string; actor: string; detail: Record<string, unknown>; created_at: string; collection_id?: string }
+
 /** The fields PAY-04 adds to an OPS07 invoice view (absent where PAY-04 is not installed). */
 export type InvoiceProviderFields = {
   provider_payments_supported?: boolean
@@ -58,6 +60,28 @@ export type InvoiceProviderFields = {
   provider_payments?: ProviderPayment[]
   provider_receipts?: ProviderReceipt[]
   provider_source_label?: string
+  /** garage view only: the append-only provider-payment activity of the invoice */
+  provider_history?: ProviderActivity[]
+}
+
+export const PROVIDER_EVENT_LABEL: Record<string, string> = {
+  initiated: 'Customer started a payment through the provider',
+  provider_attached: 'Provider checkout created',
+  provider_observed: 'Provider status read',
+  allocated: 'Counted on the invoice',
+  deallocated: 'No longer counted on the invoice',
+  receipt_issued: 'Receipt issued',
+  receipt_voided: 'Receipt voided',
+  refund_requested: 'Refund requested by the garage',
+  cancelled: 'Checkout stopped',
+  discrepancy_opened: 'Discrepancy opened',
+  discrepancy_observed: 'Discrepancy seen again',
+  discrepancy_resolved: 'Discrepancy closed',
+}
+
+/** Who did it, in words: the provider, or the person (by role, never by guessed name). */
+export function activityActor(actor: string): string {
+  return actor.startsWith('provider:') ? 'Payment provider' : 'CarUp user'
 }
 
 export type PaymentInstructions = {
@@ -135,8 +159,10 @@ export type GaragePaymentExceptions = {
   discrepancies: Array<{
     id: string; type: string; garage: string | null; tenant_id: string; invoice_id: string; collection_id: string
     amount: Decimal | null; currency: string; evidence: Record<string, unknown>; detected_via: string; first_detected_at: string; observation_count: number
+    history?: ProviderActivity[]
   }>
   reconciliation_holds: Array<{
+    history?: ProviderActivity[]
     id: string; payment_reference: string; status: string; gateway: string; payment_amount_minor: number; currency: string; mismatch: string
     detected_refunded_minor: number; detected_pending_refund_minor: number; first_detected_at: string; observation_count: number
     acknowledged_at: string | null; collection: { id: string; tenant_id: string; invoice_id: string } | null; resolve_via: string

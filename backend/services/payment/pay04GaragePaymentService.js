@@ -549,14 +549,22 @@ export async function listGaragePaymentExceptions({ db = defaultDb, env = proces
   ]);
   const nameOf = new Map(list(tenants).map((t) => [t.id, t.name]));
   const collectionOf = new Map(list(holdCollections).map((c) => [c.payment_reference, c]));
+  // the audit trail of every collection under review (append-only pay04_garage_collection_events)
+  const trailIds = [...new Set([...list(discrepancies).map((d) => d.collection_id), ...list(holdCollections).map((c) => c.id)])];
+  const events = trailIds.length ? list(await read(db.from('pay04_garage_collection_events').select('collection_id, event_type, actor, detail, created_at')
+    .in('collection_id', trailIds).order('seq', { ascending: true }), 'PAY04_EXCEPTIONS_UNAVAILABLE')) : [];
+  const trailOf = (collectionId) => events.filter((e) => e.collection_id === collectionId)
+    .map(({ event_type, actor, detail, created_at }) => ({ event_type, actor, detail, created_at }));
   return {
     discrepancies: list(discrepancies).map((d) => ({
       id: d.id, type: d.discrepancy_type, garage: nameOf.get(d.tenant_id) || null, tenant_id: d.tenant_id, invoice_id: d.invoice_id,
       collection_id: d.collection_id, amount: pay04Money(d.detected_amount, d.currency), currency: d.currency, evidence: d.evidence,
       detected_via: d.detected_via, first_detected_at: d.first_detected_at, observation_count: d.observation_count,
+      history: trailOf(d.collection_id),
     })),
     reconciliation_holds: list(holds).map((h) => ({
       ...h, collection: collectionOf.get(h.payment_reference) || null, resolve_via: '/api/pay03b/admin/reconciliation-exceptions',
+      history: collectionOf.get(h.payment_reference) ? trailOf(collectionOf.get(h.payment_reference).id) : [],
     })),
   };
 }
