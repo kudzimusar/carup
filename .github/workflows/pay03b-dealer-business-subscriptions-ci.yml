@@ -1,0 +1,151 @@
+name: PAY-03B dealer & business subscriptions CI
+on:
+  pull_request:
+    paths:
+      - 'backend/services/payment/**'
+      - 'backend/services/diaspora/**'
+      - 'backend/routes/pay0*'
+      - 'backend/routes/vehiclesRoutes.js'
+      - 'backend/middleware/securityMiddleware.js'
+      - 'backend/server.js'
+      - 'backend/tests/pay0*'
+      - 'backend/tests/helpers/pgSupabaseShim.js'
+      - 'backend/tests/sql/**'
+      - 'database/migrations/2026110*'
+      - 'scripts/ci/pay03b-postgres-certification.sh'
+      - 'scripts/uat/pay03b-*'
+      - 'web/src/pages/Pricing*'
+      - 'web/src/pages/dashboard/dealer/**'
+      - 'web/src/pages/dashboard/admin/Pay02CommercialFoundation*'
+      - 'web/src/components/diaspora/subscription/**'
+      - 'web/src/hooks/useCarUpApi.ts'
+      - 'web/src/App.tsx'
+      - 'web/src/config/featureRegistry.ts'
+      - 'web/e2e/pay03b-*'
+      - 'docs/payments/CARUP_PAY_03B_*'
+      - '.github/workflows/pay03b-dealer-business-subscriptions-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-certification:
+    name: PAY-03B contracts, F5, provider adapters, Diaspora/dealer continuity, PAY-01A/B/C/02/03A regressions, web UI and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_ENV: test
+      CARUP_ENV: test
+      CARUP_PAY01A_ENABLED: 'false'
+      CARUP_PAY01C_ENABLED: 'false'
+      CARUP_PAY03B_ENABLED: 'false'
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: PAY-03B F5, provider adapter/simulator, Diaspora bridge contracts and route hardening
+        run: node --test backend/tests/pay03b-refund-mismatch.test.js backend/tests/pay03b-provider-reconciliation.test.js backend/tests/pay03b-diaspora-bridge.test.js backend/tests/pay03b-route-hardening.test.js
+      - name: PAY-01A/B/C, PAY-02 and PAY-03A regressions (F5 changed the canonical payment boundary)
+        run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js backend/tests/pay02-commercial-foundation.test.js backend/tests/pay03a-real-report-commerce.test.js backend/tests/vehicle-report.test.js backend/tests/operations-evidence-semantics.test.js backend/tests/golden-journey.test.js
+      - name: Diaspora subscription authority, dealer compliance, listing publication and migration integrity continuity
+        run: node --test backend/tests/diaspora-subscription-routes.test.js backend/tests/diaspora-subscription-authz.test.js backend/tests/diaspora-billing-reconciliation.test.js backend/tests/diaspora-billing-security-contract.test.js backend/tests/diaspora-billing-webhook-ledger.test.js backend/tests/diaspora-entitlement-enforcement.test.js backend/tests/diaspora-entitlement-override-regrant.test.js backend/tests/dealer-compliance.test.js backend/tests/marketplace-publication-gate.test.js backend/tests/issue164-phase5-listing-publication-gate.test.js backend/tests/migration-integrity.test.js
+      - name: PAY-03B customer/admin UI, Pricing, Diaspora plan status, PAY-03A/PAY-02 UI and route custody
+        working-directory: web
+        run: npx vitest run src/pages/Pricing.test.tsx src/pages/TermsOfService.test.tsx src/pages/dashboard/dealer/Subscription.test.tsx src/pages/dashboard/admin/Pay02CommercialFoundation.test.tsx src/lib/pay03bApi.test.ts src/lib/pay03bDisplay.test.ts src/pages/VehicleHistoryCommerce.test.tsx src/pages/diaspora src/components/diaspora/subscription src/config src/lib/routeAccess.test.ts
+      - name: Feature manifest matches the registry
+        run: node scripts/generate-feature-manifest.mjs --check
+      - name: Typecheck and compile CarUp web
+        run: npm run build --workspace web
+
+  isolated-postgres-baseline-first:
+    name: Disposable PostgreSQL — certified smokes, history fingerprint across PAY-03B migrations, F5 + subscription smokes, service and HTTP on real SQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ephemeral-ci-only
+          POSTGRES_DB: pay01c_sandbox_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pay01c_sandbox_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: ephemeral-ci-only
+      PGDATABASE: pay01c_sandbox_ci
+      PAY03B_DISPOSABLE_PG: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Migration chain, certified PAY-01C/PAY-02/PAY-03A smokes, fingerprint, PAY-03B migrations and smokes
+        run: bash scripts/ci/pay03b-postgres-certification.sh baseline-first
+      - name: Subscription service and authenticated HTTP boundary on the real canonical functions
+        env:
+          NODE_ENV: test
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
+          PAY03B_TEST_PGURL: postgresql://postgres:ephemeral-ci-only@127.0.0.1:5432/pay01c_sandbox_ci
+        # Serial: both files share one disposable database and each switches the simulator guard off on teardown.
+        run: node --test --test-concurrency=1 backend/tests/pay03b-business-subscriptions.test.js backend/tests/pay03b-tenant-entitlements.test.js
+
+  isolated-postgres-pay03b-first:
+    name: Disposable PostgreSQL — PAY-03B migrations first, then the certified PAY-01C/PAY-02/PAY-03A smokes on the new writers
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ephemeral-ci-only
+          POSTGRES_DB: pay01c_sandbox_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pay01c_sandbox_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: ephemeral-ci-only
+      PGDATABASE: pay01c_sandbox_ci
+      PAY03B_DISPOSABLE_PG: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/ci/pay03b-postgres-certification.sh pay03b-first
+
+  uat-harness-availability:
+    name: Physical UAT harness availability (scripts parse; browser spec is present)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          set -euo pipefail
+          for f in scripts/uat/pay03b-local-stack.sh scripts/uat/pay03b-local-db-build.sh scripts/uat/pay03b-local-runtime.sh scripts/uat/pay03b-stripe-listen.sh scripts/ci/pay03b-postgres-certification.sh; do bash -n "$f"; done
+          for f in scripts/uat/pay03b-qa-seed.mjs scripts/uat/pay03b-http-matrix.mjs scripts/uat/pay03b-stripe-sandbox-provision.mjs scripts/uat/pay03b-stripe-sandbox-readback.mjs scripts/uat/pay03b-level2-rehearsal-driver.mjs; do node --check "$f"; done
+          for f in web/e2e/pay03b-dealer-subscription.spec.ts web/e2e/pay03b-stripe-sandbox-rehearsal.spec.ts web/e2e/pay03b-stripe-sandbox-lifecycle.spec.ts; do test -f "$f"; done

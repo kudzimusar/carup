@@ -200,6 +200,8 @@ function createInMemoryPay03aHarness() {
     intentSeq: 0,
     refundSeq: 0,
     refundCreateCalls: 0,
+    // PAY-03B F5: lets a test make the provider answer a refund as pending (or failed).
+    nextRefundStatus: 'succeeded',
   };
 
   const stripeMock = {
@@ -246,21 +248,24 @@ function createInMemoryPay03aHarness() {
         has_more: false,
         data: stripeState.refundsByIntent.get(payment_intent) || [],
       }),
-      create: async ({ payment_intent, metadata }) => {
+      create: async ({ payment_intent, metadata, amount }) => {
         stripeState.refundCreateCalls += 1;
         const existing = stripeState.refundsByIntent.get(payment_intent) || [];
-        if (existing.length > 0) return existing[0];
+        const moved = existing.filter((r) => ['succeeded', 'pending'].includes(r.status))
+          .reduce((sum, r) => sum + r.amount, 0);
+        if (moved >= 100) return existing[0];
         stripeState.refundSeq += 1;
         const refund = {
           id: `re_test_pay03a_${stripeState.refundSeq}`,
           payment_intent,
-          amount: 100,
+          amount: amount ?? (100 - moved),
           currency: 'jpy',
-          status: 'succeeded',
+          status: stripeState.nextRefundStatus,
           livemode: false,
+          created: 1000 + stripeState.refundSeq,
           metadata,
         };
-        stripeState.refundsByIntent.set(payment_intent, [refund]);
+        stripeState.refundsByIntent.set(payment_intent, [...existing, refund]);
         return refund;
       },
     },
@@ -289,6 +294,20 @@ function createInMemoryPay03aHarness() {
       s.payment_intent = intentId;
       return { session: s, intent };
     },
+    // PAY-03B F5: a refund created directly in the provider dashboard (no CarUp metadata).
+    addProviderRefund(intentId, { id, amount, status = 'succeeded' }) {
+      stripeState.refundSeq += 1;
+      const refund = { id: id || `re_dashboard_${stripeState.refundSeq}`, payment_intent: intentId, amount,
+        currency: 'jpy', status, created: 1000 + stripeState.refundSeq, metadata: {} };
+      stripeState.refundsByIntent.set(intentId, [...(stripeState.refundsByIntent.get(intentId) || []), refund]);
+      return refund;
+    },
+    setProviderRefundStatus(refundId, status) {
+      for (const list of stripeState.refundsByIntent.values()) {
+        for (const refund of list) if (refund.id === refundId) refund.status = status;
+      }
+    },
+    setNextRefundStatus(status) { stripeState.nextRefundStatus = status; },
     markCheckoutExpired(checkoutId) {
       const s = stripeState.sessions.get(checkoutId);
       s.payment_status = 'unpaid';
@@ -599,11 +618,18 @@ function createInMemoryPay03aHarness() {
         return { data: pay, error: null };
       }
 
-      if (fnName === 'pay01a_apply_provider_snapshot') {
+      // PAY-03B F5: the service writes through pay03b_apply_provider_payment_snapshot (same contract plus refund
+      // evidence); the certified pay01a_apply_provider_snapshot delegates to it.
+      if (fnName === 'pay01a_apply_provider_snapshot' || fnName === 'pay03b_apply_provider_payment_snapshot') {
         const pay = payments.get(args.p_reference);
         if (!pay) return { data: null, error: { message: 'not_found' } };
         const duplicateEvent = Boolean(args.p_event_id && seenWebhookEvents.has(args.p_event_id));
         if (args.p_event_id) seenWebhookEvents.add(args.p_event_id);
+        // Mirrors 20261101120000 (PAY-03B F5): a held or finally revoked payment is never lowered by a
+        // provider observation; only a provider-confirmed full refund moves it.
+        if (['reconciliation_hold', 'partially_refunded'].includes(pay.status) && args.p_status !== 'refunded') {
+          return { data: { ...pay, duplicate_event: duplicateEvent, hold_retained: true }, error: null };
+        }
         pay.status = args.p_status;
         if (args.p_intent_id) pay.pay01a_intent_id = args.p_intent_id;
         if (args.p_refund_id) pay.pay01a_refund_id = args.p_refund_id;
@@ -614,6 +640,8 @@ function createInMemoryPay03aHarness() {
       if (fnName === 'pay01a_begin_refund') {
         const pay = payments.get(args.p_reference);
         if (!pay) return { data: null, error: { message: 'not_found' } };
+        // Mirrors 20261101120000 (PAY-03B F5): beginning a refund never lowers a reconciliation hold.
+        if (pay.status === 'reconciliation_hold') return { data: { ...pay, reconciliation_hold: true }, error: null };
         pay.status = 'refund_pending';
         return { data: pay, error: null };
       }
@@ -630,14 +658,14 @@ function createInMemoryPay03aHarness() {
             ord.entitlement_status = 'entitled';
             ord.granted_at = ord.granted_at || new Date().toISOString();
           }
-        } else if (pay.status === 'refund_pending') {
+        } else if (pay.status === 'refund_pending' || pay.status === 'reconciliation_hold') {
           // Mirrors migration 20261101100000 (STG01-FINAL F4): suspend via order status; never revoke the
           // one-way snapshot here, so a failed/cancelled provider refund can restore access.
           if (ord && ord.entitlement_status !== 'revoked_refunded') {
             ord.entitlement_status = 'refund_suspended';
           }
-        } else if (pay.status === 'refunded') {
-          q.status = 'refunded';
+        } else if (pay.status === 'refunded' || pay.status === 'partially_refunded') {
+          if (pay.status === 'refunded') q.status = 'refunded';
           if (ord) {
             ord.entitlement_status = 'revoked_refunded';
             ord.revoked_at = ord.revoked_at || new Date().toISOString();
@@ -2500,4 +2528,104 @@ test('PAY03A STG01-FINAL independent challenge F1/F2/F3/F6/F7/F9/F10: category, 
     supabase.from = origFrom;
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// CARUP-PAY-03B-LR01 Work Unit 01 (F5) — PAY-03A continuity at the canonical payment boundary.
+// ---------------------------------------------------------------------------------------------------------
+async function pay03bF5PaidOrder(harness, requestKey, buyerId = 'buyer-03a-1') {
+  const checkout = await createPay03aReportCheckout({
+    buyerId, vin: 'WBA3A5C51DF358101', requestKey, db: harness.db, stripe: harness.stripeMock,
+  });
+  const { intent } = harness.stripeMock.markCheckoutPaid(checkout.checkoutId);
+  const verified = await verifyPay03aBuyerOrder({
+    buyerId, orderId: checkout.orderId, refresh: true, db: harness.db, stripe: harness.stripeMock,
+  });
+  assert.equal(verified.reportAvailable, true);
+  const share = await createPay03aBuyerShareLink({
+    buyerId, orderId: checkout.orderId, ttlSeconds: 3600, db: harness.db, stripe: harness.stripeMock,
+  });
+  assert.equal((await getReportByShareToken(harness.db, share.shareToken)).ok, true);
+  return { checkout, intentId: intent.id, reportVersionId: verified.reportVersionId, shareToken: share.shareToken };
+}
+
+test('PAY03B F5 (PAY-03A continuity): an external partial refund suspends report access and share links without revoking the snapshot, and a failed provider read never reinstates it', async () => {
+  const harness = createInMemoryPay03aHarness();
+  const paid = await pay03bF5PaidOrder(harness, 'pay03b_f5_external_partial_01');
+  // A 30 JPY refund is created directly in the provider dashboard (no CarUp metadata).
+  harness.stripeMock.addProviderRefund(paid.intentId, { id: 're_dashboard_f5_30', amount: 30 });
+
+  await assert.rejects(
+    readPay03aBuyerReport({ buyerId: 'buyer-03a-1', orderId: paid.checkout.orderId, db: harness.db, stripe: harness.stripeMock }),
+    (err) => Boolean(err && err.code),
+  );
+  const payment = harness.payments.get(paid.checkout.paymentReference);
+  const order = harness.reportOrders.get(paid.checkout.orderId);
+  assert.equal(payment.status, 'reconciliation_hold');
+  assert.equal(order.entitlement_status, 'refund_suspended');
+  assert.equal(harness.reportVersions.get(paid.reportVersionId).revoked, false, 'suspension, not revocation');
+  const shared = await getReportByShareToken(harness.db, paid.shareToken);
+  assert.equal(shared.ok, false, 'an existing share link stops working while the payment is held');
+  await assert.rejects(createPay03aBuyerShareLink({
+    buyerId: 'buyer-03a-1', orderId: paid.checkout.orderId, ttlSeconds: 3600, db: harness.db, stripe: harness.stripeMock,
+  }));
+  const adminView = await readPay03aAdminOrder({ orderId: paid.checkout.orderId, db: harness.db, stripe: harness.stripeMock });
+  assert.equal(adminView.paymentStatus, 'reconciliation_hold');
+
+  // The partial refund then fails at the provider: provider truth is 'paid', but the hold is retained.
+  harness.stripeMock.setProviderRefundStatus('re_dashboard_f5_30', 'failed');
+  const reverified = await verifyPay03aBuyerOrder({
+    buyerId: 'buyer-03a-1', orderId: paid.checkout.orderId, refresh: true, db: harness.db, stripe: harness.stripeMock,
+  });
+  assert.equal(reverified.reportAvailable, false);
+  assert.equal(harness.payments.get(paid.checkout.paymentReference).status, 'reconciliation_hold');
+  assert.equal((await getReportByShareToken(harness.db, paid.shareToken)).ok, false);
+});
+
+test('PAY03B F5 (F4-class, admin refund path): a governed refund that the provider answers as PENDING suspends without revoking; a failed provider refund restores access', async () => {
+  const harness = createInMemoryPay03aHarness();
+  const paid = await pay03bF5PaidOrder(harness, 'pay03b_f5_pending_admin_01');
+  harness.stripeMock.setNextRefundStatus('pending');
+  const refunded = await refundPay03aAdminOrder({
+    orderId: paid.checkout.orderId, adminActorId: 'admin-f5-1', adminActorRole: 'admin',
+    db: harness.db, stripe: harness.stripeMock,
+  });
+  assert.equal(refunded.paymentStatus, 'refund_pending');
+  assert.equal(harness.reportOrders.get(paid.checkout.orderId).entitlement_status, 'refund_suspended');
+  assert.equal(harness.reportVersions.get(paid.reportVersionId).revoked, false,
+    'a pending provider refund must not revoke the one-way snapshot (the refund may still fail)');
+
+  // The provider refund fails: the buyer was never refunded and must get the report back.
+  const [providerRefund] = (await harness.stripeMock.refunds.list({ payment_intent: paid.intentId })).data;
+  assert.equal(providerRefund.status, 'pending');
+  harness.stripeMock.setProviderRefundStatus(providerRefund.id, 'failed');
+  const restored = await verifyPay03aBuyerOrder({
+    buyerId: 'buyer-03a-1', orderId: paid.checkout.orderId, refresh: true, db: harness.db, stripe: harness.stripeMock,
+  });
+  assert.equal(restored.reportAvailable, true);
+  assert.equal((await readPay03aBuyerReport({
+    buyerId: 'buyer-03a-1', orderId: paid.checkout.orderId, db: harness.db, stripe: harness.stripeMock,
+  })).reportVersionId, paid.reportVersionId);
+});
+
+test('PAY03B F5: an administrator completes a held partial refund to the full amount; only the provider-confirmed full refund revokes access', async () => {
+  const harness = createInMemoryPay03aHarness();
+  const paid = await pay03bF5PaidOrder(harness, 'pay03b_f5_complete_held_01');
+  harness.stripeMock.addProviderRefund(paid.intentId, { id: 're_dashboard_f5_30b', amount: 30 });
+  await verifyPay03aBuyerOrder({
+    buyerId: 'buyer-03a-1', orderId: paid.checkout.orderId, refresh: true, db: harness.db, stripe: harness.stripeMock,
+  });
+  assert.equal(harness.payments.get(paid.checkout.paymentReference).status, 'reconciliation_hold');
+  const before = harness.refundCreateCalls();
+  const result = await refundPay03aAdminOrder({
+    orderId: paid.checkout.orderId, adminActorId: 'admin-f5-1', adminActorRole: 'admin',
+    db: harness.db, stripe: harness.stripeMock,
+  });
+  assert.equal(harness.refundCreateCalls(), before + 1);
+  assert.equal(result.paymentStatus, 'refunded');
+  assert.equal(harness.reportOrders.get(paid.checkout.orderId).entitlement_status, 'revoked_refunded');
+  assert.equal(harness.reportVersions.get(paid.reportVersionId).revoked, true);
+  const refunds = await harness.stripeMock.refunds.list({ payment_intent: paid.intentId });
+  assert.deepEqual(refunds.data.map((r) => [r.amount, r.status]), [[30, 'succeeded'], [70, 'succeeded']],
+    'exactly the 70 JPY remainder was refunded');
 });

@@ -1390,7 +1390,10 @@ export async function refundPay03aAdminOrder({
     throw err;
   }
 
-  if (initial.order.report_version_id) {
+  // PAY-03B F5 (F4-class): revocation is one-way, so it follows only a provider-CONFIRMED full refund. A refund
+  // the provider answers as pending (or that completes a held partial refund but is still in flight) leaves the
+  // order suspended through payment/order status; if that refund later fails, access must be restorable.
+  if (initial.order.report_version_id && refundResult?.status === 'refunded') {
     try {
       await revokeShare(db, initial.order.report_version_id, {
         correctionNotice: 'Entitlement revoked following governed payment refund.',

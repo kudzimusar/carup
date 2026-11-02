@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   Database,
@@ -17,6 +18,7 @@ import { apiRequest, resolveApiBaseUrl } from '@/lib/apiClient'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import Pay03bSubscriptionsAdmin, { type Pay03bReconciliationSummary } from './Pay03bSubscriptionsAdmin'
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -190,6 +192,12 @@ export default function Pay02CommercialFoundation() {
   const [pay03aOrdersError, setPay03aOrdersError] = useState<string | null>(null)
   const [pay03aOrdersLoaded, setPay03aOrdersLoaded] = useState<boolean>(false)
   const [pay03aRefundBusyId, setPay03aRefundBusyId] = useState<string | null>(null)
+  // PAY-03B F5: open payment reconciliation exceptions surface as a console-level alert. Unknown
+  // (failed read) is shown as unknown — never as "none open".
+  const [pay03bReconciliation, setPay03bReconciliation] = useState<Pay03bReconciliationSummary>({
+    openCount: null,
+    error: null,
+  })
 
   const buildAuthHeaders = useCallback(
     () => ({
@@ -558,6 +566,39 @@ export default function Pay02CommercialFoundation() {
             </p>
           </div>
         </section>
+
+        {pay03bReconciliation.openCount !== null && pay03bReconciliation.openCount > 0 ? (
+          <div
+            role="alert"
+            data-testid="pay03b-admin-f5-open-banner"
+            className="flex flex-wrap items-start gap-3 rounded-lg border-2 border-red-400 bg-red-50 p-3 text-sm text-red-900"
+          >
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-700" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">
+                {pay03bReconciliation.openCount} open payment reconciliation exception
+                {pay03bReconciliation.openCount === 1 ? '' : 's'}
+              </p>
+              <p>
+                Paid access bought by the affected payments is held until an administrator resolves each one against a
+                fresh provider read.
+              </p>
+            </div>
+            <a href="#pay03b-admin-f5" className="font-semibold underline underline-offset-2">
+              Review exceptions
+            </a>
+          </div>
+        ) : null}
+        {pay03bReconciliation.error ? (
+          <div
+            role="alert"
+            data-testid="pay03b-admin-f5-unknown-banner"
+            className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 [overflow-wrap:anywhere]"
+          >
+            Payment reconciliation exceptions could not be read ({pay03bReconciliation.error}). How many are open is
+            unknown — do not assume there are none.
+          </div>
+        ) : null}
 
         {error && (
           <div
@@ -1120,6 +1161,14 @@ export default function Pay02CommercialFoundation() {
             </Card>
           </>
         )}
+
+        {/* PAY-03B: independent of the PAY-02 catalogue read, so a catalogue failure never hides
+            business subscriptions or open reconciliation exceptions. */}
+        <Pay03bSubscriptionsAdmin
+          baseUrl={API_BASE}
+          getAuthHeaders={buildAuthHeaders}
+          onReconciliationSummary={setPay03bReconciliation}
+        />
       </div>
     </main>
   )

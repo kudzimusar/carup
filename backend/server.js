@@ -107,6 +107,7 @@ import pay01aRouter from './routes/pay01aRoutes.js';
 import pay01cDemoRouter from './routes/pay01cDemoRoutes.js';
 import pay02Router from './routes/pay02Routes.js';
 import pay03aRouter from './routes/pay03aRoutes.js';
+import pay03bRouter from './routes/pay03bRoutes.js';
 import providerPlatformRouter from './routes/providerPlatformRoutes.js';
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 import governmentActivationRouter from './routes/governmentActivationRoutes.js';
@@ -275,6 +276,17 @@ app.use('/api/pay02/quotes', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensi
 app.use('/api/pay02/admin/proposals', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03a/orders/checkout', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03a/admin/orders', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/dealer/subscription/checkout', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+// Every other PAY-03B route that calls the payment provider (reads included) is limited too (review R12).
+app.use('/api/pay03b/dealer/subscription/verify', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/dealer/subscription/change', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/dealer/subscription/change-preview', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/dealer/subscription/cancel', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/dealer/subscription/payment-method', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/dealer/subscription/invoices', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/admin/reconciliation-exceptions', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/admin/subscriptions', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/admin/stripe-sandbox', rateLimiter({ max: 3, windowMs: 60 * 1000, isSensitive: true }));
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
 // verification checks the real payload the sender signed. The global parsers run before any
@@ -290,6 +302,8 @@ const captureWebhookRawBody = (req, _res, buf) => {
     req.rawBody = buf.toString('utf8');
     // PAY-01A verifies Stripe's ORIGINAL byte stream; it never serializes req.body.
     if (/^\/api\/pay01a\/stripe\/webhook(?:$|[?#])/.test(u)) req.rawBodyBytes = Buffer.from(buf);
+    // PAY-03B local provider simulator (disposable UAT only) signs its exact bytes the same way.
+    if (/^\/api\/pay03b\/simulator\/webhook(?:$|[?#])/.test(u)) req.rawBodyBytes = Buffer.from(buf);
   }
 };
 app.use(express.json({ limit: '15mb', verify: (req, _res, buf) => captureWebhookRawBody(req, _res, buf) }));
@@ -421,6 +435,8 @@ app.use(pay01aRouter);
 app.use(pay01cDemoRouter);
 app.use(pay02Router);
 app.use(pay03aRouter);
+// PAY-03B: Dealer & Business subscriptions, F5 reconciliation operator surface, local UAT simulator (404 unless enabled).
+app.use(pay03bRouter);
 app.use(providerPlatformRouter);
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 app.use(governmentActivationRouter);

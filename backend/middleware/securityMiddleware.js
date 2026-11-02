@@ -248,6 +248,10 @@ export function csrfMiddleware(req, res, next) {
   const isWebhook = url.startsWith('/api/payments/webhook') ||
                     // CarUp Japan PAY-01A: exact Stripe signed-body endpoint, verified by SDK.
                     /^\/api\/pay01a\/stripe\/webhook(?:$|[?#])/.test(url) ||
+                    // PAY-03B local provider simulator (disposable UAT only; every route 404s outside simulator
+                    // mode): its signed webhook and its simulated hosted provider pages, which, like a real
+                    // provider's hosted page, carry no CarUp session and therefore no CSRF token.
+                    /^\/api\/pay03b\/simulator\/(?:webhook|checkout\/sim_cs_[A-Za-z0-9_]+\/complete|invoice\/sim_in_[A-Za-z0-9_]+\/pay)(?:$|[?#])/.test(url) ||
                     url.startsWith('/api/safepay/webhook') ||
                     /^\/api\/referrals\/channels\/(whatsapp|telegram|facebook|instagram)\/webhook(?:$|[/?#])/.test(url) ||
                     // Omnichannel communication engine webhooks (signature-verified in-service)

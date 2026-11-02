@@ -14,6 +14,16 @@ import {
   reviewVerificationSession as reviewVerificationSessionRequest,
   type VerificationAdminClientConfig,
 } from '@/lib/verificationAdminApi'
+import * as pay03bApi from '@/lib/pay03bApi'
+import type {
+  Pay03bCancelRequest,
+  Pay03bChangeRequest,
+  Pay03bCheckoutRequest,
+  Pay03bExceptionStatusFilter,
+  Pay03bPlanChangeMode,
+  Pay03bResolveRequest,
+  Pay03bSuspensionAction,
+} from '@/types/pay03b'
 import type {
   AdminVerificationSession,
   DecisionAction,
@@ -538,6 +548,68 @@ export function useCarUpApi() {
       reviewVerificationSessionRequest(verificationClientConfig, sessionId, body, opts),
     [verificationClientConfig],
   )
+
+  // CARUP-PAY-03B Dealer & Business subscriptions. Same identity as `request` (including x-tenant-id, which
+  // the dealer routes act on), delegated to the dedicated client module so pages never issue raw fetches.
+  // Writes take the caller's Idempotency-Key: one key per reviewed intent, reused on retry, never auto-resent.
+  const pay03bClientConfig = useMemo<pay03bApi.Pay03bClientConfig>(() => {
+    const authHeaders: AuthHeaders = {}
+    if (token) authHeaders['x-session-token'] = token
+    if (user?.id) authHeaders['x-user-id'] = user.id
+    if (user?.role) authHeaders['x-stakeholder-role'] = user.role
+    if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
+    return { baseUrl: BASE_URL, authHeaders }
+  }, [user, token])
+
+  const fetchPay03bCatalogue = useCallback(
+    () => pay03bApi.fetchPay03bCatalogue(pay03bClientConfig), [pay03bClientConfig])
+  const fetchPay03bDealerOverview = useCallback(
+    () => pay03bApi.fetchPay03bDealerOverview(pay03bClientConfig), [pay03bClientConfig])
+  const verifyPay03bDealerSubscription = useCallback(
+    () => pay03bApi.verifyPay03bDealerSubscription(pay03bClientConfig), [pay03bClientConfig])
+  const abandonPay03bDealerCheckout = useCallback(
+    () => pay03bApi.abandonPay03bDealerCheckout(pay03bClientConfig), [pay03bClientConfig])
+  const createPay03bDealerCheckout = useCallback(
+    (body: Pay03bCheckoutRequest, idempotencyKey: string) =>
+      pay03bApi.createPay03bDealerCheckout(pay03bClientConfig, body, idempotencyKey), [pay03bClientConfig])
+  const previewPay03bPlanChange = useCallback(
+    (targetPlanId: string, mode: Pay03bPlanChangeMode) =>
+      pay03bApi.previewPay03bPlanChange(pay03bClientConfig, targetPlanId, mode), [pay03bClientConfig])
+  const changePay03bDealerPlan = useCallback(
+    (body: Pay03bChangeRequest, idempotencyKey: string) =>
+      pay03bApi.changePay03bDealerPlan(pay03bClientConfig, body, idempotencyKey), [pay03bClientConfig])
+  const cancelPay03bDealerSubscription = useCallback(
+    (body: Pay03bCancelRequest, idempotencyKey: string) =>
+      pay03bApi.cancelPay03bDealerSubscription(pay03bClientConfig, body, idempotencyKey), [pay03bClientConfig])
+  const createPay03bPaymentMethodUpdate = useCallback(
+    () => pay03bApi.createPay03bPaymentMethodUpdate(pay03bClientConfig), [pay03bClientConfig])
+  const getPay03bInvoicePaymentLink = useCallback(
+    (invoiceId: string) => pay03bApi.getPay03bInvoicePaymentLink(pay03bClientConfig, invoiceId), [pay03bClientConfig])
+  const fetchPay03bAdminCatalogue = useCallback(
+    () => pay03bApi.fetchPay03bAdminCatalogue(pay03bClientConfig), [pay03bClientConfig])
+  const fetchPay03bAdminSubscriptions = useCallback(
+    () => pay03bApi.fetchPay03bAdminSubscriptions(pay03bClientConfig), [pay03bClientConfig])
+  const fetchPay03bAdminSubscription = useCallback(
+    (subscriptionId: string) => pay03bApi.fetchPay03bAdminSubscription(pay03bClientConfig, subscriptionId), [pay03bClientConfig])
+  const reconcilePay03bAdminSubscription = useCallback(
+    (subscriptionId: string) => pay03bApi.reconcilePay03bAdminSubscription(pay03bClientConfig, subscriptionId), [pay03bClientConfig])
+  const setPay03bAdminSuspension = useCallback(
+    (subscriptionId: string, body: { action: Pay03bSuspensionAction; reason: string }, idempotencyKey: string) =>
+      pay03bApi.setPay03bAdminSuspension(pay03bClientConfig, subscriptionId, body, idempotencyKey), [pay03bClientConfig])
+  const refundPay03bAdminInvoice = useCallback(
+    (subscriptionId: string, invoiceId: string, body: { reason: string }) =>
+      pay03bApi.refundPay03bAdminInvoice(pay03bClientConfig, subscriptionId, invoiceId, body), [pay03bClientConfig])
+  const fetchPay03bReconciliationExceptions = useCallback(
+    (status: Pay03bExceptionStatusFilter = 'open') =>
+      pay03bApi.fetchPay03bReconciliationExceptions(pay03bClientConfig, status), [pay03bClientConfig])
+  const fetchPay03bReconciliationException = useCallback(
+    (exceptionId: string, options?: { verify?: boolean }) =>
+      pay03bApi.fetchPay03bReconciliationException(pay03bClientConfig, exceptionId, options), [pay03bClientConfig])
+  const acknowledgePay03bReconciliationException = useCallback(
+    (exceptionId: string) => pay03bApi.acknowledgePay03bReconciliationException(pay03bClientConfig, exceptionId), [pay03bClientConfig])
+  const resolvePay03bReconciliationException = useCallback(
+    (exceptionId: string, body: Pay03bResolveRequest) =>
+      pay03bApi.resolvePay03bReconciliationException(pay03bClientConfig, exceptionId, body), [pay03bClientConfig])
 
   const switchRole = useCallback(async (userId: string, role: string): Promise<any> => {
     return request('/auth/switch-role', {
@@ -2872,6 +2944,27 @@ export function useCarUpApi() {
     request<ReferralServiceResponse>(`/referrals/trust/audit-export${referralQuery(filters)}`), [request])
 
   return {
+    // ── CARUP-PAY-03B: Dealer & Business subscriptions ──
+    fetchPay03bCatalogue,
+    fetchPay03bDealerOverview,
+    verifyPay03bDealerSubscription,
+    abandonPay03bDealerCheckout,
+    createPay03bDealerCheckout,
+    previewPay03bPlanChange,
+    changePay03bDealerPlan,
+    cancelPay03bDealerSubscription,
+    createPay03bPaymentMethodUpdate,
+    getPay03bInvoicePaymentLink,
+    fetchPay03bAdminCatalogue,
+    fetchPay03bAdminSubscriptions,
+    fetchPay03bAdminSubscription,
+    reconcilePay03bAdminSubscription,
+    setPay03bAdminSuspension,
+    refundPay03bAdminInvoice,
+    fetchPay03bReconciliationExceptions,
+    fetchPay03bReconciliationException,
+    acknowledgePay03bReconciliationException,
+    resolvePay03bReconciliationException,
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,

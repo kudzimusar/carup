@@ -16,7 +16,7 @@ const allowedEvents = new Set([
   'checkout.session.completed', 'checkout.session.async_payment_succeeded',
   'checkout.session.async_payment_failed', 'checkout.session.expired',
   'payment_intent.succeeded', 'payment_intent.payment_failed',
-  'charge.refunded', 'refund.created', 'refund.updated', 'refund.failed',
+  'charge.refunded', 'charge.refund.updated', 'refund.created', 'refund.updated', 'refund.failed',
 ]);
 
 function guardRow(row, actorId = null) {
@@ -56,6 +56,31 @@ async function getRow(db, reference, actorId = null) {
     .select(COLUMNS).eq('reference', reference).maybeSingle();
   if (error) throw new Pay01aError('PAY01A_CANONICAL_READ_UNAVAILABLE', 503);
   return guardRow(data, actorId);
+}
+
+/**
+ * PAY-03B F5. A refund created in the provider dashboard carries no CarUp metadata, so a refund/charge event
+ * can only be bound to its canonical payment through the PaymentIntent (unique in payment_transactions).
+ */
+async function findRowByIntent(db, intentId) {
+  const { data, error } = await db.from('payment_transactions')
+    .select(COLUMNS).eq('pay01a_intent_id', intentId).eq('gateway', 'stripe_carup_japan_sandbox').maybeSingle();
+  if (error) throw new Pay01aError('PAY01A_CANONICAL_READ_UNAVAILABLE', 503);
+  if (!data) return null;
+  // PAY-03B recurring-invoice payments share the canonical ledger but are reconciled by the subscription service.
+  if (String(data.reference).startsWith('pay03b_inv_')) return { pay03bInvoicePayment: true, reference: data.reference };
+  return guardRow(data);
+}
+
+function eventPaymentIntentId(object) {
+  const id = object?.object === 'payment_intent' ? object.id : pay01aProviderId(object?.payment_intent);
+  return typeof id === 'string' && /^pi_[A-Za-z0-9_]+$/.test(id) ? id : null;
+}
+
+/** Stripe lists refunds newest first; the canonical refund reference is the OLDEST succeeded refund (stable). */
+function oldestSucceededRefundId(refunds) {
+  return refunds.filter((refund) => refund.status === 'succeeded')
+    .sort((a, b) => (Number(a.created) || 0) - (Number(b.created) || 0))[0]?.id || null;
 }
 
 async function stripeForSandbox({ env, stripe = null, webhook = false } = {}) {
@@ -164,22 +189,69 @@ async function retrieveSnapshot(api, row) {
   return { snapshot, refunds };
 }
 
-async function reconcileKnownRow({ row, db, api, eventId = null, eventType = null }) {
+async function reconcileKnownRowWithEvidence({ row, db, api, eventId = null, eventType = null }) {
   const { snapshot, refunds } = await retrieveSnapshot(api, row);
-  const applied = await rpc(db, 'pay01a_apply_provider_snapshot', {
+  const evidence = snapshot.refundEvidence || null;
+  const observed = Boolean(snapshot.intentId);
+  const applied = await rpc(db, 'pay03b_apply_provider_payment_snapshot', {
     p_reference: row.reference,
     p_status: snapshot.status,
     p_intent_id: snapshot.intentId,
-    p_refund_id: refunds.find((refund) => refund.status === 'succeeded')?.id || null,
+    p_refund_id: snapshot.status === 'refunded' ? oldestSucceededRefundId(refunds) : null,
     p_event_id: eventId,
     p_event_type: eventType,
+    // F5: the exact provider refund evidence travels with every observation of a paid intent.
+    p_refunded_minor: observed ? (evidence?.refundedMinor ?? 0) : null,
+    p_pending_refund_minor: observed ? (evidence?.pendingRefundMinor ?? 0) : null,
+    p_refund_ids: observed ? (evidence?.refundIds ?? []) : null,
+    p_mismatch: evidence?.mismatch ?? null,
+    p_detected_via: eventId ? 'signed_webhook' : 'provider_readback',
   });
   guardRow(applied);
+  if (applied.reconciliation_exception_event === 'opened') {
+    // Operator alert (durable record: pay03b_payment_reconciliation_exceptions; this is the log signal).
+    console.error(JSON.stringify({
+      level: 'alert', code: 'PAY03B_PAYMENT_RECONCILIATION_HOLD_OPENED', reference: row.reference,
+      exceptionId: applied.reconciliation_exception_id || null, mismatch: evidence?.mismatch || null,
+    }));
+  }
   // Never return a partial record: the UI must receive canonical financial and timestamp
   // fields even for a refund, an idempotent retry, or a provider-triggered reconciliation.
-  return {
+  const record = {
     ...publicRecord(applied),
-    duplicateEvent: Boolean(applied.duplicate_event), live: false,
+    duplicateEvent: Boolean(applied.duplicate_event),
+    holdRetained: Boolean(applied.hold_retained),
+    live: false,
+  };
+  return { record, snapshot };
+}
+
+async function reconcileKnownRow(args) {
+  return (await reconcileKnownRowWithEvidence(args)).record;
+}
+
+/**
+ * PAY-03B F5. Fresh provider truth for an operator resolution: the exact refund evidence and when it was read.
+ * Never writes. A failed read throws (502), so a resolution can never rest on a guess.
+ */
+export async function readPay01aProviderPaymentTruth({ reference, db = supabase, env = process.env, stripe = null } = {}) {
+  requirePay01aSandbox(env);
+  const row = await getRow(db, reference);
+  const api = await stripeForSandbox({ env, stripe });
+  // Taken BEFORE the provider read: a webhook observation recorded while this read was in flight is then newer than
+  // the verification, and the F5 resolver refuses the (possibly superseded) evidence.
+  const verifiedAt = new Date().toISOString();
+  const { snapshot } = await retrieveSnapshot(api, row);
+  const evidence = snapshot.refundEvidence || { refundedMinor: 0, pendingRefundMinor: 0, refundIds: [] };
+  return {
+    reference: row.reference,
+    status: snapshot.status,
+    intentId: snapshot.intentId,
+    refundedMinor: evidence.refundedMinor,
+    pendingRefundMinor: evidence.pendingRefundMinor,
+    refundIds: evidence.refundIds,
+    mismatch: evidence.mismatch || null,
+    verifiedAt,
   };
 }
 
@@ -200,18 +272,32 @@ export async function refundPay01aPayment({
   if (!actorId) throw new Pay01aError('PAY01A_AUTHENTICATION_REQUIRED', 403);
   const api = await stripeForSandbox({ env, stripe });
   const row = await getRow(db, reference, actorId);
-  const preflight = await reconcileKnownRow({ row, db, api });
+  const { record: preflight, snapshot } = await reconcileKnownRowWithEvidence({ row, db, api });
   if (preflight.status === 'refunded') return { ...preflight, idempotentReplay: true };
+  if (preflight.status === 'partially_refunded') throw new Pay01aError('PAY01A_REFUND_FINALIZED_AS_PARTIAL', 409);
   const claimed = guardRow(await rpc(db, 'pay01a_begin_refund', {
     p_reference: reference, p_actor_id: actorId,
   }), actorId);
   if (!claimed.pay01a_intent_id) throw new Pay01aError('PAY01A_REFUND_INTENT_UNAVAILABLE');
+  // F5: a held payment is completed to the full amount by refunding exactly the provider-confirmed remainder.
+  // The provider confirmation (not this call) ends the hold.
+  let amount = PAY01A_AMOUNT_JPY;
+  let operation = 'refund';
+  if (claimed.status === 'reconciliation_hold') {
+    const evidence = snapshot.refundEvidence || { refundedMinor: 0, pendingRefundMinor: 0 };
+    if (evidence.pendingRefundMinor > 0) throw new Pay01aError('PAY01A_REFUND_IN_FLIGHT', 409);
+    amount = PAY01A_AMOUNT_JPY - evidence.refundedMinor;
+    if (amount <= 0) throw new Pay01aError('PAY01A_REFUND_NOTHING_REMAINING', 409);
+    operation = 'refund_remainder_' + evidence.refundedMinor;
+  }
   try {
     const refund = await api.refunds.create({
-      payment_intent: claimed.pay01a_intent_id, metadata: pay01aMetadata(reference),
-    }, { idempotencyKey: pay01aIdempotency(reference, 'refund') });
+      payment_intent: claimed.pay01a_intent_id,
+      ...(operation === 'refund' ? {} : { amount }),
+      metadata: pay01aMetadata(reference),
+    }, { idempotencyKey: pay01aIdempotency(reference, operation) });
     if (!isPay01aSandboxRefund(refund) || pay01aProviderId(refund.payment_intent) !== claimed.pay01a_intent_id
-      || refund.amount !== PAY01A_AMOUNT_JPY) {
+      || refund.amount !== amount) {
       throw new Pay01aError('PAY01A_REFUND_PROVIDER_MISMATCH');
     }
   } catch (err) {
@@ -241,13 +327,39 @@ export async function processPay01aWebhook({
   }
   // Authenticated provider data may now trigger the sandbox account-identity network read.
   await stripeForSandbox({ env, stripe: api, webhook: true });
-  if (!allowedEvents.has(event.type)) return { ignored: true, live: false };
-  const reference = event.data?.object?.metadata?.carup_reference
-    || event.data?.object?.client_reference_id || null;
-  if (!reference || !/^pay01a_[0-9a-f-]{36}$/.test(reference)) {
-    return { ignored: true, live: false };
+  const object = event.data?.object || {};
+  // PAY-03B: recurring subscription, invoice and invoice-payment events are reconciled by the subscription
+  // authority (same verified signature, account and mode; explicit opt-in only).
+  const pay03bEnabled = env.CARUP_PAY03B_ENABLED === 'true';
+  if (pay03bEnabled) {
+    const { isPay03bProviderEvent, processPay03bProviderEvent } = await import('./pay03bSubscriptionService.js');
+    if (isPay03bProviderEvent(event)) {
+      const { Pay03bStripeSandboxProvider } = await import('./pay03bProviderAdapters.js');
+      return { ...(await processPay03bProviderEvent({ db, event, provider: new Pay03bStripeSandboxProvider({ env, stripe: api }) })), verified: true };
+    }
   }
-  const row = await getRow(db, reference);
+  if (!allowedEvents.has(event.type)) return { ignored: true, live: false };
+  const metaReference = object.metadata?.carup_reference || object.client_reference_id || null;
+  const intentId = eventPaymentIntentId(object);
+  const metaRow = metaReference && /^pay01a_[0-9a-f-]{36}$/.test(metaReference) ? await getRow(db, metaReference) : null;
+  // F5: bind provider-dashboard refunds (no CarUp metadata) through the canonical PaymentIntent.
+  const intentRow = intentId ? await findRowByIntent(db, intentId) : null;
+  if (intentRow?.pay03bInvoicePayment) {
+    if (metaRow) throw new Pay01aError('PAY01A_EVENT_REFERENCE_MISMATCH', 400);
+    if (!pay03bEnabled) return { ignored: true, reason: 'pay03b_disabled', live: false };
+    const { processPay03bProviderEvent } = await import('./pay03bSubscriptionService.js');
+    const { Pay03bStripeSandboxProvider } = await import('./pay03bProviderAdapters.js');
+    return { ...(await processPay03bProviderEvent({ db, event, provider: new Pay03bStripeSandboxProvider({ env, stripe: api }) })), verified: true };
+  }
+  if (metaRow && ((intentRow && intentRow.reference !== metaRow.reference)
+    || (intentId && metaRow.pay01a_intent_id && metaRow.pay01a_intent_id !== intentId))) {
+    throw new Pay01aError('PAY01A_EVENT_REFERENCE_MISMATCH', 400);
+  }
+  const row = metaRow || intentRow;
+  if (!row) {
+    return intentId ? { ignored: true, reason: 'unmatched_payment_intent', live: false } : { ignored: true, live: false };
+  }
+  const reference = row.reference;
   const result = await reconcileKnownRow({ row, db, api, eventId: event.id, eventType: event.type });
   if (env.CARUP_PAY01C_ENABLED === 'true') {
     // Fail closed on fulfillment failure so the same signed event can be retried.

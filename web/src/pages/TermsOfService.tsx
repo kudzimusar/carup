@@ -429,7 +429,7 @@ export default function TermsOfService() {
                         <Building2 className="w-5 h-5 text-orange-500" />
                         <h4 className="font-bold text-slate-950 text-sm md:text-base">Commercial Dealers Subscription</h4>
                       </div>
-                      <Badge className="bg-orange-500 text-white font-medium text-xs">$99/month</Badge>
+                      <Badge className="bg-slate-700 text-white font-medium text-xs">Price not yet approved</Badge>
                     </div>
                     <p className="text-slate-600 text-xs md:text-sm leading-relaxed">
                       Includes advanced inventory management (up to 100 active cars), ZINARA auto-verification integration, customer lead tracking CRM, sales analytics, and dedicated priority support. Billing is run monthly on the anniversary date of sign-up.
@@ -443,7 +443,7 @@ export default function TermsOfService() {
                         <Wrench className="w-5 h-5 text-orange-500" />
                         <h4 className="font-bold text-slate-950 text-sm md:text-base">Garages & Mechanics Subscription</h4>
                       </div>
-                      <Badge className="bg-amber-500 text-white font-medium text-xs">$49/month</Badge>
+                      <Badge className="bg-slate-700 text-white font-medium text-xs">Price not yet approved</Badge>
                     </div>
                     <p className="text-slate-600 text-xs md:text-sm leading-relaxed">
                       Grants access to the digital service history logging panel, vehicle part-sentry tracker, shared maintenance ledgers, direct customer communication channels, and certified badge markers.

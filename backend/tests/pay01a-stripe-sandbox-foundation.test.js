@@ -80,7 +80,9 @@ function fakeSandbox() {
         row.status = 'refund_pending';
         return { data: { ...row }, error: null };
       }
-      if (name === 'pay01a_apply_provider_snapshot') {
+      // PAY-03B F5: the service writes through pay03b_apply_provider_payment_snapshot (same contract plus refund
+      // evidence); the certified pay01a_apply_provider_snapshot delegates to it.
+      if (name === 'pay01a_apply_provider_snapshot' || name === 'pay03b_apply_provider_payment_snapshot') {
         const duplicate = Boolean(args.p_event_id && events.has(args.p_event_id));
         if (args.p_event_id) events.add(args.p_event_id);
         if (!duplicate) {
@@ -148,9 +150,13 @@ test('PAY01A: paid, refunded, partial refund and provider metadata truth are str
   assert.throws(() => C.evaluatePay01aProviderSnapshot({
     checkout: paid, intent: f.intent, refunds: [{ ...refund, livemode: true }], reference: REF,
   }), /PAY01A_PROVIDER_REFUND_MISMATCH/);
-  assert.throws(() => C.evaluatePay01aProviderSnapshot({
+  // PAY-03B F5: a partial refund used to throw PAY01A_PARTIAL_REFUND_NOT_AUTHORIZED, which left the payment
+  // 'paid' (and its content authorized) forever. It is now a durable reconciliation hold with exact evidence.
+  const partial = C.evaluatePay01aProviderSnapshot({
     checkout: paid, intent: f.intent, refunds: [{ ...refund, amount: 50 }], reference: REF,
-  }), /PAY01A_PARTIAL_REFUND_NOT_AUTHORIZED/);
+  });
+  assert.equal(partial.status, 'reconciliation_hold');
+  assert.equal(partial.refundEvidence.refundedMinor, 50);
   assert.throws(() => C.evaluatePay01aProviderSnapshot({
     checkout: paid, intent: { ...f.intent, metadata: {} }, reference: REF,
   }), /PAY01A_PROVIDER_INTENT_MISMATCH/);

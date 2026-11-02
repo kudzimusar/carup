@@ -1,0 +1,24 @@
+[
+  {
+    "at": "2026-11-01T23:13:03.243Z",
+    "runtime_sha": "fd3434eeedf0486dfbd0d4461d60c53d9cc2803c",
+    "step": "advance",
+    "http": 200,
+    "clockId": "clock_1UX7rUEjgXqvlsJk5NKgD3fh",
+    "clockStatus": "advancing",
+    "frozenTime": 1796173707,
+    "code": null
+  },
+  {
+    "at": "2026-11-01T23:22:44.207Z",
+    "runtime_sha": "fd3434eeedf0486dfbd0d4461d60c53d9cc2803c",
+    "step": "reconcile",
+    "http": 200,
+    "result": {
+      "state": "synchronized",
+      "duplicateEvent": false,
+      "invoicesSynced": 2,
+      "syncExceptions": []
+    }
+  }
+]

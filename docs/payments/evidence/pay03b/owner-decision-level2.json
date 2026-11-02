@@ -1,0 +1,27 @@
+{
+  "recorded_at": "2026-11-01T11:03:51Z",
+  "programme": "CARUP-PAY-03B-LR01",
+  "decision_channel": "AskUserQuestion (Owner selection in this session)",
+  "decisions": {
+    "level2_stripe_sandbox_rehearsal": "Authorize exact scope (Recommended)",
+    "checkout_payer": "Claude pays (Recommended)"
+  },
+  "authorized_scope_verbatim_from_question": "ONE real Stripe SANDBOX subscription rehearsal on test account acct_1UVnGaEjgXqvlsJk. Plan: 'mkt.dealer.storefront_package', sandbox-only test price JPY 500/month (not a tariff; listing capacity 10 as a test value). Stripe objects: 1 Product, 1 monthly Price, 1 test clock, 1 Customer for the QA dealer organization. Actions: 1 subscription Checkout paid with test card 4242; 1 test-clock advance producing 1 renewal invoice; then cancel at period end; then 1 governed full refund of the renewal invoice. Totals: 2 test charges of JPY 500 and 1 refund. Nothing live. Objects stay in the sandbox as evidence. You would type the sk_test key into hidden prompts and run 'stripe listen' in two terminal windows, as for PAY-03A.",
+  "limits": {
+    "checkout_sessions": 1,
+    "test_clock_advances": 1,
+    "refunds": 1,
+    "expected_charges_jpy": [
+      500,
+      500
+    ],
+    "live_operations": 0
+  },
+  "not_authorized": [
+    "any live key or live object",
+    "any second checkout",
+    "any second test-clock advance",
+    "any second refund",
+    "production or shared staging"
+  ]
+}

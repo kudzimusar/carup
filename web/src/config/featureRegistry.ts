@@ -509,6 +509,21 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     requiresAuth: true,
     icon: 'FileText',
   },
+  {
+    // CARUP-PAY-03B: the dealership's plan, paid access, invoices and billing actions. Distinct from
+    // the Diaspora 'Subscription' entry (diaspora.subscription), which some dealers can also see.
+    // Registration does NOT relax the backend's session + tenant membership + billing-authority gates.
+    id: 'dealer.subscription',
+    label: 'Plan & Billing',
+    route: '/dealer/subscription',
+    domain: 'finance',
+    roles: ['dealer'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'CreditCard',
+    description: 'Your dealership plan, paid access, invoices and billing actions',
+    owner: 'payments',
+  },
 
   // ─── Mechanic Dashboard ────────────────────────────────────────────────
   {
