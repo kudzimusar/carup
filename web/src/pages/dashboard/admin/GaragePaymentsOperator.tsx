@@ -55,6 +55,17 @@ const RESOLUTIONS: Record<string, Array<{ value: string; label: string }>> = {
   ],
   default: [{ value: 'provider_corrected', label: 'Provider corrected its report (verify first)' }],
 }
+/**
+ * PAY-05: Paynow has no refund API, so the garage settles a wrong Paynow amount in Paynow or with the customer, and the
+ * operator records that. PAY-04 (simulator) mismatches keep their own closures.
+ */
+const PAYNOW_SETTLED_OUTSIDE = {
+  value: 'settled_off_platform', label: 'Settled outside CarUp: the garage refunded it in Paynow or agreed with the customer (explain in the note)',
+}
+const resolutionsFor = (d: GaragePaymentExceptions['discrepancies'][number]) => {
+  const base = RESOLUTIONS[d.type] ?? RESOLUTIONS.default
+  return d.type === 'amount_mismatch' && d.gateway === 'paynow_zimbabwe' ? [...base, PAYNOW_SETTLED_OUTSIDE] : base
+}
 
 /**
  * CARUP-PAY-04 — the platform operator's view of garage payments: what needs a decision and whose merchant
@@ -148,7 +159,7 @@ export default function GaragePaymentsOperator() {
                       <label htmlFor={`${uid}-res-${d.id}`} className="block text-sm font-medium">Resolution</label>
                       <select id={`${uid}-res-${d.id}`} className="w-full min-h-11 rounded-lg border px-2" value={resolving.resolution}
                         onChange={(e) => setResolving({ ...resolving, resolution: e.target.value })} data-testid="operator-resolution">
-                        {(RESOLUTIONS[d.type] ?? RESOLUTIONS.default).map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                        {resolutionsFor(d).map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                       </select>
                       <label htmlFor={`${uid}-note-${d.id}`} className="block text-sm font-medium">Note (what you verified, at least 10 characters)</label>
                       <textarea id={`${uid}-note-${d.id}`} rows={3} className="w-full rounded-lg border p-2 text-sm" value={resolving.note}
@@ -163,7 +174,7 @@ export default function GaragePaymentsOperator() {
                     </div>
                   ) : (
                     <Button variant="outline" className="mt-2 min-h-11" data-testid="operator-resolve"
-                      onClick={() => setResolving({ id: d.id, resolution: (RESOLUTIONS[d.type] ?? RESOLUTIONS.default)[0].value, note: '' })}>
+                      onClick={() => setResolving({ id: d.id, resolution: resolutionsFor(d)[0].value, note: '' })}>
                       Resolve…
                     </Button>
                   )}

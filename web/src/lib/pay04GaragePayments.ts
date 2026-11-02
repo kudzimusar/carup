@@ -160,6 +160,8 @@ export type GaragePaymentExceptions = {
     id: string; type: string; garage: string | null; tenant_id: string; invoice_id: string; collection_id: string
     amount: Decimal | null; currency: string; evidence: Record<string, unknown>; detected_via: string; first_detected_at: string; observation_count: number
     history?: ProviderActivity[]
+    /** whose collection it is: 'pay04_garage_provider_simulator', or 'paynow_zimbabwe' for the garage's own Paynow merchant (PAY-05) */
+    gateway?: string
   }>
   reconciliation_holds: Array<{
     history?: ProviderActivity[]
