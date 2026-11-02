@@ -170,7 +170,7 @@ describe('Paying the garage with Paynow', () => {
     expect(startGarageInvoicePayment.mock.calls[1][2]).toBe(startGarageInvoicePayment.mock.calls[0][2])
   })
 
-  it('W3: a 502 PAY05_PROVIDER_* or any 5xx keeps the key; only a definite 4xx refusal replaces it', async () => {
+  it('W3: any 5xx keeps the key; a definite refusal — a 4xx, or Paynow\'s own refusal (CarUp closed that request) — replaces it', async () => {
     startGarageInvoicePayment
       .mockRejectedValueOnce(apiFailure('PAY05_PROVIDER_REFUSED', 502))
       .mockRejectedValueOnce(apiFailure('HTTP error! status: 503', 503))
@@ -187,8 +187,9 @@ describe('Paying the garage with Paynow', () => {
     fireEvent.click(screen.getByTestId('paynow-start'))
     await waitFor(() => expect(startGarageInvoicePayment).toHaveBeenCalledTimes(4))
     const keys = startGarageInvoicePayment.mock.calls.map((c) => c[2])
-    expect(keys[1]).toBe(keys[0])
-    expect(keys[2]).toBe(keys[0])
+    // Paynow refused: nothing exists at Paynow and CarUp closed the request, so retrying it would only replay the refusal
+    expect(keys[1]).not.toBe(keys[0])
+    expect(keys[2]).toBe(keys[1])
     expect(keys[3]).not.toBe(keys[2])
     expect(fetchGarageInvoicePaymentOptions).toHaveBeenCalledTimes(4) // the first read, then one after each failure
   })

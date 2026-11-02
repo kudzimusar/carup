@@ -225,16 +225,17 @@ export function isNetworkFailure(err: unknown): boolean {
 }
 
 /**
- * Why starting a Paynow payment failed, in words, and whether the refusal was DEFINITE. Only a definite 4xx refusal
- * (refused before anything was sent) makes the next try a new request with a new idempotency key. After a network error,
- * any 5xx or a 502 PAY05_PROVIDER_* the request may exist, so the retry must reuse the key: the server then replays the
- * request it has instead of creating a second one.
+ * Why starting a Paynow payment failed, in words, and whether the refusal was DEFINITE. A definite refusal makes the next
+ * try a new request with a new idempotency key: a 4xx (refused before anything was sent), or Paynow's own refusal
+ * (PAY05_PROVIDER_REFUSED — nothing exists at Paynow and CarUp has already closed that request, so reusing its key would
+ * only replay the refusal). After a network error, any other 5xx or another 502 PAY05_PROVIDER_* the request may exist,
+ * so the retry must reuse the key: the server then replays the request it has instead of creating a second one.
  */
 export function paynowStartFailure(err: unknown): { text: string; definite: boolean } {
   if (isNetworkFailure(err)) return { text: PAYNOW_START_UNREACHABLE, definite: false }
   const status = httpStatusOf(err)
-  const definite = status !== null && status >= 400 && status < 500
   const message = err instanceof Error ? err.message : ''
+  const definite = (status !== null && status >= 400 && status < 500) || /\bPAY05_PROVIDER_REFUSED\b/.test(message)
   const coded = message ? pay05ErrorText(message) ?? (/\bPAY04_[A-Z0-9_]+\b/.test(message) ? pay04ErrorText(message) : null) : null
   if (coded) return { text: coded, definite }
   if (definite) return { text: 'The payment could not be started. Nothing was charged.', definite }

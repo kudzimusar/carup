@@ -77,10 +77,11 @@ describe('Paynow inputs and labels', () => {
 
 describe('A failed Paynow start (W3)', () => {
   const failure = (message: string, status?: number) => Object.assign(new Error(message), status === undefined ? {} : { status })
-  it('only a definite 4xx refusal is definite; a lost answer, a 5xx or a 502 PAY05_PROVIDER_* may have sent the request', () => {
+  it('a 4xx or Paynow\'s own refusal is definite; a lost answer, another 5xx or another 502 PAY05_PROVIDER_* may have sent the request', () => {
     expect(paynowStartFailure(new TypeError('Failed to fetch'))).toEqual({ text: PAYNOW_START_UNREACHABLE, definite: false })
     expect(paynowStartFailure(failure('Load failed')).definite).toBe(false)
-    expect(paynowStartFailure(failure('PAY05_PROVIDER_REFUSED', 502))).toEqual({ text: pay05ErrorText('PAY05_PROVIDER_REFUSED'), definite: false })
+    // Paynow said no and CarUp closed that request: reusing its key would only replay the refusal
+    expect(paynowStartFailure(failure('PAY05_PROVIDER_REFUSED', 502))).toEqual({ text: pay05ErrorText('PAY05_PROVIDER_REFUSED'), definite: true })
     expect(paynowStartFailure(failure('PAY05_PROVIDER_RESPONSE_UNEXPECTED', 502)).definite).toBe(false)
     expect(paynowStartFailure(failure('HTTP error! status: 504', 504))).toMatchObject({ definite: false, text: expect.stringMatching(/may still have been sent/) })
     expect(paynowStartFailure(failure('PAY05_METHOD_NOT_AVAILABLE', 422))).toMatchObject({ definite: true, text: expect.stringMatching(/Nothing was charged/) })
