@@ -131,9 +131,14 @@ async function axeClean(page: Page, include: string) {
   const found = results.violations.flatMap((v) => v.nodes.map((n) => `${v.id} @ ${n.target.join(' ')}: ${(n.any[0]?.message ?? n.failureSummary ?? '').replace(/\s+/g, ' ').slice(0, 180)}`))
   expect(found, `no WCAG 2 A/AA violations in ${include}`).toEqual([])
 }
-/** Element screenshots only: full-page captures of long consoles repeat the page top (PAY-03B finding). */
+/**
+ * Element screenshots only: full-page captures of long consoles repeat the page top (PAY-03B finding). The app's sticky
+ * header and fixed bottom navigation are hidden DURING the capture only (Playwright `style`): a tall element is
+ * captured by scrolling, and they were drawn over the money lines. The page under test is not changed.
+ */
 async function shot(page: Page, selector: string, name: string) {
-  await page.locator(selector).first().screenshot({ path: `${SCREENS}/${name}.png` })
+  await page.locator(selector).first().screenshot({ path: `${SCREENS}/${name}.png`,
+    style: '.sticky.top-0, .fixed.bottom-0 { visibility: hidden !important; }' })
 }
 
 // The shared sensitive limiter (login, checkout, provider re-reads) is one per-IP counter: pace the journey.
