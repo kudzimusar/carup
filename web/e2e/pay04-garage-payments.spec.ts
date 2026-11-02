@@ -138,7 +138,8 @@ async function axeClean(page: Page, include: string) {
  */
 async function shot(page: Page, selector: string, name: string) {
   await page.locator(selector).first().screenshot({ path: `${SCREENS}/${name}.png`,
-    style: '.sticky.top-0, .fixed.bottom-0 { visibility: hidden !important; }' })
+    // opacity hides the whole subtree (children keep their own visibility); the header's backdrop blur is its own layer
+    style: '.sticky.top-0, .fixed.bottom-0 { opacity: 0 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }' })
 }
 
 // The shared sensitive limiter (login, checkout, provider re-reads) is one per-IP counter: pace the journey.
