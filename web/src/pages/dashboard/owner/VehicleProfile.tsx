@@ -440,6 +440,8 @@ export default function VehicleProfile() {
         workspace="vehicles"
         breadcrumbs={[workspaceCrumb('vehicles'), { label: passportTitle }]}
         eyebrow="Vehicle Passport"
+        eyebrowId="vehicle-passport-label"
+        eyebrowTestId="vehicle-passport-label"
         title={passportTitle}
         titleId="vehicle-passport-title"
         description="One durable record for this vehicle. Its evidence, history and everything you can do with it stay attached to the same VIN."
@@ -473,9 +475,8 @@ export default function VehicleProfile() {
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
               <div className="absolute bottom-4 left-4 right-4 text-white">
-                {/* OC-5R-REL-02: this loaded page IS the owner's Vehicle Passport, and now says so. A label
-                    only — it asserts nothing about the vehicle; loading and error states keep their own words. */}
-                <p id="vehicle-passport-label" className="text-xs font-semibold tracking-wide text-orange-200" data-testid="vehicle-passport-label">Vehicle Passport</p>
+                {/* OC-5R-REL-02's "Vehicle Passport" label is the header eyebrow above (PAY-04 integration with T11-CAP-R3):
+                    one label, then the page's one h1, then this hero — label, heading, VIN in reading order. */}
                 <div className="flex items-center gap-2 mb-1">
                   {/* The page's heading is the header above; this is the same name over the photograph, so it is not a second h1. */}
                   <p className="text-xl sm:text-2xl font-bold">{passportTitle}</p>

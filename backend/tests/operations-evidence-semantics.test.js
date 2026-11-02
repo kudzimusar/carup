@@ -1432,11 +1432,13 @@ test('STG01-R3-R1 Adversarial PostgreSQL Suite: atomic transaction boundary, rol
     // Case 10: Audit and hash-chained provenance (`verifyProvenanceChain`) consistency
     // -------------------------------------------------------------------------
     const chainCheckA = await verifyProvenanceChain(pgClient, evidenceIdA);
+    // PAY-04 integration: the One CarUp verifier (OC-3D) also reports how many legacy v1 rows it could not reproduce.
     assert.deepEqual(chainCheckA, {
       valid: true,
       length: 2,
       brokenAt: null,
       reason: null,
+      legacyUnverifiable: 0,
     });
 
     const chainCheckB = await verifyProvenanceChain(pgClient, evidenceIdB);
@@ -1445,6 +1447,7 @@ test('STG01-R3-R1 Adversarial PostgreSQL Suite: atomic transaction boundary, rol
       length: 2,
       brokenAt: null,
       reason: null,
+      legacyUnverifiable: 0,
     });
 
     const auditRows = await pg.query(

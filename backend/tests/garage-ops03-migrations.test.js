@@ -62,6 +62,12 @@ async function confirmAppointment(appointmentId, workforceProfileId, start = SLO
   );
 }
 async function appointmentId(result) { return result.rows[0].id; }
+/** A Monday 7-13 days from now at 14:00Z: always in the future, never on the fixed 2026-10-26 slots. */
+const FUTURE_MONDAY_14Z = (() => {
+  const d = new Date(); d.setUTCHours(14, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() + 7 + ((8 - d.getUTCDay()) % 7));
+  return d;
+})();
 
 before(async () => {
   db = await createGmoDatabase();
@@ -636,9 +642,13 @@ test('future confirmed appointments block silent OPS01 site/workforce deactivati
     "INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ('OPS03VIN000000001',$1,$2,'customer-a','accepted') RETURNING id",
     [T.a,B.a1],
   )).rows[0].id;
-  const request = await requestAppointment(openCase,'customer-a','2026-10-26T14:00:00Z','2026-10-26T15:00:00Z');
+  // PAY-04 integration fix (date-expired fixture): the slot was the fixed 2026-10-26, which stopped being in the FUTURE on
+  // that date, so the guard this test pins could no longer be observed (it failed identically on the Garage parent
+  // 69e12e21). Any Monday inside the world's Monday hours is equivalent: 14:00Z is 16:00 Africa/Harare (no DST).
+  const at = (minutes) => new Date(FUTURE_MONDAY_14Z.getTime() + minutes * 60_000).toISOString();
+  const request = await requestAppointment(openCase,'customer-a',at(0),at(60));
   const appointment = await appointmentId(request);
-  await confirmAppointment(appointment,P.a2,'2026-10-26T14:00:00Z','2026-10-26T15:00:00Z');
+  await confirmAppointment(appointment,P.a2,at(0),at(60));
 
   assert.match(
     (await rejected(db.query('UPDATE garage_branches SET is_active=false WHERE id=$1',[B.a1])))?.message || '',
@@ -651,7 +661,7 @@ test('future confirmed appointments block silent OPS01 site/workforce deactivati
   assert.match(
     (await rejected(db.query(
       "INSERT INTO garage_workforce_unavailability (tenant_id,workforce_profile_id,starts_at,ends_at,reason_code,created_by_user_id) VALUES ($1,$2,$3,$4,'leave','admin-a')",
-      [T.a,P.a2,'2026-10-26T14:15:00Z','2026-10-26T14:45:00Z'],
+      [T.a,P.a2,at(15),at(45)],
     )))?.message || '',
     /UNAVAILABILITY_CONFLICTS_CONFIRMED_APPOINTMENT/,
     'one-off unavailability cannot silently orphan a confirmed planned mechanic',
