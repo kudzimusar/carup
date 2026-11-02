@@ -270,7 +270,8 @@ describe('Tone and words follow the collection state (W5)', () => {
     fireEvent.click(await screen.findByTestId('paynow-check'))
     await waitFor(() => expect(screen.getByTestId('paynow-status-badge')).toHaveTextContent('Under review — not counted'))
     expect(screen.getByTestId('paynow-status-badge').className).not.toMatch(/green/)
-    expect(screen.getByTestId('paynow-status')).toHaveTextContent('Under review — not counted. Paynow reports it paid.')
+    // the live region takes its words one effect after the badge (W8: it is in the page, empty, before it speaks)
+    await waitFor(() => expect(screen.getByTestId('paynow-status')).toHaveTextContent('Under review — not counted. Paynow reports it paid.'))
   })
 
   it('a listed Paynow payment under review reads as such, never as paid', async () => {
@@ -335,7 +336,7 @@ describe('Focus follows the payment; live regions are there before they speak (W
     expect(heading.tagName).toMatch(/^H[1-6]$/)
     expect(heading).toHaveAttribute('tabindex', '-1')
     await waitFor(() => expect(regions.spoke()).toContain('paynow-status'))
-    expect(screen.getByTestId('paynow-status')).toHaveTextContent('Waiting for you to approve the payment on your phone')
+    await waitFor(() => expect(screen.getByTestId('paynow-status')).toHaveTextContent('Waiting for you to approve the payment on your phone'))
     const outcome = screen.getByTestId('paynow-outcome')
     expect(outcome).toHaveAttribute('role', 'status')
     expect(outcome).toHaveAttribute('aria-live', 'polite')
