@@ -27,6 +27,9 @@ const merchant = {
   history: [],
 }
 
+/** What useCarUpApi throws for an HTTP refusal: the server's code as the message, with its status and code. */
+const apiFailure = (code: string, status: number) => Object.assign(new Error(code), { status, code })
+
 async function fill() {
   render(<PaynowConnection />)
   await screen.findByTestId('garage-paynow-connect')
@@ -50,9 +53,10 @@ describe('Connecting the garage’s own Paynow account', () => {
     connectGaragePaynow.mockResolvedValue(base({ can_connect: false, merchant }))
     await fill()
     expect(screen.getByTestId('paynow-connect-USD-key')).toHaveAttribute('autocomplete', 'off')
-    expect(screen.getByTestId('paynow-connect-submit')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('paynow-connect-submit'))
+    expect(screen.getByTestId('paynow-connect-attest')).toHaveAccessibleDescription(/belong to this garage/)
+    expect(connectGaragePaynow).not.toHaveBeenCalled()
     fireEvent.click(screen.getByTestId('paynow-connect-attest'))
-    expect(screen.getByTestId('paynow-connect-submit')).toBeEnabled()
     fireEvent.click(screen.getByTestId('paynow-connect-submit'))
     await waitFor(() => expect(connectGaragePaynow).toHaveBeenCalledTimes(1))
     const sent = connectGaragePaynow.mock.calls[0][0]
@@ -100,6 +104,65 @@ describe('Connecting the garage’s own Paynow account', () => {
     fireEvent.click(screen.getByTestId('paynow-connect-submit'))
     expect(await screen.findByTestId('garage-paynow-message')).toHaveTextContent('already connected to another account')
     expect(screen.getByTestId('paynow-connect-USD-key')).toHaveValue('')
+  })
+
+  it('W7: Connect stays enabled; an empty form names each problem next to its field, focuses the first, and sends nothing', async () => {
+    render(<PaynowConnection />)
+    await screen.findByTestId('garage-paynow-connect')
+    const submit = screen.getByTestId('paynow-connect-submit')
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
+    const name = screen.getByTestId('paynow-connect-display_name')
+    await waitFor(() => expect(name).toHaveFocus())
+    expect(name).toHaveAttribute('aria-invalid', 'true')
+    expect(name).toHaveAccessibleDescription('Enter the name customers see.')
+    expect(screen.getByTestId('paynow-connect-USD-id')).toHaveAccessibleDescription(/1 to 12 digits/)
+    expect(screen.getByTestId('paynow-connect-USD-key')).toHaveAccessibleDescription(/at least 16 characters/)
+    expect(screen.getByTestId('paynow-connect-attest')).toHaveAttribute('aria-invalid', 'true')
+    expect(connectGaragePaynow).not.toHaveBeenCalled()
+  })
+
+  it('W7: says exactly what is wrong — a long name, an ID that is not 1–12 digits, a short key, no method — and keeps what was typed', async () => {
+    await fill()
+    fireEvent.change(screen.getByTestId('paynow-connect-display_name'), { target: { value: 'P'.repeat(121) } })
+    fireEvent.change(screen.getByTestId('paynow-connect-USD-id'), { target: { value: '1234567890123' } })
+    fireEvent.change(screen.getByTestId('paynow-connect-USD-key'), { target: { value: 'too-short-key' } })
+    fireEvent.click(screen.getByTestId('paynow-connect-USD-method-web')) // the only ticked method
+    fireEvent.click(screen.getByTestId('paynow-connect-attest'))
+    fireEvent.click(screen.getByTestId('paynow-connect-submit'))
+    const name = screen.getByTestId('paynow-connect-display_name')
+    await waitFor(() => expect(name).toHaveFocus())
+    expect(name).toHaveAccessibleDescription(/at most 120 characters/)
+    expect(screen.getByTestId('paynow-connect-USD-id')).toHaveAccessibleDescription(/1 to 12 digits/)
+    expect(screen.getByTestId('paynow-connect-USD-key')).toHaveAccessibleDescription(/at least 16 characters/)
+    expect(screen.getByTestId('paynow-connect-USD-methods-error')).toHaveTextContent('Tick at least one payment method')
+    expect(screen.getByTestId('paynow-connect-USD-method-ecocash')).toHaveAccessibleDescription(/Tick at least one payment method/)
+    expect(screen.getByTestId('paynow-connect-USD-key')).toHaveValue('too-short-key')
+    expect(name).toHaveValue('P'.repeat(121))
+    expect(screen.queryByTestId('garage-paynow-keys-cleared')).toBeNull()
+    expect(connectGaragePaynow).not.toHaveBeenCalled()
+  })
+
+  it('W7: a refusal is put next to its field, and the keys are cleared with a word saying to enter them again', async () => {
+    connectGaragePaynow.mockRejectedValue(apiFailure('PAY05_SETTLEMENT_ACCOUNT_INVALID', 422))
+    await fill()
+    fireEvent.click(screen.getByTestId('paynow-connect-attest'))
+    fireEvent.click(screen.getByTestId('paynow-connect-submit'))
+    const last4 = screen.getByTestId('paynow-connect-settlement_account_last4')
+    await waitFor(() => expect(last4).toHaveFocus())
+    expect(last4).toHaveAttribute('aria-invalid', 'true')
+    expect(last4).toHaveAccessibleDescription('Enter the last four digits of the settlement bank account.')
+    expect(screen.getByTestId('paynow-connect-USD-key')).toHaveValue('')
+    expect(screen.getByTestId('garage-paynow-keys-cleared')).toHaveTextContent('For your security the keys were cleared — enter them again.')
+  })
+
+  it('W7: a refusal no field explains reads in words in the message', async () => {
+    connectGaragePaynow.mockRejectedValue(apiFailure('PAY05_GARAGE_REQUIRED', 403))
+    await fill()
+    fireEvent.click(screen.getByTestId('paynow-connect-attest'))
+    fireEvent.click(screen.getByTestId('paynow-connect-submit'))
+    await waitFor(() => expect(screen.getByTestId('garage-paynow-message')).toHaveTextContent(/garage’s workspace/))
+    expect(screen.getByTestId('garage-paynow-message')).not.toHaveTextContent('PAY05_')
   })
 
   it('a failed load never reads as connected or disconnected', async () => {

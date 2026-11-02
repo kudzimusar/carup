@@ -58,6 +58,14 @@ describe('Paynow inputs and labels', () => {
     expect(pay05ErrorText('PAY05_SOMETHING_NEW')).toMatch(/Nothing was changed/)
     expect(pay05ErrorText('PAY04_AMOUNT_INVALID')).toBeNull()
   })
+  it('W7: every refusal of a Paynow connection reads as its own sentence, never the catch-all', () => {
+    const catchAll = pay05ErrorText('PAY05_SOMETHING_NEW')
+    for (const code of ['PAY05_REGISTRATION_NUMBER_INVALID', 'PAY05_GARAGE_REQUIRED', 'PAY05_PROFILE_INVALID', 'PAY05_INTEGRATION_ID_INVALID',
+      'PAY05_METHODS_INVALID', 'PAY05_SETTLEMENT_ACCOUNT_INVALID', 'PAY05_ATTESTATION_REQUIRED']) {
+      expect(pay05ErrorText(code), code).not.toBe(catchAll)
+    }
+    expect(pay05ErrorText('PAY05_INTEGRATION_ID_INVALID')).toMatch(/1 to 12 digits/)
+  })
   it('labels every method, status and provider-error kind', () => {
     expect(Object.keys(PAYNOW_METHOD_LABEL).sort()).toEqual(['ecocash', 'innbucks', 'omari', 'onemoney', 'web'])
     expect(Object.keys(PAYNOW_STATUS_SHORT)).toHaveLength(10)

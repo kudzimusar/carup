@@ -53,6 +53,8 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
   const amountProblem = amount.trim() ? onlineAmountProblem(amount, option.max_amount, option.currency) : null
   const phoneIssue = needsPhone(method) && phone.trim() ? phoneProblem(phone) : null
   const ready = Boolean(amount.trim()) && !amountProblem && (!needsPhone(method) || (Boolean(phone.trim()) && !phoneIssue))
+  // Pay cannot be pressed without the number: say so, next to the field and on the button
+  const phoneMissing = needsPhone(method) && !phone.trim()
   // any change to what is being asked for is a NEW request with its own idempotency key
   const changed = () => { setKey(newIdempotencyKey()); setProblem(null) }
 
@@ -151,11 +153,12 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
                 aria-invalid={Boolean(phoneIssue)} aria-describedby={phoneIssue ? `${uid}-phone-problem` : undefined}
                 className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm" data-testid="paynow-phone" />
               {phoneIssue && <p id={`${uid}-phone-problem`} className="mt-1 text-sm text-red-800" data-testid="paynow-phone-problem">{phoneIssue}</p>}
+              {phoneMissing && <p id={`${uid}-phone-hint`} className="mt-1 text-sm text-gray-700" data-testid="paynow-phone-hint">Enter the mobile number to pay from.</p>}
             </div>
           )}
           {problem && <p className="rounded-md bg-red-50 p-2 text-red-900" role="alert" data-testid="paynow-error">{problem}</p>}
           <Button className={`min-h-11 h-auto whitespace-normal py-2 text-left ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !ready}
-            onClick={() => void start()} data-testid="paynow-start">
+            aria-describedby={phoneMissing ? `${uid}-phone-hint` : undefined} onClick={() => void start()} data-testid="paynow-start">
             {busy ? 'Contacting Paynow…' : ready ? `Pay ${amount.trim()} ${option.currency} with ${PAYNOW_METHOD_LABEL[method]}` : 'Pay with Paynow'}
           </Button>
         </>
