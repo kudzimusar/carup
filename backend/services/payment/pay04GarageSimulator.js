@@ -192,9 +192,10 @@ export class Pay04GarageSimulatorProvider {
 
   /**
    * UAT only (administrator route): make the provider REPORT something untrue about a payment — another amount,
-   * currency or merchant — so the discrepancy path can be exercised end to end. Cleared with `{}`.
+   * currency or merchant — so the discrepancy path can be exercised end to end, or make its read API UNAVAILABLE for
+   * that payment (an outage while the money is taken). Cleared with `{}`.
    */
-  async misreport({ paymentId, amountMinor = null, currency = null, merchantReference = null }) {
+  async misreport({ paymentId, amountMinor = null, currency = null, merchantReference = null, unavailable = false }) {
     return this.mutate((state) => {
       const payment = state.payments[paymentId];
       if (!payment) throw new Pay04Error('PAY04_SIMULATOR_PAYMENT_NOT_FOUND', 404);
@@ -202,6 +203,7 @@ export class Pay04GarageSimulatorProvider {
       if (amountMinor !== null) fault.amountMinor = Number(amountMinor);
       if (currency !== null) fault.currency = String(currency).toUpperCase();
       if (merchantReference !== null) fault.merchantReference = String(merchantReference);
+      if (unavailable === true) fault.unavailable = true;
       if (Object.keys(fault).length) state.faults[paymentId] = fault; else delete state.faults[paymentId];
       return { paymentId, fault: state.faults[paymentId] || null, events: [this.event(state, 'payment.updated', payment)] };
     });
@@ -217,6 +219,7 @@ export class Pay04GarageSimulatorProvider {
     const payment = state.payments[paymentId];
     if (!payment) throw new Pay04Error('PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE', 502);
     const fault = state.faults[paymentId] || {};
+    if (fault.unavailable) throw new Pay04Error('PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE', 502);
     const reported = {
       amountMinor: fault.amountMinor ?? payment.amountMinor,
       currency: fault.currency ?? payment.currency,

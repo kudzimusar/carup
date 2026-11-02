@@ -291,6 +291,27 @@ test('a provider that misreports the amount opens a discrepancy and changes no m
   assert.equal(garage.money.payment_status, 'paid');
 });
 
+test('a provider read outage never fabricates a payment: the webhook fails safe, the money stays uncounted, and it is confirmed once the provider is back', { skip }, async () => {
+  const inv = await invoice(55);
+  const started = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv.id, body: {}, idempotencyKey: `p4t-outage-${run}-01` });
+  const c = await collectionOf(started.collection_id);
+  await sim.misreport({ paymentId: c.provider_payment_id, unavailable: true });
+  // the customer pays at the provider; the provider's webhook arrives, but CarUp cannot read the provider
+  const checkoutId = new URL(started.checkout_url).pathname.split('/').pop();
+  const { events } = await sim.completeCheckout(checkoutId, { outcome: 'success' });
+  await rejectsWith(S.processGarageProviderEvent({ db, env, provider: sim, event: sim.verifyWebhook(sim.signEvent(events[0])), deps }), 'PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE');
+  await rejectsWith(S.verifyCustomerCollection({ db, env, provider: sim, actor: customer(), collectionId: started.collection_id, deps }), 'PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE');
+  assert.equal((await collectionOf(started.collection_id)).payment_status, 'pending', 'nothing was fabricated');
+  let m = await S.invoiceMoney(db, inv.id);
+  assert.deepEqual([m.paid_amount, m.provider_reserved], ['0.00', '55.00'], 'uncounted and still reserved');
+  // the provider is back: the same webhook (redelivered) is applied from a fresh read
+  await sim.misreport({ paymentId: c.provider_payment_id });
+  const delivered = await S.processGarageProviderEvent({ db, env, provider: sim, event: sim.verifyWebhook(sim.signEvent(events[0])), deps });
+  assert.equal(delivered.applied, true);
+  m = await S.invoiceMoney(db, inv.id);
+  assert.deepEqual([m.provider_paid, m.payment_status], ['55.00', 'paid']);
+});
+
 test('a declined card changes nothing; the customer can stop the checkout and the reservation is released', { skip }, async () => {
   const inv = await invoice(30);
   const started = await S.startGarageInvoicePayment({ db, env, provider: sim, actor: customer(), invoiceId: inv.id, body: {}, idempotencyKey: `p4t-dec-${run}-01` });

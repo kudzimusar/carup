@@ -199,7 +199,7 @@ router.post('/api/pay04/simulator/payments/:paymentId/misreport', adminSession, 
   try {
     const simulator = simulatorFor(req);
     const result = await simulator.misreport({ paymentId: req.params.paymentId, amountMinor: req.body?.amountMinor ?? null,
-      currency: req.body?.currency ?? null, merchantReference: req.body?.merchantReference ?? null });
+      currency: req.body?.currency ?? null, merchantReference: req.body?.merchantReference ?? null, unavailable: req.body?.unavailable === true });
     return res.status(200).json({ simulated: true, fault: result.fault, delivered: await deliverSimulatorEvents(simulator, result.events) });
   } catch (err) {
     return respondError(res, err);
