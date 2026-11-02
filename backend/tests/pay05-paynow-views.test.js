@@ -42,3 +42,14 @@ test('every reported status keeps its own words, and nothing here ever claims mo
     assert.doesNotMatch(paynowView(tx(method)).provider_status_label, /\bpaid\b|confirmed/i, method);
   }
 });
+
+// physical rehearsal (browser, EcoCash pending): every Paynow row — still waiting, or confirmed — carries the channel
+// line. "Paid through …" on a row still waiting for Paynow claimed money nobody had confirmed. The line names the
+// channel only, in PAY-04's own words for its provider channel.
+test('the Paynow channel line never claims a payment; it reads like PAY-04\'s provider channel', async () => {
+  const { PAY05_LABELS } = await import('../services/payment/pay05Contract.js');
+  const { PAY04_LABELS } = await import('../services/payment/pay04Contract.js');
+  assert.doesNotMatch(PAY05_LABELS.paynowChannel, /^paid\b/i);
+  assert.equal(PAY05_LABELS.paynowChannel, 'Through the garage’s own Paynow account. Money paid this way goes to the garage, not to CarUp.');
+  assert.equal(PAY04_LABELS.providerChannel, 'Through the garage’s own payment provider. Money paid this way goes to the garage, not to CarUp.');
+});

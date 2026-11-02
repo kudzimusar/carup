@@ -47,7 +47,8 @@ export const PAY05_PAYNOW_CAPABILITIES = Object.freeze({
 });
 
 export const PAY05_LABELS = Object.freeze({
-  paynowChannel: 'Paid through the garage’s own Paynow account. The money goes to the garage, not to CarUp.',
+  // the channel only, never a payment claim (it labels rows still waiting for Paynow too) — PAY-04's providerChannel words
+  paynowChannel: 'Through the garage’s own Paynow account. Money paid this way goes to the garage, not to CarUp.',
   simulated: 'Simulated Paynow — local test environment. No real money moves.',
   waiting: 'Waiting for Paynow. Nothing is counted until Paynow confirms the payment.',
   escrow: 'Paid to Paynow and held by Paynow until it is released to the garage. Not yet counted on the invoice.',

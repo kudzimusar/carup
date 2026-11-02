@@ -13,7 +13,7 @@
  *   PLAYWRIGHT_BASE_URL=http://127.0.0.1:5203 \
  *   npx playwright test e2e/pay05-zimbabwe-paynow.spec.ts --project=chromium --headed --retries=0
  */
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -157,18 +157,27 @@ async function axeClean(page: Page, include: string) {
   expect(found, `no WCAG 2.2 A/AA violations in ${include}`).toEqual([])
 }
 /** Element screenshots only (full-page captures of long pages repeat the top); sticky chrome hidden during capture only. */
-async function shot(page: Page, selector: string, name: string) {
-  await page.locator(selector).first().screenshot({ path: `${SCREENS}/${name}.png`,
+async function shot(page: Page, target: string | Locator, name: string) {
+  const locator = typeof target === 'string' ? page.locator(target).first() : target
+  await locator.screenshot({ path: `${SCREENS}/${name}.png`,
     style: '.sticky.top-0, .fixed.bottom-0 { opacity: 0 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }' })
 }
 /** The customer's invoice card for one invoice, with its "how to pay" opened. */
-async function openHowToPay(page: Page, number: string) {
+/** Garage C's invoice <number>: numbers repeat across garages and "INV-000001" is a prefix of "INV-000010", so the card
+ *  is found inside garage C's request card by its exact heading. */
+const invoiceCard = (page: Page, number: string) => page.getByTestId('service-request-card')
+  .filter({ has: page.getByTestId('request-garage').filter({ hasText: 'PAY05 QA Garage C' }) })
+  .getByTestId('invoice-card')
+  .filter({ has: page.getByRole('heading', { name: `Invoice ${number}`, exact: true }) })
+async function openHowToPay(page: Page, number: string, { checkout = true } = {}) {
   await page.goto('/dashboard/service-requests')
-  const card = page.getByTestId('invoice-card').filter({ hasText: `Invoice ${number}` })
+  const card = invoiceCard(page, number)
   await expect(card).toBeVisible({ timeout: 30_000 })
   const toggle = card.getByTestId('how-to-pay-toggle')
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
-  await expect(card.getByTestId('paynow-checkout')).toBeVisible({ timeout: 30_000 })
+  // a payment in progress for the whole balance offers "continue this payment", not a second checkout
+  if (checkout) await expect(card.getByTestId('paynow-checkout')).toBeVisible({ timeout: 30_000 })
+  else await expect(card.getByTestId('my-provider-payments')).toBeVisible({ timeout: 30_000 })
   return card
 }
 
@@ -282,7 +291,7 @@ test('D/E (browser, desktop): the customer pays on Paynow\'s (simulated) page; c
   await expect(card.getByTestId('paynow-no-redirect-proof')).toBeVisible()
   await card.getByTestId('paynow-method-web').check()
   await axeClean(page, '[data-testid="invoice-card"]')
-  await shot(page, `[data-testid="invoice-card"]:has-text("Invoice ${state.web.number}")`, '05-customer-paynow-methods-desktop')
+  await shot(page, invoiceCard(page, state.web.number), '05-customer-paynow-methods-desktop')
   await card.getByTestId('paynow-start').click()
   await page.waitForURL(/127\.0\.0\.1:5071\/Payment\/ConfirmPayment\//i, { timeout: 60_000 })
   await expect(page.getByTestId('simulated-paynow-status')).toHaveText('Created')
@@ -313,12 +322,12 @@ test('D/E (browser, tablet): EcoCash — "approve on your phone" is pending, nev
   await expect(card.getByTestId('paynow-pending')).toBeVisible({ timeout: 60_000 })
   await expect(card.getByTestId('paynow-status-badge')).not.toContainText(/^Paid/)
   await axeClean(page, '[data-testid="invoice-card"]')
-  await shot(page, `[data-testid="invoice-card"]:has-text("Invoice ${inv.number}")`, '08-customer-ecocash-pending-tablet')
+  await shot(page, invoiceCard(page, inv.number), '08-customer-ecocash-pending-tablet')
   const collectionId = sql(`select id from pay04_garage_collections where invoice_id = ${lit(inv.invoiceId)} order by initiated_at desc limit 1`)
   await expect.poll(() => payStatus(collectionId), { timeout: 60_000 }).toBe('paid')
   await card.getByTestId('paynow-check').click()
   await expect(card.getByTestId('paynow-outcome')).not.toBeEmpty({ timeout: 60_000 })
-  await shot(page, `[data-testid="invoice-card"]:has-text("Invoice ${inv.number}")`, '09-customer-ecocash-confirmed-tablet')
+  await shot(page, invoiceCard(page, inv.number), '09-customer-ecocash-confirmed-tablet')
   note('customer-ecocash', { collection: collectionId, status: payStatus(collectionId) })
 })
 
@@ -337,11 +346,12 @@ test('D/E (browser, mobile): InnBucks — the code stays on screen, survives a r
   await expect(code).toBeVisible()
   await noHorizontalOverflow(page)
   await axeClean(page, '[data-testid="invoice-card"]')
-  await shot(page, `[data-testid="invoice-card"]:has-text("Invoice ${inv.number}")`, '10-customer-innbucks-code-mobile')
+  await shot(page, invoiceCard(page, inv.number), '10-customer-innbucks-code-mobile')
   // a reload: the existing request can be continued, with the same code (independent review W2)
-  const again = await openHowToPay(page, inv.number)
+  const again = await openHowToPay(page, inv.number, { checkout: false })
+  await expect(again.getByTestId('paynow-checkout')).toHaveCount(0)
   await expect(again.getByTestId('paynow-innbucks-code').first()).toHaveText(shown, { timeout: 30_000 })
-  await shot(page, `[data-testid="invoice-card"]:has-text("Invoice ${inv.number}")`, '11-customer-innbucks-continue-mobile')
+  await shot(page, invoiceCard(page, inv.number), '11-customer-innbucks-continue-mobile')
   const collectionId = sql(`select id from pay04_garage_collections where invoice_id = ${lit(inv.invoiceId)} order by initiated_at desc limit 1`)
   const tx = await simTxFor(collectionId)
   await sim('POST', `/transactions/${tx!.guid}/status`, { status: 'Paid' })
@@ -361,7 +371,7 @@ test('D/E (browser, mobile): O\'mari — a wrong code is refused in words; the r
   await card.getByTestId('paynow-otp-input').fill('000000')
   await card.getByTestId('paynow-otp-submit').click()
   await expect(card.getByText(/code/i).first()).toBeVisible()
-  await shot(page, `[data-testid="invoice-card"]:has-text("Invoice ${inv.number}")`, '12-customer-omari-wrong-code-mobile')
+  await shot(page, invoiceCard(page, inv.number), '12-customer-omari-wrong-code-mobile')
   const outbox = (await sim('GET', '/otp')) as Array<{ phone: string; otp: string }>
   const otp = outbox.filter((o) => o.phone === '0779000202').pop()!.otp
   await card.getByTestId('paynow-otp-input').fill(otp)
@@ -370,7 +380,7 @@ test('D/E (browser, mobile): O\'mari — a wrong code is refused in words; the r
   await expect.poll(() => payStatus(collectionId), { timeout: 60_000 }).toBe('paid')
   await noHorizontalOverflow(page)
   await axeClean(page, '[data-testid="invoice-card"]')
-  await shot(page, `[data-testid="invoice-card"]:has-text("Invoice ${inv.number}")`, '13-customer-omari-confirmed-mobile')
+  await shot(page, invoiceCard(page, inv.number), '13-customer-omari-confirmed-mobile')
   note('customer-omari', { collection: collectionId, status: payStatus(collectionId) })
 })
 
@@ -397,12 +407,13 @@ test('E (browser, desktop): a stopped request stays HELD — the operator sees i
   await page.setViewportSize({ width: 1440, height: 900 })
   await login(page, 'ops')
   await page.goto('/admin/garage-payments')
-  const held = page.getByTestId('paynow-op-held')
+  // one row per held request: garage C's, for exactly this invoice number (numbers repeat across garages)
+  const held = page.getByTestId('paynow-op-held').filter({ hasText: new RegExp(`PAY05 QA Garage C.* · invoice ${inv.number} · `) })
   await expect(held).toBeVisible({ timeout: 30_000 })
-  await expect(held).toContainText(inv.number, { timeout: 30_000 })
-  await expect(held.getByTestId('paynow-op-release-wait').first()).toBeVisible()
+  await expect(held.getByTestId('paynow-op-release-wait')).toBeVisible()
+  await expect(held.getByTestId('paynow-op-release')).toBeDisabled()
   await axeClean(page, '[data-testid="paynow-operator"]')
-  await shot(page, '[data-testid="paynow-op-held"]', '15-operator-held-request-desktop')
+  await shot(page, held, '15-operator-held-request-desktop')
   note('operator-held', { collection: started.collection_id })
 })
 
@@ -414,7 +425,7 @@ for (const vp of VIEWPORTS) {
     await openHowToPay(page, inv.number)
     await noHorizontalOverflow(page)
     await axeClean(page, '[data-testid="invoice-card"]')
-    await shot(page, `[data-testid="invoice-card"]:has-text("Invoice ${inv.number}")`, `16-customer-paynow-checkout-${vp.name}`)
+    await shot(page, invoiceCard(page, inv.number), `16-customer-paynow-checkout-${vp.name}`)
 
     await login(page, 'adminC')
     await actForGarageC(page)
