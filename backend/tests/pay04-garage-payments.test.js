@@ -232,7 +232,10 @@ test('a forged or stale webhook is refused before anything is read or written', 
   const event = { id: 'evt_gsim_forged_0001', object: 'event', type: 'payment.succeeded', created: 1, livemode: false,
     gateway: 'pay04_garage_provider_simulator', data: { payment: { id: 'sim_pi_gar_forged' } } };
   const signed = sim.signEvent(event);
-  assert.throws(() => sim.verifyWebhook({ rawBody: signed.rawBody, signature: signed.signature.replace(/v1=./, 'v1=0') }), { code: 'PAY04_SIMULATOR_SIGNATURE_INVALID' });
+  // a forgery must actually differ: flip the first signature digit (a fixed '0' left 1 signature in 16 unchanged — a CI flake)
+  const forged = signed.signature.replace(/v1=(.)/, (_, c) => `v1=${c === '0' ? '1' : '0'}`);
+  assert.notEqual(forged, signed.signature);
+  assert.throws(() => sim.verifyWebhook({ rawBody: signed.rawBody, signature: forged }), { code: 'PAY04_SIMULATOR_SIGNATURE_INVALID' });
   const stale = `t=${Math.floor(Date.now() / 1000) - 3600},${signed.signature.split(',')[1]}`;
   assert.throws(() => sim.verifyWebhook({ rawBody: signed.rawBody, signature: stale }), { code: 'PAY04_SIMULATOR_SIGNATURE_INVALID' });
   const other = new Pay04GarageSimulatorProvider({ env: { ...env, CARUP_PAY04_SIMULATOR_WEBHOOK_SECRET: 'gsimsec_anotherSecretValue0000' } });
