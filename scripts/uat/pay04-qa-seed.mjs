@@ -3,7 +3,7 @@
 // Synthetic QA identities only (reserved `.invalid` TLD). Nothing here is, or may be reported as, a real garage, a real
 // customer, a real price or a real payment.
 //
-// Product paths are used wherever the product has one: registration and login; the simulated garage merchant account
+// Product paths are used wherever the product has one: login (registration: see the AUTH-05 note below); the simulated garage merchant account
 // (operator route); the garage's payment instructions (garage-admin route). Garage onboarding is certified by GMO-1..8
 // and is not under test here, so the rows it produces (garage tenant, membership, branch, workforce, published public
 // profile) and the customers' vehicles are seeded in SQL, the same way the PAY-03B seed seeds tenants.
@@ -12,6 +12,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { ACCOUNTS_FILE, API, AUTHORITY, EVIDENCE_DIR, call, identity, lit, login, requirePay04UatDatabase, sql } from './pay04-uat-lib.mjs';
+import { hashPassword } from '../../backend/utils/passwordAuth.js';
 
 mkdirSync(EVIDENCE_DIR, { recursive: true, mode: 0o700 });
 
@@ -32,12 +33,18 @@ const DEFS = {
 const accounts = existsSync(ACCOUNTS_FILE) ? JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf8')) : {};
 for (const [key, def] of Object.entries(DEFS)) accounts[key] ||= { ...def, password: randomBytes(18).toString('base64url') };
 
+// Public registration (POST /api/auth/register) is ONE statement on the CA-K3-AUTH-05 dedicated session authority, whose
+// pool is TLS-pinned to Supabase's CA and so cannot connect to a local stack (by design; production-only). The synthetic
+// accounts are therefore created here with the backend's OWN password hashing, and every session below is minted by the
+// real POST /api/auth/login (the AUTH-05 local/test session adapter, disabled in every declared deployment).
 for (const key of Object.keys(DEFS)) {
   const acct = accounts[key];
   const exists = sql(`select count(*) from public.users where email = ${lit(acct.email)}`) === '1';
   if (!exists) {
-    const r = await call('POST', '/api/auth/register', { name: acct.name, email: acct.email, password: acct.password });
-    if (r.status >= 300) throw new Error(`register ${key} failed: ${r.status} ${JSON.stringify(r.json).slice(0, 160)}`);
+    const id = `p4qa_${key.toLowerCase()}_${randomBytes(4).toString('hex')}`;
+    const hash = await hashPassword(acct.password);
+    sql(`insert into public.users (id, name, email, role, join_date, password_hash, is_verified)
+         values (${lit(id)}, ${lit(acct.name)}, ${lit(acct.email)}, ${lit(acct.role)}, current_date, ${lit(hash)}, true)`);
   }
   sql(`update public.users set role = ${lit(acct.role)}, is_verified = true where email = ${lit(acct.email)} and role is distinct from ${lit(acct.role)}`);
   acct.userId = sql(`select id from public.users where email = ${lit(acct.email)}`);
