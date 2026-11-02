@@ -25,7 +25,6 @@ readonly WEB_PORT=5203
 readonly SIM_PORT=5071
 readonly EVIDENCE_ROOT="$HOME/carup-launch-evidence/pay05"
 readonly RUNTIME_DIR="$EVIDENCE_ROOT/runtime"
-readonly PAY04_EVIDENCE_ROOT="$HOME/carup-launch-evidence/pay04"
 readonly WEB_ORIGIN="http://127.0.0.1:${WEB_PORT}"
 readonly API_ORIGIN="http://127.0.0.1:${BACKEND_PORT}"
 readonly SIM_ORIGIN="http://127.0.0.1:${SIM_PORT}"
@@ -105,7 +104,8 @@ case "$ROLE" in
     sim_rc=0; curl -fsS --max-time 3 -o /dev/null -X POST "$SIM_ORIGIN/__control/run-due" 2>/dev/null || sim_rc=$?
     # 403 without the token proves the simulator (not something else) is listening; curl -f exits 22 on it
     [ "$sim_rc" -eq 22 ] || fail "the Paynow protocol simulator is not answering on $SIM_ORIGIN; start the 'simulator' role first."
-    mkdir -p "$PAY04_EVIDENCE_ROOT/simulator"
+    # the PAY-04 garage-provider simulator's state for THIS runtime: PAY-04's accepted evidence is never written to
+    mkdir -p "$EVIDENCE_ROOT/pay04-simulator"
     KEK="$(runtime_kek)"
     SIM_SECRET="gsimsec_$(openssl rand -hex 16)"
     extra=()
@@ -124,7 +124,7 @@ case "$ROLE" in
       CARUP_BUILD_SHA="$EXPECTED_SHA" \
       CARUP_PAY01A_ENABLED=false CARUP_PAY01C_ENABLED=false CARUP_PAY03B_ENABLED=false \
       CARUP_PAY04_ENABLED=true CARUP_PAY04_PROVIDER_MODE=local_simulator \
-      CARUP_PAY04_SIMULATOR_STATE_FILE="$PAY04_EVIDENCE_ROOT/simulator/state.json" \
+      CARUP_PAY04_SIMULATOR_STATE_FILE="$EVIDENCE_ROOT/pay04-simulator/state.json" \
       CARUP_PAY04_SIMULATOR_WEBHOOK_SECRET="$SIM_SECRET" \
       CARUP_PAY04_SIMULATOR_PUBLIC_ORIGIN="$API_ORIGIN" \
       CARUP_PAY04_RETURN_ORIGIN="$WEB_ORIGIN" \
