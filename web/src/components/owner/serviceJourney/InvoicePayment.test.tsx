@@ -152,6 +152,25 @@ describe('How to pay', () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
   })
 
+  it('a refresh that fails keeps what is shown, says it may be out of date, and can be retried (never back to "Loading")', async () => {
+    const pending = { id: 'c1', amount: '50.00', currency: 'USD', initiated_at: '2026-11-02T00:00:00Z', expires_at: '2026-11-02T00:30:00Z', cancelled_at: null,
+      state: 'awaiting_provider', state_label: 'Waiting for the provider to confirm', payment_status: 'pending', gateway: 'pay04_garage_provider_simulator',
+      simulated: true, source_label: '' }
+    fetchGarageInvoicePaymentOptions.mockResolvedValueOnce(options({ provider_payments: [pending] })).mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce(options({ provider_payments: [pending] }))
+    verifyGarageInvoicePayment.mockResolvedValue({ collection: { state: 'awaiting_provider' }, applied: true, money: {} })
+    render(<InvoicePayment invoice={invoice} />)
+    fireEvent.click(screen.getByTestId('how-to-pay-toggle'))
+    fireEvent.click(await screen.findByTestId('my-provider-payment-check'))
+    await waitFor(() => expect(screen.getByTestId('how-to-pay-refreshing')).toHaveTextContent('may be out of date'))
+    expect(screen.queryByTestId('how-to-pay-loading')).toBeNull()
+    expect(screen.queryByTestId('how-to-pay-error')).toBeNull()
+    expect(screen.getByTestId('my-provider-payment')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('how-to-pay-refresh'))
+    await waitFor(() => expect(screen.getByTestId('how-to-pay-refreshing')).toBeEmptyDOMElement())
+    expect(fetchGarageInvoicePaymentOptions).toHaveBeenCalledTimes(3)
+  })
+
   it('checking a payment in progress never claims success before the provider confirms it', async () => {
     fetchGarageInvoicePaymentOptions.mockResolvedValue(options({ provider_payments: [{ id: 'c1', amount: '50.00', currency: 'USD', initiated_at: '2026-11-02T00:00:00Z',
       expires_at: '2026-11-02T00:30:00Z', cancelled_at: null, state: 'awaiting_provider', state_label: 'Waiting for the provider to confirm', payment_status: 'pending',

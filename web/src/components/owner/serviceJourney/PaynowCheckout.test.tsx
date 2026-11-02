@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { CustomerInvoice } from '@/lib/garageBusiness'
 
 /**
@@ -35,10 +35,19 @@ const paynowView = (over: Record<string, unknown> = {}) => ({
   checkout_url: null, instructions: 'Dial *151*2*4# and enter your EcoCash PIN.', authorization_code: null, authorization_expires: null, otp_reference: null,
   needs_otp: false, phone: '077*****67', hold_released: false, ...over,
 })
+const COLLECTION = '11111111-2222-3333-4444-555555555555'
 const started = (paynow: Record<string, unknown>, checkout_url: string | null = null) => ({
-  collection_id: '11111111-2222-3333-4444-555555555555', gateway: 'paynow_zimbabwe', replayed: false, simulated: true, amount: '60.00', currency: 'USD',
+  collection_id: COLLECTION, gateway: 'paynow_zimbabwe', replayed: false, simulated: true, amount: '60.00', currency: 'USD',
   expires_at: '', checkout_url, paynow: paynowView(paynow), notice: '', cannot_cancel: 'Paynow cannot cancel a payment request.',
 })
+/** The customer's provider-payments row for a Paynow request, as the payment-options read lists it. */
+const row = (paynow: Record<string, unknown>, over: Record<string, unknown> = {}) => ({
+  id: COLLECTION, amount: '60.00', currency: 'USD', initiated_at: '2026-11-02T10:00:00Z', expires_at: '2026-11-02T10:30:00Z', cancelled_at: null,
+  state: 'awaiting_provider', state_label: 'Waiting for the provider to confirm', payment_status: 'pending', gateway: 'paynow_zimbabwe', simulated: true,
+  source_label: '', paynow: paynowView(paynow), ...over,
+})
+/** A network read answers later than the click that caused it: same-tick mocks hid W1. */
+const later = <T,>(value: T, ms = 50) => new Promise<T>((resolve) => { setTimeout(() => resolve(value), ms) })
 
 async function openPaynow() {
   render(<InvoicePayment invoice={invoice} />)
@@ -144,6 +153,42 @@ describe('Paying the garage with Paynow', () => {
     fireEvent.click(screen.getByTestId('paynow-start'))
     await waitFor(() => expect(startGarageInvoicePayment).toHaveBeenCalledTimes(2))
     expect(startGarageInvoicePayment.mock.calls[1][2]).not.toBe(firstKey)
+  })
+
+  it('W1: a started express payment stays on screen while How to pay refreshes in place', async () => {
+    startGarageInvoicePayment.mockResolvedValueOnce(started({ method: 'innbucks', authorization_code: '123456789', authorization_expires: '2-Nov-2026 18:00' }))
+    await openPaynow()
+    let refreshes = 0
+    fetchGarageInvoicePaymentOptions.mockImplementation(() => { refreshes += 1; return later(options()) })
+    fireEvent.click(screen.getByTestId('paynow-method-innbucks'))
+    fireEvent.change(screen.getByTestId('paynow-phone'), { target: { value: '0771234567' } })
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    expect(await screen.findByTestId('paynow-innbucks-code', {}, { timeout: 2000 })).toHaveTextContent('123456789')
+    expect(screen.queryByTestId('how-to-pay-loading')).toBeNull()
+    await waitFor(() => expect(refreshes).toBe(1))
+    await act(() => later(null, 80)) // the refresh answers
+    expect(screen.getByTestId('paynow-innbucks-code')).toHaveTextContent('123456789')
+    expect(screen.queryByTestId('how-to-pay-loading')).toBeNull()
+  })
+
+  it('W1: once the whole balance is in progress, the checkout keeps showing the request it started — once, and as last read', async () => {
+    startGarageInvoicePayment.mockResolvedValueOnce(started({ method: 'omari', needs_otp: true, otp_reference: 'OTP1001' }))
+    await openPaynow()
+    // the realistic refresh: nothing is left to start (online payment is "in progress") and the request is listed below
+    fetchGarageInvoicePaymentOptions.mockImplementation(() => later(options({
+      online_payment: { available: false, reason: 'payment_in_progress' },
+      provider_payments: [row({ method: 'omari', needs_otp: true, otp_reference: 'OTP1002' })],
+    })))
+    fireEvent.click(screen.getByTestId('paynow-method-omari'))
+    fireEvent.change(screen.getByTestId('paynow-phone'), { target: { value: '0711234567' } })
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    expect(await screen.findByTestId('paynow-otp', {}, { timeout: 2000 })).toHaveTextContent('OTP1001')
+    await act(() => later(null, 80))
+    expect(screen.getByTestId('my-provider-payment')).toBeInTheDocument()
+    expect(screen.getAllByTestId('paynow-otp')).toHaveLength(1)
+    const checkout = screen.getByTestId('paynow-checkout')
+    expect(within(checkout).getByTestId('paynow-otp')).toHaveTextContent('OTP1002')
+    expect(within(checkout).getByTestId('paynow-otp-input')).toBeInTheDocument()
   })
 
   it('an existing Paynow payment shows Paynow’s own status and a stop that says Paynow cannot cancel', async () => {

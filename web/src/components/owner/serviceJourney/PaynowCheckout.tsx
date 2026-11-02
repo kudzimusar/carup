@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -6,7 +6,7 @@ import { newIdempotencyKey } from '@/lib/garageBusiness'
 import { MONEY_ACTION_BUTTON_CLASS, onlineAmountProblem, pay04ErrorText } from '@/lib/pay04GaragePayments'
 import {
   PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_STATUS_SHORT, PAYNOW_STATUS_TONE, needsPhone, pay05ErrorText, paynowOutcomeMessage, phoneProblem,
-  type PaynowMethod, type PaynowOnlineOption, type PaynowOutcome, type PaynowStartResult, type PaynowView,
+  type PaynowMethod, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment, type PaynowStartResult, type PaynowView,
 } from '@/lib/pay05Paynow'
 
 const TONE = { ok: 'bg-green-50 text-green-900', wait: 'bg-amber-50 text-amber-900', warn: 'bg-amber-50 text-amber-900', error: 'bg-red-50 text-red-900' } as const
@@ -23,7 +23,15 @@ const errorText = (err: unknown, fallback: string) => {
  * SMS code. Nothing is called paid until CarUp reads Paynow's own status — and Paynow cannot cancel a request, which the
  * words say plainly.
  */
-export default function PaynowCheckout({ invoiceId, option, onChanged }: { invoiceId: string; option: PaynowOnlineOption; onChanged?: () => void }) {
+export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted, latest = null }: {
+  invoiceId: string
+  option: PaynowOnlineOption
+  onChanged?: () => void
+  /** the request this checkout started (its parent keeps the checkout on screen for it) */
+  onStarted?: (collectionId: string) => void
+  /** the invoice's latest read of that request, once a refresh lists it */
+  latest?: PaynowProviderPayment | null
+}) {
   const { startGarageInvoicePayment, verifyGarageInvoicePayment, submitPaynowOtp } = useCarUpApi()
   const uid = useId()
   const [amount, setAmount] = useState(option.max_amount)
@@ -36,6 +44,13 @@ export default function PaynowCheckout({ invoiceId, option, onChanged }: { invoi
   const [checked, setChecked] = useState<{ outcome: PaynowOutcome | null; failed: boolean } | null>(null)
   const [otp, setOtp] = useState('')
   const [otpProblem, setOtpProblem] = useState<string | null>(null)
+
+  // a refresh of the invoice is a newer read of the request started here than the one shown: adopt it
+  useEffect(() => {
+    if (!latest?.paynow) return
+    const fresh = latest.paynow
+    setPending((p) => (p && p.collectionId === latest.id ? { ...p, paynow: fresh } : p))
+  }, [latest])
 
   const amountProblem = amount.trim() ? onlineAmountProblem(amount, option.max_amount, option.currency) : null
   const phoneIssue = needsPhone(method) && phone.trim() ? phoneProblem(phone) : null
@@ -55,6 +70,7 @@ export default function PaynowCheckout({ invoiceId, option, onChanged }: { invoi
       }
       setPending({ collectionId: started.collection_id, amount: started.amount, currency: started.currency, paynow: started.paynow, cannotCancel: started.cannot_cancel })
       setChecked(null)
+      onStarted?.(started.collection_id)
       onChanged?.()
     } catch (err) {
       setProblem(errorText(err, 'The payment could not be started. Nothing was charged.'))

@@ -1,4 +1,4 @@
-import { useCallback, useId, useState } from 'react'
+import { useCallback, useId, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -37,17 +37,39 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
   const [checked, setChecked] = useState<{ id: string; outcome: CollectionOutcome | null; failed: boolean } | null>(null)
   const [stopAsk, setStopAsk] = useState<string | null>(null)
   const [stopError, setStopError] = useState<{ id: string; text: string } | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshFailed, setRefreshFailed] = useState(false)
+  // PAY-05: the request PaynowCheckout started. It stays on screen through every refresh — even once the whole balance is
+  // reserved and Paynow is no longer offered — so its code, OTP form or instructions never vanish right after "Pay".
+  const [paynowStarted, setPaynowStarted] = useState<{ collectionId: string; option: PaynowOnlineOption } | null>(null)
+  const loaded = useRef(false)
+  const reads = useRef(0)
 
+  /**
+   * The first read shows "Loading"; every later read refreshes IN PLACE: what is on screen stays rendered (a separate
+   * `refreshing` flag), because unmounting it would drop the payment the customer is in the middle of. A refresh that
+   * fails keeps what is shown and says it may be out of date; an older read never overwrites a newer one.
+   */
   const load = useCallback(async () => {
-    setState('loading')
+    const read = ++reads.current
+    const inPlace = loaded.current
+    if (inPlace) setRefreshing(true)
+    else setState('loading')
+    setRefreshFailed(false)
     try {
       const res = await fetchGarageInvoicePaymentOptions(invoice.id)
       if (!res || !res.money || !res.online_payment) throw new Error('Unexpected payment options response')
+      if (read !== reads.current) return
       setData(res)
       setAmount(res.online_payment.available ? res.online_payment.max_amount : '')
+      loaded.current = true
       setState('ready')
     } catch {
-      setState('error')
+      if (read !== reads.current) return
+      if (inPlace) setRefreshFailed(true)
+      else setState('error')
+    } finally {
+      if (read === reads.current) setRefreshing(false)
     }
   }, [fetchGarageInvoicePaymentOptions, invoice.id])
 
@@ -105,12 +127,18 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
   const option = data?.online_payment
   // PAY-05: the garage's live merchant is its own Paynow account
   const paynowOption = option?.available && 'gateway' in option && option.gateway === 'paynow_zimbabwe' ? (option as unknown as PaynowOnlineOption) : null
+  const checkoutOption = paynowOption ?? paynowStarted?.option ?? null
+  // the invoice's latest read of the request the checkout started: the freshest word on it after a refresh
+  const startedRow = paynowStarted ? (data?.provider_payments.find((p) => p.id === paynowStarted.collectionId) as PaynowProviderPayment | undefined) ?? null : null
   const amountProblem = option?.available && amount.trim() ? onlineAmountProblem(amount, option.max_amount, option.currency) : null
   const panelId = `${uid}-pay`
   return (
     <section className="mt-4 border-t pt-3" aria-labelledby={`${uid}-title`} data-testid="invoice-how-to-pay">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h5 id={`${uid}-title`} className="text-sm font-semibold text-gray-900">Paying this invoice</h5>
+        <span role="status" aria-live="polite" className="text-xs text-gray-700" data-testid="how-to-pay-refreshing">
+          {open && refreshing ? 'Updating…' : open && refreshFailed ? 'Could not update just now — what is shown may be out of date.' : ''}
+        </span>
         <Button variant="outline" className="min-h-11" aria-expanded={open} aria-controls={panelId} onClick={toggle} data-testid="how-to-pay-toggle">
           {open ? 'Hide how to pay' : 'How to pay'}
         </Button>
@@ -126,6 +154,11 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
           )}
           {state === 'ready' && data && (
             <>
+              {refreshFailed && (
+                <Button variant="outline" className="min-h-11" disabled={refreshing} onClick={() => void load()} data-testid="how-to-pay-refresh">
+                  Update the payments
+                </Button>
+              )}
               <div data-testid="how-to-pay-instructions">
                 {data.payment_instructions ? (
                   <div className="rounded-md border bg-gray-50 p-3">
@@ -142,8 +175,10 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
               </div>
 
               <div data-testid="online-payment">
-                {paynowOption ? (
-                  <PaynowCheckout invoiceId={invoice.id} option={paynowOption} onChanged={() => { void load(); onChanged?.() }} />
+                {checkoutOption ? (
+                  <PaynowCheckout invoiceId={invoice.id} option={checkoutOption} latest={startedRow}
+                    onStarted={(collectionId) => setPaynowStarted({ collectionId, option: checkoutOption })}
+                    onChanged={() => { void load(); onChanged?.() }} />
                 ) : option?.available ? (
                   <div className="rounded-md border p-3 space-y-2">
                     <p className="font-medium">Pay online through the garage’s payment provider</p>
