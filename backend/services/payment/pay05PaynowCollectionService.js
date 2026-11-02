@@ -486,4 +486,3 @@ export async function listHeldPaynowCollections({ db = defaultDb, env = process.
     }));
   return { held };
 }
-
