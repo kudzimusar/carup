@@ -74,11 +74,12 @@ export const PAYNOW_METHOD_HINT: Record<PaynowMethod, string> = {
   web: 'You will go to Paynow’s own page to pay.',
   ecocash: 'Paynow sends a payment request to your EcoCash phone; you approve it with your PIN.',
   onemoney: 'Paynow sends a payment request to your OneMoney phone; you approve it with your PIN.',
-  innbucks: 'Paynow gives you an InnBucks code to pay in the InnBucks app (US dollars only).',
+  innbucks: 'Enter the mobile number of your InnBucks account; Paynow gives you an InnBucks code to pay in the InnBucks app (US dollars only).',
   omari: 'O’mari sends a one-time password to your phone by SMS; you enter it here.',
 }
 
-export const PHONE_METHODS: PaynowMethod[] = ['ecocash', 'onemoney', 'omari']
+/** Paynow's express methods all start from the payer's mobile number; only Paynow's own page does not need one. */
+export const PHONE_METHODS: PaynowMethod[] = ['ecocash', 'onemoney', 'omari', 'innbucks']
 export const needsPhone = (method: PaynowMethod) => PHONE_METHODS.includes(method)
 
 /** Paynow documents mobile numbers as 07XXXXXXXX; +263 7… is accepted and normalised by the server. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CURRENCY_NAME, PAYNOW_METHOD_LABEL, PAYNOW_STATUS_SHORT, PROVIDER_ERROR_LABEL, needsPhone, pay05ErrorText, paynowOutcomeMessage, phoneProblem,
+  CURRENCY_NAME, PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_STATUS_SHORT, PROVIDER_ERROR_LABEL, needsPhone, pay05ErrorText, paynowOutcomeMessage, phoneProblem,
   type PaynowOutcome, type PaynowView,
 } from './pay05Paynow'
 
@@ -43,8 +43,9 @@ describe('Paynow inputs and labels', () => {
     for (const ok of ['0771234567', '+263 77 123 4567', '263711234567', '073-123-4567']) expect(phoneProblem(ok)).toBeNull()
     for (const bad of ['', '077123456', '0701234567', '+27771234567', '0871234567']) expect(phoneProblem(bad)).not.toBeNull()
   })
-  it('asks for a phone only for EcoCash, OneMoney and O’mari', () => {
-    expect((['web', 'ecocash', 'onemoney', 'innbucks', 'omari'] as const).filter(needsPhone)).toEqual(['ecocash', 'onemoney', 'omari'])
+  it('asks for a phone for every express method (EcoCash, OneMoney, InnBucks, O’mari), never for Paynow’s own page', () => {
+    expect((['web', 'ecocash', 'onemoney', 'innbucks', 'omari'] as const).filter(needsPhone)).toEqual(['ecocash', 'onemoney', 'innbucks', 'omari'])
+    expect(PAYNOW_METHOD_HINT.innbucks).toMatch(/mobile number/)
   })
   it('never uses ZIG as a currency code', () => {
     expect(Object.keys(CURRENCY_NAME)).toEqual(['USD', 'ZWG'])

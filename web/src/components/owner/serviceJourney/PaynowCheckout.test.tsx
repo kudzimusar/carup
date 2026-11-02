@@ -103,12 +103,16 @@ describe('Paying the garage with Paynow', () => {
     expect(said).toHaveAttribute('data-tone', 'wait')
   })
 
-  it('InnBucks shows its code; O’mari takes the SMS code and refuses junk before sending', async () => {
-    startGarageInvoicePayment.mockResolvedValueOnce(started({ method: 'innbucks', authorization_code: '123456789', authorization_expires: '2-Nov-2026 18:00', phone: null }))
+  it('InnBucks asks for the payer’s mobile number, sends it, then shows its code', async () => {
+    startGarageInvoicePayment.mockResolvedValueOnce(started({ method: 'innbucks', authorization_code: '123456789', authorization_expires: '2-Nov-2026 18:00', phone: '077*****67' }))
     await openPaynow()
     fireEvent.click(screen.getByTestId('paynow-method-innbucks'))
+    expect(screen.getByLabelText('InnBucks mobile number')).toBe(screen.getByTestId('paynow-phone'))
+    expect(screen.getByTestId('paynow-start')).toBeDisabled()
+    fireEvent.change(screen.getByTestId('paynow-phone'), { target: { value: '0771234567' } })
     fireEvent.click(screen.getByTestId('paynow-start'))
     expect(await screen.findByTestId('paynow-innbucks-code')).toHaveTextContent('123456789')
+    expect(startGarageInvoicePayment).toHaveBeenCalledWith('inv-9', { amount: '60.00', method: 'innbucks', phone: '0771234567' }, expect.any(String))
   })
 
   it('O’mari: the OTP is checked locally, sent to CarUp, and the outcome is Paynow’s', async () => {
