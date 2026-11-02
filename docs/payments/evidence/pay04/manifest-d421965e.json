@@ -1,0 +1,118 @@
+{
+  "candidate": "d421965ec3ffaea19a45a6a53fe4601fe89313fc",
+  "published_at": "2026-11-02T05:18:26.922Z",
+  "files": [
+    {
+      "file": "http-matrix-d421965e.json",
+      "sha256": "aac52dfa3d0a7a87db3f3824bbbc10c0c51ddfec3e01e79fc61284618eb860f9"
+    },
+    {
+      "file": "browser-journal-d421965e.json",
+      "sha256": "459e7f1423623cccad89b3f314c174906167a18534b1404653416427f1ebd541"
+    },
+    {
+      "file": "qa-seed-summary-d421965e.json",
+      "sha256": "d512cd491b911ded4a465b42d7d818863d5cd175018f3998761a8290777dd6cd"
+    },
+    {
+      "file": "screens/01-invoice-untrue-part-line-refused-desktop.png",
+      "sha256": "c71394a1ab6635aadc5cf2e1f71eee92341df333360c64ed19803cfdb4011f9a"
+    },
+    {
+      "file": "screens/02-garage-invoice-issued-desktop.png",
+      "sha256": "69992cda370b8f9b1540ba015e1ffd54c61948ca72fec9a27bebd71dc325cd1a"
+    },
+    {
+      "file": "screens/03-customer-invoice-how-to-pay-desktop.png",
+      "sha256": "e43982e94ceae24c097512dd3f1bfad8c567d6dd83c39914c314385c160ad254"
+    },
+    {
+      "file": "screens/04-simulated-garage-provider-checkout.png",
+      "sha256": "30f3dbfd96a8c95ff73e25e04c77b49a8d9b1162874e6e482f95602368ec247f"
+    },
+    {
+      "file": "screens/05-customer-return-confirmed-desktop.png",
+      "sha256": "18905c8985b69e0a4dce31036c0f7349d8bf6dbd0cae67424283eb3e80be56e8"
+    },
+    {
+      "file": "screens/06-customer-invoice-provider-confirmed-desktop.png",
+      "sha256": "655afaf02e56ba80be7bd0cb9fdc69c9aced13fe551b78aea961b1656732cc1a"
+    },
+    {
+      "file": "screens/07-garage-invoice-mixed-provenance-desktop.png",
+      "sha256": "8e881b1b5507ad8ff6bfdc595e7537c17a02d9ea9f64a22f6d76cecfb7c0905f"
+    },
+    {
+      "file": "screens/08-garage-refund-done-desktop.png",
+      "sha256": "19dd869887c453dd1c6730bfaf61861c92c5ab7832f9eb55420b2d73600a99df"
+    },
+    {
+      "file": "screens/09-customer-sees-refund-desktop.png",
+      "sha256": "dd33fea567bbeda3a5d335365127509ad2fbfcda5f397484bde59ebe89e21d11"
+    },
+    {
+      "file": "screens/10-operator-discrepancy-desktop.png",
+      "sha256": "4cb2bf89aea20019b580ae601c7544dc8c8826c32198eea260769ac35601b45f"
+    },
+    {
+      "file": "screens/11-customer-invoice-desktop.png",
+      "sha256": "8d452eb18a22220b6802d61f12577fd27e9cb2539b7d11fe8f3556830ef5a2c9"
+    },
+    {
+      "file": "screens/11-customer-invoice-mobile.png",
+      "sha256": "501d6b3747720fa88d9737eaf531b3f9309744ca3e2f376dc0014ba97589cd93"
+    },
+    {
+      "file": "screens/11-customer-invoice-tablet.png",
+      "sha256": "f2315b85e44dfc013a9595292f3f80be6504e2c8aa1c12a9b042a66337d9f9f3"
+    },
+    {
+      "file": "screens/12-garage-invoice-desktop.png",
+      "sha256": "76c1cf8c45f3a857092937480addce64a1ddad7c5c86e6a4e605ff3bc6f92122"
+    },
+    {
+      "file": "screens/12-garage-invoice-mobile.png",
+      "sha256": "604f4b46be4cb4b9df33ca78ba33ca76b844d7a6986bd02e6d5adc8d79379388"
+    },
+    {
+      "file": "screens/12-garage-invoice-tablet.png",
+      "sha256": "f9e2749b61c75b1b3f9fd9e53ca7c586f51e8e0866296eade6479707420445c3"
+    },
+    {
+      "file": "screens/13-garage-money-desktop.png",
+      "sha256": "2d67eaf995cd72301c365cfc2675173b7ba68472dc1274e304193470f231fee5"
+    },
+    {
+      "file": "screens/13-garage-money-mobile.png",
+      "sha256": "de72fde4fbac6034c10873730220fc37886c51c862fc73648db9ca9eee73669e"
+    },
+    {
+      "file": "screens/13-garage-money-tablet.png",
+      "sha256": "537f269ca573899b92cc999ccad57cfaab093278266d5a7df3e8fa67df337380"
+    },
+    {
+      "file": "screens/14-garage-instructions-desktop.png",
+      "sha256": "832837b5a7ffb438f553bca913acd5b4a44c5661de34dfea7b6dcf7d457dd770"
+    },
+    {
+      "file": "screens/14-garage-instructions-mobile.png",
+      "sha256": "48ba727019c6b9821fd5f487b3d0440a7517a2a476d7a57efac1151eb41c0fa7"
+    },
+    {
+      "file": "screens/14-garage-instructions-tablet.png",
+      "sha256": "dc524ce87621813bb775395eeabff02fd4f6cb789ca2fc9862511f31d81769c1"
+    },
+    {
+      "file": "screens/15-operator-merchants-desktop.png",
+      "sha256": "fbb686d1c9993593d8af534c52fd61e33d659df6bbebe257622557c1bbb88539"
+    },
+    {
+      "file": "screens/15-operator-merchants-mobile.png",
+      "sha256": "b15b6966febb5d1eaaf4332214425de0a783c4620fa351ad85ad29ceaf9e1c5a"
+    },
+    {
+      "file": "screens/15-operator-merchants-tablet.png",
+      "sha256": "067f641f5ec3b507e56043401795830f775eae4a74873a0d74f5fe2a9838f0f3"
+    }
+  ]
+}

@@ -98,6 +98,10 @@ PAY-04 migrations sort after both tips and carry `-- +migrate Up/Down`).
 
   Lines issued before PAY-04 are history: never re-judged (OPS07 lines are immutable). Stock is deducted exactly once —
   when consumption is recorded (OPS06) — never by invoicing, a payment or a provider webhook.
+- **Billed usage is not reversible** (`trg_pay04_guard_billed_usage_reversal`, BEFORE UPDATE on
+  `garage_service_part_usage`): a part billed on an **issued** invoice cannot be reversed (`PAY04_PART_USAGE_INVOICED`),
+  even when its completed work order has been reopened (OPS05 guards only *entering* Completed). Voiding the invoice
+  frees the usage; the garage is told so in words.
 - **Garage payment instructions** (`pay04_garage_payment_instructions`): the garage's own words on how to pay it
   (payee, text, accepted methods, currencies). Versioned and append-only (one active version; the only change is
   active → superseded); set only by a garage administrator through `pay04_set_garage_payment_instructions`; audited in
@@ -112,16 +116,18 @@ PAY-04 migrations sort after both tips and carry `-- +migrate Up/Down`).
 |---|---|
 | `pay04_runtime_guard` | singleton; the simulator gateway is refused unless a disposable database enables it |
 | `pay04_garage_merchant_accounts` | the garage's merchant identity at a provider; Level 1 admits only `pay04_garage_provider_simulator` with status `simulated` / `suspended`; registered and suspended only by a platform administrator; immutable except suspension |
-| `pay04_garage_collections` | one provider checkout for one invoice by one payer; immutable identity; provider ids and cancellation written once; `expires_at` bounds the reservation |
+| `pay04_garage_collections` | one provider checkout for one invoice by one payer; immutable identity; provider ids and cancellation written once; `expires_at` is given to the provider (its checkout takes no money afterwards); the provider's latest refund figures (`observed_refunded_minor`, `observed_pending_refund_minor`) |
 | `pay04_garage_payment_allocations` | **append-only** ledger counting provider money toward the invoice (allocation / deallocation); its insert guard keeps every invariant even for a direct writer: governed writer only, binding to the collection, net 0…amount per collection, declared + provider ≤ total per invoice, live invoice only |
 | `pay04_garage_provider_receipts` | one **live** receipt per collection, equal to the money it currently counts; numbered from the garage's own `RCT-` counter (shared with OPS07, gapless); voided, never deleted |
 | `pay04_garage_collection_events` | append-only history (who: the payer, the garage, an operator or `provider:<gateway>`) mirrored to `trust_audit_events` |
 | `pay04_provider_event_receipts` | provider event identity (`evt_gsim_…`): a replay changes nothing; a replay against another collection is refused |
-| `pay04_garage_payment_discrepancies` | provider evidence that does not match (`merchant_mismatch`, `currency_mismatch`, `amount_mismatch`) or money the invoice cannot absorb (`unallocated_provider_money`); first-detection evidence immutable; closed only by a platform operator, separated from the payer and the garage, with a written note — or automatically when the provider confirms a full refund |
+| `pay04_garage_payment_discrepancies` | provider evidence that does not match (`merchant_mismatch`, `currency_mismatch`, `amount_mismatch`), money the invoice cannot absorb (`unallocated_provider_money`), or refund the provider reports beyond an operator-verified final partial refund (`refund_after_resolution`); first-detection evidence immutable; closed by a platform operator, separated from the payer and the garage, with a written note — or by the database with the reason: `refunded_to_customer` (provider-confirmed full refund) or `counted_on_invoice` (the money now counts). An operator's `settled_off_platform` sticks: later reads never reopen it and that money never starts counting |
 
 **Derived money.** `pay04_invoice_money(invoice)` returns total, declared, provider-confirmed, paid, balance,
-**reserved** (provider money in flight: a live checkout, a refund in progress, an F5 hold, an unresolved provider
-mismatch) and the **uncommitted balance** (total − paid − reserved). OPS07's `garage_ops07_invoice_balance` is
+**reserved** (provider money not counted and not free: every checkout still `pending` — **including one the payer
+stopped or CarUp let expire, until the provider confirms it closed** — a refund in progress, an F5 hold, an unresolved
+provider mismatch, and the pending refunds of a final partial refund) and the **uncommitted balance** (total − paid −
+reserved). OPS07's `garage_ops07_invoice_balance` is
 re-created with the **same signature and vocabulary**: declared net + provider allocated net. For an invoice without
 provider money every value is identical to OPS07's; the certification proves it by fingerprinting every invoice
 balance before and after PAY-04.
@@ -133,9 +139,13 @@ in flight (`PAY04_INVOICE_HAS_PROVIDER_PAYMENTS`, `PAY04_INVOICE_HAS_PAYMENT_IN_
 **Governed writers** (SECURITY DEFINER, `service_role` only): register / suspend merchant; begin collection (customer
 only — requester or registered owner of the case's vehicle; never a garage member; invoice currency only; precision;
 ≤ uncommitted balance; idempotent per payer key); attach provider ids once; **apply provider snapshot** (the single
-provider-state writer); request a full refund (garage administrator); cancel a checkout (payer or garage
-administrator; the canonical payment stays `pending` until the provider says otherwise, so a late confirmation is still
-recorded); resolve a discrepancy.
+provider-state writer); request a full refund (garage administrator; each request numbered, so a refused refund is asked for again under a
+new provider key); cancel a checkout (payer or garage administrator: records who and why — the service asks the
+provider **first** and the room is released only by the provider read that shows the checkout closed; a collection
+that never reached the provider closes at once); close an expired collection that never reached the provider
+(`pay04_close_expired_unattached_collection`; an attached one only closes on a provider read); re-project an invoice
+whose room changed (`pay04_reproject_invoice`, called after a declared payment is reversed); resolve a discrepancy
+(re-projects in the same transaction). Nothing attaches to a stopped or expired collection (`PAY04_COLLECTION_CLOSED`).
 
 **PAY-03B F5 reuse.** The snapshot writer computes every transition with `pay03b_payment_transition_target`, records
 holds and exceptions with `pay03b_record_payment_hold`, and leaves holds only through the governed GUC
@@ -152,9 +162,14 @@ The four re-created F5 functions:
 | `pay03b_payment_payer_conflict` | every member of the beneficiary garage is conflicted, like the payer |
 
 **Allocation semantics.** The counted amount of a collection follows the canonical payment state: `paid` → the
-collection amount; `partially_refunded` (operator-confirmed final partial refund) → amount − verified refund; anything
-else (`pending`, `cancelled`, `refund_pending`, `refunded`, `reconciliation_hold`) → 0 (fail closed). It is capped by
-what the invoice still owes; any excess is an open `unallocated_provider_money` discrepancy.
+collection amount; `partially_refunded` (operator-confirmed final partial refund) → amount − the larger of the verified
+refund and **everything the provider reports since** (refunded + pending; the pending part is held, and any excess over
+the verified figure opens `refund_after_resolution`); anything else (`pending`, `cancelled`, `refund_pending`,
+`refunded`, `reconciliation_hold`) → 0 (fail closed). **Nothing counts while a mismatch is open** (a mismatch reported
+after the money counted un-counts it until it is resolved). Money an operator settled off the platform never starts
+counting. The result is capped by what the invoice still owes; any excess is an open `unallocated_provider_money`
+discrepancy — which, because a stopped or expired checkout keeps its room until the provider closes it, can now arise
+only if room is lost outside the governed writers (the smokes prove the path by disabling the guard for one insert).
 
 **Lock order** (every garage-collection writer and the F5 resolution): invoice advisory lock → payment-reference
 advisory lock (the PAY-03A/F5 lock) → rows.
@@ -177,9 +192,13 @@ by no API role.
 `backend/services/payment/pay04ProviderAdapters.js` defines the interface every garage provider implements, always for
 one registered garage merchant and never for CarUp:
 
-`createCheckout` (idempotent per collection) · `cancelCheckout` · `refund` (full, idempotent per key) ·
-`getPaymentTruth` (status, reported amount / currency / merchant, refund evidence classified by the PAY-01A/F5
-classifier) · `verifyWebhook` (signature, replay window, shape).
+`createCheckout` (idempotent per collection; given CarUp's `expiresAt`, after which the checkout must take no money) ·
+`cancelCheckout` (`complete` = the provider already took the money, which then counts; anything else = closed unpaid;
+throws when the provider cannot be reached, and CarUp then changes nothing) · `refund` (full; one idempotency key per
+refund request) · `getPaymentTruth` (status, reported amount / currency / merchant, refund evidence classified by the
+PAY-01A/F5 classifier) · `verifyWebhook` (signature, replay window, shape). Checkouts that may have closed (stopped or
+expired) are read before their room is reused: a new payment, the customer's "How to pay", a garage cash record or void.
+The F5 operator path accepts provider truth only when it names this garage's merchant and no mismatch is under review.
 
 Money truth is always a **fresh `getPaymentTruth()` read** applied through `pay04_apply_garage_provider_snapshot`. A
 signed webhook only names the trigger and the event identity; a browser return proves nothing.
@@ -193,12 +212,16 @@ signed webhook only names the trigger and the event identity; a browser return p
 
 | Who | Where | What |
 |---|---|---|
-| Customer | My Service Requests (invoice card) | lines, amount due; money **by source** (recorded by the garage / confirmed by the provider / in progress, not counted); declared payments and receipts with the "not verified" label; provider payments and receipts with the garage-not-CarUp label; **How to pay**: the garage's instructions and disclosure, online payment only where it really exists (clearly simulated in Level 1), own provider payments with *Check payment status* / *Stop*; back from the provider, one fresh provider read before anything is called paid |
+| Customer | My Service Requests (invoice card) | lines, amount due; money **by source** (recorded by the garage / confirmed by the provider / in progress, not counted); declared payments and receipts with the "not verified" label; provider payments and receipts with the garage-not-CarUp label; **How to pay**: the garage's instructions and disclosure, online payment only where it really exists (clearly simulated in Level 1), own provider payments (only the customer's own — another follower of the case keeps theirs) with *Check payment status* / *Stop* (asks first; a refusal is shown in words; either refreshes the card); the amount is checked in the currency's precision before sending, and a changed amount is a new request; back from the provider, one fresh provider read before anything is called paid; "nothing was charged" only once the provider confirms a checkout closed |
 | Garage administrator | Garage Hub invoice view | money breakdown by source; provider payments with refund (reason required), check-with-provider and stop; provider receipts; provider payment activity |
 | Garage administrator | `/garage/payments` | money per currency (never summed across currencies; never called CarUp's); provider connection; payment-instructions publisher and version history |
 | Platform operator | `/admin/garage-payments` | discrepancies with evidence and audit trail, governed closure; garage F5 holds (resolved in the existing reconciliation console); simulated merchant accounts |
 
-Every failed read renders as an explicit error with a retry — never as an empty list or "nothing owed".
+Every failed read renders as an explicit error with a retry — never as an empty list or "nothing owed". A provider
+payment row states its channel only; whether it counts is its state, never "confirmed" before it is. The invoice-level
+source label names what actually counts (the garage's declarations, the provider's confirmations, or both). PAY-04
+refusals reach customers and garages as sentences and operators as sentence + code. Money-action buttons meet WCAG 2 AA
+(white on orange-700, 5.2:1).
 
 ## 7. Security, authority and limits
 
@@ -255,3 +278,52 @@ disabled in every declared deployment).
 - **Garage-side push notifications**: Communications addresses a person, not a tenant; picking a garage member to stand
   for the garage would be a guess (the existing Communications rule). The garage sees provider outcomes in the Hub, its
   overview and the discrepancy alert.
+
+## 11. Independent review and remediation
+
+Two independent reviewers read the PAY-04 delta (`0ee715ae..de1032bf`) without running anything: one the money
+authority (migrations, services, routes), one the money screens. Every finding below was verified against the code
+before it was fixed. Each fix was written test-first: the SQL smokes, the real-PostgreSQL service suite or vitest went
+RED, then GREEN. Each fix is then proven by a mutant that re-introduces the defect and is killed (certification §13; 37/37 at the runtime candidate).
+
+**Money authority**
+
+| # | Severity | Finding | Fix | Proof |
+|---|---|---|---|---|
+| M1 | High | After an operator's final partial-refund resolution, a later refund at the provider was never de-counted: the remainder stayed pinned to the verified figure, so the invoice overstated paid money | The verified refund is a floor; the counted remainder follows the provider's latest refunded + pending figures; pending refunds are held; the operator is told (`refund_after_resolution`) | smoke H5 |
+| M2 | Medium | A stopped or expired checkout released its room although the provider checkout could still be paid; stop committed before the provider call; a live checkout could bind to a closed collection | Room held until the provider confirms closure; provider asked first; expiry given to the provider; attach refuses closed collections; unattached ones close in the database | smoke X, R; real-PG stop/expiry tests |
+| M3 | Medium | A part billed on an issued invoice could be reversed after its work order was reopened | `trg_pay04_guard_billed_usage_reversal` | integrity smoke I14; HTTP RV2 |
+| M4 | Medium | An amount-less retry returned 409 instead of the original checkout | The payer's own key replays first | real-PG test |
+| M5 | Low | A stale "uncounted" flag; room that reappeared did not re-project | Auto-close `counted_on_invoice`; `pay04_reproject_invoice` after a reversal | smoke D; real-PG test |
+| M6 | Low | The F5 operator path ignored the merchant | Merchant and open-review checks | real-PG test |
+| M7 | Low | A mismatch on counted money did not un-count it; refund key fixed per collection; customer card scope; customer stop response leaked ids; runtime guard unstamped; simulator currency list | Mismatch un-counts until resolved (closure re-projects); one key per refund request; payer scope; response stripped; guard stamped; one shared table | smoke D; real-PG tests |
+
+**Money screens**
+
+| # | Severity | Finding | Fix | Proof |
+|---|---|---|---|---|
+| U1 | High | Every provider row said "Confirmed … paid to the garage" whatever its state | Rows state their channel; state says whether it counts | real-PG test; HTTP RV1 |
+| U2 | High | A refund the provider refused was shown as "Refund sent" | `502 PAY04_PROVIDER_REFUND_REFUSED`, shown in words | real-PG test; vitest |
+| U3 | High | The customer card showed other followers' provider payments and receipts | Payer scope on the customer list | real-PG test |
+| U4 | Medium | Customer stop: no confirmation; refusal invisible when online payment was not on offer | Asks first; refusal always shown | vitest |
+| U5 | Medium | Invoice source label contradicted provider-confirmed status | Label names what counts | real-PG test; HTTP RV1 |
+| U6 | Medium | "Nothing was charged" on CarUp-only expiry | Said only after provider confirmation; provider enforces the expiry | vitest; real-PG test |
+| U7 | Medium | Panel actions never refreshed the invoice card | `onChanged` refresh | vitest |
+| U8 | Medium | Refunds in progress and held money called "a payment in progress" | "in progress or under review (not counted)" | vitest |
+| U9 | Medium | No amount validation; raw `PAY04_` codes; key reuse on a changed amount | Checked in the currency's precision; sentences; new key per amount | vitest |
+| U10 | Medium | Money buttons below WCAG 2 AA (also found by axe in UAT) | orange-700, 5.2:1 | contrast test; axe |
+| U11 | Medium | Operator off-platform closure re-opened on the next read | Closure sticks; that money never counts | smoke D |
+| U12–U16 | Low | Fallback "Partly paid"; count copy; one-tap reconcile; cancel response ids; long label overflow | Neutral fallback; exceptions named; *reconcile pushed back: it only re-reads the provider and cannot move money*; stripped; wraps | vitest; real-PG test |
+
+**Found in the physical browser UAT after the review (same classes, surfaces outside the reviewers' scope)**
+
+| # | Severity | Finding | Fix | Proof |
+|---|---|---|---|---|
+| P1 | Medium | The Garage Hub's step list, the customer's journey progress and the garage's invoices list still printed OPS07's "Partly paid (recorded by the garage)" — and the list "Recorded payments" — while provider-confirmed money counted | Each names the source that counts when provider money counts (amounts by source in the list; an honest intro and section note); OPS07's wording stays for declared-only invoices | vitest (RED first); headed browser |
+| P2 | Low | The Garage Hub's invoice (from the closeout) carried no provider activity, so the activity panel never appeared | Shared `provider_history` loader for the invoice and the closeout | real-PG test (RED first); headed browser |
+
+**Residual observations (not PAY-04 defects).** OPS04's `garage_ops04_replace_draft` uses `updated_at` (millisecond
+resolution) as its optimistic-concurrency token, so two saves in the same millisecond defeat the stale-save check. Its
+own test fails intermittently in multi-file runs (it passes in isolation at both `69e12e21` and PAY-04). PAY-04 does
+not change it — owner: Garage. A hand-typed `other`/`fee` line can still describe a part (the category is the garage's
+own statement); only `part` lines are bound to recorded consumption.
