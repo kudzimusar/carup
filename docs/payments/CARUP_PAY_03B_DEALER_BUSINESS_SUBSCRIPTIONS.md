@@ -238,6 +238,14 @@ An independent review of `17fad9b6..fff1085d` reported 2 High, 5 Medium and 6 Lo
 | R13 | Checkout amount and currency were not checked against the plan | Provider-stated amount/currency compared before any URL is handed out; drifted sessions are expired and audited | real-PG test R13; mutant killed |
 | R14 | Admin replay with a different action; resume mapping drift; no hold alert | Replay conflict; one shared provider-status mapping; structured alerts | remediation smoke; real-PG test; mutants killed |
 
+**Found by the Level 2 Stripe sandbox rehearsal** (certification §6 and §9). Each was fixed test-first in `ccfbbc52`:
+
+| # | Finding | Fix | Proof |
+|---|---|---|---|
+| F-L2-01 | The change preview called the provider before checking gateway compatibility. The dealer page offered Subscribe or Change on plans whose allowlist excludes the billing gateway | The preview applies the change RPC's gateway rule before any provider call. The page gates both actions on `pay03bPlanBillableBy` | real-PG test (zero provider calls); vitest |
+| F-L2-02 | Destructive confirm buttons were white on `#ef4444` (3.7:1) | `PAY03B_DESTRUCTIVE_ACTION_CLASS` (red-700, 6.5:1) on refund, suspend, immediate cancel and abandon | vitest; axe in the Level 1 browser spec |
+| F-L2-03 | A refund-driven coverage revocation was recorded as `invoice_paid` | The transition cause names the canonical payment outcome (`invoice_paid:payment_refunded`) | remediation smoke L2-03, both orders; mutant killed |
+
 ## 12. Items for the Owner (not decided by this assignment)
 
 - **Legal text in Terms of Service.** The Terms page no longer shows mock subscription prices ("Price not yet approved"). Its **legal feature descriptions** were left untouched because they are legal text: for example ZINARA references, "100 cars", and the fee table. They describe functionality and limits the current source does not implement or sell. They need Owner/legal review before any commercial launch.

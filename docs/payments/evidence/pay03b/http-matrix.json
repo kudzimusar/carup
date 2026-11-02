@@ -1,0 +1,275 @@
+{
+  "recorded_at": "2026-11-02T00:13:54.089Z",
+  "runtime": "http://127.0.0.1:5041",
+  "commit_sha": "248970eec82311d417b6c333482096de1c9ed78d",
+  "provider": "LOCAL PROVIDER SIMULATOR (not Stripe)",
+  "passed": 29,
+  "total": 29,
+  "results": [
+    {
+      "id": "H01",
+      "title": "public catalogue: 7 products, no price shown as an offer",
+      "pass": true,
+      "observed": {
+        "status": 200,
+        "products": 7
+      }
+    },
+    {
+      "id": "H02",
+      "title": "anonymous dealer overview refused (401)",
+      "pass": true,
+      "observed": {
+        "status": 401
+      }
+    },
+    {
+      "id": "H03",
+      "title": "billing admin overview: legal organization bound, baseline capacity only, no paid access",
+      "pass": true,
+      "observed": {
+        "status": 200,
+        "org": "org_pay03b_qa_dealer_a",
+        "access": false,
+        "capacity": {
+          "dealer.inventory.published_listing_capacity": 3
+        }
+      }
+    },
+    {
+      "id": "H04",
+      "title": "staff member sees the organization read-only (no billing authority)",
+      "pass": true,
+      "observed": {
+        "status": 200
+      }
+    },
+    {
+      "id": "H05",
+      "title": "staff without billing authority cannot subscribe (403)",
+      "pass": true,
+      "observed": {
+        "error": "PAY03B_BILLING_AUTHORITY_REFUSED",
+        "code": "PAY03B_BILLING_AUTHORITY_REFUSED"
+      }
+    },
+    {
+      "id": "H06",
+      "title": "dealer A cannot act in dealer B's tenant (403 at the session boundary)",
+      "pass": true,
+      "observed": {
+        "status": 403
+      }
+    },
+    {
+      "id": "H07",
+      "title": "stale/forged acknowledged terms refused (409), browser price never used",
+      "pass": true,
+      "observed": {
+        "error": "PAY03B_TERMS_CHANGED",
+        "code": "PAY03B_TERMS_CHANGED"
+      }
+    },
+    {
+      "id": "H08a",
+      "title": "checkout created on the SIMULATED provider with server-side amount and currency",
+      "pass": true,
+      "observed": {
+        "status": 201,
+        "simulated": true,
+        "amountMinor": 3000,
+        "currency": "JPY"
+      }
+    },
+    {
+      "id": "H08b",
+      "title": "same Idempotency-Key replays the same subscription and checkout",
+      "pass": true,
+      "observed": {
+        "status": 201,
+        "same": true
+      }
+    },
+    {
+      "id": "H08c",
+      "title": "a second, conflicting subscription for the same organization is refused (409)",
+      "pass": true,
+      "observed": {
+        "error": "PAY03B_SUBSCRIPTION_ALREADY_EXISTS",
+        "code": "PAY03B_SUBSCRIPTION_ALREADY_EXISTS"
+      }
+    },
+    {
+      "id": "H09a",
+      "title": "returning before payment grants nothing (redirect is not proof)",
+      "pass": true,
+      "observed": {
+        "status": "incomplete"
+      }
+    },
+    {
+      "id": "H09b",
+      "title": "provider page is visibly the SIMULATED provider, never Stripe",
+      "pass": true,
+      "observed": {
+        "banner": true
+      }
+    },
+    {
+      "id": "H09c",
+      "title": "simulated payment returns the buyer to CarUp (303)",
+      "pass": true,
+      "observed": {
+        "status": 303
+      }
+    },
+    {
+      "id": "H10",
+      "title": "provider-confirmed (signed event + fresh read): active, entitled, invoice paid through one canonical payment",
+      "pass": true,
+      "observed": {
+        "status": "active",
+        "access": true,
+        "invoice": "paid"
+      }
+    },
+    {
+      "id": "H11",
+      "title": "forged provider webhook refused (400)",
+      "pass": true,
+      "observed": {
+        "status": 400
+      }
+    },
+    {
+      "id": "H12",
+      "title": "administrator oversight: dealers refused (403); admin sees the entitled subscription and the source of truth",
+      "pass": true,
+      "observed": {
+        "dealerOnAdmin": 403,
+        "admin": 200
+      }
+    },
+    {
+      "id": "H13",
+      "title": "renewal collected exactly once: second paid invoice, second canonical payment, coverage extended",
+      "pass": true,
+      "observed": {
+        "delivered": [
+          {
+            "type": "invoice.paid",
+            "status": 200
+          },
+          {
+            "type": "customer.subscription.updated",
+            "status": 200
+          }
+        ],
+        "invoices": 2
+      }
+    },
+    {
+      "id": "H14a",
+      "title": "failed renewal: past_due, invoice open, payment pending (never fabricated), paid coverage unchanged",
+      "pass": true,
+      "observed": {
+        "status": "past_due",
+        "open": "pending"
+      }
+    },
+    {
+      "id": "H14b",
+      "title": "recovery: billing admin pays the open invoice on the provider page; subscription active again",
+      "pass": true,
+      "observed": {
+        "status": "active"
+      }
+    },
+    {
+      "id": "H15a",
+      "title": "plan change: provider-backed preview (no charge now), immediate upgrade refused by policy, period-end change scheduled without new entitlements",
+      "pass": true,
+      "observed": {
+        "preview": 0,
+        "immediate": "PAY03B_UPGRADE_POLICY_REFUSED",
+        "scheduled": true
+      }
+    },
+    {
+      "id": "H15b",
+      "title": "after the premium renewal is PAID, premium entitlements apply",
+      "pass": true,
+      "observed": {
+        "capacity": {
+          "dealer.inventory.published_listing_capacity": 25
+        }
+      }
+    },
+    {
+      "id": "H16",
+      "title": "cancel at period end keeps paid access; resume restores renewal",
+      "pass": true,
+      "observed": {
+        "cancelled": true
+      }
+    },
+    {
+      "id": "H17",
+      "title": "administrator suspension: attributable, survives provider reconciliation, reversible only by an admin",
+      "pass": true,
+      "observed": {
+        "suspended": "admin_suspension",
+        "afterReconcile": false,
+        "resumed": true
+      }
+    },
+    {
+      "id": "H18a",
+      "title": "F5: an external partial refund holds the invoice payment, suspends paid access, and raises an operator alert",
+      "pass": true,
+      "observed": {
+        "reason": "payment_reconciliation_hold",
+        "exception": "open"
+      }
+    },
+    {
+      "id": "H18b",
+      "title": "F5 resolution: restore refused while the provider shows the refund; revoke-final recorded with the admin as resolver",
+      "pass": true,
+      "observed": {
+        "refusedRestore": "PAY03B_RESTORE_REQUIRES_UNREFUNDED_PROVIDER_STATE",
+        "paymentStatus": "partially_refunded"
+      }
+    },
+    {
+      "id": "H19",
+      "title": "governed admin refund: invoice payment refunded; that period no longer covered; audited before and after",
+      "pass": true,
+      "observed": {
+        "status": 200
+      }
+    },
+    {
+      "id": "H20",
+      "title": "cross-tenant isolation: dealer B cannot read dealer A, and only ever sees its own organization",
+      "pass": true,
+      "observed": {
+        "adminAsDealerB": 403
+      }
+    },
+    {
+      "id": "H21",
+      "title": "PAY-03A report commerce route still served on the same runtime (regression)",
+      "pass": true,
+      "observed": {
+        "status": 200
+      }
+    },
+    {
+      "id": "H22",
+      "title": "no Stripe object was ever created (all provider identifiers are simulator-namespaced)",
+      "pass": true,
+      "observed": {}
+    }
+  ]
+}

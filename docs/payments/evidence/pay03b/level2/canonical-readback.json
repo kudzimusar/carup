@@ -1,0 +1,287 @@
+{
+  "read_at": "2026-11-01T23:22:44.574Z",
+  "method": "psql against the dedicated PAY-03B stack (127.0.0.1:55422); read-only",
+  "runtime_sha": "fd3434eeedf0486dfbd0d4461d60c53d9cc2803c",
+  "subscription": {
+    "id": "2fb62cd6-4b93-4dc8-a23e-cb3feae84f82",
+    "subscription_reference": "pay03b_sub_afb7d6f5-b725-4b39-aee2-b5a28bca23e6",
+    "owner_organization_id": "org_pay03b_qa_dealer_c",
+    "subscription_scope": "dealer_storefront",
+    "plan_code": "dealer_storefront_stripe_sandbox_l2",
+    "amount_minor": 500,
+    "currency": "JPY",
+    "product_code": "mkt.dealer.storefront_package",
+    "status": "active",
+    "provider_status": "active",
+    "gateway": "stripe_carup_japan_sandbox",
+    "provider_account_id": "acct_1UVnGaEjgXqvlsJk",
+    "provider_checkout_id": "cs_test_a15LHN8h85lBDKUhscEE6srmNnJQMrZ84dVk4DBlWxkvfdnyIWycAkGqCQ",
+    "provider_subscription_id": "sub_1UX7tcEjgXqvlsJkfasaqc8Z",
+    "provider_customer_id": "cus_VYEMBbCsex91rn",
+    "current_period_start": "2026-12-01T23:08:27+00:00",
+    "current_period_end": "2027-01-01T23:08:27+00:00",
+    "paid_through": "2026-12-01T23:08:27+00:00",
+    "paid_plan_is_plan": true,
+    "trial_end": null,
+    "grace_until": null,
+    "cancel_at_period_end": true,
+    "canceled_at": "2026-12-02T01:08:27+00:00",
+    "ended_at": null,
+    "cancellation_mode": null,
+    "suspended_reason": null,
+    "version": 24,
+    "created_at": "2026-11-01T23:10:34.506361+00:00",
+    "updated_at": "2026-11-01T23:22:42.973748+00:00"
+  },
+  "billing_customers": [
+    {
+      "provider_customer_id": "cus_VYEMBbCsex91rn",
+      "gateway": "stripe_carup_japan_sandbox",
+      "provider_account_id": "acct_1UVnGaEjgXqvlsJk",
+      "same_organization": true
+    }
+  ],
+  "invoices": [
+    {
+      "provider_invoice_id": "in_1UX7tcEjgXqvlsJk48KV7ung",
+      "billing_reason": "subscription_create",
+      "period_start": "2026-11-01T23:08:27+00:00",
+      "period_end": "2026-12-01T23:08:27+00:00",
+      "currency": "JPY",
+      "amount_due_minor": 500,
+      "amount_paid_minor": 500,
+      "amount_remaining_minor": 0,
+      "provider_status": "paid",
+      "anomaly": null,
+      "payment_reference": "pay03b_inv_fdacd461-1c98-402a-9ea2-5426c2cdd15e",
+      "provider_payment_intent_id": "pi_3UX7tcEjgXqvlsJk1sCw9KkO",
+      "attempt_count": 1,
+      "first_observed_at": "2026-11-01T23:10:45.880382+00:00",
+      "last_observed_at": "2026-11-01T23:22:43.714777+00:00"
+    },
+    {
+      "provider_invoice_id": "in_1UX7vxEjgXqvlsJkyy1GVtl9",
+      "billing_reason": "subscription_cycle",
+      "period_start": "2026-12-01T23:08:27+00:00",
+      "period_end": "2027-01-01T23:08:27+00:00",
+      "currency": "JPY",
+      "amount_due_minor": 500,
+      "amount_paid_minor": 500,
+      "amount_remaining_minor": 0,
+      "provider_status": "paid",
+      "anomaly": null,
+      "payment_reference": "pay03b_inv_8eba638f-a7bb-4b8d-af1c-ef4f5f340e56",
+      "provider_payment_intent_id": "pi_3UX7vzEjgXqvlsJk09ZYCY52",
+      "attempt_count": 1,
+      "first_observed_at": "2026-11-01T23:13:08.509342+00:00",
+      "last_observed_at": "2026-11-01T23:22:44.155912+00:00"
+    }
+  ],
+  "payments": [
+    {
+      "reference": "pay03b_inv_fdacd461-1c98-402a-9ea2-5426c2cdd15e",
+      "gateway": "stripe_carup_japan_sandbox",
+      "amount": 500,
+      "currency": "JPY",
+      "status": "paid",
+      "pay01a_account_id": "acct_1UVnGaEjgXqvlsJk",
+      "pay01a_intent_id": "pi_3UX7tcEjgXqvlsJk1sCw9KkO",
+      "pay01a_refund_id": null,
+      "pay02_product_code": "mkt.dealer.storefront_package",
+      "created_at": "2026-11-01T23:10:45.875851+00:00",
+      "updated_at": "2026-11-01T23:22:43.706093+00:00"
+    },
+    {
+      "reference": "pay03b_inv_8eba638f-a7bb-4b8d-af1c-ef4f5f340e56",
+      "gateway": "stripe_carup_japan_sandbox",
+      "amount": 500,
+      "currency": "JPY",
+      "status": "refunded",
+      "pay01a_account_id": "acct_1UVnGaEjgXqvlsJk",
+      "pay01a_intent_id": "pi_3UX7vzEjgXqvlsJk09ZYCY52",
+      "pay01a_refund_id": "re_3UX7vzEjgXqvlsJk0hHiXD4R",
+      "pay02_product_code": "mkt.dealer.storefront_package",
+      "created_at": "2026-11-01T23:13:13.493659+00:00",
+      "updated_at": "2026-11-01T23:22:44.151693+00:00"
+    }
+  ],
+  "entitlements": {
+    "access": true,
+    "reason": "paid_period",
+    "status": "active",
+    "plan_code": "dealer_storefront_stripe_sandbox_l2",
+    "tenant_id": "d91e7515-b466-48c2-80dd-e775c5888fb6",
+    "grace_until": null,
+    "paid_through": "2026-12-01T23:08:27+00:00",
+    "plan_version": 1,
+    "subscription_id": "2fb62cd6-4b93-4dc8-a23e-cb3feae84f82",
+    "subscription_scope": "dealer_storefront",
+    "baseline_entitlements": {
+      "dealer.inventory.published_listing_capacity": 3
+    },
+    "subscription_entitlements": {
+      "dealer.inventory.published_listing_capacity": 10
+    }
+  },
+  "transitions": [
+    {
+      "from_status": null,
+      "to_status": "incomplete",
+      "paid_through": null,
+      "cause": "checkout_claimed",
+      "event_id": null,
+      "recorded_at": "2026-11-01T23:10:34.515593+00:00"
+    },
+    {
+      "from_status": "incomplete",
+      "to_status": "active",
+      "paid_through": null,
+      "cause": "provider_snapshot:active",
+      "event_id": "evt_1UX7tfEjgXqvlsJkWHlP0rJN",
+      "recorded_at": "2026-11-01T23:10:45.109678+00:00"
+    },
+    {
+      "from_status": "active",
+      "to_status": "active",
+      "paid_through": "2026-12-01T23:08:27+00:00",
+      "cause": "invoice_paid",
+      "event_id": null,
+      "recorded_at": "2026-11-01T23:10:45.886233+00:00"
+    },
+    {
+      "from_status": "active",
+      "to_status": "active",
+      "paid_through": "2027-01-01T23:08:27+00:00",
+      "cause": "invoice_paid",
+      "event_id": null,
+      "recorded_at": "2026-11-01T23:13:13.505385+00:00"
+    },
+    {
+      "from_status": "active",
+      "to_status": "active",
+      "paid_through": "2026-12-01T23:08:27+00:00",
+      "cause": "invoice_paid",
+      "event_id": null,
+      "recorded_at": "2026-11-01T23:21:08.224181+00:00"
+    }
+  ],
+  "change_requests": [
+    {
+      "change_type": "cancel_at_period_end",
+      "requested_role": "admin",
+      "status": "provider_confirmed",
+      "outcome_code": "provider_accepted",
+      "requested_at": "2026-11-01T23:15:55.088134+00:00",
+      "completed_at": "2026-11-01T23:15:56.075299+00:00"
+    }
+  ],
+  "provider_event_receipts": [
+    {
+      "event_type": "charge.refund.updated",
+      "resulting_state": "subscription_snapshot",
+      "events": 1
+    },
+    {
+      "event_type": "charge.refunded",
+      "resulting_state": "subscription_snapshot",
+      "events": 1
+    },
+    {
+      "event_type": "checkout.session.completed",
+      "resulting_state": "subscription_snapshot",
+      "events": 1
+    },
+    {
+      "event_type": "customer.subscription.created",
+      "resulting_state": "subscription_snapshot",
+      "events": 1
+    },
+    {
+      "event_type": "customer.subscription.updated",
+      "resulting_state": "subscription_snapshot",
+      "events": 3
+    },
+    {
+      "event_type": "invoice.created",
+      "resulting_state": "subscription_snapshot",
+      "events": 1
+    },
+    {
+      "event_type": "invoice.finalized",
+      "resulting_state": "subscription_snapshot",
+      "events": 1
+    },
+    {
+      "event_type": "invoice.paid",
+      "resulting_state": "subscription_snapshot",
+      "events": 1
+    },
+    {
+      "event_type": "invoice.payment_succeeded",
+      "resulting_state": "subscription_snapshot",
+      "events": 1
+    },
+    {
+      "event_type": "invoice.updated",
+      "resulting_state": "subscription_snapshot",
+      "events": 1
+    },
+    {
+      "event_type": "refund.created",
+      "resulting_state": "subscription_snapshot",
+      "events": 1
+    },
+    {
+      "event_type": "refund.updated",
+      "resulting_state": "subscription_snapshot",
+      "events": 1
+    }
+  ],
+  "sync_exceptions": [],
+  "reconciliation_exceptions": [],
+  "audit_events": [
+    {
+      "event_type": "PAY03B_SUBSCRIPTION_CHECKOUT_CREATED",
+      "actor_role": "admin",
+      "source_route": "/api/pay03b/dealer/subscription/checkout",
+      "created_at": "2026-11-01T23:10:35.960947+00:00"
+    },
+    {
+      "event_type": "PAY03B_LEVEL2_TEST_CLOCK_ADVANCE_REQUESTED",
+      "actor_role": "admin",
+      "source_route": "/api/pay03b/admin/stripe-sandbox/test-clock/advance",
+      "created_at": "2026-11-01T23:13:02.960668+00:00"
+    },
+    {
+      "event_type": "PAY03B_ADMIN_SUBSCRIPTION_RECONCILED",
+      "actor_role": "admin",
+      "source_route": "/api/pay03b/admin/subscriptions/reconcile",
+      "created_at": "2026-11-01T23:14:19.423006+00:00"
+    },
+    {
+      "event_type": "PAY03B_ADMIN_INVOICE_REFUND_REQUESTED",
+      "actor_role": "admin",
+      "source_route": "/api/pay03b/admin/invoices/refund",
+      "created_at": "2026-11-01T23:21:05.230252+00:00"
+    },
+    {
+      "event_type": "PAY03B_ADMIN_INVOICE_REFUND_RESULT",
+      "actor_role": "admin",
+      "source_route": "/api/pay03b/admin/invoices/refund",
+      "created_at": "2026-11-01T23:21:08.233574+00:00"
+    },
+    {
+      "event_type": "PAY03B_ADMIN_SUBSCRIPTION_RECONCILED",
+      "actor_role": "admin",
+      "source_route": "/api/pay03b/admin/subscriptions/reconcile",
+      "created_at": "2026-11-01T23:22:44.165052+00:00"
+    }
+  ],
+  "duplicates": {
+    "subscriptions_for_organization": 1,
+    "invoices_sharing_a_provider_id": 0,
+    "payments_sharing_an_intent": 0,
+    "payment_rows_for_subscription": 2,
+    "all_payment_rows_in_database": 2
+  }
+}

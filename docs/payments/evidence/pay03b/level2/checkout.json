@@ -1,0 +1,10 @@
+{
+  "recorded_at": "2026-11-01T23:10:39.147Z",
+  "subscriptionId": "2fb62cd6-4b93-4dc8-a23e-cb3feae84f82",
+  "checkoutId": "cs_test_a15LHN8h85lBDKUhscEE6srmNnJQMrZ84dVk4DBlWxkvfdnyIWycAkGqCQ",
+  "gateway": "stripe_carup_japan_sandbox",
+  "status": "incomplete",
+  "amountMinor": null,
+  "currency": null,
+  "live": false
+}

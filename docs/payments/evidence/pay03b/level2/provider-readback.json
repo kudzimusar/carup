@@ -1,0 +1,145 @@
+{
+  "read_at": "2026-11-01T23:22:59.137Z",
+  "method": "Stripe CLI `stripe get` (read-only), Owner login; independent of the CarUp backend",
+  "account": {
+    "id": "acct_1UVnGaEjgXqvlsJk"
+  },
+  "product": {
+    "id": "prod_VYEKWgl2XWS0Ar",
+    "livemode": false,
+    "active": true
+  },
+  "price": {
+    "id": "price_1UX7rTEjgXqvlsJkEFogJ0kM",
+    "livemode": false,
+    "unit_amount": 500,
+    "currency": "jpy",
+    "interval": "month",
+    "interval_count": 1
+  },
+  "test_clock": {
+    "id": "clock_1UX7rUEjgXqvlsJk5NKgD3fh",
+    "livemode": false,
+    "status": "ready",
+    "frozen_time": "2026-12-02T01:08:27.000Z",
+    "provisioned_frozen_time": "2026-11-01T23:08:27.000Z"
+  },
+  "customers": [
+    {
+      "id": "cus_VYEMBbCsex91rn",
+      "livemode": false,
+      "test_clock": "clock_1UX7rUEjgXqvlsJk5NKgD3fh",
+      "carup_owner_organization_id": "org_pay03b_qa_dealer_c",
+      "checkout_sessions": [
+        {
+          "id": "cs_test_a15LHN8h85lBDKUhscEE6srmNnJQMrZ84dVk4DBlWxkvfdnyIWycAkGqCQ",
+          "livemode": false,
+          "mode": "subscription",
+          "status": "complete",
+          "payment_status": "paid",
+          "amount_total": 500,
+          "currency": "jpy",
+          "subscription": "sub_1UX7tcEjgXqvlsJkfasaqc8Z",
+          "client_reference_id": "pay03b_sub_afb7d6f5-b725-4b39-aee2-b5a28bca23e6"
+        }
+      ],
+      "subscriptions": [
+        {
+          "id": "sub_1UX7tcEjgXqvlsJkfasaqc8Z",
+          "livemode": false,
+          "status": "active",
+          "cancel_at_period_end": true,
+          "canceled_at": "2026-12-02T01:08:27.000Z",
+          "current_period_start": "2026-12-01T23:08:27.000Z",
+          "current_period_end": "2027-01-01T23:08:27.000Z",
+          "price": "price_1UX7rTEjgXqvlsJkEFogJ0kM",
+          "carup_subscription_reference": "pay03b_sub_afb7d6f5-b725-4b39-aee2-b5a28bca23e6"
+        }
+      ],
+      "invoices": [
+        {
+          "id": "in_1UX7vxEjgXqvlsJkyy1GVtl9",
+          "livemode": false,
+          "status": "paid",
+          "billing_reason": "subscription_cycle",
+          "amount_due": 500,
+          "amount_paid": 500,
+          "currency": "jpy",
+          "subscription": "sub_1UX7tcEjgXqvlsJkfasaqc8Z",
+          "period_start": "2026-12-01T23:08:27.000Z",
+          "period_end": "2027-01-01T23:08:27.000Z"
+        },
+        {
+          "id": "in_1UX7tcEjgXqvlsJk48KV7ung",
+          "livemode": false,
+          "status": "paid",
+          "billing_reason": "subscription_create",
+          "amount_due": 500,
+          "amount_paid": 500,
+          "currency": "jpy",
+          "subscription": "sub_1UX7tcEjgXqvlsJkfasaqc8Z",
+          "period_start": "2026-11-01T23:08:27.000Z",
+          "period_end": "2026-12-01T23:08:27.000Z"
+        }
+      ],
+      "charges": [
+        {
+          "id": "ch_3UX7vzEjgXqvlsJk0FAenmJO",
+          "livemode": false,
+          "status": "succeeded",
+          "paid": true,
+          "amount": 500,
+          "currency": "jpy",
+          "amount_refunded": 500,
+          "refunded": true,
+          "payment_intent": "pi_3UX7vzEjgXqvlsJk09ZYCY52"
+        },
+        {
+          "id": "ch_3UX7tcEjgXqvlsJk1nfPmTkZ",
+          "livemode": false,
+          "status": "succeeded",
+          "paid": true,
+          "amount": 500,
+          "currency": "jpy",
+          "amount_refunded": 0,
+          "refunded": false,
+          "payment_intent": "pi_3UX7tcEjgXqvlsJk1sCw9KkO"
+        }
+      ],
+      "refunds": [
+        {
+          "id": "re_3UX7vzEjgXqvlsJk0hHiXD4R",
+          "status": "succeeded",
+          "amount": 500,
+          "currency": "jpy",
+          "charge": "ch_3UX7vzEjgXqvlsJk0FAenmJO",
+          "payment_intent": "pi_3UX7vzEjgXqvlsJk09ZYCY52",
+          "reason": null,
+          "carup_programme": "PAY-03B"
+        }
+      ]
+    }
+  ],
+  "scope": {
+    "authorized": {
+      "checkout_sessions": 1,
+      "test_clock_advances": 1,
+      "refunds": 1,
+      "expected_charges_jpy": [
+        500,
+        500
+      ],
+      "live_operations": 0
+    },
+    "result": "WITHIN_AUTHORIZED_SCOPE",
+    "findings": [],
+    "counts": {
+      "customers": 1,
+      "checkout_sessions": 1,
+      "subscriptions": 1,
+      "invoices": 2,
+      "succeeded_charges": 2,
+      "refunds": 1
+    }
+  }
+}

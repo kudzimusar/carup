@@ -1,0 +1,11 @@
+{
+  "recorded_at": "2026-11-01T23:08:28.521Z",
+  "accountId": "acct_1UVnGaEjgXqvlsJk",
+  "productId": "prod_VYEKWgl2XWS0Ar",
+  "priceId": "price_1UX7rTEjgXqvlsJkEFogJ0kM",
+  "clockId": "clock_1UX7rUEjgXqvlsJk5NKgD3fh",
+  "clockFrozenTime": 1793574507,
+  "unitAmountMinor": 500,
+  "currency": "JPY",
+  "interval": "month"
+}

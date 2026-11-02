@@ -1,0 +1,281 @@
+[
+  {
+    "stage": "after-checkout",
+    "at": "2026-11-01T23:11:28.495Z",
+    "runtime_sha": "fd3434eeedf0486dfbd0d4461d60c53d9cc2803c",
+    "customer": {
+      "access": "Active",
+      "accessReason": "Access comes from a paid period CarUp confirmed with the provider.",
+      "paidThrough": "2 Dec 2026, 08:08 GMT+9",
+      "renewal": "Next renewal (provider schedule): 2 Dec 2026, 08:08 GMT+9. The next period starts only after CarUp confirms that payment.",
+      "invoices": {
+        "in_1UX7tcEjgXqvlsJk48KV7ung": "Payment confirmed"
+      }
+    },
+    "admin": {
+      "in_1UX7tcEjgXqvlsJk48KV7ung": "Payment confirmed"
+    },
+    "canonical": {
+      "subscription": {
+        "status": "active",
+        "provider_status": "active",
+        "cancel_at_period_end": false,
+        "paid_through": "2026-12-01T23:08:27+00:00",
+        "current_period_start": "2026-11-01T23:08:27+00:00",
+        "current_period_end": "2026-12-01T23:08:27+00:00"
+      },
+      "invoices": [
+        {
+          "provider_invoice_id": "in_1UX7tcEjgXqvlsJk48KV7ung",
+          "billing_reason": "subscription_create",
+          "provider_status": "paid",
+          "amount_paid_minor": 500,
+          "period_start": "2026-11-01T23:08:27+00:00",
+          "period_end": "2026-12-01T23:08:27+00:00",
+          "payment_reference": "pay03b_inv_fdacd461-1c98-402a-9ea2-5426c2cdd15e",
+          "payment_status": "paid"
+        }
+      ],
+      "access": {
+        "access": true,
+        "reason": "paid_period",
+        "paid_through": "2026-12-01T23:08:27+00:00"
+      },
+      "advances": 0,
+      "openReconciliationExceptions": 0
+    }
+  },
+  {
+    "stage": "after-renewal",
+    "at": "2026-11-01T23:14:20.730Z",
+    "runtime_sha": "fd3434eeedf0486dfbd0d4461d60c53d9cc2803c",
+    "customer": {
+      "access": "Active",
+      "accessReason": "Access comes from a paid period CarUp confirmed with the provider.",
+      "paidThrough": "2 Jan 2027, 08:08 GMT+9",
+      "renewal": "Next renewal (provider schedule): 2 Jan 2027, 08:08 GMT+9. The next period starts only after CarUp confirms that payment.",
+      "invoices": {
+        "in_1UX7tcEjgXqvlsJk48KV7ung": "Payment confirmed",
+        "in_1UX7vxEjgXqvlsJkyy1GVtl9": "Payment confirmed"
+      }
+    },
+    "admin": {
+      "in_1UX7tcEjgXqvlsJk48KV7ung": "Payment confirmed",
+      "in_1UX7vxEjgXqvlsJkyy1GVtl9": "Payment confirmed"
+    },
+    "reconcile": {
+      "http": 200
+    },
+    "canonical": {
+      "subscription": {
+        "status": "active",
+        "provider_status": "active",
+        "cancel_at_period_end": false,
+        "paid_through": "2027-01-01T23:08:27+00:00",
+        "current_period_start": "2026-12-01T23:08:27+00:00",
+        "current_period_end": "2027-01-01T23:08:27+00:00"
+      },
+      "invoices": [
+        {
+          "provider_invoice_id": "in_1UX7tcEjgXqvlsJk48KV7ung",
+          "billing_reason": "subscription_create",
+          "provider_status": "paid",
+          "amount_paid_minor": 500,
+          "period_start": "2026-11-01T23:08:27+00:00",
+          "period_end": "2026-12-01T23:08:27+00:00",
+          "payment_reference": "pay03b_inv_fdacd461-1c98-402a-9ea2-5426c2cdd15e",
+          "payment_status": "paid"
+        },
+        {
+          "provider_invoice_id": "in_1UX7vxEjgXqvlsJkyy1GVtl9",
+          "billing_reason": "subscription_cycle",
+          "provider_status": "paid",
+          "amount_paid_minor": 500,
+          "period_start": "2026-12-01T23:08:27+00:00",
+          "period_end": "2027-01-01T23:08:27+00:00",
+          "payment_reference": "pay03b_inv_8eba638f-a7bb-4b8d-af1c-ef4f5f340e56",
+          "payment_status": "paid"
+        }
+      ],
+      "access": {
+        "access": true,
+        "reason": "paid_period",
+        "paid_through": "2027-01-01T23:08:27+00:00"
+      },
+      "advances": 1,
+      "openReconciliationExceptions": 0
+    }
+  },
+  {
+    "stage": "cancel",
+    "at": "2026-11-01T23:16:04.095Z",
+    "runtime_sha": "fd3434eeedf0486dfbd0d4461d60c53d9cc2803c",
+    "cancel": {
+      "http": 200
+    },
+    "customer": {
+      "access": "Active",
+      "accessReason": "Access comes from a paid period CarUp confirmed with the provider.",
+      "paidThrough": "2 Jan 2027, 08:08 GMT+9",
+      "renewal": "Renewal cancelled — paid access continues until 2 Jan 2027, 08:08 GMT+9.",
+      "invoices": {
+        "in_1UX7tcEjgXqvlsJk48KV7ung": "Payment confirmed",
+        "in_1UX7vxEjgXqvlsJkyy1GVtl9": "Payment confirmed"
+      }
+    },
+    "admin": {
+      "in_1UX7tcEjgXqvlsJk48KV7ung": "Payment confirmed",
+      "in_1UX7vxEjgXqvlsJkyy1GVtl9": "Payment confirmed"
+    },
+    "canonical": {
+      "subscription": {
+        "status": "active",
+        "provider_status": "active",
+        "cancel_at_period_end": true,
+        "paid_through": "2027-01-01T23:08:27+00:00",
+        "current_period_start": "2026-12-01T23:08:27+00:00",
+        "current_period_end": "2027-01-01T23:08:27+00:00"
+      },
+      "invoices": [
+        {
+          "provider_invoice_id": "in_1UX7tcEjgXqvlsJk48KV7ung",
+          "billing_reason": "subscription_create",
+          "provider_status": "paid",
+          "amount_paid_minor": 500,
+          "period_start": "2026-11-01T23:08:27+00:00",
+          "period_end": "2026-12-01T23:08:27+00:00",
+          "payment_reference": "pay03b_inv_fdacd461-1c98-402a-9ea2-5426c2cdd15e",
+          "payment_status": "paid"
+        },
+        {
+          "provider_invoice_id": "in_1UX7vxEjgXqvlsJkyy1GVtl9",
+          "billing_reason": "subscription_cycle",
+          "provider_status": "paid",
+          "amount_paid_minor": 500,
+          "period_start": "2026-12-01T23:08:27+00:00",
+          "period_end": "2027-01-01T23:08:27+00:00",
+          "payment_reference": "pay03b_inv_8eba638f-a7bb-4b8d-af1c-ef4f5f340e56",
+          "payment_status": "paid"
+        }
+      ],
+      "access": {
+        "access": true,
+        "reason": "paid_period",
+        "paid_through": "2027-01-01T23:08:27+00:00"
+      },
+      "advances": 1,
+      "openReconciliationExceptions": 0
+    }
+  },
+  {
+    "stage": "refund",
+    "at": "2026-11-01T23:21:08.657Z",
+    "runtime_sha": "fd3434eeedf0486dfbd0d4461d60c53d9cc2803c",
+    "refund": {
+      "http": 200,
+      "invoice": "in_1UX7vxEjgXqvlsJkyy1GVtl9"
+    },
+    "accessibility": {
+      "refundDialog": [
+        "color-contrast @ .bg-destructive: Element has insufficient color contrast of 3.65 (foreground color: #fffcfc, background color: #ef4646, font size: 10.5pt (14px), font weight: normal). Expected contrast ratio of 4."
+      ]
+    },
+    "canonical": {
+      "subscription": {
+        "status": "active",
+        "provider_status": "active",
+        "cancel_at_period_end": true,
+        "paid_through": "2026-12-01T23:08:27+00:00",
+        "current_period_start": "2026-12-01T23:08:27+00:00",
+        "current_period_end": "2027-01-01T23:08:27+00:00"
+      },
+      "invoices": [
+        {
+          "provider_invoice_id": "in_1UX7tcEjgXqvlsJk48KV7ung",
+          "billing_reason": "subscription_create",
+          "provider_status": "paid",
+          "amount_paid_minor": 500,
+          "period_start": "2026-11-01T23:08:27+00:00",
+          "period_end": "2026-12-01T23:08:27+00:00",
+          "payment_reference": "pay03b_inv_fdacd461-1c98-402a-9ea2-5426c2cdd15e",
+          "payment_status": "paid"
+        },
+        {
+          "provider_invoice_id": "in_1UX7vxEjgXqvlsJkyy1GVtl9",
+          "billing_reason": "subscription_cycle",
+          "provider_status": "paid",
+          "amount_paid_minor": 500,
+          "period_start": "2026-12-01T23:08:27+00:00",
+          "period_end": "2027-01-01T23:08:27+00:00",
+          "payment_reference": "pay03b_inv_8eba638f-a7bb-4b8d-af1c-ef4f5f340e56",
+          "payment_status": "refunded"
+        }
+      ],
+      "access": {
+        "access": true,
+        "reason": "paid_period",
+        "paid_through": "2026-12-01T23:08:27+00:00"
+      },
+      "advances": 1,
+      "openReconciliationExceptions": 0
+    }
+  },
+  {
+    "stage": "after-refund",
+    "at": "2026-11-01T23:22:31.678Z",
+    "runtime_sha": "fd3434eeedf0486dfbd0d4461d60c53d9cc2803c",
+    "customer": {
+      "access": "Active",
+      "accessReason": "Access comes from a paid period CarUp confirmed with the provider.",
+      "paidThrough": "2 Dec 2026, 08:08 GMT+9",
+      "renewal": "Renewal cancelled — paid access continues until 2 Dec 2026, 08:08 GMT+9.",
+      "invoices": {
+        "in_1UX7tcEjgXqvlsJk48KV7ung": "Payment confirmed",
+        "in_1UX7vxEjgXqvlsJkyy1GVtl9": "Refunded"
+      }
+    },
+    "admin": {
+      "in_1UX7tcEjgXqvlsJk48KV7ung": "Payment confirmed",
+      "in_1UX7vxEjgXqvlsJkyy1GVtl9": "Refunded"
+    },
+    "canonical": {
+      "subscription": {
+        "status": "active",
+        "provider_status": "active",
+        "cancel_at_period_end": true,
+        "paid_through": "2026-12-01T23:08:27+00:00",
+        "current_period_start": "2026-12-01T23:08:27+00:00",
+        "current_period_end": "2027-01-01T23:08:27+00:00"
+      },
+      "invoices": [
+        {
+          "provider_invoice_id": "in_1UX7tcEjgXqvlsJk48KV7ung",
+          "billing_reason": "subscription_create",
+          "provider_status": "paid",
+          "amount_paid_minor": 500,
+          "period_start": "2026-11-01T23:08:27+00:00",
+          "period_end": "2026-12-01T23:08:27+00:00",
+          "payment_reference": "pay03b_inv_fdacd461-1c98-402a-9ea2-5426c2cdd15e",
+          "payment_status": "paid"
+        },
+        {
+          "provider_invoice_id": "in_1UX7vxEjgXqvlsJkyy1GVtl9",
+          "billing_reason": "subscription_cycle",
+          "provider_status": "paid",
+          "amount_paid_minor": 500,
+          "period_start": "2026-12-01T23:08:27+00:00",
+          "period_end": "2027-01-01T23:08:27+00:00",
+          "payment_reference": "pay03b_inv_8eba638f-a7bb-4b8d-af1c-ef4f5f340e56",
+          "payment_status": "refunded"
+        }
+      ],
+      "access": {
+        "access": true,
+        "reason": "paid_period",
+        "paid_through": "2026-12-01T23:08:27+00:00"
+      },
+      "advances": 1,
+      "openReconciliationExceptions": 0
+    }
+  }
+]
