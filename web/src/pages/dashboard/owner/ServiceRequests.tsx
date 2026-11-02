@@ -16,6 +16,7 @@ import { SN_PAGE } from '@/lib/serviceNetworkLayout'
 import type { CustomerEstimate, CustomerInvoice } from '@/lib/garageBusiness'
 import JourneyProgress, { type Loadable } from '@/components/owner/serviceJourney/JourneyProgress'
 import CaseCommercial from '@/components/owner/serviceJourney/CaseCommercial'
+import PaymentReturnNotice from '@/components/owner/serviceJourney/PaymentReturnNotice'
 
 /**
  * My Service Requests (R3).
@@ -286,6 +287,9 @@ export default function ServiceRequests() {
         <h1 className="text-2xl font-bold">My Service Requests</h1>
         <p className="text-gray-500">Requests you have sent to garages on CarUp</p>
       </div>
+
+      {/* CARUP-PAY-04: back from the garage's payment provider — one fresh provider read, then the invoices again */}
+      <PaymentReturnNotice onSettled={() => { void loadCommercial() }} />
 
       {(estimatesState === 'error' || invoicesState === 'error') && (
         <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-4" data-testid="commercial-error">

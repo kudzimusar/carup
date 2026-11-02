@@ -6,8 +6,10 @@ import {
   formatMoney, newIdempotencyKey, PAYMENT_STATUS_LABEL, type CaseHub, type GarageInvoice, type PaymentRecord,
 } from '@/lib/garageBusiness'
 import { categoryLabel, dateTimeLabel, isAllowed, PAYMENT_METHOD_LABEL, whenLabel } from '@/lib/garageWorkspace'
+import { paymentStatusLabel } from '@/lib/pay04GaragePayments'
 import { FormError, INPUT_CLASS, type HubRun } from './hubUi'
 import { PaymentForm } from './PaymentForm'
+import { InvoiceMoneyBreakdown, ProviderPaymentsPanel } from './ProviderPaymentsPanel'
 
 /** One reason, one stable key: reversing the same payment twice by retrying cannot happen. */
 function ReasonForm({ testId, label, hint, submitLabel, busy, onSubmit, onClose }: {
@@ -108,7 +110,8 @@ export function InvoiceView({ hub, invoice, busy, run }: {
           <dd className="font-semibold" data-testid="invoice-total">{formatMoney(invoice.total_amount, invoice.currency)}</dd>
         </div>
         <div>
-          <dt className="text-gray-500">Recorded as received</dt>
+          {/* CARUP-PAY-04: once provider-confirmed money can count, "recorded as received" would be untrue */}
+          <dt className="text-gray-500">{invoice.money ? 'Counted as paid' : 'Recorded as received'}</dt>
           <dd data-testid="invoice-paid-amount">{formatMoney(invoice.paid_amount, invoice.currency)}</dd>
         </div>
         <div>
@@ -117,10 +120,16 @@ export function InvoiceView({ hub, invoice, busy, run }: {
         </div>
       </dl>
 
+      <InvoiceMoneyBreakdown invoice={invoice} />
+
       <div>
-        <p className="text-sm font-medium" data-testid="invoice-payment-status">{PAYMENT_STATUS_LABEL[invoice.payment_status]}</p>
+        <p className="text-sm font-medium" data-testid="invoice-payment-status">
+          {invoice.money ? paymentStatusLabel(invoice) : PAYMENT_STATUS_LABEL[invoice.payment_status]}
+        </p>
         <p className="text-xs text-gray-600" data-testid="payment-source-label">{invoice.payment_source_label}</p>
       </div>
+
+      <ProviderPaymentsPanel invoice={invoice} canAct={canRecord || canReverse} busy={busy} run={run} />
 
       {invoice.payments.length > 0 && (
         <div>

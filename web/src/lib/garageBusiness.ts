@@ -1,3 +1,4 @@
+import type { InvoiceProviderFields } from './pay04GaragePayments'
 /**
  * GARAGE-1.0 — the typed contract between the Garage business screens and the API.
  *
@@ -205,7 +206,7 @@ export type GarageInvoice = {
   receipts: Receipt[]
   history?: Array<{ event_type: string; actor_user_id: string; created_at: string; detail: Record<string, unknown> }>
   notification?: NotificationOutcome
-}
+} & InvoiceProviderFields
 
 export type CustomerInvoice = Omit<GarageInvoice, 'internal_note' | 'void_reason' | 'history' | 'notification' | 'issued_by_user_id'> & { vin: string | null }
 

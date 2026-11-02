@@ -67,6 +67,8 @@ const GARAGE_OPERATIONS_SURFACES = [
   '/src/pages/dashboard/garage/GarageSchedule.tsx',
   '/src/pages/dashboard/garage/GarageStock.tsx',
   '/src/pages/dashboard/garage/GarageOperations.tsx',
+  // CARUP-PAY-04: the garage's own invoices and payments
+  '/src/pages/dashboard/garage/GaragePayments.tsx',
 ]
 
 /** Every surface this gate governs. */
@@ -89,6 +91,7 @@ const GARAGE_WORKFLOW = [
   '/src/pages/dashboard/garage/GarageSchedule.tsx',
   '/src/pages/dashboard/garage/GarageStock.tsx',
   '/src/pages/dashboard/garage/GarageOperations.tsx',
+  '/src/pages/dashboard/garage/GaragePayments.tsx',
   '/src/pages/dashboard/owner/ServiceRequests.tsx',
 ]
 

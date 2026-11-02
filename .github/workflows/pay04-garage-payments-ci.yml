@@ -1,0 +1,301 @@
+name: PAY-04 garage payments CI
+# CARUP-PAY-04-LR01 — garage invoices, parts and workshop service payments on the INTEGRATED Payments + Garage line.
+#
+# The candidate merges two accepted lineages (Payments c2d548ed, Garage 69e12e21), so custody is proven against BOTH:
+# both are ancestors, neither one's migrations were rewritten, and PAY-04's migrations sort after both tips. Then every
+# gate of both lineages that PAY-04 touches, the integrated PostgreSQL certification in both orders a real database can
+# receive the lineages, the real-PostgreSQL service/concurrency suites (a skip is a failure), the Garage race suite and
+# the full web suite. Nothing here reaches staging, production or a payment provider.
+on:
+  pull_request:
+    paths:
+      - 'backend/services/payment/**'
+      - 'backend/services/garageOperations/**'
+      - 'backend/services/eventBus/**'
+      - 'backend/services/communication/**'
+      - 'backend/routes/pay0*'
+      - 'backend/routes/garage*'
+      - 'backend/middleware/securityMiddleware.js'
+      - 'backend/server.js'
+      - 'backend/tests/pay04-*'
+      - 'backend/tests/garage-*'
+      - 'backend/tests/helpers/**'
+      - 'backend/tests/sql/**'
+      - 'database/migrations/**'
+      - 'scripts/ci/pay04-postgres-certification.sh'
+      - 'scripts/uat/pay04-*'
+      - 'web/src/**'
+      - 'web/e2e/pay04-*'
+      - 'shared/navigation/**'
+      - 'docs/payments/CARUP_PAY_04_*'
+      - '.github/workflows/pay04-garage-payments-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PAYMENTS_PARENT: c2d548edbe4cc7ac9528f3c4a2c7f55a1d8bad88
+  GARAGE_PARENT: 69e12e21941a318c1ad6a3266cc8144de44c5d32
+  INTEGRATION_MERGE: 3ab0d7eb9dc6e9daf7c89d6a5676655a7c760f5e
+
+jobs:
+  custody:
+    name: Custody — both accepted parents, no rewritten migrations, PAY-04 migrations after both tips
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Both accepted parents and the integration merge are ancestors of this candidate
+        run: |
+          set -euo pipefail
+          for p in "$PAYMENTS_PARENT" "$GARAGE_PARENT" "$INTEGRATION_MERGE"; do
+            git cat-file -e "${p}^{commit}"
+            git merge-base --is-ancestor "$p" HEAD
+            echo "ancestor: $p"
+          done
+          echo "HEAD=$(git rev-parse HEAD)"
+      - name: No migration either parent shipped was rewritten or removed
+        run: |
+          set -euo pipefail
+          for p in "$PAYMENTS_PARENT" "$GARAGE_PARENT"; do
+            changed="$(git diff --name-status "$p" HEAD -- database/migrations | awk '$1 != "A"' || true)"
+            if [ -n "$changed" ]; then echo "migrations of $p changed:"; echo "$changed"; exit 1; fi
+          done
+      - name: PAY-04 migrations sort after both tips and carry the Up/Down markers
+        run: |
+          set -euo pipefail
+          tip="$( (git ls-tree -r --name-only "$PAYMENTS_PARENT" -- database/migrations; git ls-tree -r --name-only "$GARAGE_PARENT" -- database/migrations) \
+            | sed 's#.*/##' | grep -E '^[0-9]{14}_' | sort | tail -1)"
+          echo "latest parent migration: $tip"
+          new="$(comm -13 \
+            <( (git ls-tree -r --name-only "$PAYMENTS_PARENT" -- database/migrations; git ls-tree -r --name-only "$GARAGE_PARENT" -- database/migrations) | sort -u) \
+            <(git ls-tree -r --name-only HEAD -- database/migrations | sort -u))"
+          [ -n "$new" ] || { echo 'no PAY-04 migration found'; exit 1; }
+          for f in $new; do
+            name="$(basename "$f")"
+            [[ "$name" > "$tip" ]] || { echo "$name sorts before $tip"; exit 1; }
+            grep -q -- '-- +migrate Up' "$f" && grep -q -- '-- +migrate Down' "$f" || { echo "$name lacks markers"; exit 1; }
+            echo "ok: $name"
+          done
+      - name: Diff hygiene (PAY-04's own changes, and relative to the accepted Payments parent)
+        run: |
+          git diff --check "$INTEGRATION_MERGE" HEAD
+          git diff --check "$PAYMENTS_PARENT" HEAD
+
+  backend:
+    name: Backend — PAY-04 contracts, Garage domains, PAY-03B/PAY-01..03A regressions, communications, migration integrity
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_ENV: test
+      CARUP_ENV: test
+      CARUP_PAY01A_ENABLED: 'false'
+      CARUP_PAY01C_ENABLED: 'false'
+      CARUP_PAY03B_ENABLED: 'false'
+      CARUP_PAY04_ENABLED: 'false'
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: PAY-04 static contracts (F5 drift, notification identity, refusal mapping, HTTP error shape)
+        run: node --test backend/tests/pay04-f5-extension-drift.test.js backend/tests/pay04-garage-notifications.test.js backend/tests/pay04-invoice-failure-mapping.test.js backend/tests/pay04-garage-payments.test.js
+      - name: Garage new domains (OPS04-OPS07, hub, communications, summary, history)
+        run: |
+          node --test --test-concurrency=1 \
+            backend/tests/garage-ops04-migrations.test.js backend/tests/garage-ops04-authority.test.js \
+            backend/tests/garage-ops05-migrations.test.js backend/tests/garage-ops05-authority.test.js \
+            backend/tests/garage-ops06-migrations.test.js backend/tests/garage-ops06-authority.test.js \
+            backend/tests/garage-ops07-migrations.test.js backend/tests/garage-ops07-authority.test.js \
+            backend/tests/garage-hub.test.js backend/tests/garage-communications.test.js \
+            backend/tests/garage-operations-summary.test.js backend/tests/garage-history-convergence.test.js
+      - name: Inherited Garage, Service Network, OC-5, PartSentry and Communications gates
+        run: |
+          node --test --test-concurrency=1 \
+            backend/tests/garage-cv01-parts-authority.test.js \
+            backend/tests/garage-ops01-*.test.js backend/tests/garage-ops02-*.test.js backend/tests/garage-ops03-*.test.js \
+            backend/tests/service-network-*.test.js \
+            backend/tests/oc5a-*.test.js backend/tests/oc5d-*.test.js backend/tests/oc5e-*.test.js backend/tests/oc5h-*.test.js \
+            backend/tests/gmo-*.test.js backend/tests/partsentry-*.test.js \
+            backend/tests/communication-event-coverage.test.js backend/tests/communication-engine.test.js backend/tests/oc5g-policy-*.test.js \
+            backend/tests/intelligence-service-mechanic-garage.test.js
+      - name: PAY-03B and PAY-01A/C, PAY-02, PAY-03A regressions (PAY-04 extends F5 and the payment boundary)
+        run: |
+          node --test backend/tests/pay03b-refund-mismatch.test.js backend/tests/pay03b-provider-reconciliation.test.js \
+            backend/tests/pay03b-diaspora-bridge.test.js backend/tests/pay03b-route-hardening.test.js \
+            backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js \
+            backend/tests/pay02-commercial-foundation.test.js backend/tests/pay03a-real-report-commerce.test.js \
+            backend/tests/migration-integrity.test.js
+      - name: Shell and module syntax of the PAY-04 harness
+        run: |
+          bash -n scripts/ci/pay04-postgres-certification.sh
+          for f in scripts/uat/pay04-*.sh; do [ -e "$f" ] && bash -n "$f"; done
+          for f in scripts/uat/pay04-*.mjs; do [ -e "$f" ] && node --check "$f"; done
+          true
+
+  postgres-payments-first:
+    name: Disposable PostgreSQL — Payments chain first, then Garage, then PAY-04 (upgrade + behaviour) and real-PG services
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ephemeral-ci-only
+          POSTGRES_DB: pay01c_sandbox_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pay01c_sandbox_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: ephemeral-ci-only
+      PGDATABASE: pay01c_sandbox_ci
+      PAY04_DISPOSABLE_PG: '1'
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
+      PAY04_TEST_PGURL: postgresql://postgres:ephemeral-ci-only@127.0.0.1:5432/pay01c_sandbox_ci
+      PAY03B_TEST_PGURL: postgresql://postgres:ephemeral-ci-only@127.0.0.1:5432/pay01c_sandbox_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Integrated certification (Phase 1 upgrade fingerprint, Phase 2 PAY smokes on PAY-04 writers + PAY-04 smokes)
+        run: bash scripts/ci/pay04-postgres-certification.sh payments-first
+      - name: PAY-04 services, F5 resolution and races on real PostgreSQL (a skip is a failure)
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 backend/tests/pay04-garage-payments.test.js | tee pay04.log
+          grep -E '^# skipped 0$' pay04.log && grep -E '^# fail 0$' pay04.log
+      - name: PAY-03B services on the PAY-04 schema (a skip is a failure)
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 backend/tests/pay03b-business-subscriptions.test.js backend/tests/pay03b-tenant-entitlements.test.js | tee pay03b.log
+          grep -E '^# skipped 0$' pay03b.log && grep -E '^# fail 0$' pay03b.log
+
+  postgres-garage-first:
+    name: Disposable PostgreSQL — Garage-lineage database receives Payments, then PAY-04 (upgrade + behaviour) and real-PG services
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ephemeral-ci-only
+          POSTGRES_DB: pay01c_sandbox_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pay01c_sandbox_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: ephemeral-ci-only
+      PGDATABASE: pay01c_sandbox_ci
+      PAY04_DISPOSABLE_PG: '1'
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
+      PAY04_TEST_PGURL: postgresql://postgres:ephemeral-ci-only@127.0.0.1:5432/pay01c_sandbox_ci
+      PAY03B_TEST_PGURL: postgresql://postgres:ephemeral-ci-only@127.0.0.1:5432/pay01c_sandbox_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Integrated certification (Phase 1 upgrade fingerprint, Phase 2 PAY smokes on PAY-04 writers + PAY-04 smokes)
+        run: bash scripts/ci/pay04-postgres-certification.sh garage-first
+      - name: PAY-04 services, F5 resolution and races on real PostgreSQL (a skip is a failure)
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 backend/tests/pay04-garage-payments.test.js | tee pay04.log
+          grep -E '^# skipped 0$' pay04.log && grep -E '^# fail 0$' pay04.log
+      - name: PAY-03B services on the PAY-04 schema (a skip is a failure)
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 backend/tests/pay03b-business-subscriptions.test.js backend/tests/pay03b-tenant-entitlements.test.js | tee pay03b.log
+          grep -E '^# skipped 0$' pay03b.log && grep -E '^# fail 0$' pay03b.log
+
+  garage-races:
+    name: Garage concurrency on a REAL PostgreSQL 16 (unchanged OPS04-OPS07 race suite)
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      GARAGE_REALPG_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Race suite (a skip is a failure here)
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 backend/tests/garage-final-concurrency.test.js | tee race.log
+          grep -E '^# skipped 0$' race.log
+          grep -E '^# fail 0$' race.log
+
+  web:
+    name: Web — full product and governance tests, TypeScript, build
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Feature manifest has not drifted
+        run: node scripts/generate-feature-manifest.mjs --check
+      - name: Full web product and governance tests
+        run: npm --workspace web run test:unit
+      - name: Web TypeScript (project references)
+        run: npx tsc -b web
+      - name: Production web build
+        run: npm run build

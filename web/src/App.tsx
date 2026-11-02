@@ -145,6 +145,9 @@ const GarageCustomerDetail = lazy(() => import('./pages/dashboard/garage/GarageC
 const GarageSchedule = lazy(() => import('./pages/dashboard/garage/GarageSchedule'))
 const GarageStock = lazy(() => import('./pages/dashboard/garage/GarageStock'))
 const GarageOperations = lazy(() => import('./pages/dashboard/garage/GarageOperations'))
+// CARUP-PAY-04: the garage's own invoices and payments (garage admin) and the operator's garage-payment exceptions.
+const GaragePayments = lazy(() => import('./pages/dashboard/garage/GaragePayments'))
+const GaragePaymentsOperator = lazy(() => import('./pages/dashboard/admin/GaragePaymentsOperator'))
 const GarageProfileEditor = lazy(() => import('./pages/dashboard/garage/GarageProfileEditor'))
 const WorkOrders = lazy(() => import('./pages/dashboard/mechanic/WorkOrders'))
 const ServiceLogs = lazy(() => import('./pages/dashboard/mechanic/ServiceLogs'))
@@ -534,6 +537,7 @@ export default function App() {
           {/* GARAGE-1.0: parts and stock (garage admin + mechanic read; admin manages) and the operations view (garage admin). */}
           <Route path="/garage/stock" element={<GarageStock />} />
           <Route path="/garage/operations" element={<GarageOperations />} />
+          <Route path="/garage/payments" element={<GaragePayments />} />
           <Route path="/garage/profile" element={<GarageProfileEditor />} />
           {/* GMO-6/7 (OC-5E): the garage's own people — its admin's surface (tenant-scoped). */}
           <Route path="/garage/team" element={<GarageTeam />} />
@@ -576,6 +580,7 @@ export default function App() {
           <Route path="/admin/payments" element={<Pay01aPayments />} />
           <Route path="/admin/demo-purchases" element={<Pay01cAdminOrders />} />
           <Route path="/admin/commercial-foundation" element={<Pay02CommercialFoundation />} />
+          <Route path="/admin/garage-payments" element={<GaragePaymentsOperator />} />
           {/* Lazy-loaded admin console. The admin guard lives in the parent
               <DashboardLayout role="admin"> route, which only renders <Outlet/>
               (this element) AFTER the auth/role gate passes — so authorization

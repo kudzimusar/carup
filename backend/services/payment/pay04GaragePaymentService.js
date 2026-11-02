@@ -272,7 +272,7 @@ export async function startGarageInvoicePayment({
   if (!account) throw new Pay04Error('PAY04_MERCHANT_UNAVAILABLE', 503);
   const adapter = pay04AdapterFor(collection.gateway, { env, provider });
   const origin = returnOrigin(env);
-  const back = `${origin}/dashboard/service-invoices?invoice=${invoice.id}&collection=${collection.id}`;
+  const back = `${origin}/dashboard/service-requests?invoice=${invoice.id}&collection=${collection.id}`;
   const checkout = await adapter.createCheckout({
     collectionId: collection.id, merchantReference: account.merchant_reference, amountMinor: Number(collection.amount_minor),
     currency: collection.currency, successUrl: `${back}&pay04=returned`, cancelUrl: `${back}&pay04=cancelled`,

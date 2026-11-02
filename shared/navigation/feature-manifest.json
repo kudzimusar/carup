@@ -140,6 +140,20 @@
     "betaCapable": true
   },
   {
+    "id": "admin.garage-payments",
+    "domain": "finance",
+    "route": "/admin/garage-payments",
+    "defaultLifecycle": "beta",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "admin.governance-review",
     "domain": "trust",
     "route": "/admin/governance-review",
@@ -1139,6 +1153,22 @@
     "id": "garage.operations",
     "domain": "service",
     "route": "/garage/operations",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": true,
+    "betaCapable": true,
+    "tenantTypes": [
+      "garage"
+    ],
+    "tenantRoles": [
+      "admin"
+    ]
+  },
+  {
+    "id": "garage.payments",
+    "domain": "service",
+    "route": "/garage/payments",
     "defaultLifecycle": "active",
     "defaultRoles": [],
     "immutableRoles": [],

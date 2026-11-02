@@ -8,6 +8,8 @@ import {
   type PaymentRecord,
 } from '@/lib/garageBusiness'
 import { requestDate } from '@/lib/serviceRequests'
+import { paymentStatusLabel, PROVIDER_STATE_TONE } from '@/lib/pay04GaragePayments'
+import InvoicePayment from './InvoicePayment'
 
 /**
  * One invoice as the CUSTOMER sees it.
@@ -48,7 +50,11 @@ export default function InvoiceCard({ invoice: inv }: { invoice: CustomerInvoice
   const uid = useId()
   const titleId = `${uid}-title`
   const voided = inv.status === 'voided'
-  const statusLabel = voided ? 'Voided' : (PAYMENT_STATUS_LABEL[inv.payment_status] ?? 'Payment status not recorded')
+  // CARUP-PAY-04: when provider-confirmed money can count, the status names both sources
+  const statusLabel = voided ? 'Voided' : inv.money ? paymentStatusLabel(inv) : (PAYMENT_STATUS_LABEL[inv.payment_status] ?? 'Payment status not recorded')
+  const providerPayments = inv.provider_payments ?? []
+  const providerReceipts = inv.provider_receipts ?? []
+  const owed = !voided && Number(inv.balance_amount) > 0
   const tone = voided ? PAYMENT_TONE.voided : (PAYMENT_TONE[inv.payment_status] ?? '')
 
   return (
@@ -103,10 +109,29 @@ export default function InvoiceCard({ invoice: inv }: { invoice: CustomerInvoice
           <dt className="font-medium text-gray-900">Invoice total</dt>
           <dd className="font-semibold tabular-nums" data-testid="invoice-total">{formatMoney(inv.total_amount, inv.currency)}</dd>
         </div>
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <dt className="text-gray-700">Payments recorded by the garage</dt>
-          <dd className="tabular-nums" data-testid="invoice-recorded-amount">{formatMoney(inv.paid_amount, inv.currency)}</dd>
-        </div>
+        {inv.money ? (
+          <>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <dt className="text-gray-700">Payments recorded by the garage</dt>
+              <dd className="tabular-nums" data-testid="invoice-recorded-amount">{formatMoney(inv.money.declared_paid, inv.currency)}</dd>
+            </div>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <dt className="text-gray-700">Confirmed by the garage’s payment provider</dt>
+              <dd className="tabular-nums" data-testid="invoice-provider-amount">{formatMoney(inv.money.provider_paid, inv.currency)}</dd>
+            </div>
+            {Number(inv.money.provider_reserved) > 0 && (
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <dt className="text-gray-700">In progress with the provider (not counted yet)</dt>
+                <dd className="tabular-nums" data-testid="invoice-in-flight-amount">{formatMoney(inv.money.provider_reserved, inv.currency)}</dd>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <dt className="text-gray-700">Payments recorded by the garage</dt>
+            <dd className="tabular-nums" data-testid="invoice-recorded-amount">{formatMoney(inv.paid_amount, inv.currency)}</dd>
+          </div>
+        )}
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <dt className="text-gray-700">Balance</dt>
           <dd className="tabular-nums" data-testid="invoice-balance">{formatMoney(inv.balance_amount, inv.currency)}</dd>
@@ -161,9 +186,27 @@ export default function InvoiceCard({ invoice: inv }: { invoice: CustomerInvoice
         )}
       </section>
 
+      {providerPayments.length > 0 && (
+        <section className="mt-4" aria-label={`Payments through the garage’s provider for invoice ${inv.invoice_number}`} data-testid="invoice-provider-payments">
+          <h5 className="text-sm font-semibold text-gray-900">Payments through the garage’s payment provider</h5>
+          <ul className="mt-2 space-y-2">
+            {providerPayments.map((p) => (
+              <li key={p.id} className="rounded-md border bg-gray-50 p-3 text-sm" data-testid="invoice-provider-payment" data-state={p.state}>
+                <p className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-medium text-gray-900">{formatMoney(p.amount, p.currency)}</span>
+                  <Badge variant="outline" className={`whitespace-normal text-left ${PROVIDER_STATE_TONE[p.state] ?? ''}`}>{p.state_label}</Badge>
+                </p>
+                <p className="text-xs text-gray-600">Started {requestDate(p.initiated_at)}{p.simulated ? ' · simulated provider (test)' : ''}</p>
+                <p className="mt-1 text-xs text-gray-700">{p.source_label}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="mt-4" aria-label={`Receipts for invoice ${inv.invoice_number}`} data-testid="invoice-receipts">
         <h5 className="text-sm font-semibold text-gray-900">Receipts</h5>
-        {inv.receipts.length === 0 ? (
+        {inv.receipts.length === 0 && providerReceipts.length === 0 ? (
           <p className="mt-1 text-sm text-gray-600">No receipts have been issued for this invoice.</p>
         ) : (
           <ul className="mt-2 space-y-2">
@@ -181,9 +224,23 @@ export default function InvoiceCard({ invoice: inv }: { invoice: CustomerInvoice
                 <p className="mt-1 text-xs text-gray-700" data-testid="receipt-source-label">{r.payment_source_label}</p>
               </li>
             ))}
+            {providerReceipts.map((r) => (
+              <li key={r.id} className="rounded-md border bg-gray-50 p-3 text-sm" data-testid="invoice-provider-receipt">
+                <p className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-medium text-gray-900">Receipt {r.receipt_number}</span>
+                  <span className="tabular-nums">{formatMoney(r.amount, r.currency)}</span>
+                </p>
+                <p className="text-xs text-gray-600">
+                  {r.status === 'voided' ? `Voided${r.voided_at ? ` ${requestDate(r.voided_at)}` : ''}` : `Issued ${requestDate(r.issued_at)}`}
+                </p>
+                <p className="mt-1 text-xs text-gray-700" data-testid="receipt-source-label">{r.payment_source_label}</p>
+              </li>
+            ))}
           </ul>
         )}
       </section>
+
+      {owed && <InvoicePayment invoice={inv} />}
     </article>
   )
 }

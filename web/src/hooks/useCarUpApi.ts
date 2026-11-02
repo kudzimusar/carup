@@ -4,6 +4,10 @@ import type {
   EstimateDecisionResult, EstimateDraftInput, GarageEstimate, GarageInvoice, InvoiceLineInput, NotificationOutcome,
   OperationsSummary, PartUsage, PaymentRecord, PaymentStatus, StockListResponse, StockPartResponse,
 } from '@/lib/garageBusiness'
+import type {
+  CollectionOutcome, CustomerInvoicePayment, GarageFinancialOverview, GarageMerchantAccount, GaragePaymentExceptions,
+  GaragePaymentInstructionsView, StartPaymentResult,
+} from '@/lib/pay04GaragePayments'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
 import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
 import type { SharedChargeSet } from '@/pages/diaspora/SharedChargeAllocation'
@@ -2967,6 +2971,42 @@ export function useCarUpApi() {
   const fetchMyInvoices = useCallback(async (): Promise<{ invoices: CustomerInvoice[] }> =>
     request<{ invoices: CustomerInvoice[] }>('/service-invoices/mine', { method: 'GET' }), [request])
 
+  /* ── CARUP-PAY-04 — garage invoice payments ─────────────────────────────────────────────────
+     The customer pays the GARAGE (its own instructions, or its own provider merchant); the garage reads and
+     refunds its own provider payments; the operator governs exceptions. Money truth is always the server's
+     fresh provider read; nothing here retries a POST or infers a payment. */
+  const fetchGarageInvoicePaymentOptions = useCallback(async (invoiceId: string): Promise<CustomerInvoicePayment> =>
+    request<CustomerInvoicePayment>(`/pay04/garage-invoices/${encodeURIComponent(invoiceId)}/payment`, { method: 'GET' }), [request])
+  const startGarageInvoicePayment = useCallback(async (invoiceId: string, body: { amount?: Decimal }, idempotencyKey: string): Promise<StartPaymentResult> =>
+    request<StartPaymentResult>(`/pay04/garage-invoices/${encodeURIComponent(invoiceId)}/payments`, {
+      method: 'POST', body: JSON.stringify(body), headers: { 'Idempotency-Key': idempotencyKey } }), [request])
+  const verifyGarageInvoicePayment = useCallback(async (collectionId: string): Promise<CollectionOutcome> =>
+    request<CollectionOutcome>(`/pay04/garage-payments/${encodeURIComponent(collectionId)}/verify`, { method: 'POST', body: '{}' }), [request])
+  const cancelGarageInvoicePayment = useCallback(async (collectionId: string, reason: string): Promise<CollectionOutcome> =>
+    request<CollectionOutcome>(`/pay04/garage-payments/${encodeURIComponent(collectionId)}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+  const fetchGarageFinancialOverview = useCallback(async (): Promise<GarageFinancialOverview> =>
+    request<GarageFinancialOverview>('/pay04/garage/financial-overview', { method: 'GET' }), [request])
+  const fetchGaragePaymentInstructions = useCallback(async (): Promise<GaragePaymentInstructionsView> =>
+    request<GaragePaymentInstructionsView>('/pay04/garage/payment-instructions', { method: 'GET' }), [request])
+  const saveGaragePaymentInstructions = useCallback(async (body: { payee_name: string; instructions: string; accepted_methods: string[]; currencies: string[] }): Promise<GaragePaymentInstructionsView> =>
+    request<GaragePaymentInstructionsView>('/pay04/garage/payment-instructions', { method: 'PUT', body: JSON.stringify(body) }), [request])
+  const refundGarageProviderPayment = useCallback(async (collectionId: string, reason: string): Promise<CollectionOutcome & { provider_error: string | null }> =>
+    request<CollectionOutcome & { provider_error: string | null }>(`/pay04/garage/payments/${encodeURIComponent(collectionId)}/refund`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+  const reconcileGarageProviderPayment = useCallback(async (collectionId: string): Promise<CollectionOutcome> =>
+    request<CollectionOutcome>(`/pay04/garage/payments/${encodeURIComponent(collectionId)}/reconcile`, { method: 'POST', body: '{}' }), [request])
+  const cancelGarageProviderPayment = useCallback(async (collectionId: string, reason: string): Promise<CollectionOutcome> =>
+    request<CollectionOutcome>(`/pay04/garage/payments/${encodeURIComponent(collectionId)}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+  const fetchGaragePaymentExceptions = useCallback(async (): Promise<GaragePaymentExceptions> =>
+    request<GaragePaymentExceptions>('/pay04/admin/exceptions', { method: 'GET' }), [request])
+  const resolveGaragePaymentDiscrepancy = useCallback(async (discrepancyId: string, body: { resolution: string; note: string }) =>
+    request<Record<string, unknown>>(`/pay04/admin/discrepancies/${encodeURIComponent(discrepancyId)}/resolve`, { method: 'POST', body: JSON.stringify(body) }), [request])
+  const fetchGarageMerchantAccounts = useCallback(async (): Promise<{ accounts: GarageMerchantAccount[]; simulated_only: boolean; note: string }> =>
+    request<{ accounts: GarageMerchantAccount[]; simulated_only: boolean; note: string }>('/pay04/admin/merchant-accounts', { method: 'GET' }), [request])
+  const registerGarageMerchantAccount = useCallback(async (body: { tenant_id: string; merchant_reference: string; display_name: string; currencies: string[]; authority_note: string }) =>
+    request<{ account: GarageMerchantAccount }>('/pay04/admin/merchant-accounts', { method: 'POST', body: JSON.stringify(body) }), [request])
+  const suspendGarageMerchantAccount = useCallback(async (accountId: string, reason: string) =>
+    request<{ account: GarageMerchantAccount }>(`/pay04/admin/merchant-accounts/${encodeURIComponent(accountId)}/suspend`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+
   const fetchGarageOperationsSummary = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<OperationsSummary> =>
     request<OperationsSummary>(`/garage/operations/summary?window_days=${windowDays}`, { method: 'GET' }), [request])
 
@@ -3980,6 +4020,21 @@ export function useCarUpApi() {
     recordGaragePayment,
     reverseGaragePayment,
     fetchMyInvoices,
+    fetchGarageInvoicePaymentOptions,
+    startGarageInvoicePayment,
+    verifyGarageInvoicePayment,
+    cancelGarageInvoicePayment,
+    fetchGarageFinancialOverview,
+    fetchGaragePaymentInstructions,
+    saveGaragePaymentInstructions,
+    refundGarageProviderPayment,
+    reconcileGarageProviderPayment,
+    cancelGarageProviderPayment,
+    fetchGaragePaymentExceptions,
+    resolveGaragePaymentDiscrepancy,
+    fetchGarageMerchantAccounts,
+    registerGarageMerchantAccount,
+    suspendGarageMerchantAccount,
     fetchGarageOperationsSummary,
     fetchGarageQueue,
     fetchGarageMechanics,

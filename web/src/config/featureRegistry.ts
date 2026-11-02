@@ -704,6 +704,22 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'How the workshop is running, counted from your own records',
   },
   {
+    // CARUP-PAY-04: the garage's own money per currency, its payment instructions and its provider connection.
+    // The server's gate is requireActiveTenant({ types: ['garage'], roles: ['admin'] }); this scope says the same.
+    id: 'garage.payments',
+    label: 'Invoices and Payments',
+    shortLabel: 'Payments',
+    route: '/garage/payments',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'CreditCard',
+    description: 'Money invoiced and received per currency, and how customers pay you',
+  },
+  {
     // GMO-6/7 (OC-5E): who works in the garage — invitations, roles, removal. The server's gate is
     // requireActiveTenant({ types: ['garage'], roles: ['admin'] }); this scope says the same.
     id: 'garage.team',
@@ -952,6 +968,21 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'CreditCard',
     lifecycle: 'beta',
     description: 'Inspect and govern the unified commercial product catalogue, provider routing, and activation states',
+    owner: 'payments',
+  },
+  {
+    // CARUP-PAY-04: garage payment exceptions and simulated garage merchant accounts. Linked from the commercial
+    // console; registration does NOT relax the backend's administrator-session gate.
+    id: 'admin.garage-payments',
+    label: 'Garage Payments Operations',
+    route: '/admin/garage-payments',
+    domain: 'finance',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'CreditCard',
+    lifecycle: 'beta',
+    description: 'Review garage payment exceptions and simulated garage merchant accounts',
     owner: 'payments',
   },
   {
