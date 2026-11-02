@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { returnOutcomeMessage, type CollectionOutcome } from '@/lib/pay04GaragePayments'
-import { paynowOutcomeMessage, type PaynowOutcome } from '@/lib/pay05Paynow'
+import { paynowContinuable, paynowOutcomeMessage, type PaynowOutcome } from '@/lib/pay05Paynow'
+import PaynowPendingPanel from './PaynowPendingPanel'
 
 const TONE = { ok: 'border-green-300 bg-green-50 text-green-900', wait: 'border-amber-300 bg-amber-50 text-amber-900', warn: 'border-amber-300 bg-amber-50 text-amber-900', error: 'border-red-300 bg-red-50 text-red-900' } as const
 const COLLECTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -60,9 +61,16 @@ export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => v
     )
   }
   const message = paynow ? paynowOutcomeMessage(outcome as PaynowOutcome | null, failed) : returnOutcomeMessage(outcome, failed)
+  // PAY-05: back from Paynow without finishing — what Paynow gave CarUp to continue the request (its page, a code)
+  const view = paynow && !failed ? (outcome as PaynowOutcome | null)?.paynow ?? null : null
+  const state = outcome?.collection?.state ?? null
   return (
     <div role="status" className={`rounded-lg border p-4 text-sm ${TONE[message.tone]}`} data-testid="payment-return-outcome" data-tone={message.tone}>
       <p>{message.text}</p>
+      {view && paynowContinuable(state, view) && (
+        <PaynowPendingPanel className="mt-3" collectionId={collectionId} paynow={view} state={state}
+          onOtpOutcome={(answer) => { setOutcome(answer); setFailed(false); onSettled?.() }} />
+      )}
       {message.tone !== 'ok' && (
         <Button variant="outline" className="mt-2 min-h-11 bg-white" onClick={() => void check()} data-testid="payment-return-recheck">
           Check payment status

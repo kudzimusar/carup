@@ -9,8 +9,11 @@ import {
   type CollectionOutcome, type CustomerInvoicePayment,
 } from '@/lib/pay04GaragePayments'
 import { requestDate } from '@/lib/serviceRequests'
-import { PAYNOW_METHOD_LABEL, paynowOutcomeMessage, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment } from '@/lib/pay05Paynow'
+import {
+  PAYNOW_METHOD_LABEL, paynowContinuable, paynowOutcomeMessage, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment,
+} from '@/lib/pay05Paynow'
 import PaynowCheckout from './PaynowCheckout'
+import PaynowPendingPanel from './PaynowPendingPanel'
 
 const METHOD_LABEL = Object.fromEntries(PAYMENT_METHOD_OPTIONS.map((m) => [m.value, m.label]))
 const TONE = { ok: 'bg-green-50 text-green-900', wait: 'bg-amber-50 text-amber-900', warn: 'bg-amber-50 text-amber-900', error: 'bg-red-50 text-red-900' } as const
@@ -210,6 +213,8 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                   <ul className="mt-2 space-y-2">
                     {data.provider_payments.map((p) => {
                       const paynow = (p as PaynowProviderPayment).paynow ?? null
+                      // PAY-05: an in-progress Paynow request can be continued here (the one the checkout above started is shown there)
+                      const continuable = paynow && paynowStarted?.collectionId !== p.id && paynowContinuable(p.state, paynow) ? paynow : null
                       return (
                       <li key={p.id} className="rounded-md border bg-gray-50 p-3" data-testid="my-provider-payment" data-state={p.state}>
                         <p className="flex flex-wrap items-baseline justify-between gap-2">
@@ -217,6 +222,11 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                           <Badge variant="outline" className={`whitespace-normal ${PROVIDER_STATE_TONE[p.state] ?? ''}`}>{p.state_label}</Badge>
                         </p>
                         {paynow && <p className="mt-1 text-xs text-gray-700" data-testid="my-provider-payment-paynow">{paynow.provider_status_label}</p>}
+                        {continuable && (
+                          <PaynowPendingPanel className="mt-2 rounded-md border border-amber-300 bg-white p-2" collectionId={p.id} paynow={continuable}
+                            state={p.state} busy={busy}
+                            onOtpOutcome={(outcome) => { setChecked({ id: p.id, outcome, failed: false }); void load(); onChanged?.() }} />
+                        )}
                         <div className="mt-2 flex flex-wrap gap-2">
                           <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => void check(p.id)} data-testid="my-provider-payment-check">
                             Check payment status

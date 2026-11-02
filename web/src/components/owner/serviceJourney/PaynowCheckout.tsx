@@ -3,17 +3,14 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { newIdempotencyKey } from '@/lib/garageBusiness'
-import { MONEY_ACTION_BUTTON_CLASS, onlineAmountProblem, pay04ErrorText } from '@/lib/pay04GaragePayments'
+import { MONEY_ACTION_BUTTON_CLASS, onlineAmountProblem } from '@/lib/pay04GaragePayments'
 import {
-  PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_STATUS_SHORT, PAYNOW_STATUS_TONE, needsPhone, pay05ErrorText, paynowOutcomeMessage, phoneProblem,
+  PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_STATUS_SHORT, PAYNOW_STATUS_TONE, needsPhone, paynowErrorText, paynowOutcomeMessage, phoneProblem,
   type PaynowMethod, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment, type PaynowStartResult, type PaynowView,
 } from '@/lib/pay05Paynow'
+import PaynowPendingPanel from './PaynowPendingPanel'
 
 const TONE = { ok: 'bg-green-50 text-green-900', wait: 'bg-amber-50 text-amber-900', warn: 'bg-amber-50 text-amber-900', error: 'bg-red-50 text-red-900' } as const
-const errorText = (err: unknown, fallback: string) => {
-  const message = err instanceof Error ? err.message : ''
-  return (message && (pay05ErrorText(message) ?? pay04ErrorText(message))) || fallback
-}
 
 /**
  * CARUP-PAY-05 — the customer pays the garage through the GARAGE's own Paynow account.
@@ -32,7 +29,7 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
   /** the invoice's latest read of that request, once a refresh lists it */
   latest?: PaynowProviderPayment | null
 }) {
-  const { startGarageInvoicePayment, verifyGarageInvoicePayment, submitPaynowOtp } = useCarUpApi()
+  const { startGarageInvoicePayment, verifyGarageInvoicePayment } = useCarUpApi()
   const uid = useId()
   const [amount, setAmount] = useState(option.max_amount)
   const [method, setMethod] = useState<PaynowMethod>(option.methods.includes('web') ? 'web' : option.methods[0])
@@ -42,8 +39,6 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
   const [problem, setProblem] = useState<string | null>(null)
   const [pending, setPending] = useState<{ collectionId: string; amount: string; currency: string; paynow: PaynowView | null; cannotCancel: string } | null>(null)
   const [checked, setChecked] = useState<{ outcome: PaynowOutcome | null; failed: boolean } | null>(null)
-  const [otp, setOtp] = useState('')
-  const [otpProblem, setOtpProblem] = useState<string | null>(null)
 
   // a refresh of the invoice is a newer read of the request started here than the one shown: adopt it
   useEffect(() => {
@@ -73,7 +68,7 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
       onStarted?.(started.collection_id)
       onChanged?.()
     } catch (err) {
-      setProblem(errorText(err, 'The payment could not be started. Nothing was charged.'))
+      setProblem(paynowErrorText(err, 'The payment could not be started. Nothing was charged.'))
       setKey(newIdempotencyKey())
     } finally {
       setBusy(false)
@@ -95,22 +90,12 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
     }
   }
 
-  const sendOtp = async () => {
-    if (!pending) return
-    if (!/^\d{4,8}$/.test(otp.trim())) { setOtpProblem('Enter the code from the SMS (numbers only).'); return }
-    setBusy(true)
-    setOtpProblem(null)
-    try {
-      const outcome = await submitPaynowOtp(pending.collectionId, otp.trim())
-      setChecked({ outcome, failed: false })
-      if (outcome.paynow) setPending({ ...pending, paynow: outcome.paynow })
-      setOtp('')
-      onChanged?.()
-    } catch (err) {
-      setOtpProblem(errorText(err, 'The code could not be sent to Paynow. Nothing changed.'))
-    } finally {
-      setBusy(false)
-    }
+  // O'mari: Paynow's answer to the code, from the shared panel
+  const otpAnswered = (outcome: PaynowOutcome) => {
+    setChecked({ outcome, failed: false })
+    const fresh = outcome.paynow
+    if (fresh) setPending((p) => (p ? { ...p, paynow: fresh } : p))
+    onChanged?.()
   }
 
   const view = pending?.paynow
@@ -170,30 +155,7 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
             )}
           </p>
           <p role="status" aria-live="polite" data-testid="paynow-status">{view?.provider_status_label ?? 'Waiting for Paynow. Nothing is counted until Paynow confirms it.'}</p>
-          {view?.instructions && <p className="text-sm" data-testid="paynow-instructions">{view.instructions}</p>}
-          {view?.authorization_code && (
-            <div className="rounded-md border border-amber-400 bg-white p-2" data-testid="paynow-innbucks">
-              <p className="text-sm">Your InnBucks code</p>
-              <p className="font-mono text-2xl tracking-widest" data-testid="paynow-innbucks-code">{view.authorization_code}</p>
-              {view.authorization_expires && <p className="text-xs text-gray-700">Valid until {view.authorization_expires} (Paynow’s time)</p>}
-            </div>
-          )}
-          {view?.needs_otp && (
-            <div className="space-y-1" data-testid="paynow-otp">
-              <label htmlFor={`${uid}-otp`} className="block text-sm font-medium">
-                Code from the O’mari SMS{view.otp_reference ? ` (reference ${view.otp_reference})` : ''}
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <input id={`${uid}-otp`} inputMode="numeric" autoComplete="one-time-code" value={otp} onChange={(e) => { setOtp(e.target.value); setOtpProblem(null) }}
-                  aria-invalid={Boolean(otpProblem)} aria-describedby={otpProblem ? `${uid}-otp-problem` : undefined}
-                  className="min-h-11 w-40 rounded-lg border border-gray-300 bg-white px-3 text-sm" data-testid="paynow-otp-input" />
-                <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !otp.trim()} onClick={() => void sendOtp()} data-testid="paynow-otp-submit">
-                  Send code to Paynow
-                </Button>
-              </div>
-              {otpProblem && <p id={`${uid}-otp-problem`} role="alert" className="text-sm text-red-800" data-testid="paynow-otp-problem">{otpProblem}</p>}
-            </div>
-          )}
+          {view && <PaynowPendingPanel collectionId={pending.collectionId} paynow={view} busy={busy} onOtpOutcome={otpAnswered} />}
           <Button variant="outline" className="min-h-11 bg-white" disabled={busy} onClick={() => void check()} data-testid="paynow-check">
             Check payment status
           </Button>

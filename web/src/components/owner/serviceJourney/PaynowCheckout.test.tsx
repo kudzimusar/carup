@@ -205,3 +205,40 @@ describe('Paying the garage with Paynow', () => {
     expect(screen.getByTestId('my-provider-payment-stop-ask')).toHaveTextContent('Paynow cannot cancel a payment request')
   })
 })
+
+describe('Continuing a Paynow payment already on the invoice (W2)', () => {
+  const inProgress = (rows: unknown[]) => options({ online_payment: { available: false, reason: 'payment_in_progress' }, provider_payments: rows })
+
+  it('each in-progress Paynow row offers what Paynow gave — its page link or an InnBucks code — or says plainly there is no link', async () => {
+    fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([
+      row({ method: 'web', provider_status: 'created', checkout_url: 'http://127.0.0.1:5061/Payment/ConfirmPayment/z', instructions: null }, { id: 'c-web' }),
+      row({ method: 'innbucks', authorization_code: '987654321', authorization_expires: '2-Nov-2026 18:00', instructions: null }, { id: 'c-inn' }),
+      row({ method: 'web', provider_status: null, initiation: 'unknown', checkout_url: null, instructions: null }, { id: 'c-traced' }),
+      row({ method: 'ecocash', provider_status: 'paid' }, { id: 'c-paid', state: 'confirmed', state_label: 'Confirmed by the provider' }),
+    ]))
+    render(<InvoicePayment invoice={invoice} />)
+    fireEvent.click(screen.getByTestId('how-to-pay-toggle'))
+    const rows = await screen.findAllByTestId('my-provider-payment')
+    expect(within(rows[0]).getByRole('link', { name: 'Continue on Paynow' })).toHaveAttribute('href', 'http://127.0.0.1:5061/Payment/ConfirmPayment/z')
+    expect(within(rows[1]).getByTestId('paynow-innbucks-code')).toHaveTextContent('987654321')
+    expect(within(rows[2]).getByTestId('paynow-no-link')).toHaveTextContent('Paynow did not give CarUp a page link for this request; check its status or stop waiting.')
+    expect(within(rows[3]).queryByTestId('paynow-continue')).toBeNull()
+  })
+
+  it('O’mari: the code form is on the row; Paynow’s answer shows there and the invoice refreshes', async () => {
+    fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([row({ method: 'omari', provider_status: 'created', needs_otp: true, otp_reference: 'OTP1001', instructions: null })]))
+    submitPaynowOtp.mockResolvedValue({ collection: { state: 'confirmed' }, applied: true, refused: null, duplicate_event: false, payment_status: 'paid',
+      money: {}, paynow: paynowView({ method: 'omari', provider_status: 'paid', needs_otp: false }) })
+    const onChanged = vi.fn()
+    render(<InvoicePayment invoice={invoice} onChanged={onChanged} />)
+    fireEvent.click(screen.getByTestId('how-to-pay-toggle'))
+    const listed = await screen.findByTestId('my-provider-payment')
+    expect(within(listed).getByTestId('paynow-otp')).toHaveTextContent('OTP1001')
+    fireEvent.change(within(listed).getByTestId('paynow-otp-input'), { target: { value: '483920' } })
+    fireEvent.click(within(listed).getByTestId('paynow-otp-submit'))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
+    expect(submitPaynowOtp).toHaveBeenCalledWith(COLLECTION, '483920')
+    expect(fetchGarageInvoicePaymentOptions).toHaveBeenCalledTimes(2)
+    expect(await screen.findByTestId('my-provider-payment-outcome')).toHaveTextContent('Paynow confirmed your payment')
+  })
+})
