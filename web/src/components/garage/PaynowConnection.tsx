@@ -248,6 +248,13 @@ export default function PaynowConnection() {
                 ))}
               </ul>
               {merchant.suspended_reason && <p className="text-sm text-gray-700">Reason: {merchant.suspended_reason}</p>}
+              {merchant.status === 'rejected' && (
+                <p className="rounded-md bg-amber-50 p-2 text-sm text-amber-900" data-testid="garage-paynow-rejected">
+                  {merchant.rejected_reason?.trim()
+                    ? `Not verified — CarUp’s reason: ${merchant.rejected_reason.trim().replace(/[.\s]+$/, '')}. Connect again with correct details.`
+                    : 'Not verified — connect again with correct details.'}
+                </p>
+              )}
               <p className="text-xs text-gray-700" data-testid="garage-paynow-refunds">
                 Refunds: Paynow does not let CarUp refund. Refund a customer in your Paynow dashboard; CarUp shows it when Paynow reports it.
               </p>

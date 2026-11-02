@@ -165,6 +165,15 @@ describe('Connecting the garage’s own Paynow account', () => {
     expect(screen.getByTestId('garage-paynow-message')).not.toHaveTextContent('PAY05_')
   })
 
+  it('W9: a rejected account shows CarUp’s reason and the garage can connect again', async () => {
+    fetchGaragePaynowConnection.mockResolvedValue(base({ merchant: { ...merchant, status: 'rejected',
+      rejected_reason: 'The settlement account belongs to another business.', rejected_at: '2026-11-02T12:00:00Z' } }))
+    render(<PaynowConnection />)
+    expect(await screen.findByTestId('garage-paynow-rejected')).toHaveTextContent(
+      /^Not verified — CarUp.s reason: The settlement account belongs to another business\. Connect again with correct details\.$/)
+    expect(screen.getByTestId('garage-paynow-connect')).toBeInTheDocument()
+  })
+
   it('a failed load never reads as connected or disconnected', async () => {
     fetchGaragePaynowConnection.mockRejectedValue(new Error('network'))
     render(<PaynowConnection />)
