@@ -18,6 +18,7 @@ const names=[
   '20261103124000_dealer_atomic_compliance_governance.sql',
   '20261103125000_dealer_profile_self_grant_hardening.sql',
   '20261103130000_dealer_document_candidate_ocr_events.sql',
+  '20261103131000_dealer_compliance_submission_review.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -109,7 +110,7 @@ try{
     "SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed"
   )).rows[0].allowed,false);
 
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,14);
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,16);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -199,6 +200,85 @@ try{
     '${uuid(2)}','${outsider}','CLAIM_APPROVED',
     'Claimant falsely declares they approved their own appeal with their own original document',
     '${uuid(100)}','Company Registry','BRANCH')`,'INDEPENDENT_REVIEWER_REQUIRED');
+  // D6: Freeze actual applicant-drafted fields; explicit signatory/privacy
+  // acknowledgment and independently scoped reviewer findings are distinct from
+  // claim approval and do NOT create a canonical tenant or verified licence.
+  await fails(`SELECT dealer_submit_compliance_application(
+    '${uuid(1)}','${claimant}',2,
+    'CARUP_DEALER_APPLICANT_DECLARATION_1',true)`,
+    'CANONICAL_INTAKE_CONTRACT_REQUIRED');
+  const completeApplication={
+    schema:'CARUP_DEALER_INTAKE_1_0',
+    claim_id:uuid(1),seed_id:'ZW-DEAL-0001',
+    source_row_sha256:sha,
+    tab_rows:{
+      BUSINESS:[{
+        claim_reference:uuid(1),source_seed_id:'ZW-DEAL-0001',
+        legal_name:'Fixture Legal Co',operating_country:'ZW',
+        research_confirmation:'CORRECT',
+      }],
+      BRANCHES:[{branch_ref:'BR-1',source_seed_id:'ZW-DEAL-0001',
+        branch_name:'Fixture showroom',city:'Harare'}],
+      CONSENTS_DECLARATIONS:[{
+        signer_name:'Fixture Director',signer_role:'Director',
+        privacy_acknowledgment:'YES',
+      }],
+    },
+  };
+  const prepared=await query(
+    'SELECT dealer_save_claim_intake_draft($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8) AS receipt',
+    [uuid(1),claimant,'CARUP_DEALER_INTAKE_1_0',sha,'d'.repeat(64),
+      JSON.stringify(completeApplication),JSON.stringify({BUSINESS:1,BRANCHES:1,
+        CONSENTS_DECLARATIONS:1}),2]);
+  assert.equal(prepared.rows[0].receipt.version,3);
+  await fails(`SELECT dealer_submit_compliance_application(
+    '${uuid(1)}','${claimant}',3,
+    'CARUP_DEALER_APPLICANT_DECLARATION_1',false)`,
+    'EXPLICIT_APPLICANT_DECLARATION_REQUIRED');
+  await fails(`SELECT dealer_submit_compliance_application(
+    '${uuid(1)}','${outsider}',3,
+    'CARUP_DEALER_APPLICANT_DECLARATION_1',true)`,
+    'CLAIM_NOT_APPROVED_FOR_APPLICATION_SUBMISSION');
+  await fails(`SELECT dealer_submit_compliance_application(
+    '${uuid(1)}','${claimant}',2,
+    'CARUP_DEALER_APPLICANT_DECLARATION_1',true)`,
+    'STALE_APPLICATION_VERSION');
+  const applied=await query(
+    'SELECT dealer_submit_compliance_application($1,$2,$3,$4,$5) AS receipt',
+    [uuid(1),claimant,3,'CARUP_DEALER_APPLICANT_DECLARATION_1',true]);
+  const subId=applied.rows[0].receipt.submission_id;
+  assert.equal(applied.rows[0].receipt.tenant_activated,false);
+  assert.equal(applied.rows[0].receipt.compliance_approved,false);
+  const repeat=await query(
+    'SELECT dealer_submit_compliance_application($1,$2,$3,$4,$5) AS receipt',
+    [uuid(1),claimant,3,'CARUP_DEALER_APPLICANT_DECLARATION_1',true]);
+  assert.equal(repeat.rows[0].receipt.submission_id,subId);
+  assert.equal((await query(
+    'SELECT count(*)::int AS n FROM dealer_claim_compliance_submissions')).rows[0].n,1);
+  await fails("UPDATE dealer_claim_compliance_submissions SET applicant_attested=false",
+    'APPEND_ONLY_LEDGER');
+  await exec('SET ROLE anon');
+  await fails('SELECT * FROM dealer_claim_compliance_submissions','permission denied');
+  await exec('RESET ROLE');
+  await fails(`SELECT dealer_review_compliance_submission(
+    '${subId}','${claimant}','READY_FOR_REGULATORY_REVIEW',
+    'Claimant cannot self-review this frozen applicant declaration.')`,
+    'INDEPENDENT_APPLICATION_REVIEWER_REQUIRED');
+  const preliminary=await query(
+    'SELECT dealer_review_compliance_submission($1,$2,$3,$4) AS receipt',
+    [subId,reviewer,'EVIDENCE_REQUIRED',
+      'Reviewer inspected the frozen declaration: supplemental regulator evidence is still required.']);
+  assert.equal(preliminary.rows[0].receipt.preliminary_review_only,true);
+  assert.equal(preliminary.rows[0].receipt.compliance_approved,false);
+  assert.equal(preliminary.rows[0].receipt.tenant_activated,false);
+  await fails("UPDATE dealer_claim_compliance_review_events SET verdict='READY_FOR_REGULATORY_REVIEW'",
+    'APPEND_ONLY_LEDGER');
+  await fails(`SELECT dealer_review_compliance_submission(
+    '${subId}','${reviewer}','READY_FOR_REGULATORY_REVIEW',
+    'Attempted to overwrite the prior independent case with a second opinion.')`,
+    'duplicate key value');
+  await fails(read('20261103131000_dealer_compliance_submission_review.sql').down,
+    'CANNOT_ROLLBACK_WITH_SUBMITTED_COMPLIANCE_CUSTODY');
   // D5: OCR is candidate-only and immutable; original-custody mismatch refuses.
   await fails(`SELECT dealer_record_candidate_document_extraction(
     '${uuid(1)}','${uuid(100)}','${outsider}','${sha}',
@@ -289,7 +369,7 @@ try{
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 7 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 8 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;
