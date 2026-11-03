@@ -209,6 +209,7 @@ export default function DealerDashboard(){
           <Card><CardHeader><CardTitle className="text-lg">Dealer workspace</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               {[
+                ['Manage real business, buyer and warranty terms','/dealers/operating-details'],
                 ['Manage canonical inventory','/dealer/inventory'],['Buyer inquiries','/dealer/leads'],
                 ['Dealer intelligence','/dealer/analytics'],['Document review','/dealer/evidence'],
               ].map(([label,url])=><Link key={url} className="flex items-center gap-2 text-blue-700 font-medium text-sm hover:underline" to={url}>
