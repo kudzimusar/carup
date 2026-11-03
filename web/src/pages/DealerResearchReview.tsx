@@ -29,6 +29,14 @@ export default function DealerResearchReview(){
   const [decision,setDecision]=useState<Decision>('WITHHELD')
   const [reason,setReason]=useState('')
   const [password,setPassword]=useState('')
+  const [relatedSeed,setRelatedSeed]=useState('')
+  const [groupState,setGroupState]=useState('UNRESOLVED_GROUPING')
+  const [groupReason,setGroupReason]=useState('')
+  const [contactReason,setContactReason]=useState('')
+  const [contactAddress,setContactAddress]=useState(false)
+  const [contactPhone,setContactPhone]=useState(false)
+  const [contactWebsite,setContactWebsite]=useState(false)
+  const [contactRetract,setContactRetract]=useState(false)
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
   const [notice,setNotice]=useState('')
@@ -74,6 +82,49 @@ export default function DealerResearchReview(){
     }finally{
       setPassword('');setBusy(false)
     }
+  }
+
+  async function recordGrouping(){
+    if(!user||!token||!current||busy||password.length<8||
+      groupReason.trim().length<60)return
+    setBusy(true);setError('');setNotice('')
+    try{
+      const result=await apiRequest<{review:{grouping_status:string;
+        legal_parent_verified:false}}>({
+        baseUrl:API,path:'/admin/dealership/research/'+
+          encodeURIComponent(current.seed_dealer_id)+'/grouping-review',
+        options:{method:'POST',body:JSON.stringify({
+          related_seed_dealer_id:relatedSeed.trim()||null,
+          review_state:groupState,reason:groupReason.trim(),reviewer_password:password,
+        })},authHeaders:heads(user.id,token),
+      })
+      setNotice('Research grouping review recorded: '+result.review.grouping_status+
+        '. This did not verify a legal parent, merge organizations or assign membership.')
+      setGroupReason('');await reload()
+    }catch(problem){setError(problem instanceof Error?problem.message:'Grouping review refused')}
+    finally{setPassword('');setBusy(false)}
+  }
+  async function recordContacts(){
+    if(!user||!token||!current||busy||password.length<8||
+      contactReason.trim().length<80)return
+    setBusy(true);setError('');setNotice('')
+    try{
+      const result=await apiRequest<{review:{public_contact_state:string;
+        business_verified:false}}>({
+        baseUrl:API,path:'/admin/dealership/research/'+
+          encodeURIComponent(current.seed_dealer_id)+'/contact-review',
+        options:{method:'POST',body:JSON.stringify({
+          display_address:contactRetract?false:contactAddress,
+          display_phone:contactRetract?false:contactPhone,
+          display_website:contactRetract?false:contactWebsite,
+          retract:contactRetract,reason:contactReason.trim(),reviewer_password:password,
+        })},authHeaders:heads(user.id,token),
+      })
+      setNotice('Reviewed source-contact display: '+result.review.public_contact_state+
+        '. No private source email, principal, legal verification or franchise endorsement published.')
+      setContactReason('');await reload()
+    }catch(problem){setError(problem instanceof Error?problem.message:'Public contact decision refused')}
+    finally{setPassword('');setBusy(false)}
   }
   return <main className="min-h-screen bg-gray-50 section-padding">
     <div className="max-w-6xl mx-auto py-10">
@@ -170,6 +221,71 @@ export default function DealerResearchReview(){
               No bulk approval. An unclaimed public research page is not a
               verified licence, authorized franchise, seller account or tenant.
             </p>
+            <section className="pt-5 border-t space-y-3">
+              <h3 className="font-semibold">Independent source grouping review</h3>
+              <p className="text-xs text-gray-600">
+                Reported parent names, domain matches and shared addresses are
+                leads for separate review, not proof that two dealers share
+                legal ownership. No company or branch is merged by this action.
+              </p>
+              <label className="block text-sm font-semibold" htmlFor="group-candidate">
+                Other research seed ID (if applicable)
+              </label>
+              <Input id="group-candidate" value={relatedSeed} maxLength={12}
+                placeholder="ZW-DEAL-0002" onChange={e=>setRelatedSeed(e.target.value.toUpperCase())}/>
+              <label className="block text-sm font-semibold" htmlFor="group-state">Documented grouping observation</label>
+              <select id="group-state" className="w-full border rounded-lg p-2"
+                value={groupState} onChange={e=>setGroupState(e.target.value)}>
+                <option value="UNRESOLVED_GROUPING">Unresolved — review later</option>
+                <option value="POTENTIAL_SAME_PARENT">Possible shared parent (not legally verified)</option>
+                <option value="POTENTIAL_DUPLICATE">Possible duplicate — review before publication</option>
+                <option value="CONFIRMED_DISTINCT_RESEARCH">Distinct research records after comparison</option>
+                <option value="REVIEWED_BRANCH_RELATIONSHIP">Researched branch relationship (not corporate proof)</option>
+              </select>
+              <label className="block text-sm font-semibold" htmlFor="group-reason">
+                Detailed independently reviewed source evidence (60+ characters)
+              </label>
+              <textarea id="group-reason" value={groupReason} minLength={60}
+                maxLength={3000} onChange={e=>setGroupReason(e.target.value)}
+                className="border rounded-lg w-full p-3 min-h-28"/>
+              <Button variant="outline" disabled={busy||password.length<8||
+                groupReason.trim().length<60} onClick={()=>{void recordGrouping()}}>
+                Record nonlegal grouping observation
+              </Button>
+            </section>
+            <section className="pt-5 border-t space-y-3">
+              <h3 className="font-semibold">Field-level public contact eligibility</h3>
+              <p className="text-xs text-gray-600">
+                Only possible for an individually published unclaimed research
+                profile after source checks. The service copies selected business
+                address/phone/website literally from the source, never a principal,
+                a private email, or arbitrary submitted text. No logo rights implied.
+              </p>
+              {[
+                ['Allow reviewed business physical address',contactAddress,setContactAddress],
+                ['Allow reviewed business phone from source',contactPhone,setContactPhone],
+                ['Allow reviewed HTTPS source website',contactWebsite,setContactWebsite],
+                ['Retract all reviewed contact information',contactRetract,setContactRetract],
+              ].map(([label,value,setter],i)=><label key={i}
+                className="flex gap-2 items-start text-sm">
+                <input type="checkbox" checked={value as boolean}
+                  onChange={e=>(setter as (checked:boolean)=>void)(e.target.checked)}/>
+                {String(label)}
+              </label>)}
+              <label htmlFor="contact-reason" className="block text-sm font-semibold">
+                Explain lawful public business-contact display and evidence checked (80+ characters)
+              </label>
+              <textarea id="contact-reason" value={contactReason} minLength={80}
+                maxLength={3000} onChange={e=>setContactReason(e.target.value)}
+                className="border rounded-lg p-3 w-full min-h-28"/>
+              <Button variant="outline" disabled={busy||password.length<8||
+                contactReason.trim().length<80||
+                current.publication_state!=='PRELISTED_UNCLAIMED'}
+                onClick={()=>{void recordContacts()}}>
+                Record restricted source-contact decision
+              </Button>
+            </section>
+
           </>}
         </CardContent></Card>
       </div>}
