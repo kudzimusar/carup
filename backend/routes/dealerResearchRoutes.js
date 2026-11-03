@@ -10,6 +10,7 @@ import {
   importClaimWorkbook,saveManualClaimDraft,readMyClaimIntakeDraft,listClaimReviewQueue,listReviewClaimEvidence,
 } from '../services/dealer/dealerClaimApplicationService.js';
 import { createClaimDocumentCandidate,listMyClaimDocumentCandidates } from '../services/dealer/dealerDocumentCandidateService.js';
+import {readMyClaimJurisdictionPreview} from '../services/dealer/dealerJurisdictionPreview.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { rateLimiter } from '../middleware/securityMiddleware.js';
 import {
@@ -132,6 +133,15 @@ router.get('/api/dealership/claims/:claimId/ocr-candidates',
   try{
     const candidates=await listMyClaimDocumentCandidates(req.params.claimId,req.userContext);
     res.set('Cache-Control','no-store').json({candidates});
+  }catch(error){errorResponse(res,next,error)}
+});
+
+// Regulatory draft applicability is applicant-scoped and never an approval.
+router.get('/api/dealership/claims/:claimId/jurisdiction-preview',
+ session,async(req,res,next)=>{
+  try{
+    const preview=await readMyClaimJurisdictionPreview(req.params.claimId,req.userContext);
+    res.set('Cache-Control','no-store').json({preview});
   }catch(error){errorResponse(res,next,error)}
 });
 
