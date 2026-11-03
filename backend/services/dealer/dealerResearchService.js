@@ -4,6 +4,7 @@
  * Public response is an explicit allowlist. No raw source_snapshot or private contacts.
  */
 import { supabase } from '../../db/supabase.js';
+import {requireReviewerPassword} from './dealerClaimApplicationService.js';
 
 export const PUBLIC_STATUS = 'PRELISTED_UNCLAIMED';
 export const PUBLIC_COLUMNS =
@@ -93,6 +94,53 @@ export async function getPublicResearch(seedId) {
   return publicResearchProjection(data);
 }
 
+/** Private allowlisted research queue; no source contacts, ownership PII or raw rows. */
+export async function listResearchReviewQueue(actor,{page=1,limit=25}={}){
+  if (!actor?.userId || actor.authenticationMethod!=='session' || !actor.isVerified ||
+      !['admin','reviewer','platform_admin','super_admin'].includes(actor.platformRole)) {
+    const error=new Error('Independent session-verified reviewer required');
+    error.statusCode=403;throw error;
+  }
+  const pg=Math.max(1,Math.min(Number(page)||1,100));
+  const size=Math.max(1,Math.min(Number(limit)||25,50));
+  const {data:rows,count,error}=await supabase.from('dealer_research_seed_records')
+    .select('seed_dealer_id,original_source_row,source_snapshot,proposed_source_category,grouping_review,source_row_sha256',
+      {count:'exact'})
+    .order('original_source_row',{ascending:true})
+    .range((pg-1)*size,pg*size-1);
+  if(error)throw domainError(error,'research review queue');
+  const ids=(rows||[]).map(r=>r.seed_dealer_id);
+  let states=[];
+  if(ids.length){
+    const result=await supabase.from('dealer_research_public_profiles')
+      .select('seed_dealer_id,publication_status,revision')
+      .in('seed_dealer_id',ids);
+    if(result.error)throw domainError(result.error,'research publication read');
+    states=result.data||[];
+  }
+  const statusById=new Map(states.map(row=>[row.seed_dealer_id,row]));
+  const entries=(rows||[]).map(row=>{
+    const published=statusById.get(row.seed_dealer_id);
+    const snapshot=row.source_snapshot||{};
+    // Explicit allowlist: no telephone, email, named principal, tax,
+    // location contact, private workbook, raw snapshot or reviewer reason.
+    return {
+      seed_dealer_id:row.seed_dealer_id,
+      source_row:row.original_source_row,
+      source_display_name:trim(snapshot['Dealer / Company Name'],180)||'RESEARCH_NAME_REQUIRES_CORRECTION',
+      source_city:trim(snapshot['City / Town'],100)||'CITY_REQUIRES_CORRECTION',
+      source_category_unverified:row.proposed_source_category||'UNCLASSIFIED_RESEARCH',
+      grouping_status:row.grouping_review||'UNREVIEWED_PARENT_BRANCH_MATCH',
+      source_row_sha256:row.source_row_sha256,
+      publication_state:published?.publication_status||'PENDING_HUMAN_SOURCE_ELIGIBILITY',
+      review_revision:published?.revision||0,
+      legal_business_verified:false,verified_franchise:false,
+    };
+  });
+  return {entries,total:Number.isInteger(count)?count:null,page:pg,limit:size,
+    real_review_required:true,bulk_publication_available:false};
+}
+
 /** Human review recorded atomically inside a DB-side transaction and append-only ledger. */
 export async function reviewResearchSeed(seedId, actor, data) {
   const id = normalizeSeedId(seedId);
@@ -103,8 +151,12 @@ export async function reviewResearchSeed(seedId, actor, data) {
     throw error;
   }
   if (!DECISIONS.has(data?.decision)) throw inputError('Unsupported research-publication disposition');
-  const reason = trim(data?.reason, 3000, 25);
+  const reason = trim(data?.reason, 3000,
+    data?.decision===PUBLIC_STATUS?80:25);
   if (!reason) throw inputError('A documented source/eligibility review reason is required');
+  // Publishing a third-party listing is consequential: the reviewer must
+  // reauthenticate with their saved account secret, not just present a role.
+  await requireReviewerPassword(actor,null,data?.reviewer_password);
   const { data: recorded, error } = await supabase.rpc('dealer_record_research_publication_review', {
     p_seed_dealer_id: id,
     p_reviewer_id: actor.userId,
