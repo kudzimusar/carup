@@ -1,0 +1,71 @@
+name: CarUp Dealership 1.0 — isolated source/contract CI
+
+# This workflow deliberately has no repository secrets, no deployment,
+# no database connection, no migrations and no payment provider calls.
+on:
+  push:
+    branches:
+      - feat/carup-dealer-1-0-unified-longrun
+    paths:
+      - 'backend/services/dealer/**'
+      - 'backend/scripts/dealership/**'
+      - 'backend/tests/dealer-*.test.js'
+      - 'backend/tests/differentiator-journey.test.js'
+      - 'database/migrations/*dealer_research_seed_candidates.sql'
+      - 'docs/dealership/**'
+      - '.github/workflows/dealer-1-0-isolated-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/services/dealer/**'
+      - 'backend/scripts/dealership/**'
+      - 'backend/tests/dealer-*.test.js'
+      - 'backend/tests/differentiator-journey.test.js'
+      - 'database/migrations/*dealer_research_seed_candidates.sql'
+      - 'docs/dealership/**'
+      - '.github/workflows/dealer-1-0-isolated-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dealer-1-0-isolated-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-source-tests:
+    name: Offline, no shared DB or payment
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: dummy-dealer-1-0-key-not-a-secret
+      SUPABASE_ANON_KEY: dummy-dealer-1-0-anon-key
+      JWT_SECRET: dummy-dealer-1-0-jwt-key
+      ALLOW_OCR_MOCK: 'true'
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Check seed-importer syntax
+        run: node --check backend/scripts/dealership/importResearchSeed.mjs
+      - name: Run dealership compliance & seed-source negative-path contracts
+        run: |
+          node --test \
+            backend/tests/dealer-compliance.test.js \
+            backend/tests/dealer-routes.test.js \
+            backend/tests/dealer-research-seed-contract.test.js \
+            backend/tests/differentiator-journey.test.js
+      - name: Confirm no external DB tests silently ran
+        run: |
+          test -z "${DEALER_SEED_DATABASE_URL:-}"
+          test -z "${CARUP_DEALER_RESEARCH_XLSX:-}"
+          echo 'CI is limited to in-memory/synthetic and pure source contract tests.'
