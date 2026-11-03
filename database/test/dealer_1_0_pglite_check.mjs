@@ -358,6 +358,19 @@ try{
    'Fixture Synthetic Registry','FIXTURE-REG-001','BRANCH',
    '${legalExpiry}', '${testPolicyReview}')`,
    'INDEPENDENT_LEGAL_REVIEWER_REQUIRED');
+  // Negative branch: a live appealed competing claim must prevent even a
+  // synthetically approved-country legal certification. The authorized reviewer
+  // must independently resolve that contested claimant, never auto-merge names.
+  await fails(`SELECT dealer_record_legal_application_approval(
+   '${legalSubmissionId}','legalreviewer','CARUP_DEALER_ZW_DRAFT_2026_11_03',
+   '${sourceRegEvidence}','${signerEvidence}',
+   'Fixture Synthetic Registry','FIXTURE-REG-001','BRANCH',
+   '${legalExpiry}', '${testPolicyReview}')`,
+   'COMPETING_LIVE_CLAIMS_REQUIRE_RESOLUTION');
+  await query('SELECT dealer_record_independent_claim_review($1,$2,$3,$4)',[
+    uuid(2),reviewer,'CLAIM_REJECTED',
+    'Independent reviewer assessed the appealed competing claimant and found no supporting ownership mandate.'
+  ]);
   const qualified=await query(
     'SELECT dealer_record_legal_application_approval($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS receipt',
     [legalSubmissionId,'legalreviewer','CARUP_DEALER_ZW_DRAFT_2026_11_03',
