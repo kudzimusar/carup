@@ -15,6 +15,9 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 
 const { supabase } = await import('../db/supabase.js');
 const dealer = await import('../services/dealer/dealerComplianceService.js');
+const { hashPassword } = await import('../utils/passwordAuth.js');
+const REVIEW_PASSWORD = 'DifferentiatorReviewerPassword!2026';
+const REVIEW_HASH = await hashPassword(REVIEW_PASSWORD);
 const sv = await import('../services/sourceVerification/sourceVerificationService.js');
 const fraud = await import('../services/fraud/fraudEngine.js');
 const fraudCases = await import('../services/fraud/fraudCaseService.js');
@@ -29,7 +32,7 @@ const { CALCULATION_VERSION, toPublicTrust, publicTrustViolations } =
 let db;
 function reset() {
   db = {
-    users: [{ id: 'dealer-u', role: 'dealer', is_verified: true }, { id: 'admin-u', role: 'admin', is_verified: true }, { id: 'buyer-u', role: 'buyer', is_verified: true }],
+    users: [{ id: 'dealer-u', role: 'dealer', is_verified: true }, { id: 'admin-u', role: 'admin', is_verified: true, password_hash:REVIEW_HASH }, { id: 'buyer-u', role: 'buyer', is_verified: true }],
     vehicles: [], dealer_profiles: [], dealer_branches: [], dealer_compliance_documents: [], dealer_compliance_requirements: [], dealer_compliance_decisions: [],
     vehicle_evidence: [], source_verification_results: [], fraud_signals: [], fraud_cases: [], fraud_case_events: [], fraud_case_resolutions: [],
     eligibility_requests: [], eligibility_decisions: [], eligibility_webhook_events: [], escrow_trust_sessions: [], escrow_trust_events: [], escrow_trust_webhook_events: [],
@@ -116,11 +119,32 @@ function upsertTransactionIntentAtomic(a = {}) {
   return { data: session, error: null };
 }
 
+function atomicDealerComplianceDecision(a={}) {
+  const profile=db.dealer_profiles.find(p=>p.id===a.p_dealer_id);
+  const reviewer=db.users.find(u=>u.id===a.p_reviewer_id);
+  const requirement=db.dealer_compliance_requirements.find(
+    r=>r.dealer_id===a.p_dealer_id && r.requirement_key===a.p_requirement_key);
+  if (!profile || !reviewer?.is_verified || reviewer.role!=='admin' ||
+      reviewer.id===profile.user_id || !requirement ||
+      a.p_decision!=='approve_requirement' || a.p_reason?.length < 40) {
+    return {data:null,error:{message:'INDEPENDENT_COMPLIANCE_DECISION_REFUSED'}};
+  }
+  const event={id:'dealer-compliance-decisions-'+(db.dealer_compliance_decisions.length+1),
+    dealer_id:profile.id,decision:a.p_decision,
+    requirement_key:a.p_requirement_key, actor_id:reviewer.id,
+    reason:a.p_reason,created_at:'2026-06-26T00:00:00Z'};
+  db.dealer_compliance_decisions.push(event);
+  requirement.status='verified';
+  return {data:{audit_atomic:true,decision:event,profile},error:null};
+}
+
 test('CarUp differentiator journey (30 steps) through real services', async () => {
   reset(); supabase.from = (t) => builder(t); sv.initSourceVerification(); elig.initEligibility();
   supabase.rpc = async (fn, args) => (fn === 'issue164_upsert_transaction_intent_atomic'
     ? upsertTransactionIntentAtomic(args)
-    : { data: null, error: { message: `unexpected rpc: ${fn}` } });
+    : fn === 'dealer_record_atomic_compliance_decision'
+      ? atomicDealerComplianceDecision(args)
+      : { data: null, error: { message: `unexpected rpc: ${fn}` } });
   // Phase 6 fails every eligibility/escrow gate CLOSED on unknowns (bd23975b), so an "all clear"
   // context must state each fact rather than omitting it. dealer_suspended/seller_suspended and
   // listing_snapshot_changed were previously absent, which silently routed step 22 to manual_review
@@ -141,7 +165,12 @@ test('CarUp differentiator journey (30 steps) through real services', async () =
 
   // 1-3. Dealer onboarding -> admin approves identity + compliance.
   const profile = await dealer.createOrUpdateProfile('dealer-u', { legal_name: 'Croco Motors', registration_number: 'BR-1', tax_id: 'TAX-1' });
-  await dealer.recordDecision(profile.id, { decision: 'approve_requirement', requirement_key: 'business_registration', reason: 'verified' }, { id: 'admin-u', role: 'admin' });
+  await dealer.upsertRequirement(profile.id,{requirement_key:'business_registration',status:'pending',is_blocking:true});
+  await dealer.recordDecision(profile.id, {
+    decision:'approve_requirement',requirement_key:'business_registration',
+    reason:'Independent compliance reviewer inspected the original registration evidence for this business',
+  }, {id:'admin-u',role:'admin',authenticationMethod:'session',isVerified:true,
+    reviewer_password:REVIEW_PASSWORD});
   // mark identity verified + compliance passed via decisions
   const prof = db.dealer_profiles[0];
   prof.identity_status = 'verified'; prof.compliance_review_state = 'passed'; prof.active_state = 'active';
