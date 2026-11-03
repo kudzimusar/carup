@@ -82,10 +82,10 @@ BEGIN
    OR p_attestation_acknowledged IS DISTINCT FROM true THEN
    RAISE EXCEPTION 'EXPLICIT_APPLICANT_DECLARATION_REQUIRED'; END IF;
  IF d.schema_version<>'CARUP_DEALER_INTAKE_1_0' OR
-  d.content->>'schema'<>'CARUP_DEALER_INTAKE_1_0' OR
-  d.content->>'claim_id'<>p_claim_id::TEXT OR
-  d.content->>'seed_id'<>c.seed_dealer_id OR
-  d.content->>'source_row_sha256'<>d.source_row_sha256 THEN
+  coalesce(d.content->>'schema','')<>'CARUP_DEALER_INTAKE_1_0' OR
+  coalesce(d.content->>'claim_id','')<>p_claim_id::TEXT OR
+  coalesce(d.content->>'seed_id','')<>c.seed_dealer_id OR
+  coalesce(d.content->>'source_row_sha256','')<>d.source_row_sha256 THEN
    RAISE EXCEPTION 'CANONICAL_INTAKE_CONTRACT_REQUIRED'; END IF;
  IF NOT EXISTS (SELECT 1 FROM dealer_research_seed_records r
    WHERE r.seed_dealer_id=c.seed_dealer_id AND
