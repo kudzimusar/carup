@@ -65,7 +65,6 @@ export default function InvoiceCard({ invoice: inv, onChanged }: { invoice: Cust
     const settledNow = wasOwed.current && !owed && !voided
     wasOwed.current = owed
     if (!settledNow) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNothingOwed(true)
     const active = document.activeElement
     if (!active || active === document.body) nothingOwedRef.current?.focus()
