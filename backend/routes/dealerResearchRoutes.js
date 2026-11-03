@@ -9,6 +9,7 @@ import {
   reviewDealerClaim,submitClaimAppeal,exportClaimPrefilledWorkbook,
   importClaimWorkbook,saveManualClaimDraft,readMyClaimIntakeDraft,listClaimReviewQueue,listReviewClaimEvidence,
 } from '../services/dealer/dealerClaimApplicationService.js';
+import { createClaimDocumentCandidate,listMyClaimDocumentCandidates } from '../services/dealer/dealerDocumentCandidateService.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { rateLimiter } from '../middleware/securityMiddleware.js';
 import {
@@ -117,6 +118,23 @@ router.post('/api/dealership/claims/:claimId/appeal',claimWriteLimit,session,asy
     res.set('Cache-Control','no-store').status(202).json({appeal});
   } catch(error){errorResponse(res,next,error)}
 });
+// Candidate-only local OCR never upgrades compliance, claim rights or publication.
+router.post('/api/dealership/claims/:claimId/evidence/:evidenceId/extract',
+ claimWriteLimit,session,async(req,res,next)=>{
+  try{
+    const result=await createClaimDocumentCandidate(
+      req.params.claimId,req.params.evidenceId,req.userContext);
+    res.set('Cache-Control','no-store').status(202).json(result);
+  }catch(error){errorResponse(res,next,error)}
+});
+router.get('/api/dealership/claims/:claimId/ocr-candidates',
+ session,async(req,res,next)=>{
+  try{
+    const candidates=await listMyClaimDocumentCandidates(req.params.claimId,req.userContext);
+    res.set('Cache-Control','no-store').json({candidates});
+  }catch(error){errorResponse(res,next,error)}
+});
+
 // The export contains private research candidates; only the independently
 // approved claimant may download it. Never expose raw seed data to a visitor.
 router.get('/api/dealership/claims/:claimId/workbook',session,async(req,res,next)=>{
