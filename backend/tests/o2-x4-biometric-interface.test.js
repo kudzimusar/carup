@@ -172,13 +172,16 @@ test('X4: no biometric fingerprint store and no template/embedding store anywher
   assert.ok(sqlFiles.some((f) => f.includes('20261004175000')), 'the biometric candidates are part of the scan');
   // "Fingerprint" has several NON-biometric meanings in CarUp SQL, each in a file reviewed byte for byte: see helpers/o2FingerprintGuard.mjs
   // and the negative tests below. Every other mention fails, comments included, and the two biometric patterns run on every file.
+  const scanned = new Set();
   for (const file of sqlFiles) {
     const sql = readFileSync(file);
     const repoPath = path.relative(repo, file).split(path.sep).join('/');
-    assert.deepEqual(fingerprintViolations(sql, repoPath), [], `${repoPath} must not define fingerprint storage`);
+    scanned.add(repoPath);
+    assert.deepEqual(fingerprintViolations(sql, repoPath), [], `${repoPath} names a fingerprint outside the reviewed files, or changed one`);
     assert.doesNotMatch(sql.toString(), BIOMETRIC_FINGERPRINT, `${repoPath} must not define biometric fingerprint storage`);
     assert.doesNotMatch(sql.toString(), BIOMETRIC_TEMPLATE_STORE, `${repoPath} must not define a biometric template/embedding store`);
   }
+  for (const file of Object.keys(REVIEWED_FINGERPRINT_FILES)) assert.ok(scanned.has(file), `the sweep reached ${file}`);
   for (const file of runtimeFiles()) {
     const src = readFileSync(file, 'utf8');
     if (file.includes(`${path.sep}services${path.sep}identity${path.sep}`) || /identity[^/]*Routes/.test(file)) {
@@ -277,7 +280,13 @@ test('O2 guard: anywhere else, every mention is refused: no spelling, comment or
     'Trust\'s name inside a quoted column': 'CREATE TABLE p ("iris v_fingerprint" bytea);',
     'Trust\'s name as a table': 'CREATE TABLE public.presentation_fingerprint (raw bytea);',
     'Trust\'s name, read by a file nobody reviewed': 'SELECT v_fingerprint, presentation_fingerprint FROM t;',
+    'a Unicode-escaped name that PostgreSQL reads as the column': 'CREATE TABLE s (U&"credential_f\\0069ngerprint" bytea);',
+    'the same in lower case, with its own escape character': 'CREATE TABLE s (u&"credential_f!0069ngerprint" UESCAPE \'!\' bytea);',
+    'a Unicode-escaped string': "SELECT U&'\\0066ingerprint';",
   })) assert.ok(refused(sql), what);
+  const [message] = fingerprintViolations('-- a fingerprint\nSELECT 1;', NEW_FILE);
+  assert.match(message, /backend\/tests\/helpers\/o2FingerprintGuard\.mjs/, 'the message says where a reviewed file is listed');
+  assert.match(message, /O2 review/, 'and who reviews it');
 });
 
 test('O2 guard: Trust\'s fingerprint stays allowed in the files that use it', () => {
@@ -298,6 +307,9 @@ test('O2 guard: the biometric patterns refuse each form they exist for, even in 
   }
   assert.doesNotMatch('device_fingerprint TEXT NOT NULL', BIOMETRIC_FINGERPRINT);
   assert.doesNotMatch('credential_fingerprint', BIOMETRIC_FINGERPRINT);
+  // byte-identical to the frozen head: a narrower pattern fails here, not only when something slips past it
+  assert.equal(BIOMETRIC_FINGERPRINT.source, 'fingerprint[^\\n]{0,40}(enroll|capture|template|biometric|scan)|biometric[^\\n]{0,40}fingerprint|fingerprint_template');
+  assert.equal(BIOMETRIC_TEMPLATE_STORE.source, 'face_embedding|facial_embedding|biometric_template|face_vector|face_encoding');
 });
 
 const CANDIDATES = path.join(repo, 'database/migration-candidates/oc5c');
