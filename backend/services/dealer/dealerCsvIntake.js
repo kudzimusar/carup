@@ -135,7 +135,15 @@ export async function stageConfirmedDealerCsv({bytes,tab,approvedMapping,
   // Literal text only; ExcelJS may not use formula-looking strings for CSV
   // values. Reject rather than silently turn them into formulas.
   for(const [i,record] of csv.rows.entries())for(const [j,value] of record.entries()){
-    if(/^[\s]*[=+\-@]/.test(value))throw reject('CSV_FORMULA_LOOKING_VALUE',tab+':'+(i+2)+':'+(j+1));
+    const dest=approvedMapping[csv.headers[j]];
+    // Typed literal +263 Zimbabwe phone and signed GPS coordinates are valid
+    // even though spreadsheet formula injection often starts with '+'/'-'.
+    const safePhone=typeof dest==='string'&&/phone/.test(dest)&&
+      /^\+[0-9 ()-]{6,30}$/.test(value.trim());
+    const safeCoordinate=['gps_latitude','gps_longitude'].includes(dest)&&
+      /^-\d{1,3}(?:\.\d+)?$/.test(value.trim());
+    if(/^[\s]*[=+\-@]/.test(value)&&!safePhone&&!safeCoordinate)
+      throw reject('CSV_FORMULA_LOOKING_VALUE',tab+':'+(i+2)+':'+(j+1));
     if(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(value))
       throw reject('CSV_CONTROL_CHARACTER');
   }
