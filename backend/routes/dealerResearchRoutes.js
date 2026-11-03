@@ -3,6 +3,7 @@
  * Research is NOT a self-service dealer-approval service. Claims grant NO roles.
  */
 import express from 'express';
+import { exportBlankDealerIntakeXlsx } from '../services/dealer/dealerIntakeWorkbook.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { rateLimiter } from '../middleware/securityMiddleware.js';
 import {
@@ -29,6 +30,18 @@ function errorResponse(res, next, error) {
   }
   next(error);
 }
+
+// The blank customer-facing workbook never includes internal research or privileged data.
+// Claim-specific, prefilled workbook export remains unavailable until independent approval.
+router.get('/api/dealership/intake/template', publicReadLimit, async (_req,res,next) => {
+  try {
+    const buffer = await exportBlankDealerIntakeXlsx();
+    res.set('Cache-Control','no-store')
+      .set('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .set('Content-Disposition','attachment; filename="carup-dealer-intake-v1-blank.xlsx"')
+      .status(200).send(buffer);
+  } catch (error) { next(error); }
+});
 
 // Only reviewed, unsuppressed, non-disputed research publications appear here.
 router.get('/api/dealership/research', publicReadLimit, async (req,res,next) => {
