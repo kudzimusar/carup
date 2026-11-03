@@ -1,0 +1,218 @@
+import { useEffect, useState, type FormEvent } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { MapPin, Store, AlertTriangle, ShieldAlert } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
+import { apiRequest, resolveApiBaseUrl, type AuthHeaders } from '@/lib/apiClient'
+
+type ResearchProfile = {
+  seed_dealer_id: string
+  slug: string
+  name: string
+  city: string
+  category: string
+  label: string
+  source_attribution: string
+  reviewed_at: string
+  information_notice: string
+  claimed: false
+  business_verified: false
+}
+type ClaimScope = 'BRANCH' | 'PARENT_ORGANIZATION'
+type RepresentativeRelationship =
+  'LEGAL_OWNER' | 'DIRECTOR' | 'AUTHORIZED_REPRESENTATIVE' |
+  'BRANCH_MANAGER' | 'PARENT_DELEGATE'
+const API = resolveApiBaseUrl(import.meta.env.VITE_API_URL,
+  typeof window === 'undefined' ? undefined : window.location.hostname)
+
+/** The same stable URL is retained when a full approved dealer eventually upgrades this profile. */
+export default function DealerResearchProfile({ claimMode = false }: { claimMode?: boolean }) {
+  const { seedId } = useParams<{seedId: string}>()
+  const { user, token } = useAuth()
+  const [profile, setProfile] = useState<ResearchProfile | null>(null)
+  const [loaded, setLoaded] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading')
+  const [scope, setScope] = useState<ClaimScope>('BRANCH')
+  const [relationship, setRelationship] = useState<RepresentativeRelationship>('AUTHORIZED_REPRESENTATIVE')
+  const [legalName, setLegalName] = useState('')
+  const [statement, setStatement] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [claimOutcome, setClaimOutcome] = useState<'pending-evidence' | 'failed' | null>(null)
+  const [claimError, setClaimError] = useState('')
+
+  useEffect(() => {
+    const key = seedId?.toUpperCase()
+    if (!key || !/^ZW-DEAL-\d{4}$/.test(key)) {
+      setLoaded('missing')
+      return
+    }
+    let active = true
+    setLoaded('loading')
+    apiRequest<{profile: ResearchProfile}>({
+      baseUrl: API, path: '/dealership/research/' + encodeURIComponent(key),
+    }).then(result => {
+      if (!active) return
+      setProfile(result.profile)
+      setLoaded('ready')
+    }).catch((error: unknown) => {
+      if (!active) return
+      const status = error && typeof error === 'object' && 'status' in error
+        ? (error as {status?: number}).status : undefined
+      setLoaded(status === 404 ? 'missing' : 'error')
+    })
+    return () => { active = false }
+  }, [seedId])
+
+  async function submitClaim(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!profile || !user || !token || submitting) return
+    setSubmitting(true)
+    setClaimError('')
+    setClaimOutcome(null)
+    try {
+      const authHeaders: AuthHeaders = { 'x-session-token': token, 'x-user-id': user.id }
+      await apiRequest({
+        baseUrl: API,
+        path: '/dealership/research/' + encodeURIComponent(profile.seed_dealer_id) + '/claim',
+        options: { method: 'POST', body: JSON.stringify({
+          claimed_scope: scope, representative_relationship: relationship,
+          asserted_legal_business_name: legalName, claim_statement: statement,
+        }) },
+        authHeaders,
+      })
+      setClaimOutcome('pending-evidence')
+    } catch (error) {
+      setClaimError(error instanceof Error ? error.message : 'Could not submit the claim')
+      setClaimOutcome('failed')
+    } finally { setSubmitting(false) }
+  }
+
+  return (
+    <main className="min-h-screen bg-gray-50">
+      <div className="section-padding mx-auto max-w-3xl py-10">
+        <Link className="text-sm text-blue-700 underline underline-offset-4" to="/dealers">Back to dealership directory</Link>
+        {loaded === 'loading' && <p role="status" className="mt-7">Loading reviewed research profile…</p>}
+        {loaded === 'error' && <p role="alert" className="mt-7">The reviewed research profile service is unavailable.</p>}
+        {loaded === 'missing' && <p className="mt-7" role="alert">
+          This research profile has not been published, is withheld, or is no longer available.
+        </p>}
+        {loaded === 'ready' && profile && (
+          <>
+            <div className="mt-8 flex items-start gap-4">
+              <div className="w-16 h-16 rounded-xl bg-slate-800 text-white flex items-center justify-center"
+                aria-hidden="true"><Store className="w-8 h-8" /></div>
+              <div className="min-w-0">
+                <h1 className="text-3xl font-bold break-words">{profile.name}</h1>
+                <p className="text-sm text-gray-600 mt-1">{profile.category}</p>
+              </div>
+            </div>
+            <Card className="mt-7 border-amber-200">
+              <CardContent className="p-6">
+                <div className="flex items-start gap-3">
+                  <ShieldAlert className="w-5 h-5 shrink-0 text-amber-700" aria-hidden="true" />
+                  <div>
+                    <h2 className="font-bold text-amber-900">{profile.label}</h2>
+                    <p className="text-sm text-gray-700 mt-1">{profile.information_notice}</p>
+                    <p className="text-xs text-gray-500 mt-3">
+                      Research source: {profile.source_attribution}. Reviewed for limited publication, not for company authority.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="mt-6">
+              <CardContent className="p-6">
+                <h2 className="font-semibold text-xl mb-3">Researched business location</h2>
+                <div className="flex items-center gap-2 text-gray-700">
+                  <MapPin className="w-4 h-4" aria-hidden="true" />
+                  <span>{profile.city}, Zimbabwe (research city only)</span>
+                </div>
+                <p className="text-sm text-gray-500 mt-3">
+                  No CarUp-verified licence, official franchise affiliation, current stock, reviews, sale record, warranty or payment eligibility is asserted by this listing.
+                </p>
+              </CardContent>
+            </Card>
+            {claimMode ? (
+              <Card className="mt-6">
+                <CardContent className="p-6">
+                  <h2 className="font-semibold text-xl mb-2">Request to claim this business</h2>
+                  <p className="text-sm text-gray-600 mb-5">
+                    Submitting a claim only opens an evidence-required request. It does not verify ownership,
+                    enable editing, grant dealer access or activate a CarUp tenant.
+                  </p>
+                  {!token || !user ? (
+                    <p className="text-sm">
+                      <Link className="text-blue-700 underline" to="/login">
+                        Sign in to your CarUp account
+                      </Link> before requesting a business claim.
+                    </p>
+                  ) : claimOutcome === 'pending-evidence' ? (
+                    <div role="status" className="bg-slate-50 border rounded-lg p-4">
+                      Request recorded, awaiting documentary proof and independent review.
+                      No dealership control has been granted. Further evidence intake is not yet available in this implementation.
+                    </div>
+                  ) : (
+                    <form onSubmit={submitClaim} className="space-y-4">
+                      <div>
+                        <label htmlFor="dealer-claim-scope" className="block text-sm font-medium mb-1">Claim scope</label>
+                        <select id="dealer-claim-scope" className="w-full border p-2 rounded-md"
+                          value={scope} onChange={event => setScope(event.target.value as ClaimScope)}>
+                          <option value="BRANCH">This business branch</option>
+                          <option value="PARENT_ORGANIZATION">Parent legal organization</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="dealer-claim-relationship" className="block text-sm font-medium mb-1">Your asserted relationship</label>
+                        <select id="dealer-claim-relationship" className="w-full border p-2 rounded-md"
+                          value={relationship} onChange={event => setRelationship(event.target.value as RepresentativeRelationship)}>
+                          <option value="LEGAL_OWNER">Legal owner</option>
+                          <option value="DIRECTOR">Company director</option>
+                          <option value="AUTHORIZED_REPRESENTATIVE">Authorized representative</option>
+                          <option value="BRANCH_MANAGER">Branch manager</option>
+                          <option value="PARENT_DELEGATE">Parent-company delegate</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="dealer-claim-legal-name" className="block text-sm font-medium mb-1">Legal business name (as asserted)</label>
+                        <Input id="dealer-claim-legal-name" required minLength={2} maxLength={180}
+                          value={legalName} onChange={event => setLegalName(event.target.value)} />
+                      </div>
+                      <div>
+                        <label htmlFor="dealer-claim-statement" className="block text-sm font-medium mb-1">Explain your authority to represent the business</label>
+                        <textarea id="dealer-claim-statement" className="w-full border rounded-md p-3 min-h-28" required
+                          minLength={30} maxLength={2000} value={statement}
+                          onChange={event => setStatement(event.target.value)} />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Do not enter passport numbers, tax IDs or sensitive documents here. Original proof must be submitted through private evidence intake when available.
+                        </p>
+                      </div>
+                      {claimError && (
+                        <p role="alert" className="text-sm text-red-700 flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4" aria-hidden="true" />{claimError}
+                        </p>
+                      )}
+                      <Button type="submit" disabled={submitting}>
+                        {submitting ? 'Submitting…' : 'Submit evidence-required claim request'}
+                      </Button>
+                    </form>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="flex flex-wrap gap-5 mt-8">
+                <Link className="text-blue-700 font-semibold underline underline-offset-4"
+                  to={`/dealers/${profile.slug}/claim`}>
+                  Claim this dealership
+                </Link>
+                <Link className="text-blue-700 font-semibold underline underline-offset-4" to="/contact">
+                  Report inaccurate information or request correction/removal
+                </Link>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </main>
+  )
+}
