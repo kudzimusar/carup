@@ -190,7 +190,7 @@ test('deriveCanPublish (pure): suspended -> false', () => {
 });
 test('deriveCanPublish (pure): verified + passed + clean -> true', () => {
   assert.equal(
-    svc.deriveCanPublish({ suspension_state: 'none', restriction_state: 'none', compliance_review_state: 'passed', identity_status: 'verified' }, []),
+    svc.deriveCanPublish({ suspension_state: 'none', restriction_state: 'none', investigation_state: 'none', active_state: 'active', compliance_review_state: 'passed', identity_status: 'verified' }, []),
     true,
   );
 });
@@ -207,6 +207,18 @@ test('deriveCanPublish (pure): review not passed -> false', () => {
   );
 });
 
+test('deriveCanPublish (pure): inactive after otherwise-passed compliance -> false', () => {
+  assert.equal(svc.deriveCanPublish({ suspension_state: 'none', restriction_state: 'none', investigation_state: 'none', active_state: 'inactive', compliance_review_state: 'passed', identity_status: 'verified' }, []), false);
+});
+
+test('deriveCanPublish (pure): unresolved investigation blocks publication', () => {
+  assert.equal(svc.deriveCanPublish({ suspension_state: 'none', restriction_state: 'none', investigation_state: 'under_investigation', active_state: 'active', compliance_review_state: 'passed', identity_status: 'verified' }, []), false);
+});
+
+test('deriveCanPublish (pure): missing active state cannot publish', () => {
+  assert.equal(svc.deriveCanPublish({ suspension_state: 'none', restriction_state: 'none', compliance_review_state: 'passed', identity_status: 'verified' }, []), false);
+});
+
 // ── buyer-safe summary excludes private data ──────────────────────────────────────────
 test('buyer-safe summary returns ONLY status + review date + band + complaints (no private docs/contacts)', async () => {
   installMock();
@@ -216,6 +228,7 @@ test('buyer-safe summary returns ONLY status + review date + band + complaints (
   const summary = await svc.getBuyerSafeSummary(p.id);
 
   assert.deepEqual(Object.keys(summary).sort(), ['compliance_review_date', 'evidence_completeness_band', 'status', 'unresolved_serious_complaints']);
+  assert.equal(summary.unresolved_serious_complaints, null, 'not measured must never be exposed as zero');
   assert.equal(summary.status, 'active');
   assert.equal(summary.evidence_completeness_band, 'high');
   // Hard guarantee: no private identity/contact/document fields leak through.
