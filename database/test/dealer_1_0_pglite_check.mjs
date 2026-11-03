@@ -23,6 +23,7 @@ const names=[
   '20261103133000_dealer_research_grouping_and_public_contact.sql',
   '20261103134000_dealer_operational_declaration_versions.sql',
   '20261103135000_dealer_full_storefront_publication.sql',
+  '20261103136000_dealer_staff_canonical_invitations.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -509,6 +510,53 @@ try{
   await exec('RESET ROLE');
   await fails(read('20261103135000_dealer_full_storefront_publication.sql').down,
     'CANNOT_ROLLBACK_WITH_PUBLIC_STORE_FRONT_CUSTODY');
+  // D7 C16: staff invitation does NOT create a shadow user or membership.
+  // The invited EXISTING verified platform user must independently accept.
+  await exec("UPDATE users SET is_verified=true WHERE id='claimant1'");
+  await fails(`SELECT dealer_invite_existing_staff_account(
+    '${activeProfileId}','${claimant}','${claimant}')`,
+    'VERIFIED_EXISTING_STAFF_ACCOUNT_REQUIRED');
+  await fails(`SELECT dealer_invite_existing_staff_account(
+    '${activeProfileId}','${claimant}','${outsider}')`,
+    'VERIFIED_EXISTING_STAFF_ACCOUNT_REQUIRED');
+  const invited=await query(
+    'SELECT dealer_invite_existing_staff_account($1,$2,$3) AS receipt',
+    [activeProfileId,claimant,'notreviewer']);
+  const staffInvite=invited.rows[0].receipt.invite_id;
+  assert.equal(invited.rows[0].receipt.permissions_granted,false);
+  const duplicateInvite=await query(
+    'SELECT dealer_invite_existing_staff_account($1,$2,$3) AS receipt',
+    [activeProfileId,claimant,'notreviewer']);
+  assert.equal(duplicateInvite.rows[0].receipt.idempotent,true);
+  assert.equal((await query('SELECT count(*)::int AS n FROM tenant_users')).rows[0].n,1);
+  await fails(`SELECT dealer_accept_staff_invitation(
+    '${staffInvite}','${outsider}')`,
+    'OWN_STAFF_INVITATION_REQUIRED');
+  const joined=await query('SELECT dealer_accept_staff_invitation($1,$2) AS receipt',
+    [staffInvite,'notreviewer']);
+  assert.equal(joined.rows[0].receipt.canonical_member_created,true);
+  assert.equal(joined.rows[0].receipt.owner_role_granted,false);
+  assert.equal(joined.rows[0].receipt.role,'member');
+  const joinedRepeat=await query('SELECT dealer_accept_staff_invitation($1,$2) AS receipt',
+    [staffInvite,'notreviewer']);
+  assert.equal(joinedRepeat.rows[0].receipt.idempotent,true);
+  assert.equal((await query('SELECT count(*)::int AS n FROM tenant_users')).rows[0].n,2);
+  assert.equal((await query('SELECT count(*)::int AS n FROM organization_users')).rows[0].n,2);
+  const staffMembership=await query('SELECT role FROM tenant_users WHERE tenant_id=$1 AND user_id=$2',
+    [tenant,'notreviewer']);
+  assert.equal(staffMembership.rows[0].role,'member');
+  await fails("UPDATE dealer_staff_invitation_events SET action='REVOKED'",
+    'APPEND_ONLY_LEDGER');
+  await fails(`SELECT dealer_revoke_staff_invitation(
+    '${staffInvite}','${outsider}')`,
+    'VERIFIED_CANONICAL_LEGAL_OWNER_REQUIRED_FOR_STAFF');
+  const revokedStaff=await query('SELECT dealer_revoke_staff_invitation($1,$2) AS receipt',
+    [staffInvite,claimant]);
+  assert.equal(revokedStaff.rows[0].receipt.member_access_revoked,true);
+  assert.equal((await query('SELECT count(*)::int AS n FROM tenant_users')).rows[0].n,1);
+  assert.equal((await query('SELECT count(*)::int AS n FROM organization_users')).rows[0].n,1);
+  await fails(read('20261103136000_dealer_staff_canonical_invitations.sql').down,
+    'CANNOT_ROLLBACK_WITH_STAFF_INVITATION_CUSTODY');
   const reactivated=await query(
     'SELECT dealer_activate_approved_legal_claim($1,$2,$3) AS receipt',
     [legalId,'activationreviewer',
@@ -643,12 +691,13 @@ try{
   // Real source contact and grouping review receipts are append-only and their
   // rollback must refuse to destroy them.
   await exec('TRUNCATE dealer_research_grouping_review_events, dealer_research_public_contact_events');
+  await exec('TRUNCATE dealer_staff_invitation_events, dealer_staff_invitation_records');
   await exec('TRUNCATE dealer_full_storefront_review_events');
   await exec('TRUNCATE dealer_operational_declaration_events');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 12 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 13 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;
