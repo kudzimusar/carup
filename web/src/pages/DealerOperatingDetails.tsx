@@ -7,6 +7,9 @@ import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
 
 type Section='BUSINESS_OVERVIEW'|'BUYER_ASSURANCE'|'FINANCE_TERMS'|
   'SOURCING'|'WARRANTY_AFTERSALES'|'SERVICE_CAPABILITIES'
+type Branch={id:string;dealer_id:string;name:string;address:string;created_at:string}
+type Workspace={operational:boolean;branches:Branch[];
+  recorded_tenant_member_count:number;vehicle_listing_authority:false}
 type Versioned={version:number;values:Record<string,string>;recorded_at:string;
   private_declaration_only:true;public_approved:false}
 type ReadModel={sections:Section[];latest:Partial<Record<Section,Versioned>>;
@@ -56,6 +59,9 @@ const header=(userId:string,token:string):AuthHeaders=>({
 export default function DealerOperatingDetails(){
   const {user,token}=useAuth()
   const [read,setRead]=useState<ReadModel|null>(null)
+  const [workspace,setWorkspace]=useState<Workspace|null>(null)
+  const [branchName,setBranchName]=useState('')
+  const [branchAddress,setBranchAddress]=useState('')
   const [selected,setSelected]=useState<Section>('BUSINESS_OVERVIEW')
   const [draft,setDraft]=useState<Record<string,string>>({})
   const [status,setStatus]=useState<'loading'|'ready'|'denied'>('loading')
@@ -65,13 +71,19 @@ export default function DealerOperatingDetails(){
   const reload=useCallback(async()=>{
     if(!user||!token){setStatus('denied');return}
     try{
-      const result=await apiRequest<{declarations:ReadModel}>({
-        baseUrl:API,path:'/dealer/operational-declarations',authHeaders:header(user.id,token),
-      })
-      setRead(result.declarations);setStatus('ready')
+      const [result,member]=await Promise.all([
+        apiRequest<{declarations:ReadModel}>({
+          baseUrl:API,path:'/dealer/operational-declarations',authHeaders:header(user.id,token),
+        }),
+        apiRequest<{workspace:Workspace}>({
+          baseUrl:API,path:'/dealer/operational-workspace',authHeaders:header(user.id,token),
+        }),
+      ])
+      if(!member.workspace.operational)throw new Error('Operational dealer tenant authority is not active')
+      setRead(result.declarations);setWorkspace(member.workspace);setStatus('ready')
       setError('')
     }catch(problem){
-      setRead(null);setStatus('denied')
+      setRead(null);setWorkspace(null);setStatus('denied')
       setError(problem instanceof Error?problem.message:'Dealer authority not active')
     }
   },[user,token])
@@ -79,6 +91,25 @@ export default function DealerOperatingDetails(){
   useEffect(()=>{
     setDraft(read?.latest?.[selected]?.values||{})
   },[selected,read])
+  async function recordBranch(){
+    if(!user||!token||busy||!workspace||branchName.trim().length<2||
+      branchAddress.trim().length<3)return
+    setBusy(true);setError('');setNotice('')
+    try{
+      const result=await apiRequest<{branch:Branch}>({
+        baseUrl:API,path:'/dealer/operational-branches',
+        options:{method:'POST',body:JSON.stringify({
+          name:branchName.trim(),address:branchAddress.trim(),
+        })},authHeaders:header(user.id,token),
+      })
+      setNotice('Private branch '+result.branch.name+
+        ' saved to the canonical dealer profile. Public site and GPS approval require a separate reviewer.')
+      setBranchName('');setBranchAddress('')
+      await reload()
+    }catch(problem){
+      setError(problem instanceof Error?problem.message:'Could not persist dealership branch')
+    }finally{setBusy(false)}
+  }
   async function save(){
     if(!user||!token||busy||!read||status!=='ready')return
     setBusy(true);setError('');setNotice('')
@@ -122,6 +153,47 @@ export default function DealerOperatingDetails(){
         No active, independently approved dealership organization and tenant access
         is available. A source listing or approved ownership claim alone is insufficient.
       </p>}
+      {status==='ready'&&workspace&&<section className="mt-8 border border-slate-200 bg-white rounded-xl p-6 space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold">Canonical dealership branches</h2>
+          <p className="text-sm text-slate-600 mt-1">
+            These real records belong to your active dealer_profile and tenant.
+            A private branch is not public-site or GPS certification.
+          </p>
+        </div>
+        {workspace.branches.length===0&&<p className="text-sm text-slate-600">
+          No branches recorded in the current canonical dealer profile.
+        </p>}
+        {workspace.branches.map(branch=><div key={branch.id} className="border-t py-3">
+          <h3 className="font-semibold">{branch.name}</h3>
+          <p className="text-sm text-slate-600">{branch.address}</p>
+          <p className="text-xs text-slate-500">Private branch · not public-approved</p>
+        </div>)}
+        <div className="grid sm:grid-cols-2 gap-3 border-t pt-4">
+          <div>
+            <label htmlFor="operating-branch-name" className="block text-sm font-medium mb-1">Branch name</label>
+            <input id="operating-branch-name" maxLength={180}
+              className="w-full border rounded-lg p-3"
+              value={branchName} onChange={e=>setBranchName(e.target.value)}
+              placeholder="Registered or trading branch name"/>
+          </div>
+          <div>
+            <label htmlFor="operating-branch-address" className="block text-sm font-medium mb-1">Physical site address</label>
+            <input id="operating-branch-address" maxLength={400}
+              className="w-full border rounded-lg p-3"
+              value={branchAddress} onChange={e=>setBranchAddress(e.target.value)}
+              placeholder="Actual operating branch location"/>
+          </div>
+        </div>
+        <Button variant="outline" disabled={busy||branchName.trim().length<2||
+          branchAddress.trim().length<3} onClick={()=>{void recordBranch()}}>
+          Save branch in canonical dealership database
+        </Button>
+        <p className="text-xs text-slate-500">
+          Recorded tenant memberships: {workspace.recorded_tenant_member_count}.
+          Staff headcount, individual licence validity and sales revenue are not inferred.
+        </p>
+      </section>}
       {status==='ready'&&read&&<div className="grid lg:grid-cols-[260px_minmax(0,1fr)] gap-6 mt-8">
         <nav aria-label="Dealer operating sections" className="space-y-2">
           {(Object.keys(sections) as Section[]).map(key=><button
