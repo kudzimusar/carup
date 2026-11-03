@@ -33,6 +33,7 @@ import DealerLegalActivationReview from './pages/DealerLegalActivationReview'
 import DealerFullStorefrontReview from './pages/DealerFullStorefrontReview'
 import DealerOperatingDetails from './pages/DealerOperatingDetails'
 import DealerBillingReadiness from './pages/DealerBillingReadiness'
+import DealerStaffConsole from './pages/DealerStaffConsole'
 import GarageDirectory from './pages/GarageDirectory'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
@@ -272,6 +273,7 @@ export default function App() {
           <Route path="/dealers/claims" element={<DealerClaimWorkspace />} />
           <Route path="/dealers/operating-details" element={<DealerOperatingDetails />} />
           <Route path="/dealers/billing" element={<DealerBillingReadiness />} />
+          <Route path="/dealers/staff" element={<DealerStaffConsole />} />
           <Route path="/garages" element={<GarageDirectory />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
