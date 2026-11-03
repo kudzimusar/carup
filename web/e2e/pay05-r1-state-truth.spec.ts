@@ -235,7 +235,7 @@ const FALSE_NOTHING = /nothing (was|is) (paid|charged)/i
 const FALSE_PAID = /confirmed by paynow|^paid —/i
 const WAITING = /waiting for you|still counts/i
 const EXPECT: Record<string, { state: string; provider: RegExp; counted: boolean; review: RegExp | null; next: RegExp }> = {
-  escrow: { state: 'at_paynow', provider: /held by Paynow/, counted: false, review: null, next: /Do not pay again/ },
+  escrow: { state: 'at_paynow', provider: /Paid into Paynow/, counted: false, review: null, next: /Do not pay again/ },
   released: { state: 'released', provider: /Waiting for approval/, counted: false, review: null, next: /Do not approve the old request/ },
   settled: { state: 'settled_outside', provider: /Paid/, counted: false, review: /settled outside CarUp/, next: /tell the garage/ },
   disputed: { state: 'under_review', provider: /Disputed/, counted: false, review: /reviewing/, next: /Do not pay again/ },

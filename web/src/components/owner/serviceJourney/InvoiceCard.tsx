@@ -164,6 +164,9 @@ export default function InvoiceCard({ invoice: inv, onChanged }: { invoice: Cust
         </p>
       )}
 
+      {/* before the lists: a payment started here adds rows to them, and that must not push its code or form off a phone's screen */}
+      {owed && <InvoicePayment invoice={inv} onChanged={onChanged} />}
+
       <section className="mt-4" aria-label={`Payments recorded for invoice ${inv.invoice_number}`} data-testid="invoice-payments">
         <h5 className="text-sm font-semibold text-gray-900">Payments</h5>
         {inv.payments.length === 0 ? (
@@ -243,8 +246,6 @@ export default function InvoiceCard({ invoice: inv, onChanged }: { invoice: Cust
           </ul>
         )}
       </section>
-
-      {owed && <InvoicePayment invoice={inv} onChanged={onChanged} />}
     </article>
   )
 }

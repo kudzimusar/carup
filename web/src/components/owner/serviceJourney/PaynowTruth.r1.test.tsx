@@ -215,6 +215,21 @@ describe('Each surface shows the truth in separate parts (R1 directive §4)', ()
   })
 })
 
+describe('The payment a person is in the middle of stays where they are', () => {
+  it('nothing the refresh after Pay can draw sits above the way to pay: the invoice’s lists come after it', () => {
+    const card = {
+      id: 'inv-9', invoice_number: 'INV-000009', currency: 'USD', status: 'issued', payment_status: 'unpaid', total_amount: '60.00', paid_amount: '0.00', balance_amount: '60.00',
+      issued_at: '2026-11-02T10:00:00Z', lines: [], payments: [], receipts: [], payment_source_label: 'x', variance: { state: 'none' }, provider_receipts: [], provider_payments: [row()],
+      money: { currency: 'USD', invoice_status: 'issued', total_amount: '60.00', declared_paid: '0.00', provider_paid: '0.00', paid_amount: '0.00', balance_amount: '60.00', provider_reserved: '60.00', uncommitted_balance: '0.00', payment_status: 'unpaid' },
+    }
+    render(<MemoryRouter><InvoiceCard invoice={card as never} /></MemoryRouter>)
+    const pay = screen.getByTestId('invoice-how-to-pay')
+    for (const id of ['invoice-payments', 'invoice-provider-payments', 'invoice-receipts']) {
+      expect(pay.compareDocumentPosition(screen.getByTestId(id)) & Node.DOCUMENT_POSITION_FOLLOWING, id).toBeTruthy()
+    }
+  })
+})
+
 describe('ICR-W7: no dead ends while the money stays reserved', () => {
   it('the InnBucks code stays on screen past CarUp’s time; the stop warning says the amount stays reserved', async () => {
     api.fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([

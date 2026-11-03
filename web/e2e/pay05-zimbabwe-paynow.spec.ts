@@ -216,6 +216,34 @@ test.afterAll(() => {
   if (EVIDENCE_DIR) writeFileSync(`${EVIDENCE_DIR}/uat/browser-journal-${String(EXPECTED_SHA).slice(0, 8)}.json`, JSON.stringify(journal, null, 2), { mode: 0o600 })
 })
 
+/**
+ * PAY-05-R1: what the customer is in the middle of stays on a phone's screen. The refresh after Pay draws the request in the
+ * invoice, and nothing it draws may push the code form or the code below the fold. Checked before anything touches the
+ * element, because Playwright's own fill and click scroll it back into view and would hide the jump.
+ */
+async function staysOnScreen(page: Page, card: Locator, target: Locator) {
+  await expect(card.getByTestId('invoice-provider-payment').first()).toBeVisible({ timeout: 30_000 })
+  await expect(card.getByTestId('how-to-pay-refreshing')).toHaveText('', { timeout: 30_000 })
+  const place = () => target.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const nav = document.querySelector('[data-testid="compact-bottom-nav"]')
+    const header = document.querySelector('header')
+    return { top: Math.round(r.top), bottom: Math.round(r.bottom), scrollY: Math.round(window.scrollY),
+      floor: Math.round(nav ? nav.getBoundingClientRect().top : window.innerHeight),
+      ceiling: Math.round(header ? header.getBoundingClientRect().bottom : 0) }
+  })
+  // two equal readings a moment apart: the page has finished moving
+  await expect.poll(async () => {
+    const a = await place()
+    await pause(400)
+    const b = await place()
+    return a.scrollY === b.scrollY && a.top === b.top
+  }, { timeout: 20_000 }).toBe(true)
+  const at = await place()
+  expect(at.top, `the top of the control is under the page header: ${JSON.stringify(at)}`).toBeGreaterThanOrEqual(at.ceiling)
+  expect(at.bottom, `the control is below the fold: ${JSON.stringify(at)}`).toBeLessThanOrEqual(at.floor)
+}
+
 test('runtime provenance: the web build and the backend are the candidate; Paynow is the local protocol simulator, real Paynow off', async ({ request, baseURL }) => {
   const web = await (await request.get(`${baseURL}/carup-provenance.json`)).json()
   expect(web.commit_sha).toBe(EXPECTED_SHA)
@@ -368,6 +396,7 @@ test('D/E (browser, mobile): InnBucks — the code stays on screen, survives a r
   const shown = (await code.innerText()).trim()
   await page.waitForTimeout(1500) // the invoice refreshes in place behind the panel (independent review W1)
   await expect(code).toBeVisible()
+  await staysOnScreen(page, card, code)
   await noHorizontalOverflow(page)
   await noClippedControls(page, '[data-testid="invoice-card"]')
   await axeClean(page, '[data-testid="invoice-card"]')
@@ -394,6 +423,7 @@ test('D/E (browser, mobile): O\'mari — a wrong code is refused in words; the r
   await card.getByTestId('paynow-phone').fill('0779000202')
   await card.getByTestId('paynow-start').click()
   await expect(card.getByTestId('paynow-otp')).toBeVisible({ timeout: 60_000 })
+  await staysOnScreen(page, card, card.getByTestId('paynow-otp-input'))
   await card.getByTestId('paynow-otp-input').fill('000000')
   await card.getByTestId('paynow-otp-submit').click()
   await expect(card.getByText(/code/i).first()).toBeVisible()
