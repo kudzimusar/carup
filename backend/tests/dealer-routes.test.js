@@ -29,6 +29,12 @@ function resetDb() {
       { id: 'admin-1', role: 'admin', is_verified: true },
       { id: 'buyer-1', role: 'buyer', is_verified: true },
     ],
+    user_sessions: [
+      ...['dealer-1','dealer-2','admin-1','buyer-1'].map(userId => ({
+        user_id: userId, token: userId + '-token', is_valid: true,
+        expires_at: '2035-01-01T00:00:00.000Z',
+      })),
+    ],
     dealer_profiles: [],
     dealer_branches: [],
     dealer_compliance_documents: [],
@@ -131,7 +137,7 @@ function request(method, path, body, userId) {
   return serverPort().then((port) => new Promise((resolve, reject) => {
     {
       const data = body ? JSON.stringify(body) : null;
-      const req = http.request({ host: '127.0.0.1', port, path, method, headers: { 'content-type': 'application/json', ...(userId ? { 'x-user-id': userId } : {}), ...(data ? { 'content-length': Buffer.byteLength(data) } : {}) } }, (res) => {
+      const req = http.request({ host: '127.0.0.1', port, path, method, headers: { 'content-type': 'application/json', ...(userId ? { 'x-user-id': userId, 'x-session-token': userId + '-token' } : {}), ...(data ? { 'content-length': Buffer.byteLength(data) } : {}) } }, (res) => {
         let buf = '';
         res.on('data', (c) => (buf += c));
         res.on('end', () => {
@@ -157,6 +163,7 @@ test('dealer creates own profile (201) then reads it back', async () => {
   const create = await request('POST', '/api/dealer/profile', { legal_name: 'Acme Motors', tenant_id: 't1' }, 'dealer-1');
   assert.equal(create.status, 201);
   assert.equal(create.body.profile.user_id, 'dealer-1');
+  assert.equal(create.body.profile.tenant_id, undefined, 'applicant must not self-assign tenant authority');
   const read = await request('GET', '/api/dealer/profile', null, 'dealer-1');
   assert.equal(read.status, 200);
   assert.equal(read.body.profile.legal_name, 'Acme Motors');
