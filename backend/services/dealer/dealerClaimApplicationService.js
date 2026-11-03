@@ -154,6 +154,15 @@ export async function listMyClaimEvidence(claimId,actor){
   if(error)throw deny('EVIDENCE_LIST_UNAVAILABLE',503);
   return data||[];
 }
+export async function listReviewClaimEvidence(claimId,actor){
+  const claim=await loadClaim(claimId);
+  requireIndependentReviewer(actor,claim.claimant_user_id);
+  const {data,error}=await supabase.from('dealer_claim_private_evidence')
+    .select('evidence_id,document_class,created_at,content_sha256')
+    .eq('claim_id',claim.claim_id).order('created_at',{ascending:false}).limit(50);
+  if(error)throw deny('REVIEW_EVIDENCE_LIST_UNAVAILABLE',503);
+  return data||[];
+}
 export async function reviewerEvidencePreview(claimId,evidenceId,actor,password){
   const claim=await loadClaim(claimId);
   await requireReviewerPassword(actor,claim,password);
