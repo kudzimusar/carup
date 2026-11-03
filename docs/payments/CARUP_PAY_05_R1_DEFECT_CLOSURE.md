@@ -125,11 +125,16 @@ remediator, failed its new test at commit `1a902df6`, and passes after correctio
 | PFR-L12 | Low | Operators' failed probes counted against the garage's connection; the cool-down is check-then-act. | Only the garage's own failed connections count. **Partly corrected:** a parallel burst is bounded by the per-IP limiter, not the cool-down. | services "PFR-L12" | A correct key is not refused | A burst of connects can send several probes before failures are recorded |
 | PFR-L13 | Low | Reads that failed lost the slow pace, because pacing used recorded observations. | Every attempt is timed. | smoke R9; services "PFR-L13" | One attempt per window | None known |
 
-Also found while running the physical rehearsal, by the remediator:
+Also found by the remediator, in the physical rehearsal and by re-running that reviewer's state walkers on the corrections:
 
 | ID | Sev. | Root cause | Correction | Regression | After | Residual risk |
 |---|---|---|---|---|---|---|
 | PHY-1 | Medium | At 390 px the refresh after Pay drew the request in the invoice's list above the checkout, pushing the O'mari form well below the fold. R1's facts made that list about 560 px tall. | The way to pay comes before the invoice's lists. | browser (O'mari, InnBucks at 390 px); screens | Stays on screen | None known |
+| PHY-2 | Medium | Inside a started request, the separate facts sat above the InnBucks code and the O'mari form, and the first read inserted them after the code was on screen. | The means of payment comes before the facts, and the request scrolls to the top of the screen. | screens; browser (390 px) | Stays on screen | None known |
+| WLK-1 | Medium | Introduced by the correction of PFR-H1: a superseded money word no longer counted as money seen, so a later Cancelled closed the payment as if no money had been reported. | Money seen counts every recorded word; the first report of money is kept on the request; a closed request Paynow reported money on reads as such. | smoke R1f; views | A review, never a quiet close | None known |
+| WLK-2 | Medium | An operator could acknowledge a review while Paynow's latest word reported money, which freed the invoice for a second payment while Paynow held the first. It also meant "acknowledged" could count a fresh Paid. | Refused while Paynow's latest word reports money: settled outside CarUp, or Paynow corrects it. | smoke R1g, B3b | No second payment invited | Paynow staying in escrow keeps the review open until an operator settles it; cash remains possible once settled |
+| WLK-3 | Low | On a closed payment with late money, a newer Cancelled was recorded only, so the word on screen stayed Paid beside a fresh read time. | Once money was reported on it, newer words are evaluated. | smoke R1g | The word and its time agree | None known |
+| SLF-1 | Low | Introduced and caught during the same correction round: timing a read inside the ticket function put a row lock in front of the writers' lock order, and 70 deadlocks appeared in the reviewer's race script when a caller combined both in one statement. | The time is recorded in its own call; the frozen ticket function is unchanged. | smoke R9; the reviewer's race script: 60 rounds, 0 deadlocks | No lock-order hazard | None known |
 
 ## Cross-program test guard
 

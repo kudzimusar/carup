@@ -32,7 +32,9 @@ ALTER TABLE public.pay05_paynow_transactions
   ADD COLUMN IF NOT EXISTS status_update_read_budgets jsonb NOT NULL DEFAULT '{}'::jsonb,
   -- when Paynow was last read and showed what CarUp holds, or last asked, whether or not it answered
   ADD COLUMN IF NOT EXISTS last_read_at timestamptz,
-  ADD COLUMN IF NOT EXISTS last_read_attempt_at timestamptz;
+  ADD COLUMN IF NOT EXISTS last_read_attempt_at timestamptz,
+  -- when Paynow first reported money on this request, whatever became of that read
+  ADD COLUMN IF NOT EXISTS money_reported_at timestamptz;
 
 -- which signed message a status-update observation came from: a replay is recognised by it
 ALTER TABLE public.pay05_paynow_observations
@@ -236,8 +238,9 @@ BEGIN
      OR (OLD.last_read_ticket IS NOT NULL AND (NEW.last_read_ticket IS NULL OR NEW.last_read_ticket < OLD.last_read_ticket))
      OR (OLD.last_trace_at IS NOT NULL AND (NEW.last_trace_at IS NULL OR NEW.last_trace_at < OLD.last_trace_at))
      OR (OLD.attached_after_close AND NOT NEW.attached_after_close)
-     -- PAY-05-R1: the status-update generation only moves forward
+     -- PAY-05-R1: the status-update generation only moves forward, and that Paynow reported money stays on record
      OR NEW.status_update_generation < OLD.status_update_generation
+     OR (OLD.money_reported_at IS NOT NULL AND NEW.money_reported_at IS DISTINCT FROM OLD.money_reported_at)
      OR NOT (NEW.initiation_state = OLD.initiation_state
              OR (OLD.initiation_state = 'sending' AND NEW.initiation_state IN ('attached', 'refused', 'unknown'))
              -- PAY-05-R1: Paynow's refusal may arrive after a concurrent trace attempt marked the request unknown (ICR-M8)
@@ -534,6 +537,12 @@ BEGIN
                     ('cancelled', 'failed', 'refunded', 'review:cancelled', 'review:failed', 'review:refunded')) THEN
       RAISE EXCEPTION 'PAY04_RESOLUTION_INVALID';
     END IF;
+    -- PAY-05-R1: not while Paynow's latest word reports money: it is settled outside CarUp, or Paynow itself corrects it. An
+    -- acknowledged review would free the invoice for a second payment while Paynow still holds the first (PFR)
+    IF v_c.gateway = 'paynow_zimbabwe' AND v_d.discrepancy_type IN ('provider_status_unrecognized', 'provider_paid_after_close')
+       AND replace(coalesce(public.pay05_latest_provider_status(v_d.collection_id), ''), 'review:', '') IN ('paid', 'awaiting_delivery', 'delivered', 'disputed') THEN
+      RAISE EXCEPTION 'PAY05_REVIEW_MONEY_STILL_REPORTED';
+    END IF;
   ELSE
     RAISE EXCEPTION 'PAY04_RESOLUTION_INVALID';
   END IF;
@@ -800,9 +809,9 @@ BEGIN
   v_settled := v_tx.settled_off_platform_at IS NOT NULL;
   SELECT * INTO v_last FROM public.pay05_paynow_observations
    WHERE collection_id = v_c.id AND outcome IN ('applied', 'review') ORDER BY seq DESC LIMIT 1;
+  -- whatever became of the read: a money word from an older read still means Paynow reported money
   v_money_seen := EXISTS (SELECT 1 FROM public.pay05_paynow_observations
-                           WHERE collection_id = v_c.id AND outcome IN ('applied', 'review')
-                             AND provider_status IN ('paid', 'awaiting_delivery', 'delivered', 'disputed'));
+                           WHERE collection_id = v_c.id AND provider_status IN ('paid', 'awaiting_delivery', 'delivered', 'disputed'));
   -- PAY-05-R1: a status update CarUp already recorded, read again and showing nothing new, writes no row and starts no new
   -- generation (PFR-M3). It is still a read: an older one in flight must not pass it, and its time is shown.
   IF p_via = 'status_update' AND p_provider_status = v_tx.provider_status AND p_amount_minor IS NOT DISTINCT FROM v_last.amount_minor
@@ -827,8 +836,9 @@ BEGIN
   ELSIF v_settled AND (p_provider_status IN ('created', 'sent')
                        OR (p_provider_status = v_last.provider_status AND p_amount_minor IS NOT DISTINCT FROM v_last.amount_minor)) THEN
     v_ignored := 'after_settlement';
-  -- PAY-05-R1: a Refunded on a closed payment always tells the operator, whether or not CarUp saw the money (PFR-L2)
-  ELSIF v_p.status = 'cancelled' AND NOT v_money AND p_provider_status <> 'refunded' THEN
+  -- PAY-05-R1: a Refunded on a closed payment always tells the operator, whether or not CarUp saw the money (PFR-L2); and once
+  -- Paynow reported money on it, its newer words are evaluated, so the word CarUp holds is not a stale one
+  ELSIF v_p.status = 'cancelled' AND NOT v_money AND p_provider_status <> 'refunded' AND NOT v_money_seen THEN
     v_ignored := 'after_close';
   -- PAY-05-R1: the same report again after an operator closed its review is recorded only: a re-read neither reopens the
   -- review nor takes the room back (ICR-M10); a different report is evaluated
@@ -880,6 +890,10 @@ BEGIN
   RETURNING id INTO v_obs;
   IF v_obs IS NULL THEN
     RETURN jsonb_build_object('applied', false, 'duplicate_event', true, 'payment_status', v_p.status, 'provider_status', v_tx.provider_status);
+  END IF;
+  -- PAY-05-R1: on record, whatever became of the read: a closed payment Paynow reported money on never reads as if it had not
+  IF v_money AND v_tx.money_reported_at IS NULL THEN
+    UPDATE public.pay05_paynow_transactions SET money_reported_at = clock_timestamp() WHERE collection_id = v_c.id RETURNING * INTO v_tx;
   END IF;
   -- PAY-05-R1: each recorded status update advances the collection's generation, which is part of the next update's identity
   -- (ICR-M2); the message counts as seen unless its confirming read was not evaluated, in which case a resend must read again

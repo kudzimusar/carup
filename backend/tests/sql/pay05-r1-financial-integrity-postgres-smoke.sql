@@ -499,7 +499,8 @@ BEGIN
   v_res := pg_temp.read(c, 'paid', 2400);
   PERFORM pg_temp.check(pg_temp.open_disc(c, 'provider_paid_after_close'), 'B3b a review opens');
   PERFORM pg_temp.check(pg_temp.counted(c) = 0 AND pg_temp.live_receipts(c) = 0, 'B3b what counted stops at once');
-  PERFORM pg_temp.resolve(c, 'provider_paid_after_close', 'acknowledged');
+  PERFORM pg_temp.expect(pg_temp.resolve_sql(c, 'provider_paid_after_close', 'acknowledged'), 'PAY05_REVIEW_MONEY_STILL_REPORTED');
+  PERFORM pg_temp.resolve(c, 'provider_paid_after_close', 'settled_off_platform');
   PERFORM pg_temp.check(pg_temp.counted(c) = 0, 'B3b and stays stopped');
   RAISE NOTICE 'PAY05_R1 B3b PASS';
 END $$;
@@ -1157,6 +1158,59 @@ BEGIN
   v_res := pg_temp.read(c, 'paid', NULL, t1);
   PERFORM pg_temp.check(v_res->>'ignored' IS NULL AND pg_temp.open_disc(c, 'provider_paid_after_close') AND pg_temp.counted(c) = 0, 'R1e reviewed, not counted');
   RAISE NOTICE 'PAY05_R1 R1e PASS';
+END $$;
+
+-- R1f: a money word from an older read still means Paynow reported money: a later Cancelled is a review, never a quiet close.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_res jsonb; t1 bigint; t2 bigint;
+BEGIN
+  g := pg_temp.garage('r1r1f');
+  PERFORM pg_temp.merchant(g, 'r1r1f', '60006');
+  inv := pg_temp.invoice(g, 'r1r1f', 48.00);
+  c := pg_temp.start(inv.id, 48.00, 'r1r1f-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  t1 := pay05_begin_paynow_read(c);
+  t2 := pay05_begin_paynow_read(c);
+  PERFORM pg_temp.read(c, 'unrecognized', NULL, t2);
+  v_res := pg_temp.read(c, 'delivered', NULL, t1);
+  PERFORM pg_temp.check(v_res->>'ignored' = 'superseded', 'R1f superseded');
+  PERFORM pg_temp.check((SELECT money_reported_at IS NOT NULL FROM pay05_paynow_transactions WHERE collection_id = c), 'R1f it is still on record that Paynow reported money');
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'acknowledged');
+  PERFORM pg_temp.read(c, 'cancelled', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.check(pg_temp.status(c) = 'pending' AND pg_temp.open_disc(c, 'provider_status_unrecognized'), 'R1f a review, not a quiet close');
+  RAISE NOTICE 'PAY05_R1 R1f PASS';
+END $$;
+
+-- R1g: a review cannot be acknowledged away while Paynow's latest word reports money: it is settled, or Paynow itself corrects it.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; c2 uuid; v_res jsonb;
+BEGIN
+  g := pg_temp.garage('r1r1g');
+  PERFORM pg_temp.merchant(g, 'r1r1g', '60007');
+  inv := pg_temp.invoice(g, 'r1r1g', 49.00);
+  c := pg_temp.start(inv.id, 49.00, 'r1r1g-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'unrecognized', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.read(c, 'paid', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.check(pg_temp.counted(c) = 0, 'R1g nothing counts while the review is open');
+  PERFORM pg_temp.expect(pg_temp.resolve_sql(c, 'provider_status_unrecognized', 'acknowledged'), 'PAY05_REVIEW_MONEY_STILL_REPORTED');
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'provider_corrected');
+  PERFORM pg_temp.check(pg_temp.counted(c) = 49 AND pg_temp.live_receipts(c) = 1, 'R1g Paynow''s own Paid, confirmed by the operator, counts');
+
+  inv := pg_temp.invoice(g, 'r1r1g', 50.00);
+  c2 := pg_temp.start(inv.id, 50.00, 'r1r1g-key-000002');
+  PERFORM pg_temp.send_attach(c2);
+  PERFORM pg_temp.read(c2, 'cancelled', NULL, pay05_begin_paynow_read(c2));
+  PERFORM pg_temp.read(c2, 'delivered', NULL, pay05_begin_paynow_read(c2));
+  PERFORM pg_temp.check(pg_temp.open_disc(c2, 'provider_paid_after_close'), 'R1g late money');
+  PERFORM pg_temp.expect(pg_temp.resolve_sql(c2, 'provider_paid_after_close', 'acknowledged'), 'PAY05_REVIEW_MONEY_STILL_REPORTED');
+  -- Paynow's newer word is evaluated, not lost: it is what lets the review close
+  v_res := pg_temp.read(c2, 'cancelled', NULL, pay05_begin_paynow_read(c2));
+  PERFORM pg_temp.check(v_res->>'ignored' IS NULL AND (SELECT provider_status = 'cancelled' FROM pay05_paynow_transactions WHERE collection_id = c2), 'R1g Paynow''s newer word is what CarUp holds');
+  PERFORM pg_temp.resolve(c2, 'provider_paid_after_close', 'acknowledged');
+  PERFORM pg_temp.resolve(c2, 'provider_status_unrecognized', 'acknowledged');
+  PERFORM pg_temp.check(pg_temp.status(c2) = 'cancelled' AND pg_temp.counted(c2) = 0, 'R1g closed, not counted');
+  RAISE NOTICE 'PAY05_R1 R1g PASS';
 END $$;
 
 -- R2 (PFR-H2): a reviewed Cancelled after money: a re-read refreshes the release check, so the room is not held forever.

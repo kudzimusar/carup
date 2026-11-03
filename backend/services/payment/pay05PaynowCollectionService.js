@@ -191,6 +191,7 @@ export function paynowView(tx, { customer = false } = {}) {
     hold_released: released,
     settled_outside: settled,
     attached_after_close: Boolean(tx.attached_after_close),
+    money_reported: Boolean(tx.money_reported_at),
     // when Paynow last showed what CarUp holds, including a read recorded only because it repeats it (PFR-L5)
     last_read_at: tx.last_read_at ?? tx.provider_status_at ?? null,
     paynow_reference: customer ? null : tx.paynow_reference ?? null,
@@ -224,8 +225,9 @@ export function paynowCollectionState(collection, payment, view, { now = Date.no
   }
   if (view?.settled_outside) return 'settled_outside';
   if (status === 'cancelled') {
-    if (MONEY_WORDS.has(word)) return 'closed_not_counted';
     if (word === 'refunded') return 'refunded';
+    // Paynow reported money on it, whatever it says now: a closed payment never reads as if it had not
+    if (MONEY_WORDS.has(word) || view?.money_reported) return 'closed_not_counted';
     // Paynow's own signed message showed a request CarUp had closed still exists: closed here, not necessarily there (PFR-M5)
     if (view?.attached_after_close) return 'closed_live';
     return collection.cancelled_at && collection.cancelled_by !== 'system:expiry' && !String(collection.cancelled_by ?? '').startsWith('provider:') ? 'stopped' : 'cancelled';

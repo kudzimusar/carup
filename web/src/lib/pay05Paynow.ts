@@ -386,6 +386,7 @@ const PAY05_ERROR_TEXT: Record<string, string> = {
   PAY05_HOLD_NOT_RELEASABLE: 'This payment cannot be released: it is not an unpaid Paynow request past its time with no review open.',
   PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ: 'Paynow must show this request unpaid in a fresh check before its hold can be released.',
   PAY05_RELEASE_SELF_DEALING_REFUSED: 'Refused: you are connected to this payment, so another operator must release it.',
+  PAY05_REVIEW_MONEY_STILL_REPORTED: 'Not closed: Paynow’s latest word still reports money on this payment. Settle it outside CarUp, or check with Paynow again.',
   PAY05_REVIEW_NOT_OPENABLE: 'A review cannot be opened on this request: CarUp’s time has not passed, it has a review already, or it is no longer waiting on Paynow.',
   PAY05_REVIEW_AUTHORITY_REFUSED: 'Only a CarUp platform administrator can do this.',
   PAY05_REVIEW_SELF_DEALING_REFUSED: 'Refused: you are connected to this payment, so another operator must open the review.',

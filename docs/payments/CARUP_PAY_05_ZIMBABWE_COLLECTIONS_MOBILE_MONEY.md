@@ -207,7 +207,10 @@ themselves, and a receipt exists only for money that counts.
 | A money word on an integration with no reviewed settlement currency | `currency_mismatch` review, never allocated | held until resolved |
 
 The same report repeated after an operator closed its review is recorded only (`after_review`): a re-read neither reopens the
-review nor takes the room back. A different report is evaluated.
+review nor takes the room back. A different report is evaluated. Once Paynow has reported money on a request, CarUp keeps that on record
+whatever became of the read: a later Cancelled is a review, never a quiet close, and a closed request never reads as if no money had been
+reported. An operator cannot acknowledge a review while Paynow's latest word still reports money: it is settled outside CarUp, or Paynow
+itself corrects it.
 
 ### 5.4 Ordering: why a stale read can never move money (independent review D1)
 
@@ -417,9 +420,9 @@ Activation needs:
   |---|---|
   | `provider_disputed` | Ends on Paynow's own Paid; or **settled outside CarUp**; or acknowledged once Paynow has closed it |
   | `amount_mismatch` | `provider_corrected` once Paynow's latest word is a matching Paid, or **settled outside CarUp** (frees the room) |
-  | `provider_status_unrecognized` | Acknowledged (stays uncounted unless Paynow reports it paid), `provider_corrected`, or settled outside CarUp |
+  | `provider_status_unrecognized` | Acknowledged, once Paynow's latest word reports no money (stays uncounted unless Paynow reports it paid); `provider_corrected`; or settled outside CarUp |
   | `currency_mismatch` | Settled outside CarUp: this integration has no reviewed settlement currency |
-  | `provider_paid_after_close` | Settled outside CarUp, or acknowledged |
+  | `provider_paid_after_close` | Settled outside CarUp, or acknowledged once Paynow's latest word reports no money |
   | `provider_refund_unquantified` | Acknowledged once the Paynow records are checked |
 
 - **Incidents:** switch Paynow off with a reason. Checkouts stop, including requests already begun but not sent.

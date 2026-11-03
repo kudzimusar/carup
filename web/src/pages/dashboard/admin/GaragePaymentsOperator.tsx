@@ -48,7 +48,7 @@ const RESOLUTIONS: Record<string, Array<{ value: string; label: string }>> = {
     { value: 'refunded_to_customer', label: 'Refunded to the customer (Paynow must report it refunded)' },
   ],
   provider_status_unrecognized: [
-    { value: 'acknowledged', label: 'Reviewed: it stays uncounted unless Paynow itself reports it paid (explain in the note)' },
+    { value: 'acknowledged', label: 'Reviewed: Paynow’s latest word reports no money, and it stays uncounted unless Paynow reports it paid (explain in the note; CarUp checks)' },
     { value: 'provider_corrected', label: 'Paynow corrected its report: its latest word is a matching Paid (CarUp checks)' },
   ],
   provider_refund_unquantified: [
@@ -56,7 +56,7 @@ const RESOLUTIONS: Record<string, Array<{ value: string; label: string }>> = {
   ],
   provider_paid_after_close: [
     { value: 'settled_off_platform', label: 'Settled outside CarUp: refunded in Paynow or agreed with the customer (explain in the note)' },
-    { value: 'acknowledged', label: 'Reviewed (explain in the note)' },
+    { value: 'acknowledged', label: 'Reviewed: Paynow’s latest word reports no money on it (explain in the note; CarUp checks)' },
   ],
   default: [{ value: 'provider_corrected', label: 'Provider corrected its report (verify first)' }],
 }

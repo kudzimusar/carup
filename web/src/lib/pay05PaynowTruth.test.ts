@@ -90,7 +90,7 @@ describe('The pre-final review: each state says what is true, and a closed revie
     for (const state of ['reviewed_held', 'no_longer_needed', 'closed_live', 'confirmed_partial'] as ProviderPaymentState[]) expect(PROVIDER_STATE_TONE[state]).toBeTruthy()
   })
   it('the operator\'s review refusals have words', () => {
-    for (const code of ['PAY05_REVIEW_NOT_OPENABLE', 'PAY05_REVIEW_AUTHORITY_REFUSED', 'PAY05_REVIEW_SELF_DEALING_REFUSED']) expect(pay05ErrorText(code)).not.toMatch(/did not go through/)
+    for (const code of ['PAY05_REVIEW_NOT_OPENABLE', 'PAY05_REVIEW_AUTHORITY_REFUSED', 'PAY05_REVIEW_SELF_DEALING_REFUSED', 'PAY05_REVIEW_MONEY_STILL_REPORTED']) expect(pay05ErrorText(code)).not.toMatch(/did not go through/)
   })
 })
 

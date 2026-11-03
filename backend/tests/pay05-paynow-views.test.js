@@ -224,6 +224,7 @@ test('PFR-M5: closed is closed: Paynow may still have a request bound late, and 
   assert.equal(stateOf('cancelled', 'paid', { view: { attached_after_close: true } }), 'closed_not_counted');
   assert.equal(stateOf('cancelled', null, { collection: { cancelled_at: 'x', cancelled_by: 'provider:paynow_zimbabwe' } }), 'cancelled', 'Paynow refused it: nobody stopped it');
   assert.equal(stateOf('cancelled', 'cancelled', { collection: { cancelled_at: 'x', cancelled_by: 'u1' } }), 'stopped');
+  assert.equal(stateOf('cancelled', 'cancelled', { view: { money_reported: true } }), 'closed_not_counted', 'money was reported on it, whatever Paynow says now');
 });
 
 test('PFR-M5: only a request that can still be paid offers a way to pay it, and no closed request reads as waiting', () => {
