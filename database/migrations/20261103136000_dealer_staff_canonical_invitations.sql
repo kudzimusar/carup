@@ -103,7 +103,7 @@ BEGIN
  SELECT * INTO invited FROM users WHERE id=p_invited_user_id;
  IF NOT FOUND OR invited.is_verified IS DISTINCT FROM true OR
   p_invited_user_id=p_owner_id OR
-  invited.role NOT IN ('member','buyer','dealer') THEN
+  invited.role<>'member' THEN
   RAISE EXCEPTION 'VERIFIED_EXISTING_STAFF_ACCOUNT_REQUIRED'; END IF;
  IF EXISTS(SELECT 1 FROM tenant_users WHERE tenant_id=l.tenant_id
     AND user_id=p_invited_user_id) OR
