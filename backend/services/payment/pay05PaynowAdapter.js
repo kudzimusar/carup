@@ -96,6 +96,8 @@ export class PaynowAdapter {
       reference: fields.get('reference') ?? null,
       paynowReference: fields.get('paynowreference') ? providerText(fields.get('paynowreference')) : null,
       pollUrl,
+      // a hosted request's own page, when Paynow's reply names one (recovery by trace keeps the customer's way back)
+      browserUrl: fields.get('browserurl') ? assertProviderUrl(fields.get('browserurl'), this.allow) : null,
       echoedPollUrl: echoed,
       paymentId: pollUrl ? pollIdFor(pollUrl) : null,
       merchantReference: this.merchantReference,

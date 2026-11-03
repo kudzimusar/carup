@@ -48,7 +48,7 @@ export function sealIntegrationKey(plaintext, { aad, env = process.env }) {
   requirePlausibleKey(plaintext);
   const { key, version } = loadCredentialKek(env);
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
   cipher.setAAD(Buffer.from(aad, 'utf8'));
   const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   return {
@@ -64,7 +64,8 @@ export function openIntegrationKey(sealed, { aad, env = process.env }) {
   const { key, version } = loadCredentialKek(env);
   if (Number(sealed?.keyVersion) !== version) throw new Pay05Error('PAY05_CREDENTIAL_KEK_VERSION_MISMATCH', 503);
   try {
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(String(sealed.iv), 'base64'));
+    // the tag length is pinned: GCM would otherwise accept a truncated tag (ICR Info)
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(String(sealed.iv), 'base64'), { authTagLength: 16 });
     decipher.setAAD(Buffer.from(aad, 'utf8'));
     decipher.setAuthTag(Buffer.from(String(sealed.tag), 'base64'));
     const plaintext = Buffer.concat([decipher.update(Buffer.from(String(sealed.ciphertext), 'base64')), decipher.final()]).toString('utf8');

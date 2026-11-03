@@ -7,12 +7,15 @@
  *    shown again (only a short one-way fingerprint).
  *  - The integration mode is the SERVER's (CARUP_PAY05_PAYNOW_MODE): a browser can never choose real Paynow. Level 1
  *    permits 'simulator' only.
- *  - A CarUp platform administrator verifies: the server itself probes every pending integration (an authenticated trace
- *    of a random merchant trace proves the ID and key belong together) and the database refuses verification without
- *    complete evidence, by the registrant, or by any member of the garage.
+ *  - An integration ID is reserved only once its key is proved: the server probes each one at connect (an authenticated
+ *    trace of a random merchant trace), before anything is written, and every refusal reads the same (PAY-05-R1, ICR-S2).
+ *  - A CarUp platform administrator verifies: the server itself probes every pending integration again and the database
+ *    refuses verification without complete evidence, by the registrant, or by any member of the garage. Each integration
+ *    needs its own settlement currency, reviewed in the merchant's Paynow account: Paynow's API reports none (ICR-P1).
  */
 import crypto from 'node:crypto';
 import { supabase as defaultDb } from '../../db/supabase.js';
+import { GARAGE_ADMIN_ROLES } from '../serviceNetwork/serviceAuthority.js';
 import {
   Pay05Error, PAY05_CURRENCIES, PAY05_GATEWAY, PAY05_METHODS, PAY05_MODES, PAY05_PAYNOW_CAPABILITIES, isPay05Enabled,
   pay05Failure, requirePay05Enabled,
@@ -62,6 +65,20 @@ export function integrationView(row) {
     probe: row.verification_evidence?.credential_probe
       ? { result: row.verification_evidence.credential_probe.result, probed_at: row.verification_evidence.credential_probe.probed_at }
       : null,
+    currency_evidence: row.currency_evidence
+      ? { settlement_currency: row.currency_evidence.settlement_currency, reference: row.currency_evidence.reference, reviewed_at: row.currency_evidence.reviewed_at }
+      : null,
+  };
+}
+
+/** What a garage reads about its own merchant: CarUp operators' identities and internal notes stay with operators (ICR Info). */
+function forGarage(bundle) {
+  if (!bundle) return bundle;
+  return {
+    ...bundle,
+    integrations: bundle.integrations.map((i) => ({ ...i, verified_by: null })),
+    history: bundle.history.map((h) => (['admin', 'super_admin'].includes(h.actor_role)
+      ? { ...h, actor: 'CarUp', detail: {} } : h)),
   };
 }
 
@@ -116,7 +133,7 @@ export async function getGaragePaynowConnection({ db = defaultDb, env = process.
     capabilities: PAY05_PAYNOW_CAPABILITIES,
     methods: PAY05_METHODS,
     currencies: PAY05_CURRENCIES,
-    merchant: await merchantBundle(db, current),
+    merchant: forGarage(await merchantBundle(db, current)),
     previous: previous.map((p) => ({ id: p.id, status: p.status, registered_at: p.registered_at, suspended_reason: p.suspended_reason })),
   };
 }
@@ -151,20 +168,61 @@ function connectionInput(body) {
   return { display, legal, bank, holder, last4, registration: registration || null, integrations };
 }
 
-export async function connectGaragePaynow({ db = defaultDb, env = process.env, actor = {}, body = {} } = {}) {
+/** The garage's own administrator, read-only: the database's garage_ops03_assert_admin re-checks it when the row is written. */
+async function assertCanConnect(db, tenantId, userId) {
+  const member = list(await read(db.from('tenant_users').select('role').eq('tenant_id', tenantId).eq('user_id', userId).limit(1)))[0];
+  if (!member || !GARAGE_ADMIN_ROLES.includes(member.role)) throw new Pay05Error('PAY05_MERCHANT_AUTHORITY_REFUSED', 403);
+}
+
+/** One refusal for a wrong key, another garage's ID, a rejected ID cooling down and a cool-down itself (ICR-S2). */
+const notAccepted = () => new Pay05Error('PAY05_INTEGRATION_NOT_ACCEPTED', 409);
+const CONNECT_PROBE_FAILURES_ALLOWED = 5;
+
+/**
+ * The garage proves it holds each key BEFORE anything is reserved. Only Paynow's authenticated reply proves it; Paynow being
+ * unreachable refuses nobody and reserves nothing. Repeated failed proofs cool down without calling Paynow.
+ */
+async function proveKeyAtConnect(db, env, transport, tenantId, item, mode) {
+  let result;
+  try {
+    const adapter = createPaynowAdapter({ integration: { integrationId: item.integrationId, key: item.key, currency: item.currency, methods: item.methods, mode },
+      merchantReference: null, env, transport });
+    const traced = await adapter.trace({ merchantTrace: newMerchantTrace() });
+    result = traced.authenticated ? 'authenticated' : 'unauthenticated';
+  } catch (error) {
+    if (error?.code === 'PAY05_PROVIDER_UNREACHABLE' || error?.code === 'PAY05_PROVIDER_HTTP_ERROR') throw new Pay05Error('PAY05_CONNECT_PROBE_UNAVAILABLE', 503);
+    result = error?.code === 'PAY05_PROVIDER_TRACE_FAILED' ? 'refused' : 'unauthenticated';
+  }
+  if (result !== 'authenticated') {
+    await db.rpc('pay05_record_provider_error', { p_kind: 'credential_probe_failed', p_tenant_id: tenantId, p_collection_id: null,
+      p_merchant_account_id: null, p_detail: { stage: 'connect', currency: item.currency, result } });
+    throw notAccepted();
+  }
+  return { result, credential_fingerprint: integrationKeyFingerprint(item.key) };
+}
+
+export async function connectGaragePaynow({ db = defaultDb, env = process.env, transport = null, actor = {}, body = {} } = {}) {
   requirePay05Enabled(env);
   const userId = actorId(actor);
   if (!actor.tenantId) throw new Pay05Error('PAY05_GARAGE_REQUIRED', 403);
   const mode = serverPaynowMode(env);
   const input = connectionInput(body);
+  // the database re-checks authority; this refuses a person who may not connect before any key reaches Paynow
+  await assertCanConnect(db, actor.tenantId, userId);
+  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const failures = list(await read(db.from('pay05_provider_errors').select('id').eq('tenant_id', actor.tenantId)
+    .eq('kind', 'credential_probe_failed').gte('created_at', since).limit(CONNECT_PROBE_FAILURES_ALLOWED + 1)));
+  if (failures.length >= CONNECT_PROBE_FAILURES_ALLOWED) throw notAccepted();
+  const probes = [];
+  for (const item of input.integrations) probes.push(await proveKeyAtConnect(db, env, transport, actor.tenantId, item, mode));
   const merchantAccountId = crypto.randomUUID();
-  const integrations = input.integrations.map((item) => {
+  const integrations = input.integrations.map((item, index) => {
     const sealed = sealIntegrationKey(item.key, {
       aad: integrationKeyAad({ tenantId: actor.tenantId, merchantAccountId, currency: item.currency, integrationId: item.integrationId, mode }),
       env,
     });
     return { currency: item.currency, integration_id: item.integrationId, mode, methods: item.methods, ciphertext: sealed.ciphertext,
-      iv: sealed.iv, tag: sealed.tag, key_version: sealed.keyVersion, fingerprint: sealed.fingerprint };
+      iv: sealed.iv, tag: sealed.tag, key_version: sealed.keyVersion, fingerprint: sealed.fingerprint, probe: probes[index] };
   });
   const attestation = `${userId} confirms that the Paynow merchant account and the settlement account ending ${input.last4} belong to `
     + `${input.legal} and that they are authorised to connect them to CarUp for this garage.`;
@@ -185,8 +243,9 @@ export async function disconnectGaragePaynow({ db = defaultDb, env = process.env
   const account = (await read(db.from('pay04_garage_merchant_accounts').select('id, status').eq('tenant_id', actor.tenantId)
     .eq('gateway', PAY05_GATEWAY).in('status', ['pending_verification', 'verified']).order('registered_at', { ascending: false }).limit(1)))?.[0];
   if (!account) throw new Pay05Error('PAY05_MERCHANT_NOT_FOUND', 404);
+  // this is the garage's own path: a garage administrator who is also a CarUp operator acts here as the garage
   await rpc(db, 'pay05_suspend_paynow_merchant', { p_merchant_account_id: account.id, p_actor_id: userId,
-    p_actor_role: actor.platformRole || 'owner', p_reason: reason });
+    p_actor_role: 'owner', p_reason: reason });
   return getGaragePaynowConnection({ db, env, actor });
 }
 
@@ -289,10 +348,20 @@ export async function verifyPaynowMerchant({ db = defaultDb, env = process.env, 
     .eq('status', 'pending_verification')));
   const probes = {};
   for (const row of pending) probes[row.id] = await probeIntegration(db, env, row, account, { transport });
-  // Paynow reports no currency: the operator attests each integration's currency configuration (independent review P3)
+  // Paynow reports no currency: the operator reviews each integration's own settlement currency (independent review P3,
+  // PAY-05-R1 ICR-P1); the database refuses a missing or different one
+  const currencyEvidence = {};
+  for (const row of pending) {
+    const given = body.currency_evidence?.[row.id];
+    if (given && typeof given === 'object') {
+      currencyEvidence[row.id] = { settlement_currency: String(given.settlement_currency ?? ''), reference: String(given.reference ?? '').slice(0, 200),
+        ...(given.fee_handling ? { fee_handling: String(given.fee_handling).slice(0, 60) } : {}) };
+    }
+  }
   const evidence = { legal_identity_reviewed: body.legal_identity_reviewed === true,
     settlement_account_reviewed: body.settlement_account_reviewed === true,
-    currency_configuration_reviewed: body.currency_configuration_reviewed === true, credential_probes: probes };
+    currency_configuration_reviewed: body.currency_configuration_reviewed === true, credential_probes: probes,
+    currency_evidence: currencyEvidence };
   try {
     await rpc(db, 'pay05_verify_paynow_merchant', { p_merchant_account_id: account.id, p_actor_id: userId,
       p_actor_role: actor.platformRole || null, p_evidence: evidence, p_note: note });

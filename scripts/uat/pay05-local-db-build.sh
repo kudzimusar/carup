@@ -69,6 +69,12 @@ sed '/^-- +migrate Down/,$d' "$MIG/$PAY05_MIGRATION" > "$WORK/$PAY05_MIGRATION.u
 echo "Applying PAY-05 to the local UAT database ($(q "select count(*) from public.garage_invoices") garage invoices, $(q "select count(*) from public.pay04_garage_collections") PAY-04 collections already present)…"
 apply "$PAY05_MIGRATION" migration "$WORK/$PAY05_MIGRATION.up.sql" "$MIG/$PAY05_MIGRATION"
 
+# 2b. PAY-05-R1, recorded the same way, forward from the frozen PAY-05 migration.
+PAY05_R1_MIGRATION=20261104100000_carup_pay05_r1_financial_integrity.sql
+[ -f "$MIG/$PAY05_R1_MIGRATION" ] || fail "missing migration $PAY05_R1_MIGRATION"
+sed '/^-- +migrate Down/,$d' "$MIG/$PAY05_R1_MIGRATION" > "$WORK/$PAY05_R1_MIGRATION.up.sql"
+apply "$PAY05_R1_MIGRATION" migration "$WORK/$PAY05_R1_MIGRATION.up.sql" "$MIG/$PAY05_R1_MIGRATION"
+
 # 3. The ONLY place the Paynow protocol simulator is ever enabled: this disposable UAT database.
 ALIGN="$WORK/pay05-001.sql"
 cat > "$ALIGN" <<'SQL'

@@ -51,6 +51,13 @@ async function rejectsWith(promise, code) {
   assert.fail(`expected ${code}`);
 }
 
+/** What an operator supplies at verification: each integration's own reviewed settlement currency (R1, ICR-P1). */
+const reviewBody = async (merchantId, note) => {
+  const rows = (await q('SELECT id, currency FROM pay05_merchant_integrations WHERE merchant_account_id = $1', [merchantId])).rows;
+  return { legal_identity_reviewed: true, settlement_account_reviewed: true, currency_configuration_reviewed: true, note,
+    currency_evidence: Object.fromEntries(rows.map((r) => [r.id, { settlement_currency: r.currency, reference: 'Simulated Paynow merchant settlement page reviewed' }])) };
+};
+
 async function seedGarage(prefix, admin, mech) {
   const g = (await one("INSERT INTO tenants (name,type,status) VALUES ($1,'garage','active') RETURNING id", [`${prefix} Garage ${run}`])).id;
   await q('INSERT INTO tenant_users (tenant_id,user_id,role) VALUES ($1,$2,$4),($1,$3,$4)', [g, admin, mech, 'admin']);
@@ -168,22 +175,24 @@ test('the garage connects its OWN Paynow merchant; the key is sealed, never retu
     body: { legal_identity_reviewed: true, settlement_account_reviewed: true, note: 'Currency configuration not reviewed.' } }), 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE');
   await rejectsWith(M.verifyPaynowMerchant({ db, env, actor: operator(), merchantAccountId: world.merchant,
     body: { legal_identity_reviewed: true, settlement_account_reviewed: false, note: 'Settlement account not reviewed.' } }), 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE');
+  // R1 (ICR-P1): the global tick-box alone is not enough: each integration needs its own reviewed settlement currency
+  await rejectsWith(M.verifyPaynowMerchant({ db, env, actor: operator(), merchantAccountId: world.merchant,
+    body: { legal_identity_reviewed: true, settlement_account_reviewed: true, currency_configuration_reviewed: true, note: 'No per-integration currency evidence.' } }),
+  'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE');
   const verified = await M.verifyPaynowMerchant({ db, env, actor: operator(), merchantAccountId: world.merchant,
-    body: { legal_identity_reviewed: true, settlement_account_reviewed: true, currency_configuration_reviewed: true,
-      note: 'Legal name and settlement account match the garage.' } });
+    body: await reviewBody(world.merchant, 'Legal name and settlement account match the garage.') });
   assert.equal(verified.merchant.status, 'verified');
   assert.deepEqual(Object.values(verified.probes).map((p) => p.result), ['authenticated', 'authenticated']);
 
-  // garage B pastes a real integration ID with the WRONG key: the probe cannot authenticate it and verification refuses
+  // garage B pastes a real integration ID with the WRONG key. R1 (ICR-S2): the probe at connect refuses it and nothing is reserved
   const other = sim.simulator.issueIntegration({ currency: 'USD', methods: ['web'] });
+  await rejectsWith(M.connectGaragePaynow({ db, env, actor: garageB(), body: { ...profile('P5T Auto Ltd'), integrations: [
+    { currency: 'USD', integration_id: other.integrationId, integration_key: crypto.randomUUID(), methods: ['web'] }] } }), 'PAY05_INTEGRATION_NOT_ACCEPTED');
+  assert.equal(Number((await one('SELECT count(*)::int AS n FROM pay05_merchant_integrations WHERE integration_id = $1', [other.integrationId])).n), 0, 'nothing reserved');
+  assert.equal(Number((await one("SELECT count(*)::int AS n FROM pay05_provider_errors WHERE tenant_id = $1 AND kind = 'credential_probe_failed'", [world.gB])).n), 1);
+  // with the right key it connects; an operator can still reject it
   const wrong = await M.connectGaragePaynow({ db, env, actor: garageB(), body: { ...profile('P5T Auto Ltd'), integrations: [
-    { currency: 'USD', integration_id: other.integrationId, integration_key: crypto.randomUUID(), methods: ['web'] }] } });
-  const refused = await rejectsWith(M.verifyPaynowMerchant({ db, env, actor: operator(), merchantAccountId: wrong.merchant.id,
-    body: { legal_identity_reviewed: true, settlement_account_reviewed: true, currency_configuration_reviewed: true, note: 'Reviewed, but the key must prove itself.' } }),
-  'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE');
-  // with the wrong key OUR request hash is wrong, so Paynow refuses it unsigned ("Invalid Hash") — never authenticated
-  assert.deepEqual(Object.values(refused.details.probes), ['refused']);
-  assert.equal(Number((await one("SELECT count(*)::int AS n FROM pay05_provider_errors WHERE merchant_account_id = $1 AND kind = 'credential_probe_failed'", [wrong.merchant.id])).n), 1);
+    { currency: 'USD', integration_id: other.integrationId, integration_key: other.key, methods: ['web'] }] } });
   await M.rejectPaynowMerchant({ db, env, actor: operator(), merchantAccountId: wrong.merchant.id, body: { reason: 'The integration key does not match the integration ID.' } });
   // independent review W9: the garage sees why
   const rejectedView = await M.getGaragePaynowConnection({ db, env, actor: garageB() });
@@ -192,7 +201,7 @@ test('the garage connects its OWN Paynow merchant; the key is sealed, never retu
   assert.ok(rejectedView.merchant.rejected_at);
   // ...and garage B can never take over garage A's integration
   await rejectsWith(M.connectGaragePaynow({ db, env, actor: garageB(), body: { ...profile('P5T Auto Ltd'), integrations: [
-    { currency: 'USD', integration_id: usd.integrationId, integration_key: usd.key, methods: ['web'] }] } }), 'PAY05_INTEGRATION_ALREADY_REGISTERED');
+    { currency: 'USD', integration_id: usd.integrationId, integration_key: usd.key, methods: ['web'] }] } }), 'PAY05_INTEGRATION_NOT_ACCEPTED');
 });
 
 test('hosted checkout: returning from Paynow proves nothing; Paynow\'s signed update + a fresh poll count it, with a receipt', { skip }, async () => {

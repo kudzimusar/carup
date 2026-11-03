@@ -188,18 +188,39 @@ export function newMerchantTrace() {
 }
 
 /**
- * A status update's identity: the same message resent (Paynow retries up to ten times) while CarUp's view is unchanged
- * is the same event. Paynow's messages carry no sequence number — "Paid" after a dispute is byte-identical to the first
- * "Paid" — so the previous message CarUp applied is part of the identity: a repeat right after itself is a resend, a
- * repeat after a different message is a new event.
+ * A status update's identity (PAY-05-R1, ICR-M2, S1). Paynow's messages carry no sequence number and its hash covers only
+ * the trimmed values, so the bytes received say little: padding, an empty extra field or a lower-case hash all verify.
+ * The identity is therefore the hash Paynow sent, in one case, so every such variant is one message...
  */
-export function eventIdFor(collectionId, pairs, priorMessageHash = null) {
-  return `evt_pn_${sha256(`${collectionId}\n${encodeForm(pairs)}\n${priorMessageHash ?? ''}`).slice(0, 40)}`;
+export function messageHashFor(pairs) {
+  const received = pairs.find(([key]) => String(key).toLowerCase() === 'hash')?.[1];
+  return sha256(String(received ?? '').toUpperCase());
 }
 
-/** The SHA-256 of a whole message as received (its identity, independent of the collection). */
-export function messageHashFor(pairs) {
-  return sha256(encodeForm(pairs));
+/**
+ * ...and the event is that message at this collection's generation, which advances with each status update CarUp records. A
+ * legitimate repeat after anything else was recorded (Paid, Disputed, Paid, Disputed) is a new event; concurrent deliveries
+ * of one message share one event.
+ */
+export function eventIdFor(collectionId, messageHash, generation) {
+  return `evt_pn_${sha256(`${collectionId}\n${messageHash}\n${generation}`).slice(0, 40)}`;
+}
+
+/**
+ * Whether two URLs name the same Paynow poll (ICR-P5): case and percent-encoding are not a different payment. The status
+ * update is already authenticated and bound to the reference; CarUp only ever polls the URL it stored.
+ */
+export function samePollUrl(a, b) {
+  const canonical = (value) => {
+    const url = new URL(String(value));
+    const query = [...url.searchParams.entries()].map(([k, v]) => `${k}=${v}`.toLowerCase()).sort().join('&');
+    return `${url.protocol}//${url.host}${decodeURIComponent(url.pathname).toLowerCase()}?${query}`;
+  };
+  try {
+    return canonical(a) === canonical(b);
+  } catch {
+    return false;
+  }
 }
 
 /** Paynow documents mobile numbers as 07XXXXXXXX (test numbers 0771111111…0774444444). */

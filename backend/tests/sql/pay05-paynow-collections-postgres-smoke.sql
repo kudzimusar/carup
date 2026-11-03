@@ -96,7 +96,13 @@ CREATE OR REPLACE FUNCTION pg_temp.integration(p_currency text, p_id text, p_met
 RETURNS jsonb LANGUAGE sql AS $$
   SELECT jsonb_build_object('currency', p_currency, 'integration_id', p_id, 'mode', p_mode, 'methods', to_jsonb(p_methods),
     'ciphertext', 'U0VBTEVELUtFWS1GSVhUVVJFLU5PVC1BLUtFWQ==', 'iv', 'AAECAwQFBgcICQoL', 'tag', 'AAECAwQFBgcICQoLDA0ODw==',
-    'key_version', 1, 'fingerprint', p_fingerprint);
+    'key_version', 1, 'fingerprint', p_fingerprint,
+    -- R1: the authenticated probe the backend runs at connect; an ID is reserved only with its key proved
+    'probe', jsonb_build_object('result', 'authenticated', 'credential_fingerprint', p_fingerprint));
+$$;
+CREATE OR REPLACE FUNCTION pg_temp.currency_evidence(p_acct uuid) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_object_agg(id::text, jsonb_build_object('settlement_currency', currency, 'reference', 'Simulated Paynow merchant settlement page reviewed'))
+    FROM pay05_merchant_integrations WHERE merchant_account_id = p_acct;
 $$;
 CREATE OR REPLACE FUNCTION pg_temp.profile(p_name text) RETURNS jsonb LANGUAGE sql AS $$
   SELECT jsonb_build_object('legal_entity_name', p_name, 'registration_number', '1234/2026', 'settlement_bank_name', 'CBZ Bank',
@@ -191,7 +197,7 @@ BEGIN
   PERFORM pg_temp.check((SELECT methods FROM pay05_merchant_integrations WHERE id = v_usd) = ARRAY['ecocash', 'innbucks', 'omari', 'web'], 'methods stored as given (sorted)');
   PERFORM pg_temp.expect(format($q$SELECT pay05_register_paynow_merchant(%L, gen_random_uuid(), 'p5a-admin', 'P5A Garage', pg_temp.profile('P5A Motors (Pvt) Ltd'), jsonb_build_array(pg_temp.integration('USD', '20009', ARRAY['web'], '00000000000000a9')))$q$, g), 'PAY05_MERCHANT_ALREADY_CONNECTED');
   -- M: garage B can never register garage A's integration
-  PERFORM pg_temp.expect(format($q$SELECT pay05_register_paynow_merchant(%L, gen_random_uuid(), 'p5b-admin', 'P5B Garage', pg_temp.profile('P5B Auto Ltd'), jsonb_build_array(pg_temp.integration('USD', '20001', ARRAY['web'], '00000000000000b1')))$q$, g2), 'PAY05_INTEGRATION_ALREADY_REGISTERED');
+  PERFORM pg_temp.expect(format($q$SELECT pay05_register_paynow_merchant(%L, gen_random_uuid(), 'p5b-admin', 'P5B Garage', pg_temp.profile('P5B Auto Ltd'), jsonb_build_array(pg_temp.integration('USD', '20001', ARRAY['web'], '00000000000000b1')))$q$, g2), 'PAY05_INTEGRATION_NOT_ACCEPTED');
   PERFORM pg_temp.check(NOT EXISTS (SELECT 1 FROM pay04_garage_merchant_accounts WHERE tenant_id = g2), 'the refused takeover left nothing behind');
   -- M: CarUp's Stripe (or any other gateway) can never be a garage merchant
   PERFORM pg_temp.expect(format($q$INSERT INTO pay04_garage_merchant_accounts (tenant_id, gateway, merchant_reference, display_name, currencies, status, authority_note, registered_by, registered_role) VALUES (%L, 'stripe_carup_japan_sandbox', 'pnm_00000000000000000000000000000000', 'CarUp Japan', ARRAY['USD'], 'verified', 'must never collect garage money', 'p5-op', 'admin')$q$, g2), 'pay05_merchant_gateway');
@@ -202,6 +208,8 @@ BEGIN
 
   -- V: independent reviewer only, complete evidence only
   v_evidence := jsonb_build_object('legal_identity_reviewed', true, 'settlement_account_reviewed', true,
+    -- R1: each integration's own settlement currency, reviewed
+    'currency_evidence', pg_temp.currency_evidence(v_acct.id),
     'currency_configuration_reviewed', true, 'credential_probes', jsonb_build_object(
     v_usd::text, jsonb_build_object('result', 'authenticated', 'credential_fingerprint', '00000000000000a1', 'probed_at', now()),
     v_zwg::text, jsonb_build_object('result', 'authenticated', 'credential_fingerprint', '00000000000000a2', 'probed_at', now())));
@@ -301,7 +309,7 @@ BEGIN
   PERFORM pg_temp.check(NOT EXISTS (SELECT 1 FROM pay04_garage_provider_receipts WHERE collection_id = c1 AND status = 'issued'), 'the receipt is voided while disputed');
   SELECT id INTO v_disc FROM pay04_garage_payment_discrepancies WHERE collection_id = c1 AND discrepancy_type = 'provider_disputed' AND status = 'open';
   PERFORM pg_temp.expect(format($q$SELECT pay04_resolve_garage_payment_discrepancy(%L, 'provider_corrected', 'p5-op', 'admin', 'The operator thinks the dispute is over.')$q$, v_disc), 'PAY05_DISPUTE_NOT_RESOLVED_BY_PROVIDER');
-  PERFORM pg_temp.expect(format($q$SELECT pay04_resolve_garage_payment_discrepancy(%L, 'settled_off_platform', 'p5-op', 'admin', 'Not a valid closure for a dispute.')$q$, v_disc), 'PAY04_RESOLUTION_INVALID');
+  PERFORM pg_temp.expect(format($q$SELECT pay04_resolve_garage_payment_discrepancy(%L, 'acknowledged', 'p5-op', 'admin', 'R1: not a closure while Paynow still says Disputed.')$q$, v_disc), 'PAY04_RESOLUTION_INVALID');
   PERFORM pg_temp.obs(c1, 'paid', 'status_update', pg_temp.evt(5));
   SELECT * INTO v_m FROM pay04_invoice_money(inv.id);
   PERFORM pg_temp.check(NOT pg_temp.open_disc(c1, 'provider_disputed') AND v_m.provider_paid = 25.00
@@ -598,7 +606,8 @@ BEGIN
   SELECT jsonb_object_agg(id::text, jsonb_build_object('result', 'authenticated', 'credential_fingerprint', credential_fingerprint, 'probed_at', now()))
     INTO v_probes FROM pay05_merchant_integrations WHERE merchant_account_id = v_acct;
   PERFORM pay05_verify_paynow_merchant(v_acct, 'p5-op', 'admin', jsonb_build_object('legal_identity_reviewed', true,
-    'settlement_account_reviewed', true, 'currency_configuration_reviewed', true, 'credential_probes', v_probes),
+    'settlement_account_reviewed', true, 'currency_configuration_reviewed', true, 'credential_probes', v_probes,
+    'currency_evidence', pg_temp.currency_evidence(v_acct)),
     'P5B reviewed for the defence-in-depth checks.');
   UPDATE pay05_merchant_integrations SET status = 'suspended', closed_by = 'p5-op', closed_reason = 'Simulated: the ZWG integration closed alone',
          closed_at = clock_timestamp()

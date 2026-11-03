@@ -21,6 +21,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
+import { APPROVED_KEY_DIGEST, fingerprintViolations } from './helpers/o2FingerprintGuard.mjs';
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL ||= 'http://localhost:54321';
@@ -170,33 +171,13 @@ test('X4: no biometric fingerprint store and no template/embedding store anywher
     walk(path.join(repo, dir));
   }
   assert.ok(sqlFiles.some((f) => f.includes('20261004175000')), 'the biometric candidates are part of the scan');
-  // "Fingerprint" has one NON-biometric meaning in CarUp SQL: the Trust presentation fingerprint, a hash
-  // of an audience-safe projection that the domain-event dedupe trigger keys on (20260826120000). OC-5D's
-  // O4 reproduces that trigger branch byte for byte in a newer file, so the blanket newer-file rule reads
-  // CODE with comments stripped and exactly that identifier (and its holding variable) removed. Every
-  // other mention still fails, and the two biometric patterns below still run on the raw text.
-  const withoutTrustFingerprint = (sql) => sql
-    .replace(/--[^\n]*/g, '')
-    .replace(/\bpresentation_fingerprint\b/g, '')
-    .replace(/\bv_fingerprint\b/g, '');
-  assert.match(withoutTrustFingerprint('CREATE TABLE identity_biometrics (fingerprint BYTEA);'), /fingerprint/i,
-    'the refinement must still catch a fingerprint column');
-  // A second NON-biometric meaning (PAY-05, 20261103100000): a garage's Paynow integration-key fingerprint, the first
-  // 16 hex characters of a one-way hash of the key, so an operator can tell keys apart without ever seeing one. Only a
-  // file that pins that column to exactly 16 lowercase hex (which no biometric template fits) has the identifier, and
-  // the registration payload's 'fingerprint' key, removed. Every other mention still fails.
-  const KEY_FINGERPRINT_IS_A_16_HEX_DIGEST = /credential_fingerprint ~ '\^\[0-9a-f\]\{16\}\$'/;
-  const withoutKeyFingerprint = (sql) => (KEY_FINGERPRINT_IS_A_16_HEX_DIGEST.test(sql)
-    ? sql.replace(/\bcredential_fingerprint\b/g, '').replace(/->>'fingerprint'/g, '')
-    : sql);
-  assert.match(withoutTrustFingerprint(withoutKeyFingerprint('CREATE TABLE k (credential_fingerprint bytea);')), /fingerprint/i,
-    'an unconstrained credential_fingerprint is still caught');
-  assert.match(withoutTrustFingerprint(withoutKeyFingerprint(
-    "CREATE TABLE k (credential_fingerprint text CHECK (credential_fingerprint ~ '^[0-9a-f]{16}$')); CREATE TABLE b (fingerprint bytea);")),
-  /fingerprint/i, 'a fingerprint column beside the key digest is still caught');
+  // "Fingerprint" has two NON-biometric meanings in CarUp SQL. The Trust presentation fingerprint (20260826120000) is a hash of
+  // an audience-safe projection. A garage's Paynow integration-key digest (20261103100000) lets an operator tell two keys apart
+  // without seeing either. The second exception is one schema node, not a word: see helpers/o2FingerprintGuard.mjs and the
+  // negative tests below. Every other mention still fails, and the two biometric patterns still run on the raw text.
   for (const file of sqlFiles) {
     const sql = readFileSync(file, 'utf8');
-    if (path.basename(file) >= '20260829') assert.doesNotMatch(withoutTrustFingerprint(withoutKeyFingerprint(sql)), /fingerprint/i, `${path.basename(file)} must not define fingerprint storage`);
+    if (path.basename(file) >= '20260829') assert.deepEqual(fingerprintViolations(sql, path.basename(file)), [], `${path.basename(file)} must not define fingerprint storage`);
     assert.doesNotMatch(sql, biometricFingerprint, `${path.basename(file)} must not define biometric fingerprint storage`);
     assert.doesNotMatch(sql, templateStore, `${path.basename(file)} must not define a biometric template/embedding store`);
   }
@@ -208,6 +189,65 @@ test('X4: no biometric fingerprint store and no template/embedding store anywher
     assert.doesNotMatch(src, biometricFingerprint, `${path.relative(backend, file)} must not implement biometric fingerprints`);
     assert.doesNotMatch(src, templateStore, `${path.relative(backend, file)} must not persist biometric templates`);
   }
+});
+
+// PAY-05-R1 (Moderator, issue #255): the exception is the exact schema declaration, never every same-named occurrence in a file.
+const KEY_FILE = APPROVED_KEY_DIGEST.file;
+const keyFileSql = () => readFileSync(path.join(repo, 'database/migrations', KEY_FILE), 'utf8');
+
+test('O2 guard: the Moderator\'s two-table fixture: a permitted digest beside a prohibited column of the same name is caught', () => {
+  const fixture = `CREATE TABLE allowed (credential_fingerprint text CHECK (credential_fingerprint ~ '^[0-9a-f]{16}$'));
+CREATE TABLE prohibited (credential_fingerprint bytea);`;
+  const violations = fingerprintViolations(fixture, KEY_FILE);
+  assert.ok(violations.some((v) => v.includes('prohibited') && v.includes('bytea')), `the bytea column must be named: ${violations.join('; ')}`);
+  // and the same declaration text on an unapproved table is not the approved node either
+  assert.ok(violations.some((v) => v.includes('allowed')), 'only the approved table carries the exception');
+});
+
+test('O2 guard: the approved declaration passes only as itself: this table, this text, this file, once', () => {
+  const approved = `CREATE TABLE IF NOT EXISTS public.pay05_merchant_integrations (
+  id uuid PRIMARY KEY,
+  ${APPROVED_KEY_DIGEST.declaration},
+  status text NOT NULL
+);`;
+  assert.deepEqual(fingerprintViolations(approved, KEY_FILE), []);
+  assert.notDeepEqual(fingerprintViolations(approved, 'some_other_file.sql'), [], 'not from another file');
+  assert.notDeepEqual(fingerprintViolations(approved.replace('{16}', '{64}'), KEY_FILE), [], 'not a wider digest');
+  assert.notDeepEqual(fingerprintViolations(approved.replace(" CHECK (credential_fingerprint ~ '^[0-9a-f]{16}$')", ''), KEY_FILE), [], 'not without its pin');
+  assert.notDeepEqual(fingerprintViolations(approved.replace('text NOT NULL CHECK', 'bytea NOT NULL CHECK'), KEY_FILE), [], 'not another type');
+  assert.notDeepEqual(fingerprintViolations(approved + approved, KEY_FILE), [], 'not twice');
+});
+
+test('O2 guard: every other way of storing it is caught, in the approved file itself', () => {
+  const base = keyFileSql();
+  assert.deepEqual(fingerprintViolations(base, KEY_FILE), [], 'the real PAY-05 file passes');
+  for (const [what, addition] of Object.entries({
+    'a same-named column in another table': 'CREATE TABLE prohibited (credential_fingerprint bytea);',
+    'a differently named one': 'CREATE TABLE b (face_fingerprint text);',
+    'an added column': 'ALTER TABLE public.garage_invoices ADD COLUMN credential_fingerprint bytea;',
+    'an added column on the approved table': 'ALTER TABLE public.pay05_merchant_integrations ADD COLUMN IF NOT EXISTS raw_fingerprint bytea;',
+    'a renamed column': 'ALTER TABLE public.garage_invoices RENAME COLUMN notes TO credential_fingerprint;',
+    'a table from a query': 'CREATE TABLE copied AS SELECT credential_fingerprint FROM public.pay05_merchant_integrations;',
+    'a view': 'CREATE VIEW exposed AS SELECT credential_fingerprint FROM public.pay05_merchant_integrations;',
+    'one inside a function body': "CREATE FUNCTION f() RETURNS void LANGUAGE plpgsql AS $$ BEGIN CREATE TABLE inner_t (credential_fingerprint bytea); END $$;",
+    'a bare mention': 'SELECT fingerprint_hash FROM other;',
+  })) {
+    assert.notDeepEqual(fingerprintViolations(`${base}\n${addition}`, KEY_FILE), [], `${what} must be caught`);
+  }
+});
+
+test('O2 guard: reference-only files may read the approved column and nothing else', () => {
+  const r1 = '20261104100000_carup_pay05_r1_financial_integrity.sql';
+  assert.deepEqual(fingerprintViolations(readFileSync(path.join(repo, 'database/migrations', r1), 'utf8'), r1), [], 'the R1 migration only reads it');
+  assert.deepEqual(fingerprintViolations("SELECT NEW.credential_fingerprint, v_item->>'fingerprint';", r1), []);
+  assert.notDeepEqual(fingerprintViolations('CREATE TABLE r (credential_fingerprint text);', r1), [], 'a reference file cannot declare it');
+  assert.notDeepEqual(fingerprintViolations("SELECT NEW.credential_fingerprint;", 'an_unreviewed_file.sql'), [], 'an unreviewed file cannot mention it');
+});
+
+test('O2 guard: Trust\'s fingerprint stays allowed; biometric patterns stay refused', () => {
+  assert.deepEqual(fingerprintViolations('SELECT v_fingerprint, presentation_fingerprint FROM t; -- a fingerprint in a comment', 'a_trust_file.sql'), []);
+  assert.notDeepEqual(fingerprintViolations('CREATE TABLE identity_biometrics (fingerprint BYTEA);', 'a_file.sql'), [], 'a fingerprint column is caught');
+  assert.notDeepEqual(fingerprintViolations('ALTER TABLE t ADD COLUMN presentation_fingerprint bytea;', 'a_file.sql'), [], 'Trust\'s NAME does not excuse declaring it');
 });
 
 const CANDIDATES = path.join(repo, 'database/migration-candidates/oc5c');

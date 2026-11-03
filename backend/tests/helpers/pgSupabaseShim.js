@@ -3,7 +3,7 @@
  *
  * Lets service and route tests run against the REAL migrations and SECURITY DEFINER functions of a disposable
  * database instead of a hand-written mock of their rules. Supports the subset of the supabase-js builder CarUp's
- * payment services use: select/insert/update with eq/neq/in/is filters, order, limit, single/maybeSingle, and rpc()
+ * payment services use: select/insert/update with eq/neq/gte/in/is filters, order, limit, single/maybeSingle, and rpc()
  * with named arguments. Values come back the way PostgREST returns them (ISO timestamps, numbers for int8).
  * Never point it at anything but a disposable database.
  */
@@ -32,8 +32,14 @@ export function createPgSupabase(connectionString) {
       update(payload) { state.op = 'update'; state.payload = payload; return chain; },
       eq(col, value) { state.filters.push([col, '=', value]); return chain; },
       neq(col, value) { state.filters.push([col, '<>', value]); return chain; },
+      gte(col, value) { state.filters.push([col, '>=', value]); return chain; },
       in(col, values) { state.filters.push([col, 'in', values]); return chain; },
       is(col, value) { state.filters.push([col, 'is', value]); return chain; },
+      not(col, op, value) {
+        if (op !== 'is' || value !== null) throw new Error('pgSupabaseShim: only .not(col, "is", null) is supported');
+        state.filters.push([col, 'is not null', null]);
+        return chain;
+      },
       order(col, opts) { state.order.push([col, opts?.ascending === false ? 'DESC' : 'ASC']); return chain; },
       limit(n) { state.limit = n; return chain; },
       single() { state.single = true; return chain; },
@@ -45,6 +51,7 @@ export function createPgSupabase(connectionString) {
       const where = state.filters.map(([col, op, value]) => {
         if (op === 'in') { params.push(value); return `${ident(col)} = ANY($${params.length})`; }
         if (op === 'is') return `${ident(col)} IS ${value === null ? 'NULL' : value ? 'TRUE' : 'FALSE'}`;
+        if (op === 'is not null') return `${ident(col)} IS NOT NULL`;
         params.push(toPg(value));
         return `${ident(col)} ${op} $${params.length}`;
       });

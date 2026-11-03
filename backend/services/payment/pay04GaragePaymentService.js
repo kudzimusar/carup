@@ -166,15 +166,21 @@ export async function loadProviderParts(db, invoiceIds, { payerUserId = null, in
   for (const c of rows) {
     const payment = paymentByRef.get(c.payment_reference) || null;
     const open = openByCollection.get(c.id) || [];
-    const state = collectionState(c, payment, { openDiscrepancies: open });
+    // PAY-05: Paynow cannot cancel or expire a request, and what counts is what was counted (PAY-05-R1, ICR-W1, W3)
+    const isPaynow = c.gateway === PAY05_GATEWAY;
+    const counted = list(receipts).find((r) => r.collection_id === c.id && r.status === 'issued')?.amount ?? 0;
+    const state = isPaynow ? paynowModule.paynowCollectionState(c, payment, paynow.get(c.id) ?? null, { openDiscrepancies: open, counted })
+      : collectionState(c, payment, { openDiscrepancies: open });
+    const stateLabel = isPaynow ? paynowModule.PAYNOW_STATE_LABELS[state] : STATE_LABELS[state];
     const view = {
       id: c.id, amount: pay04Money(c.amount, c.currency), currency: c.currency, initiated_at: c.initiated_at,
-      expires_at: c.expires_at, cancelled_at: c.cancelled_at ?? null, state, state_label: STATE_LABELS[state] || STATE_LABELS.unknown,
+      expires_at: c.expires_at, cancelled_at: c.cancelled_at ?? null, state, state_label: stateLabel || STATE_LABELS.unknown,
       payment_status: payment?.status ?? null, gateway: c.gateway,
       simulated: c.gateway === PAY04_SIMULATOR_GATEWAY || Boolean(paynow.get(c.id)?.simulated),
       source_label: c.gateway === PAY05_GATEWAY ? PAY05_LABELS.paynowChannel : PAY04_LABELS.providerChannel,
-      // PAY-05: while CarUp reviews a payment, Paynow's word is shown as Paynow's word, never as confirmation
-      ...(c.gateway === PAY05_GATEWAY ? { paynow: paynowModule.withCollectionState(paynow.get(c.id) ?? null, state) } : {}),
+      // PAY-05: Paynow's word is shown as Paynow's word; CarUp's count, its review and the next step are separate facts
+      ...(isPaynow ? { counted_amount: pay04Money(counted, c.currency),
+        paynow: paynowModule.withCollectionState(paynow.get(c.id) ?? null, state, { counted, currency: c.currency, customer: Boolean(payerUserId) }) } : {}),
       ...(includeDiscrepancies ? {
         payer_user_id: c.payer_user_id, payment_reference: c.payment_reference, provider_payment_id: c.provider_payment_id,
         open_discrepancies: open.map((d) => ({ id: d.id, type: d.discrepancy_type, amount: pay04Money(d.detected_amount, d.currency),
@@ -478,6 +484,11 @@ export async function refreshClosingCollections({ db = defaultDb, env = process.
   const { data, error } = await db.from('pay04_garage_collections').select('*').eq('invoice_id', invoiceId);
   if (error) return { refreshed: 0, unavailable: true };
   const now = Date.now();
+  // PAY-05: a request settled outside CarUp stays re-readable, at its own slow pace, whatever its canonical status
+  const paynowRows = list(data).filter((c) => c.gateway === PAY05_GATEWAY);
+  if (paynowRows.length) {
+    await (await paynowService()).refreshSettledPaynowCollections({ db, env, collections: paynowRows }).catch(() => null);
+  }
   const closing = list(data).filter((c) => c.cancelled_at || Date.parse(c.expires_at) <= now);
   if (!closing.length) return { refreshed: 0 };
   const { data: payments, error: paymentError } = await db.from('payment_transactions').select('reference, status')
@@ -671,11 +682,16 @@ export async function getGarageFinancialOverview({ db = defaultDb, env = process
       .eq('tenant_id', tenantId).order('registered_at', { ascending: false }), 'PAY04_OVERVIEW_UNAVAILABLE'),
     activeInstructions(db, tenantId),
   ]);
-  const live = list(merchant).find((m) => m.status !== 'suspended') || null;
+  // PAY-05: a Paynow merchant awaiting verification or rejected is not connected, and a simulator-mode one is simulated (ICR-W8)
+  const live = list(merchant).find((m) => m.status !== 'suspended' && m.status !== 'rejected') || null;
+  const collecting = live && ['simulated', 'verified'].includes(live.status);
+  const paynowSimulated = live?.gateway === PAY05_GATEWAY
+    ? list(await read(db.from('pay05_merchant_integrations').select('mode').eq('merchant_account_id', live.id), 'PAY04_OVERVIEW_UNAVAILABLE')).some((i) => i.mode === 'simulator')
+    : false;
   return {
     currencies, truncated: invoices.length >= OVERVIEW_LIMIT, invoice_count: invoices.length,
     open_discrepancies: list(discrepancies).length,
-    provider: live ? { connected: true, gateway: live.gateway, simulated: live.gateway === PAY04_SIMULATOR_GATEWAY,
+    provider: live ? { connected: Boolean(collecting), gateway: live.gateway, simulated: live.gateway === PAY04_SIMULATOR_GATEWAY || paynowSimulated,
       display_name: live.display_name, currencies: live.currencies, status: live.status } : { connected: false },
     provider_payments_enabled: isPay04Enabled(env),
     payment_instructions: instructions,

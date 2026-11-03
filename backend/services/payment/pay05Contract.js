@@ -54,7 +54,8 @@ export const PAY05_LABELS = Object.freeze({
   escrow: 'Paid to Paynow and held by Paynow until it is released to the garage. Not yet counted on the invoice.',
   disputed: 'Disputed with Paynow. The money is held while the dispute is resolved and is not counted.',
   refunded: 'Paynow reports this payment refunded to the customer.',
-  cannotCancel: 'Paynow cannot cancel a payment request. If you do not complete it, nothing is charged; if you do pay it, it still counts.',
+  cannotCancel: 'Paynow cannot cancel a payment request. If you do not complete it, nothing is charged. While CarUp holds the amount for it, a payment you complete counts on the invoice.',
+  earlierRequest: 'An earlier Paynow request for this invoice was released. Paynow cannot cancel it, so do not approve it on your phone. CarUp checks it with Paynow again before starting a new request.',
   refundsInPaynow: 'Paynow does not let CarUp refund. Refund the customer in your Paynow dashboard; CarUp records it when Paynow reports it.',
   noRedirectProof: 'Coming back from Paynow is not proof of payment. CarUp checks with Paynow.',
 });

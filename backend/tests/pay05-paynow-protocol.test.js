@@ -24,6 +24,7 @@ import {
   pollIdFor,
   newMerchantTrace,
   eventIdFor,
+  messageHashFor,
   normalizeZimbabweMobile,
   normalizeIntegrationKey,
   isPaynowAuthEmail,
@@ -137,7 +138,7 @@ test('outbound URL allowlist: https, exact Paynow host, default port, no credent
   assert.ok(PAYNOW_ENDPOINTS.trace === 'https://www.paynow.co.zw/interface/trace');
 });
 
-test('identifiers: a poll URL maps to one stable opaque id; merchant traces are unique, ≤32 chars; event ids are content-addressed', () => {
+test('identifiers: a poll URL maps to one stable opaque id; merchant traces are unique, ≤32 chars; event ids are a message at a generation', () => {
   const poll = 'https://www.paynow.co.zw/Interface/CheckPayment/?guid=9f24be04-f4a6-4dff-8ab5-455263ba7b6b';
   assert.match(pollIdFor(poll), /^pn_poll_[0-9a-f]{40}$/);
   assert.equal(pollIdFor(poll), pollIdFor(poll));
@@ -146,13 +147,12 @@ test('identifiers: a poll URL maps to one stable opaque id; merchant traces are 
   assert.equal(traces.size, 500);
   for (const t of traces) assert.match(t, /^[A-Za-z0-9]{32}$/);
   const pairs = [['reference', 'pay04_gar_x'], ['status', 'Paid'], ['hash', 'AB']];
-  assert.match(eventIdFor('c1', pairs, 'sent'), /^evt_pn_[0-9a-f]{40}$/);
-  assert.equal(eventIdFor('c1', pairs, 'sent'), eventIdFor('c1', pairs, 'sent'), 'a resent status update is the same event');
-  assert.notEqual(eventIdFor('c1', pairs, 'sent'), eventIdFor('c2', pairs, 'sent'), 'bound to its collection');
-  assert.notEqual(eventIdFor('c1', pairs, 'sent'), eventIdFor('c1', [['reference', 'pay04_gar_x'], ['status', 'Disputed'], ['hash', 'AB']], 'sent'));
-  // Paynow's messages carry no sequence: "Paid" after a dispute is byte-identical to the first "Paid". It is a NEW event
-  // because CarUp's state changed in between — a content-only identity would silently drop it.
-  assert.notEqual(eventIdFor('c1', pairs, 'sent'), eventIdFor('c1', pairs, 'disputed'));
+  // R1: an event is a message at a collection's generation (see the R1 tests below)
+  const message = messageHashFor([...pairs, ['hash', 'A'.repeat(128)]]);
+  assert.match(eventIdFor('c1', message, 0), /^evt_pn_[0-9a-f]{40}$/);
+  assert.equal(eventIdFor('c1', message, 0), eventIdFor('c1', message, 0), 'a resent status update at the same generation is the same event');
+  assert.notEqual(eventIdFor('c1', message, 0), eventIdFor('c2', message, 0), 'bound to its collection');
+  assert.notEqual(eventIdFor('c1', message, 0), eventIdFor('c1', message, 1), 'the same words later are a new event');
 });
 
 test('Zimbabwe mobile numbers normalise to the 07XXXXXXXX form Paynow documents; anything else is refused', () => {
@@ -199,4 +199,40 @@ test('the payer e-mail Paynow takes for express checkout', () => {
   for (const bad of ['', 'payer', 'payer@host', 'pay er@example.com', 'p@xn--p1ai', `${'a'.repeat(65)}@example.com`]) {
     assert.equal(isPaynowAuthEmail(bad), false, bad);
   }
+});
+
+// ───────────────── PAY-05-R1: a status update's identity (ICR-M2, S1) and the poll URL it binds to (ICR-P5) ─────────────────
+
+test('R1: variants of one signed message are one message; a different signature is another', async () => {
+  const { messageHashFor, parseForm, signPairs, encodeForm } = await import('../services/payment/pay05PaynowProtocol.js');
+  const key = '11111111-2222-3333-4444-555555555555';
+  const signed = encodeForm(signPairs([['reference', 'R1'], ['amount', '10.00'], ['status', 'Paid'], ['pollurl', 'https://www.paynow.co.zw/x?guid=1']], key));
+  const base = messageHashFor(parseForm(signed));
+  assert.match(base, /^[0-9a-f]{64}$/);
+  assert.equal(messageHashFor(parseForm(`${signed}&extra=`)), base, 'an extra empty field');
+  assert.equal(messageHashFor(parseForm(signed.replace('status=Paid', 'status=Paid%20'))), base, 'padding the hash ignores');
+  assert.equal(messageHashFor(parseForm(signed.replace(/hash=([0-9A-F]+)/, (_, h) => `hash=${h.toLowerCase()}`))), base, 'the hash in lower case');
+  const other = encodeForm(signPairs([['reference', 'R1'], ['amount', '10.00'], ['status', 'Disputed'], ['pollurl', 'https://www.paynow.co.zw/x?guid=1']], key));
+  assert.notEqual(messageHashFor(parseForm(other)), base, 'another status is another message');
+});
+
+test('R1: an event is a message at a generation: a later repeat is a new event, a concurrent one is the same', async () => {
+  const { eventIdFor } = await import('../services/payment/pay05PaynowProtocol.js');
+  const hash = 'a'.repeat(64);
+  assert.match(eventIdFor('c1', hash, 0), /^evt_pn_[0-9a-f]{40}$/);
+  assert.equal(eventIdFor('c1', hash, 3), eventIdFor('c1', hash, 3));
+  assert.notEqual(eventIdFor('c1', hash, 3), eventIdFor('c1', hash, 4));
+  assert.notEqual(eventIdFor('c1', hash, 3), eventIdFor('c2', hash, 3));
+  assert.notEqual(eventIdFor('c1', hash, 3), eventIdFor('c1', 'b'.repeat(64), 3));
+});
+
+test('R1: case and percent-encoding are not another poll URL; another payment or host is', async () => {
+  const { samePollUrl } = await import('../services/payment/pay05PaynowProtocol.js');
+  const poll = 'https://www.paynow.co.zw/Interface/CheckPayment/?guid=AbC-123';
+  assert.equal(samePollUrl(poll, poll), true);
+  assert.equal(samePollUrl(poll, 'https://www.paynow.co.zw/interface/checkpayment/?guid=abc-123'), true);
+  assert.equal(samePollUrl(poll, 'https://WWW.PAYNOW.CO.ZW/Interface/CheckPayment/?guid=AbC%2D123'), true);
+  assert.equal(samePollUrl(poll, 'https://www.paynow.co.zw/Interface/CheckPayment/?guid=other'), false);
+  assert.equal(samePollUrl(poll, 'https://attacker.example/Interface/CheckPayment/?guid=AbC-123'), false);
+  assert.equal(samePollUrl(poll, 'not a url'), false);
 });

@@ -11,6 +11,7 @@ on:
   push:
     branches:
       - feat/carup-pay-05-zimbabwe-collections-mobile-money
+      - fix/carup-pay-05-r1-financial-integrity
   pull_request:
     paths:
       - 'backend/services/payment/**'
@@ -103,6 +104,7 @@ jobs:
             --push-branch "$THIS_BRANCH" \
             --push-branch feat/carup-pay-04-garage-payments \
             --push-branch feat/carup-pay-05-zimbabwe-collections-mobile-money \
+            --push-branch fix/carup-pay-05-r1-financial-integrity \
             --report workflow-secret-isolation-report.json
       - name: Publish the dry-run report
         if: always()
@@ -140,6 +142,7 @@ jobs:
           node --test backend/tests/pay05-paynow-protocol.test.js backend/tests/pay05-credential-vault.test.js \
             backend/tests/pay05-paynow-adapter.test.js backend/tests/pay05-pay04-function-drift.test.js \
             backend/tests/pay05-product-coverage.test.js backend/tests/pay05-route-hardening.test.js backend/tests/pay05-paynow-views.test.js \
+            backend/tests/pay05-r1-function-drift.test.js backend/tests/o2-x4-biometric-interface.test.js \
             backend/tests/ci-workflow-secret-isolation.test.js backend/tests/oc5r-rel01-deployed-provider-proof.test.js \
             backend/tests/oc4f-no-committed-credentials.test.js
       - name: PAY-04 static contracts
@@ -223,7 +226,7 @@ jobs:
       - name: PAY-05 Paynow services over real HTTP to the local protocol simulator (a skip is a failure)
         run: |
           set -euo pipefail
-          node --test --test-concurrency=1 backend/tests/pay05-paynow-services.test.js | tee pay05.log
+          node --test --test-concurrency=1 backend/tests/pay05-paynow-services.test.js backend/tests/pay05-r1-services.test.js | tee pay05.log
           grep -E '^# skipped 0$' pay05.log && grep -E '^# fail 0$' pay05.log
       - name: PAY-04 services on the PAY-05 schema (a skip is a failure)
         run: |
@@ -280,7 +283,7 @@ jobs:
       - name: PAY-05 Paynow services over real HTTP (a skip is a failure)
         run: |
           set -euo pipefail
-          node --test --test-concurrency=1 backend/tests/pay05-paynow-services.test.js | tee pay05.log
+          node --test --test-concurrency=1 backend/tests/pay05-paynow-services.test.js backend/tests/pay05-r1-services.test.js | tee pay05.log
           grep -E '^# skipped 0$' pay05.log && grep -E '^# fail 0$' pay05.log
       - name: PAY-04 services on the PAY-05 schema (a skip is a failure)
         run: |
