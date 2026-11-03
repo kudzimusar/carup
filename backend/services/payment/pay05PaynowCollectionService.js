@@ -127,7 +127,15 @@ export function publicResultUrl(env, collectionId, mode = 'simulator') {
  * A DB read ticket, taken BEFORE a Paynow read is sent (independent review D1): reads run outside any lock, so the order
  * they arrive in is not the order Paynow answered them; the writer supersedes a read older than one it already evaluated.
  */
-const beginRead = (db, collection) => rpc(db, 'pay05_begin_paynow_read', { p_collection_id: collection.id });
+const beginRead = async (db, collection) => {
+  const ticket = await rpc(db, 'pay05_begin_paynow_read', { p_collection_id: collection.id });
+  // its own call: it holds a row lock for an instant and must never sit in front of the writers' lock order. Best effort: the
+  // time only paces later reads (PFR-L13)
+  try {
+    await db.rpc('pay05_record_read_attempt', { p_collection_id: collection.id });
+  } catch { /* the read still goes ahead */ }
+  return ticket;
+};
 
 /** Apply one authenticated Paynow message to a collection through the governed writer. */
 async function applyTruth(db, collection, truth, { via, eventId = null, messageHash = null, readTicket = null }) {
@@ -451,12 +459,18 @@ async function earlierPaynowRequests(db, invoiceId) {
 async function checkoutResponse(db, collection, { replayed, money = null }) {
   const tx = await transactionOf(db, collection.id);
   const integration = tx ? await integrationRow(db, tx.integration_row_id) : null;
+  let view = paynowView(tx, { customer: true });
+  // a replay may be of a request that has since closed, or that the invoice no longer needs: it offers only what its state allows
+  if (replayed && view) {
+    const { collection: row } = await collectionOutcome(db, collection, null, { attempted: 0, emitted: 0, failures: [] });
+    view = withCollectionState(view, row?.state, { counted: row?.counted_amount ?? 0, currency: collection.currency, customer: true });
+  }
   return {
     collection_id: collection.id, gateway: PAY05_GATEWAY, replayed: Boolean(replayed),
     simulated: integration?.mode === 'simulator', amount: pay04Money(collection.amount, collection.currency),
     currency: collection.currency, expires_at: collection.expires_at,
-    checkout_url: paynowView(tx, { customer: true })?.checkout_url ?? null,
-    paynow: paynowView(tx, { customer: true }),
+    checkout_url: view?.checkout_url ?? null,
+    paynow: view,
     money: money ?? await invoiceMoney(db, collection.invoice_id),
     notice: PAY05_LABELS.waiting,
     cannot_cancel: PAY05_LABELS.cannotCancel,
@@ -666,6 +680,9 @@ export async function submitPaynowOtp({ db = defaultDb, env = process.env, trans
   if (collection.payer_user_id !== actor.id || collection.gateway !== PAY05_GATEWAY) throw new Pay05Error('PAY05_COLLECTION_NOT_FOUND', 404);
   const tx = await transactionOf(db, collection.id);
   if (!tx || tx.method !== 'omari' || tx.initiation_state !== 'attached' || !tx.remote_otp_url) throw new Pay05Error('PAY05_OTP_NOT_EXPECTED', 409);
+  // a page left open must not pay a request that can no longer be paid: what the screen would not offer, the server refuses
+  const { collection: row } = await collectionOutcome(db, collection, null, { attempted: 0, emitted: 0, failures: [] });
+  if (!CAN_STILL_PAY.has(row?.state)) throw new Pay05Error('PAY05_OTP_NOT_EXPECTED', 409);
   const adapter = await adapterFor(db, env, transport, collection, tx);
   const readTicket = await beginRead(db, collection);
   let truth;

@@ -51,7 +51,7 @@ test('R1 defines each replaced function once and adds only its reviewed helpers,
   const counts = {};
   for (const d of defs) counts[d] = (counts[d] || 0) + 1;
   const helpers = ['pay05_begin_status_update_read', 'pay05_collection_currency_bound', 'pay05_held_collection_ids', 'pay05_open_paynow_review',
-    'pay05_paynow_money_rank', 'pay05_settled_off_platform', 'pay05_worked_at_garage'];
+    'pay05_paynow_money_rank', 'pay05_record_read_attempt', 'pay05_settled_off_platform', 'pay05_worked_at_garage'];
   assert.deepEqual(Object.keys(counts).sort(), [...Object.keys(R1_HUNKS), ...Object.keys(R1_PAY04_HUNKS), ...helpers].sort());
   for (const [name, n] of Object.entries(counts)) assert.equal(n, 1, `${name} is defined ${n} times`);
 });

@@ -817,6 +817,21 @@ test('PFR-M5: a closed request never gets waiting words or a way to pay it, and 
   assert.ok(view.online_payment.notices.earlier_request, 'paying again warns that Paynow may still have the old request');
 });
 
+test('PFR-M5: a page left open cannot pay a request that can no longer be paid, and a replay of it offers nothing', { skip }, async () => {
+  const inv = await invoice(36);
+  const key = `r1-pfr-m5b-${run}`;
+  const s = await start(inv, { method: 'omari', phone: '0779000327' }, key);
+  assert.equal(s.paynow.needs_otp, true, 'at first: the form');
+  await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: s.collection_id, deps });
+  await pastItsTime(s.collection_id);
+  await release(s.collection_id);
+  await rejectsWith(P.submitPaynowOtp({ db, env, actor: customer(), collectionId: s.collection_id, body: { otp: '123456' } }), 'PAY05_OTP_NOT_EXPECTED');
+  const replay = await start(inv, { method: 'omari', phone: '0779000327' }, key);
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.paynow.needs_otp, false);
+  assert.equal(replay.checkout_url, null);
+});
+
 test('PFR-L1: Paid, then a read of another amount, then Paid again: a resend reads again, so the operator can close it on Paynow\'s word', { skip }, async () => {
   const inv = await invoice(50);
   const s = await start(inv, { method: 'ecocash', phone: '0779000322' }, `r1-pfr-l1-${run}`);

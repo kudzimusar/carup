@@ -230,6 +230,34 @@ describe('The payment a person is in the middle of stays where they are', () => 
   })
 })
 
+describe('The way to pay comes first in a request (390 px rehearsal)', () => {
+  it('a started request shows its code before its separate facts, and takes the focus without leaving it off screen', async () => {
+    const scrolled = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrolled
+    api.startGarageInvoicePayment.mockResolvedValue({ collection_id: COLL, amount: '60.00', currency: 'USD', cannot_cancel: 'Paynow cannot cancel.', checkout_url: null,
+      paynow: pview({ method: 'innbucks', instructions: null, authorization_code: '123456789' }) })
+    const started = pview({ method: 'innbucks', instructions: null, authorization_code: '123456789' })
+    const { rerender } = render(<PaynowCheckout invoiceId="inv-9" option={paynowOption(['innbucks']) as never} />)
+    fireEvent.change(screen.getByTestId('paynow-phone'), { target: { value: '0771234567' } })
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    await screen.findByTestId('paynow-pending')
+    rerender(<PaynowCheckout invoiceId="inv-9" option={paynowOption(['innbucks']) as never} latest={row(started) as never} />)
+    const code = await screen.findByTestId('paynow-innbucks-code')
+    const facts = await screen.findByTestId('paynow-facts')
+    expect(code.compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await waitFor(() => expect(screen.getByTestId('paynow-pending-heading')).toHaveFocus())
+    expect(scrolled).toHaveBeenCalledWith({ block: 'start' })
+    Element.prototype.scrollIntoView = original
+  })
+  it('in the list of payments, the means of payment comes before the separate facts too', async () => {
+    api.fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([row({ method: 'innbucks', instructions: null, authorization_code: '123456789' })]))
+    await openHowToPay()
+    const code = await screen.findByTestId('paynow-innbucks-code')
+    expect(code.compareDocumentPosition(screen.getByTestId('paynow-facts')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
 describe('ICR-W7: no dead ends while the money stays reserved', () => {
   it('the InnBucks code stays on screen past CarUp’s time; the stop warning says the amount stays reserved', async () => {
     api.fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([

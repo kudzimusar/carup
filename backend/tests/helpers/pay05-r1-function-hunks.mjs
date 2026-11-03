@@ -453,19 +453,6 @@ BEGIN
   END IF;
 `],
   ],
-  // every read attempt is timed, so a read that fails keeps its pace (PFR-L13)
-  pay05_begin_paynow_read: [
-    [`    RAISE EXCEPTION 'PAY05_COLLECTION_NOT_FOUND';
-  END IF;
-  RETURN nextval('public.pay05_paynow_read_ticket_seq');
-`,
-     `    RAISE EXCEPTION 'PAY05_COLLECTION_NOT_FOUND';
-  END IF;
-  -- PAY-05-R1: every attempt is timed, so reads that fail keep their pace (PFR-L13)
-  UPDATE public.pay05_paynow_transactions SET last_read_attempt_at = clock_timestamp() WHERE collection_id = p_collection_id;
-  RETURN nextval('public.pay05_paynow_read_ticket_seq');
-`],
-  ],
 };
 
 /** Functions PAY-04 defined and PAY-05 did not redefine: the same rule, against the PAY-04 text. */

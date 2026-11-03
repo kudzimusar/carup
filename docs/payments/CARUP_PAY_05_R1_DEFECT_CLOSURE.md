@@ -8,6 +8,10 @@ restricted handoff; this file names causes and corrections only.
 found and reproduced their findings independently. The ICR's certifier session re-ran every executable reproduction. R1 replayed the
 same scripts against the corrected code, in restricted custody, with only the fixture changes the new onboarding rules require.
 
+**After the ICR's findings were corrected,** a further reviewer, given the corrected code and no conclusions, attacked it in a private
+sandbox and found 5 High, 5 Medium and 13 Low defects. They are listed below as "PFR" and were corrected the same way, test first. That
+reviewer was a separate fresh agent working before certification. It is neither the implementer nor the independent certifier.
+
 **Where tests live:**
 - `smoke`: `backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql` (real PostgreSQL), by block;
 - `services`: `backend/tests/pay05-r1-services.test.js` (real PostgreSQL and real HTTP to the protocol simulator);
@@ -89,6 +93,44 @@ same scripts against the corrected code, in restricted custody, with only the fi
 | Documentation: the replaced-function count | Corrected (11) |
 | Documentation: the capability matrix's "Failed" row | Corrected |
 
+## Pre-final adversarial review (PFR)
+
+No hard invariant broke in that review: paid never exceeded an invoice's total, and receipts always equalled what counted. These were
+correct sums reached by the wrong word, and second payments invited. Each was reproduced by the reviewer, confirmed against the code by the
+remediator, failed its new test at commit `1a902df6`, and passes after correction.
+
+| ID | Sev. | Root cause | Correction | Regression | After | Residual risk |
+|---|---|---|---|---|---|---|
+| PFR-H1 | High | Closed and unknown words had rank 0, so any money word counted as forward against them, even from an older read. | Nothing moves past a newer closed or unknown word except a newer read. A recorded-only read still moves the ticket. | smoke R1, R1b, R1c, R1d, R1e | An older Paid is superseded; Paynow's own newer Paid counts | A ticket orders asking, not answering: a real Paid answered later on an older ticket waits for the next read, which every view, update and start makes |
+| PFR-H2 | High | The release check ignored recorded-only reads and refused a reviewed unknown word, so a closed review left the room held forever. The words said "nothing was charged" and "complete this request". | A re-read refreshes the check; a reviewed unknown word can be released; a new `reviewed_held` state says what is true. | smoke R2, R3; services "PFR-H2"; views; truth; matrix G4 | The room can always be freed | None known |
+| PFR-H3 | High | Paying again looked only at released and settled requests, so a closed request's late money under review did not stop a new one. | A review of money that holds no room, on any request of the invoice, refuses a new request. | services "PFR-H3"; matrix G1 | No second payment while a review stands | A request that holds its own room still lets the customer pay the rest of the invoice |
+| PFR-H4 | High | Late money counts into room another request only reserves, which is correct: a reservation is not money. The other request kept asking to be completed. | Decided and documented (§5.5). The request now reads `no_longer_needed`, with no link, code or form, and its own money is unallocated. | views; services "PFR-H4"; truth; matrix G2 | Not invited; never counted twice | Paynow cannot cancel it: a customer can still approve an old handset prompt, and an operator then reviews that money |
+| PFR-H5 | High, inherited | The operator's queue took the oldest 200 attached requests and only then filtered for pending. | The queue is chosen in the database and reports its total. | smoke R12; services "PFR-H5"; screens | A stuck request is always in reach | Past 200 stuck requests the panel says so |
+| PFR-M1 | Medium | A hold Paynow keeps in escrow or cannot be read for had no exit: release, cash and void were all refused, with no review to settle. A settled request that could not be read also refused new requests. | An operator can open a review past CarUp's time, which needs no read and counts nothing; settling it frees the room. A settled request's read failure no longer refuses. | smoke R4, R5; services "PFR-M1"; views; screens; matrix G3 | Every hold has an exit | A settlement relies on the operator's note; Paynow's later money is reviewed |
+| PFR-M2 | Medium | Two deliveries of one message share one event, so the later read was thrown away when an older read wrote first, with a 200. | A duplicate whose read differs from the held word is evaluated as the poll it is. | services "PFR-M2" | The news is applied | None known |
+| PFR-M3 | Medium | One budget per collection let a replay starve a genuine message, and each replay wrote rows. Paynow's hash covers a bare concatenation, so a message can be re-split across fields. | A budget per message, sixty across messages, and no row for a recorded message showing nothing new. A re-split message has the same identity. | smoke R7, R7b, N2; services "PFR-M3"; matrix F6 | No rows, no starvation by another message | A holder of a captured message can delay a genuine repeat of that same message by up to ten minutes; ordinary reads still see it |
+| PFR-M4 | Medium | Room freed on one collection did not re-project another collection's waiting money. | A drop in what counts re-projects waiting Paynow money on the invoice, oldest first. | smoke R6, R6b; services "PFR-M4" | Counts at once, with its receipt | That customer gets no separate notification; the invoice shows it (see PFR-L8) |
+| PFR-M5 | Medium | A closed request whose word was missing or pending fell back to waiting words, and paying again gave no warning about a request Paynow still had. | Closed states have their own words; only a payable state offers a link, code or form; a late-bound request is `closed_live` and warns on paying again. | views; services "PFR-M5"; truth; matrix G5 | Never reads as waiting | None known |
+| PFR-L1 | Low | A resend of the latest message was a duplicate though a read of another amount came between. | A duplicate also requires the amount CarUp last read. | services "PFR-L1" | Read again | None known |
+| PFR-L2 | Low | Refunded on a closed payment with no money seen was recorded only; the state could still say no money was reported. | The operator is always told; the state reads refunded. | smoke F3; views | Told | None known |
+| PFR-L3 | Low | A partial count read as "not counted". | `confirmed_partial` says the part. | services "PFR-L3"; views; truth | Truthful | None known |
+| PFR-L4 | Low | The check-status message spoke from Paynow's word before CarUp's state. | The state speaks first. | truth | Truthful | None known |
+| PFR-L5 | Low | "Last read" followed changes of word, not reads. | A separate time, moved by every read that repeats what CarUp holds. | smoke R9; services "PFR-L5"; views | Truthful | None known |
+| PFR-L6 | Low | A stop by the garage read as "You stopped waiting". | The sentence no longer says who. | views | Truthful | None known |
+| PFR-L7 | Low | The customer's stop answer carried the garage's next step. | The customer's answer carries the customer's words. | services "PFR-L7" | Truthful | None known |
+| PFR-L8 | Low | The customer is told when money counts, but not when it stops counting. | **Tracked, not corrected.** A new notification needs a governed template in Communications, outside R1's boundary. | none | The invoice itself says it | A customer not looking at the invoice learns later |
+| PFR-L9 | Low | A canonical `paid` row that no longer counts blocked voiding the invoice. | It no longer blocks once settled or once Paynow's latest word is not Paid; open reviews still refuse; later money never counts on a void invoice. | smoke R11 | Not a dead end | None known |
+| PFR-L10 | Low | A former garage worker now an operator could close that garage's reviews. | Refused on closure, release and opening a review, as at verification. | smoke R10 | Refused where a workforce record exists | As ICR-S3: a membership with no workforce record leaves no trace |
+| PFR-L11 | Low | The operator's free-text currency reference reached the garage. | Removed from the garage's view. | services "PFR-L11" | Stays with operators | None known |
+| PFR-L12 | Low | Operators' failed probes counted against the garage's connection; the cool-down is check-then-act. | Only the garage's own failed connections count. **Partly corrected:** a parallel burst is bounded by the per-IP limiter, not the cool-down. | services "PFR-L12" | A correct key is not refused | A burst of connects can send several probes before failures are recorded |
+| PFR-L13 | Low | Reads that failed lost the slow pace, because pacing used recorded observations. | Every attempt is timed. | smoke R9; services "PFR-L13" | One attempt per window | None known |
+
+Also found while running the physical rehearsal, by the remediator:
+
+| ID | Sev. | Root cause | Correction | Regression | After | Residual risk |
+|---|---|---|---|---|---|---|
+| PHY-1 | Medium | At 390 px the refresh after Pay drew the request in the invoice's list above the checkout, pushing the O'mari form well below the fold. R1's facts made that list about 560 px tall. | The way to pay comes before the invoice's lists. | browser (O'mari, InnBucks at 390 px); screens | Stays on screen | None known |
+
 ## Cross-program test guard
 
 | Item | Correction | Regression |
@@ -110,3 +152,4 @@ These assertions changed because R1 corrects what they pinned. Nothing else in a
 | Web tests in `pay05Paynow.test.ts`, `PaynowOperatorPanel.test.tsx`, `PaynowConnection.test.tsx` | Fixtures and words | ICR-W3, W6, W11, P1, S2 |
 | `garageCaseHub.test.tsx` | The notice region is always on the page, empty until it speaks | ICR-W5 |
 | `o2-x4-biometric-interface.test.js` | The exception replaced as above | Moderator, issue #255 |
+| R1 smoke F3, services "ICR-S1", matrix F6 | R1's own tests, changed by the pre-final review: a Refunded on a closed payment tells the operator; budgets are per message | PFR-L2, M3 |

@@ -258,6 +258,19 @@ await step('L0b', 'R1: a second unapproved EcoCash request, started now so that 
   return { pass: r.status === 201 && r.json?.paynow?.initiation === 'attached', detail: { status: r.status } };
 });
 
+let ROOM; let ESCROW; let REVIEWED;
+await step('L0c', 'R1: three more unapproved requests, started now so that CarUp’s time runs out with the first (cases G2, G3, G4)', async () => {
+  const open = async (phone) => {
+    const inv = await invoice('A', { cost: '20.00', sellPrice: '5.00' });
+    const r = await start(inv.id, { method: 'ecocash', phone });
+    return { invoice: inv, collection: r.json?.collection_id, startedAt: Date.now(), status: r.status };
+  };
+  ROOM = await open('0779000021');
+  ESCROW = await open('0779000022');
+  REVIEWED = await open('0779000023');
+  return { pass: [ROOM, ESCROW, REVIEWED].every((x) => x.status === 201), detail: { statuses: [ROOM.status, ESCROW.status, REVIEWED.status] } };
+});
+
 let UNC;
 await step('U0', 'A request whose reply is lost while Paynow\'s trace keeps failing stays HELD and unconfirmed (never a second request)', async () => {
   const inv = await invoice('A', { cost: '15.00', sellPrice: '5.00' });
@@ -762,7 +775,7 @@ await step('F5', 'R1 (ICR-M2): an update whose confirming poll disagrees is answ
     detail: { unconfirmed: [first.status, first.json], while_unconfirmed_counted: during, confirmed: [second.status, second.json], counted: counted(q.collection) } };
 });
 
-await step('F6', 'R1 (ICR-S1): a replayed captured update costs at most the budget of Paynow reads per collection, then answers non-2xx; ordinary reads still work', async () => {
+await step('F6', 'R1 (ICR-S1, PFR-M3): a replayed captured update costs at most its own budget of Paynow reads and no rows, then answers non-2xx; ordinary reads and other messages still work', async () => {
   const q = await openRequest();
   await simSetStatus(q.sim.guid, 'Paid');
   await waitFor(() => counted(q.collection) === 25);
@@ -770,9 +783,15 @@ await step('F6', 'R1 (ICR-S1): a replayed captured update costs at most the budg
   const stale = statusUpdate(await simTxFor(q.collection), { status: 'Disputed', signingKey: key2 });
   const answers = [];
   for (let i = 0; i < 14; i += 1) answers.push((await postResult(q.collection, stale)).status);
-  const reads = Number(sql(`select status_update_reads_in_window from pay05_paynow_transactions where collection_id = ${lit(q.collection)}`));
+  // the first read of this message and eleven... each message has its own twelve; no observation row for a read that showed nothing new
+  const hash = sql(`select encode(sha256(convert_to(upper(${lit(new URLSearchParams(stale).get('hash'))}), 'UTF8')), 'hex')`);
+  const reads = Number(sql(`select (status_update_read_budgets->${lit(hash)}->>'reads') from pay05_paynow_transactions where collection_id = ${lit(q.collection)}`));
+  const rows = Number(sql(`select count(*) from pay05_paynow_observations where collection_id = ${lit(q.collection)} and message_hash = ${lit(hash)}`));
   const v = await verify(q.collection);
-  return { pass: reads === 12 && answers.every((s) => s === 503) && counted(q.collection) === 25 && v.json?.collection?.state === 'confirmed', detail: { answers, reads_in_window: reads, counted: counted(q.collection) } };
+  // another message of Paynow's is not starved by the replay
+  await simSetStatus(q.sim.guid, 'Refunded');
+  const refunded = await waitFor(() => payStatus(q.collection) === 'refunded');
+  return { pass: reads === 12 && rows === 1 && answers.every((s) => s === 503) && v.json?.collection?.state === 'confirmed' && refunded && counted(q.collection) === 0, detail: { answers, reads_of_this_message: reads, rows_of_this_message: rows, refunded, counted: counted(q.collection) } };
 });
 
 await step('F7', 'R1 (ICR-M4): a dispute Paynow never speaks of again has an exit: not "acknowledged", but settled outside CarUp, which counts nothing and frees the room for real cash', async () => {
@@ -854,6 +873,104 @@ await step('F11', 'R1 (ICR-W1, W3): every row of this run reads truthfully: no "
     }
   }
   return { pass: bad.length === 0 && seen.size >= 5, detail: { rows_by_state: Object.fromEntries(seen), violations: bad } };
+});
+
+// ───────────────────────────── the pre-final adversarial review ─────────────────────────────
+await step('G1', 'R1 (PFR-H3): late money under review on a closed request: no new request is offered or accepted until the review ends', async () => {
+  const q = await openRequest();
+  await simSetStatus(q.sim.guid, 'Cancelled');
+  const closed = await waitFor(() => payStatus(q.collection) === 'cancelled');
+  await simSetStatus(q.sim.guid, 'Paid');
+  const late = await waitFor(() => /provider_paid_after_close/.test(openDiscrepancies(q.collection)));
+  const option = (await paymentView(q.inv.id)).json?.online_payment;
+  const refused = await start(q.inv.id, { method: 'ecocash', phone: '0779000031' });
+  const rows = Number(sql(`select count(*) from pay04_garage_collections where invoice_id = ${lit(q.inv.id)}`));
+  const settled = await resolve(q.collection, 'provider_paid_after_close', 'settled_off_platform');
+  const after = (await paymentView(q.inv.id)).json?.online_payment;
+  return { pass: closed && late && option?.available === false && option?.reason === 'earlier_request_unresolved' && code(refused) === 'PAY05_EARLIER_REQUEST_UNRESOLVED'
+    && rows === 1 && ok(settled, 200) && after?.available === true && Boolean(after?.notices?.earlier_request) && counted(q.collection) === 0,
+    detail: { option, refused: [refused.status, code(refused)], collections_on_invoice: rows, settled: settled.status, after: after?.available } };
+});
+
+await step('G2', 'R1 (PFR-H4): a released request is paid late: it counts, the request now holding the room is told not to complete it, and its own money is reviewed, never counted twice', async () => {
+  const wait = ROOM.startedAt + (TTL_SECONDS + 5) * 1000 - Date.now();
+  if (wait > 0) await pause(wait);
+  const rel = await call('POST', `/api/pay05/admin/collections/${ROOM.collection}/release-hold`, { reason: 'Customer abandoned the EcoCash prompt (R1 QA).' }, as.ops);
+  const b = await start(ROOM.invoice.id, { method: 'web' });
+  const total = Number(money(ROOM.invoice.id).total_amount);
+  const before = await customerRow(ROOM.invoice.id, b.json?.collection_id);
+  await simSetStatus((await simTxFor(ROOM.collection)).guid, 'Paid');
+  const paid = await waitFor(() => Number(money(ROOM.invoice.id).provider_paid) === total);
+  const row = await customerRow(ROOM.invoice.id, b.json?.collection_id);
+  const option = (await paymentView(ROOM.invoice.id)).json?.online_payment;
+  await simSetStatus((await simTxFor(b.json?.collection_id)).guid, 'Paid');
+  const reviewed = await waitFor(() => /unallocated_provider_money/.test(openDiscrepancies(b.json?.collection_id)));
+  const end = money(ROOM.invoice.id);
+  return { pass: ok(rel, 200) && b.status === 201 && Boolean(before?.paynow?.checkout_url) && paid && row?.state === 'no_longer_needed' && !row?.paynow?.checkout_url
+    && /Do not complete/.test(row?.paynow?.facts?.next_step ?? '') && !/waiting for you/i.test(row?.paynow?.provider_status_label ?? '') && option?.reason === 'nothing_due'
+    && reviewed && Number(end.provider_paid) === total && liveReceipts(b.json?.collection_id) === 0,
+    detail: { released: rel.status, second: b.status, row_state: row?.state, next_step: row?.paynow?.facts?.next_step, option, end } };
+});
+
+await step('G3', 'R1 (PFR-M1): money held at Paynow past CarUp’s time: release stays refused; an operator opens a review and settles it, the room is free, later money is reviewed', async () => {
+  const wait = ESCROW.startedAt + (TTL_SECONDS + 5) * 1000 - Date.now();
+  if (wait > 0) await pause(wait);
+  const sim = await simTxFor(ESCROW.collection);
+  await simSetStatus(sim.guid, 'Delivered');
+  await waitFor(() => txOf(ESCROW.collection).provider_status === 'delivered');
+  const release = await call('POST', `/api/pay05/admin/collections/${ESCROW.collection}/release-hold`, { reason: 'Trying to release held money (R1 QA).' }, as.ops);
+  const list = await call('GET', '/api/pay05/admin/held-collections', undefined, as.ops);
+  const listed = (list.json?.held || []).find((h) => h.collection_id === ESCROW.collection);
+  const garage = await call('POST', `/api/pay05/admin/collections/${ESCROW.collection}/open-review`, { reason: 'A garage may not open this review.' }, as.adminA);
+  const customer = await call('POST', `/api/pay05/admin/collections/${ESCROW.collection}/open-review`, { reason: 'A customer may not open this review.' }, as.customer);
+  const short = await call('POST', `/api/pay05/admin/collections/${ESCROW.collection}/open-review`, { reason: 'short' }, as.ops);
+  const opened = await call('POST', `/api/pay05/admin/collections/${ESCROW.collection}/open-review`, { reason: 'Paynow keeps this money in escrow; the garage asked for a review (R1 QA).' }, as.ops);
+  const again = await call('POST', `/api/pay05/admin/collections/${ESCROW.collection}/open-review`, { reason: 'Opening the same review a second time (R1 QA).' }, as.ops);
+  const settled = await resolve(ESCROW.collection, 'provider_status_unrecognized', 'settled_off_platform');
+  const free = money(ESCROW.invoice.id);
+  await simSetStatus(sim.guid, 'Paid');
+  const late = await waitFor(() => /provider_paid_after_close/.test(openDiscrepancies(ESCROW.collection)));
+  return { pass: code(release) === 'PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ' && listed?.can_release === false && listed?.can_open_review === true
+    && garage.status === 403 && customer.status === 403 && code(short) === 'PAY05_REASON_REQUIRED' && ok(opened, 200) && code(again) === 'PAY05_REVIEW_NOT_OPENABLE' && ok(settled, 200)
+    && Number(free.provider_reserved) === 0 && Number(free.uncommitted_balance) > 0 && late && counted(ESCROW.collection) === 0 && liveReceipts(ESCROW.collection) === 0,
+    detail: { release: [release.status, code(release)], listed: listed && { can_release: listed.can_release, can_open_review: listed.can_open_review, reason: listed.release_blocked_reason },
+      garage: garage.status, customer: customer.status, opened: opened.status, again: code(again), settled: settled.status, free } };
+});
+
+await step('G4', 'R1 (PFR-H2): a reviewed Cancelled after money: never "nothing was charged", nothing to complete, and the operator can release it, so the room is not held forever', async () => {
+  const wait = REVIEWED.startedAt + (TTL_SECONDS + 5) * 1000 - Date.now();
+  if (wait > 0) await pause(wait);
+  const sim = await simTxFor(REVIEWED.collection);
+  await simSetStatus(sim.guid, 'Delivered');
+  await waitFor(() => txOf(REVIEWED.collection).provider_status === 'delivered');
+  await simSetStatus(sim.guid, 'Cancelled');
+  const review = await waitFor(() => /provider_status_unrecognized/.test(openDiscrepancies(REVIEWED.collection)));
+  const closed = await resolve(REVIEWED.collection, 'provider_status_unrecognized', 'acknowledged');
+  const row = await customerRow(REVIEWED.invoice.id, REVIEWED.collection);
+  const list = await call('GET', '/api/pay05/admin/held-collections', undefined, as.ops);
+  const listed = (list.json?.held || []).find((h) => h.collection_id === REVIEWED.collection);
+  const rel = await call('POST', `/api/pay05/admin/collections/${REVIEWED.collection}/release-hold`, { reason: 'Paynow reports it cancelled, reviewed (R1 QA).' }, as.ops);
+  const free = money(REVIEWED.invoice.id);
+  return { pass: review && ok(closed, 200) && row?.state === 'reviewed_held' && !/nothing was charged/i.test(wordsOf(row)) && !/Complete this request/.test(row?.paynow?.facts?.next_step ?? '')
+    && listed?.can_release === true && ok(rel, 200) && Number(free.provider_reserved) === 0,
+    detail: { row_state: row?.state, sentence: row?.paynow?.provider_status_label, next_step: row?.paynow?.facts?.next_step, release: rel.status, free } };
+});
+
+await step('G5', 'R1 (PFR-M5): Paynow refuses, CarUp closes, then Paynow’s signed word shows the request exists: closed words, nothing to act on, and paying again warns about it', async () => {
+  const inv = await invoice('A', { cost: '20.00', sellPrice: '5.00' });
+  await simFault('initiate', { kind: 'error', message: 'Temporary refusal (R1 QA)' });
+  const refused = await start(inv.id, { method: 'omari', phone: '0779000032' });
+  const collection = sql(`select id from pay04_garage_collections where invoice_id = ${lit(inv.id)}`);
+  const sims = await simTransactionsFor(collectionRow(collection).payment_reference);
+  const before = payStatus(collection);
+  const body = sims.length ? statusUpdate(sims[0], { status: 'Sent', signingKey: keyOf(integrations.A_USD.integration_id) }) : null;
+  const delivered = body ? await postResult(collection, body) : { status: 0 };
+  const row = await customerRow(inv.id, collection);
+  const option = (await paymentView(inv.id)).json?.online_payment;
+  return { pass: code(refused) === 'PAY05_PROVIDER_REFUSED' && before === 'cancelled' && sims.length === 1 && row?.state === 'closed_live' && !/waiting for/i.test(row?.paynow?.provider_status_label ?? '')
+    && !row?.paynow?.needs_otp && !row?.paynow?.otp_unavailable && !row?.paynow?.checkout_url && /Do not approve/.test(row?.paynow?.facts?.next_step ?? '')
+    && option?.available === true && Boolean(option?.notices?.earlier_request) && counted(collection) === 0,
+    detail: { start: [refused.status, code(refused)], delivered: delivered.status, row_state: row?.state, sentence: row?.paynow?.provider_status_label, next_step: row?.paynow?.facts?.next_step, earlier_request: option?.notices?.earlier_request ?? null } };
 });
 
 // ───────────────────────────── operator controls ─────────────────────────────

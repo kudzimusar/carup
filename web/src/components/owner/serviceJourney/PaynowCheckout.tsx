@@ -63,7 +63,9 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
   useEffect(() => {
     if (!pending || !focusPending.current) return
     focusPending.current = false
-    headingRef.current?.focus()
+    // the request at the top of the screen, under the page header: on a phone its code or form must be in view
+    headingRef.current?.focus({ preventScroll: true })
+    headingRef.current?.scrollIntoView?.({ block: 'start' })
   }, [pending])
   // an accepted O'mari code removes the form that held the focus: it moves to the answer (ICR-W5)
   const outcomeRef = useRef<HTMLParagraphElement>(null)
@@ -209,7 +211,7 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
 
       {pending && (
         <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-950" data-testid="paynow-pending">
-          <h6 ref={headingRef} tabIndex={-1} className="font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
+          <h6 ref={headingRef} tabIndex={-1} className="scroll-mt-20 font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
             data-testid="paynow-pending-heading">
             Your Paynow payment request
           </h6>
@@ -218,8 +220,9 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
             <Badge variant="outline" className={`whitespace-normal ${badge?.tone ?? ''}`} data-testid="paynow-status-badge">{badge?.label}</Badge>
           </p>
           <LiveText testId="paynow-status" text={statusText} />
-          {view?.facts && <PaynowFacts facts={view.facts} />}
+          {/* what the customer must use comes first: the facts arrive with the first read, and must not push it off a phone's screen */}
           {view && <PaynowPendingPanel collectionId={pending.collectionId} paynow={view} state={pending.state} busy={busy} onOtpOutcome={otpAnswered} />}
+          {view?.facts && <PaynowFacts facts={view.facts} />}
           <Button variant="outline" className="min-h-11 bg-white" disabled={busy} onClick={() => void check()} data-testid="paynow-check">
             Check payment status
           </Button>

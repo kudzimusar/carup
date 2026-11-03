@@ -117,6 +117,13 @@ BEGIN
   RETURN nextval('public.pay05_paynow_read_ticket_seq');
 END $$;
 
+-- When a read was last attempted, whether or not Paynow answered, so reads that fail keep their pace (PFR-L13). Its own call:
+-- it holds this row for an instant and must never sit in front of the writers' lock order, so the read ticket does not do it.
+CREATE OR REPLACE FUNCTION public.pay05_record_read_attempt(p_collection_id uuid)
+RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  UPDATE public.pay05_paynow_transactions SET last_read_attempt_at = clock_timestamp() WHERE collection_id = p_collection_id;
+$$;
+
 -- A person who worked at this garage, though removed since: the workforce record outlives the membership.
 CREATE OR REPLACE FUNCTION public.pay05_worked_at_garage(p_tenant_id uuid, p_actor_id text)
 RETURNS boolean LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
@@ -164,13 +171,13 @@ BEGIN
                        'last_provider_status', v_tx.provider_status, 'initiation_state', v_tx.initiation_state), 'operator_review', NULL);
   PERFORM public.pay05_audit(v_c.tenant_id, v_c.merchant_account_id, v_tx.integration_row_id, 'review_opened', trim(p_actor_id), p_actor_role,
     jsonb_build_object('collection_id', v_c.id, 'reason', btrim(p_reason), 'last_provider_status', v_tx.provider_status));
-  RETURN jsonb_build_object('discrepancy', v_disc, 'projection', public.pay04_reproject_garage_collection(v_c.id, 'provider_status_unrecognized', NULL));
+  RETURN jsonb_build_object('discrepancy', v_disc);
 END $$;
 
 -- The operator's queue, chosen here: what still holds an invoice past CarUp's time or a stop, oldest first. Requests that finished
 -- cannot crowd one out, however many there are (PFR-H5). A settlement marks the hold released, so settled requests are not here.
 CREATE OR REPLACE FUNCTION public.pay05_held_collection_ids(p_limit integer)
-RETURNS TABLE (collection_id uuid, total bigint) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+RETURNS TABLE (collection_id uuid, total bigint) LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT t.collection_id, count(*) OVER ()
     FROM public.pay05_paynow_transactions t
     JOIN public.pay04_garage_collections c ON c.id = t.collection_id
@@ -1047,18 +1054,6 @@ BEGIN
   RETURN jsonb_build_object('replayed', false, 'hold_released_at', v_tx.hold_released_at, 'money', to_jsonb(v_m));
 END $$;
 
--- pay05_begin_paynow_read: PAY-05 text + the hunks marked "PAY-05-R1" (drift-tested)
-CREATE OR REPLACE FUNCTION public.pay05_begin_paynow_read(p_collection_id uuid)
-RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.pay04_garage_collections WHERE id = p_collection_id AND gateway = 'paynow_zimbabwe') THEN
-    RAISE EXCEPTION 'PAY05_COLLECTION_NOT_FOUND';
-  END IF;
-  -- PAY-05-R1: every attempt is timed, so reads that fail keep their pace (PFR-L13)
-  UPDATE public.pay05_paynow_transactions SET last_read_attempt_at = clock_timestamp() WHERE collection_id = p_collection_id;
-  RETURN nextval('public.pay05_paynow_read_ticket_seq');
-END $$;
-
 -- pay04_guard_invoice_void: PAY-04 text + the hunks marked "PAY-05-R1" (drift-tested)
 CREATE OR REPLACE FUNCTION public.pay04_guard_invoice_void()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
@@ -1085,9 +1080,9 @@ END $$;
 REVOKE ALL ON FUNCTION public.pay05_settled_off_platform(uuid), public.pay05_paynow_money_rank(text),
   public.pay05_collection_currency_bound(uuid), public.pay05_worked_at_garage(uuid, text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.pay05_begin_status_update_read(uuid, text), public.pay05_open_paynow_review(uuid, text, text, text),
-  public.pay05_held_collection_ids(integer) FROM PUBLIC, anon, authenticated;
+  public.pay05_held_collection_ids(integer), public.pay05_record_read_attempt(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.pay05_begin_status_update_read(uuid, text), public.pay05_open_paynow_review(uuid, text, text, text),
-  public.pay05_held_collection_ids(integer) TO service_role;
+  public.pay05_held_collection_ids(integer), public.pay05_record_read_attempt(uuid) TO service_role;
 -- the identity sequences of PAY-05's own tables: no API role writes those tables, so none needs them
 REVOKE ALL ON SEQUENCE public.pay05_merchant_audit_events_seq_seq, public.pay05_paynow_observations_seq_seq,
   public.pay05_provider_errors_seq_seq FROM PUBLIC, anon, authenticated, service_role;

@@ -251,12 +251,12 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                           <Badge variant="outline" className={`whitespace-normal ${PROVIDER_STATE_TONE[p.state] ?? ''}`}>{p.state_label}</Badge>
                         </p>
                         {paynow && <p className="mt-1 text-xs text-gray-700" data-testid="my-provider-payment-paynow">{paynowStatusLine(p.state, paynow)}</p>}
-                        <PaynowFacts className="mt-2" facts={paynow?.facts} />
                         {continuable && (
                           <PaynowPendingPanel className="mt-2 rounded-md border border-amber-300 bg-white p-2" collectionId={p.id} paynow={continuable}
                             state={p.state} busy={busy}
                             onOtpOutcome={(outcome) => { setNotice(null); setChecked({ id: p.id, outcome, failed: false }); setFocusId(`${uid}-outcome-${p.id}`); void load(); onChanged?.() }} />
                         )}
+                        <PaynowFacts className="mt-2" facts={paynow?.facts} />
                         <div className="mt-2 flex flex-wrap gap-2">
                           <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => void check(p.id)} data-testid="my-provider-payment-check">
                             Check payment status

@@ -202,7 +202,7 @@ themselves, and a receipt exists only for money that counts.
 | Cancelled / Failed **after** Paynow reported money | `provider_status_unrecognized` review: not an applied close | held until reviewed |
 | Disputed, whatever its amount | not counted, `provider_disputed` review; Paynow's figure kept as evidence | held |
 | Refunded, whatever figure it carries | applied as a full refund; not counted; `provider_refund_unquantified` once per collection, keeping Paynow's figure as evidence | freed |
-| Refunded on a payment CarUp closed with late money | the payment stays closed; the operator is told | — |
+| Refunded on a payment CarUp closed | the payment stays closed; the operator is told, whether or not CarUp saw the money | — |
 | An unknown word, or a step back from money | `provider_status_unrecognized` review | held |
 | A money word on an integration with no reviewed settlement currency | `currency_mismatch` review, never allocated | held until resolved |
 
@@ -217,6 +217,11 @@ the order reads arrive in is not the order Paynow answered them. Every read take
 - A read older than the latest read CarUp evaluated is recorded as `superseded` and never applied, **unless its word moves the
   payment forward** (Sent → escrow → Paid → Disputed → Refunded). A ticket orders when CarUp asked, not when Paynow answered, so
   a Paid or a Disputed is never lost to ticket order. A forward word's effect is reversible only by Paynow's next word.
+- **Nothing moves past a newer closed or unknown word except a newer read.** An unrecognised word, or Cancelled or Failed after money,
+  has no place in that order, so an older read's Paid is `superseded` against it, whether or not its review has closed. Paynow's own
+  newer Paid still counts. On a payment closed with no money seen, an older read's Paid is late money for an operator, never lost.
+- A read recorded only because it repeats what CarUp holds (`after_review`, `after_settlement`, `after_close`) is still the newest read:
+  it moves the ticket, so an older read in flight cannot slip past it, and it moves the time shown as "Last read from Paynow".
 - A pre-payment status arriving after money (a lagging replica) is a `stale_regression`, also recorded and ignored.
 - Every observation records its outcome: `applied`, `review`, `superseded`, `stale_regression`, `after_settlement`,
   `after_close` or `after_review`.
@@ -224,25 +229,37 @@ the order reads arrive in is not the order Paynow answered them. Every read take
 
 **A status update's identity (R1).** Paynow's messages carry no sequence number, and its hash covers only the trimmed values:
 - A message's identity is the hash Paynow sent, in one case, so padded or otherwise trivially varied copies are one message.
-- It is a duplicate, with no second read, only if it is the message CarUp recorded last **and** CarUp still holds the status it
-  reports. A status that differs from the one CarUp holds is never a duplicate.
+- It is a duplicate, with no second read, only if it is the message CarUp recorded last **and** CarUp still holds the status and the
+  amount it reports. Anything else is read again.
 - Its event identity adds a monotonic per-collection generation, so a legitimate repeat (Paid, Disputed, Paid, Disputed) is a new
   event, and concurrent deliveries of one message are one.
 - CarUp answers non-2xx when the confirming poll was not evaluated or does not yet show what Paynow said (the same word, or one
   further along), so Paynow resends and CarUp reads again.
-- At most twelve update-triggered reads per collection in ten minutes (`pay05_begin_status_update_read`). Past that CarUp answers
-  non-2xx and makes no read. Ordinary reads are unaffected.
+- Two deliveries of one message can race. If an older read wrote first, the later read is still evaluated as the poll it is, so its
+  news is not lost with the duplicate.
+- Each message has its own budget of twelve update-triggered reads per collection in ten minutes, with sixty across messages as a
+  second line (`pay05_begin_status_update_read`). A replayed message cannot use up another's. Past the budget CarUp answers non-2xx and
+  makes no read. Ordinary reads are unaffected.
+- A message already recorded, read again and showing nothing new, writes no row and starts no new generation.
 
 ### 5.5 Holds, release, late money, settlement
 
 - A collection's time (`expires_at`, 30 minutes in production) only starts a hold.
 - **Release:** an operator who is not the payer and not a garage member can release the room after expiry, with no review open,
   given either:
-  - a fresh read: the **latest** authenticated read of any kind, at most 15 minutes old, showing Created, Sent, or a reviewed
-    Cancelled or Failed; or
+  - a fresh read: the **latest** authenticated read of any kind, including one recorded only because it repeats a word whose review
+    closed, at most 15 minutes old, showing Created, Sent, or a reviewed Cancelled, Failed or unknown word; or
   - for a request Paynow never confirmed, a fresh trace attempt.
-- **Late money:** money that arrives after a release counts only into free room; otherwise it is unallocated money for
-  an operator. It is never counted twice.
+- **When nothing else can move it:** Paynow keeps the money in escrow, or can no longer be read (the merchant replaced its key). Past
+  CarUp's time, an operator who could release it can **open a review** of it (`pay05_open_paynow_review`). That counts nothing and needs no
+  read. Settling the review outside CarUp frees the room, and later money is reviewed, never allocated. So every hold has an exit.
+- **Late money:** money Paynow reports Paid counts into the room left after cash and money already counted, oldest first; otherwise
+  it is unallocated money for an operator. It is never counted twice.
+- **A reservation is not money.** A request that only holds room does not outrank a Paid that Paynow has reported on another request:
+  that money counts, and the request holding the room then says it is no longer needed, with no link, code or form. If it is paid
+  anyway, that money is unallocated, for an operator.
+- **Room freed.** When a refund, a dispute or a review takes money off an invoice, Paynow money waiting for that room counts at once, oldest
+  first, with its receipt. Settled money stays capped.
 - **Settlement:** the operator can settle a wrong-amount Paid, an unrecognised status, a dispute or an unverifiable currency
   **outside CarUp**. That caps the payment at what counted then (for these reviews nothing), and frees the room so the garage can
   record what it really received.
@@ -250,8 +267,11 @@ the order reads arrive in is not the order Paynow answered them. Every read take
   is never allocated; a later Disputed or Refunded still acts on whatever part still counts.
 - **Every review has an exit.** A dispute closes on Paynow's own Paid, as settled outside CarUp, or as acknowledged once Paynow has
   closed it. None of those counts money, except Paynow's own Paid.
-- **Paying again:** a new request first re-reads any earlier request on the invoice that no longer holds room. If Paynow holds money
-  on one, or a review of it is open, no new request starts (`PAY05_EARLIER_REQUEST_UNRESOLVED`). Paynow's read failing refuses too.
+- **Paying again:** a new request first re-reads any earlier request on the invoice that Paynow still has and that holds no room
+  (released, settled, or closed by CarUp and then found to exist). If Paynow holds money on one, or a review of money that holds no room is
+  open on any request of the invoice, no new request starts (`PAY05_EARLIER_REQUEST_UNRESOLVED`). Paynow's read failing refuses too,
+  except on a request settled outside CarUp, which an operator already answers for. A request holding its own room only limits what may
+  be asked for.
 - Released and settled requests stay on the operator's list and are re-read at most hourly when someone looks at the invoice.
 
 ### 5.6 What fails closed
@@ -303,8 +323,9 @@ the customer and, in third-person words, for the garage and operators:
 | Last read from Paynow | When CarUp last read it. **Check payment status** is what reads again |
 
 The words follow from that:
-- never "nothing was paid or charged" while Paynow reports paid, escrow or disputed;
-- never "Waiting for you…" or "it still counts" for a released or settled request;
+- never "nothing was paid or charged" while Paynow reports paid, escrow or disputed, or after Paynow reported money on the request;
+- never "Waiting for you…" or "it still counts" for a released, settled, closed or no longer needed request, and no link, code or form on
+  anything that cannot still be paid;
 - "Paid" only when the money counts;
 - a lost answer to an O'mari code says to check before entering it again, because Paynow may have taken the payment;
 - no second payment is prompted while an earlier request is unresolved;
@@ -386,7 +407,10 @@ Activation needs:
 - **Held requests:** a stopped or expired Paynow request keeps its room. After its expiry, **Release** (or **Close
   unconfirmed request**). The server reads Paynow first and refuses if it is not fresh-unpaid, or if a review is open. The panel offers
   the action only where the database would allow it, says why otherwise, and keeps **Check with Paynow** on every row, released and
-  settled ones included.
+  settled ones included. The queue shows the oldest 200 and says how many there are.
+- **Open a review** when nothing else can move a request: Paynow keeps it in escrow, or can no longer be read. It needs a reason, reads
+  nothing and counts nothing. It then appears on the garage payments operator page as an unrecognised status: settle it outside
+  CarUp to free the room.
 - **Reviews** (garage payments operator page). No closure counts money: only Paynow's own matching Paid does.
 
   | Review | Resolution |

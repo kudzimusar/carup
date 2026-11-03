@@ -1035,10 +1035,12 @@ BEGIN
     PERFORM pg_temp.check(NOT has_function_privilege(v_role, 'public.pay05_begin_status_update_read(uuid,text)', 'EXECUTE'), v_role || ' cannot take a budgeted read');
     PERFORM pg_temp.check(NOT has_function_privilege(v_role, 'public.pay05_open_paynow_review(uuid,text,text,text)', 'EXECUTE'), v_role || ' cannot open a review');
     PERFORM pg_temp.check(NOT has_function_privilege(v_role, 'public.pay05_held_collection_ids(integer)', 'EXECUTE'), v_role || ' cannot read the queue');
+    PERFORM pg_temp.check(NOT has_function_privilege(v_role, 'public.pay05_record_read_attempt(uuid)', 'EXECUTE'), v_role || ' cannot time a read');
   END LOOP;
   PERFORM pg_temp.check(has_function_privilege('service_role', 'public.pay05_begin_status_update_read(uuid,text)', 'EXECUTE'), 'service_role calls it');
   PERFORM pg_temp.check(has_function_privilege('service_role', 'public.pay05_open_paynow_review(uuid,text,text,text)', 'EXECUTE')
-    AND has_function_privilege('service_role', 'public.pay05_held_collection_ids(integer)', 'EXECUTE'), 'service_role calls them');
+    AND has_function_privilege('service_role', 'public.pay05_held_collection_ids(integer)', 'EXECUTE')
+    AND has_function_privilege('service_role', 'public.pay05_record_read_attempt(uuid)', 'EXECUTE'), 'service_role calls them');
   PERFORM pg_temp.check(NOT has_function_privilege('service_role', 'public.pay05_worked_at_garage(uuid,text)', 'EXECUTE')
     AND NOT has_function_privilege('anon', 'public.pay05_worked_at_garage(uuid,text)', 'EXECUTE'), 'helpers are not callable');
   PERFORM pg_temp.check(NOT has_function_privilege('service_role', 'public.pay05_paynow_money_rank(text)', 'EXECUTE')
@@ -1381,7 +1383,9 @@ BEGIN
   PERFORM pg_temp.send_attach(c);
   PERFORM pg_temp.check((SELECT last_read_attempt_at IS NULL FROM pay05_paynow_transactions WHERE collection_id = c), 'R9 no attempt yet');
   t1 := pay05_begin_paynow_read(c);
-  PERFORM pg_temp.check((SELECT last_read_attempt_at IS NOT NULL FROM pay05_paynow_transactions WHERE collection_id = c), 'R9 the attempt is timed before anything is read');
+  PERFORM pg_temp.check((SELECT last_read_attempt_at IS NULL FROM pay05_paynow_transactions WHERE collection_id = c), 'R9 a ticket takes no row lock: it must never sit in front of the writers'' lock order');
+  PERFORM pay05_record_read_attempt(c);
+  PERFORM pg_temp.check((SELECT last_read_attempt_at IS NOT NULL FROM pay05_paynow_transactions WHERE collection_id = c), 'R9 the attempt is timed');
   t2 := pay05_begin_paynow_read(c);
   PERFORM pg_temp.read(c, 'delivered', NULL, t2);
   PERFORM pg_temp.read(c, 'cancelled', NULL, pay05_begin_paynow_read(c));
