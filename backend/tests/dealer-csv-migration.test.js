@@ -75,9 +75,9 @@ test('C03 CSV injection stays unsafe while legitimate +263 phone and signed GPS 
   const inspected=inspectDealerCsvImport(phone,'BUSINESS');
   assert.equal(inspected.input_rows,1);
   await assert.rejects(stageConfirmedDealerCsv({
-    bytes:Buffer.from('legal_name,business_phone\nAcme Ltd,=HYPERLINK("https://attacker.test")\n'),
+    bytes:Buffer.from('legal_name,business_phone\nAcme Ltd,=1+2\n'),
     tab:'BUSINESS',approvedMapping:{legal_name:'legal_name',business_phone:'business_phone'},
-    acknowledged:true,expectedSha:sha(Buffer.from('legal_name,business_phone\nAcme Ltd,=HYPERLINK("https://attacker.test")\n')),
+    acknowledged:true,expectedSha:sha(Buffer.from('legal_name,business_phone\nAcme Ltd,=1+2\n')),
     claim,source,
   }),/CSV_FORMULA_LOOKING_VALUE/);
   const good=await stageConfirmedDealerCsv({
