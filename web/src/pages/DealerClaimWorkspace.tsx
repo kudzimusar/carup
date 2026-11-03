@@ -29,6 +29,12 @@ type Draft = {
   schema_version:string;submission_version:number;state:string;updated_at:string
   content:{tab_rows:Record<string,Array<Record<string,string>>>}
 }
+type ComplianceSubmission = {
+  submission_id:string;intake_version:number;schema_version:string;
+  submitted_at:string;preliminary_status:string;
+  correction_reason:string|null;reviewed_at:string|null;
+  legal_compliance_approved:false;tenant_activated:false;
+}
 const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
   typeof window==='undefined' ? undefined : window.location.hostname)
 
@@ -57,6 +63,12 @@ export default function DealerClaimWorkspace() {
   const [documentFile,setDocumentFile]=useState<File|null>(null)
   const [workbookFile,setWorkbookFile]=useState<File|null>(null)
   const [draft,setDraft]=useState<Draft|null>(null)
+  const [complianceSubmissions,setComplianceSubmissions]=useState<ComplianceSubmission[]>([])
+  const [submitAcknowledged,setSubmitAcknowledged]=useState(false)
+  const [manualSigner,setManualSigner]=useState('')
+  const [manualSignerRole,setManualSignerRole]=useState('')
+  const [manualPrivacy,setManualPrivacy]=useState(false)
+  const [manualResearchConfirmation,setManualResearchConfirmation]=useState('UNKNOWN')
   const [ocrCandidates,setOcrCandidates]=useState<OcrCandidate[]>([])
   const [jurisdiction,setJurisdiction]=useState<JurisdictionPreview|null>(null)
   const [appealReason,setAppealReason]=useState('')
@@ -104,12 +116,17 @@ export default function DealerClaimWorkspace() {
           baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/jurisdiction-preview',
           authHeaders:auth,
         }),
+        apiRequest<{submissions:ComplianceSubmission[]}>({
+          baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/compliance-submissions',
+          authHeaders:auth,
+        }),
       ])
       setEvidence(results[0].status==='fulfilled'?results[0].value.evidence||[]:[])
       setDraft(results[1].status==='fulfilled'?results[1].value.intake:null)
       setOcrCandidates(results[2].status==='fulfilled'?results[2].value.candidates||[]:[])
       setJurisdiction(results[3].status==='fulfilled'?results[3].value.preview:null)
-    }catch{setEvidence([]);setDraft(null);setOcrCandidates([]);setJurisdiction(null)}
+      setComplianceSubmissions(results[4].status==='fulfilled'?results[4].value.submissions||[]:[])
+    }catch{setEvidence([]);setDraft(null);setOcrCandidates([]);setJurisdiction(null);setComplianceSubmissions([])}
   },[selected,user,token])
   useEffect(()=>{void loadDetails()},[loadDetails])
 
@@ -201,6 +218,12 @@ export default function DealerClaimWorkspace() {
           legal_name:manualLegalName.trim(),
           trading_name:manualTradingName.trim(),
           operating_country:manualCountry.trim().toUpperCase(),
+          research_confirmation:manualResearchConfirmation,
+        },
+        CONSENTS_DECLARATIONS:{
+          signer_name:manualSigner.trim(),
+          signer_role:manualSignerRole.trim(),
+          privacy_acknowledgment:manualPrivacy?'YES':'NO',
         },
         BRANCHES:{
           ...(manualCity.trim()?{city:manualCity.trim()}:{}),
@@ -219,6 +242,27 @@ export default function DealerClaimWorkspace() {
       await loadDetails()
     }catch(problem){setError(problem instanceof Error?problem.message:'Manual draft rejected')}
     finally{setBusy(false)}
+  }
+
+  async function submitFrozenApplication(){
+    if(!selected||!token||!user||busy||!draft||!submitAcknowledged)return
+    setBusy(true);setError('');setNotice('')
+    try{
+      const result=await apiRequest<{receipt:{submission_id:string;intake_version:number;state:string}}>({
+        baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/compliance-submissions',
+        options:{method:'POST',body:JSON.stringify({
+          expected_version:draft.submission_version,
+          attestation_version:'CARUP_DEALER_APPLICANT_DECLARATION_1',
+          acknowledge_applicant_declaration:true,
+        })},authHeaders:authHeaders(token,user.id),
+      })
+      setNotice('Application version '+result.receipt.intake_version
+        +' submitted for independent preliminary review. No legal compliance approval, verified company badge, tenant or stock listing was granted.')
+      setSubmitAcknowledged(false)
+      await loadDetails()
+    }catch(problem){
+      setError(problem instanceof Error?problem.message:'Application submission failed')
+    }finally{setBusy(false)}
   }
 
   async function appeal(){
@@ -385,6 +429,33 @@ export default function DealerClaimWorkspace() {
                         <label htmlFor="manual-branch" className="block text-sm font-medium">Branch name (optional)</label>
                         <Input id="manual-branch" value={manualBranchName} maxLength={180}
                           onChange={e=>setManualBranchName(e.target.value)}/>
+                        <label htmlFor="manual-research-confirm" className="block text-sm font-medium">
+                          Confirm researched business identity and branch facts
+                        </label>
+                        <select id="manual-research-confirm" value={manualResearchConfirmation}
+                          onChange={e=>setManualResearchConfirmation(e.target.value)}
+                          className="border rounded-lg p-2 w-full">
+                          <option value="UNKNOWN">Not yet confirmed</option>
+                          <option value="YES">Confirmed as currently correct</option>
+                          <option value="CORRECT">I supplied corrections</option>
+                        </select>
+                        <label htmlFor="manual-signer" className="block text-sm font-medium">
+                          Name of proposed authorized company signatory
+                        </label>
+                        <Input id="manual-signer" value={manualSigner} maxLength={180}
+                          onChange={e=>setManualSigner(e.target.value)}/>
+                        <label htmlFor="manual-signer-role" className="block text-sm font-medium">
+                          Proposed signatory role (independent authority proof is still required)
+                        </label>
+                        <Input id="manual-signer-role" value={manualSignerRole} maxLength={180}
+                          onChange={e=>setManualSignerRole(e.target.value)}/>
+                        <label className="flex gap-2 items-start text-sm">
+                          <input type="checkbox" checked={manualPrivacy}
+                            onChange={e=>setManualPrivacy(e.target.checked)}/>
+                          I acknowledge CarUp will handle my private application data for
+                          dealership eligibility review. This is not proof that the named
+                          signatory has independently verified authority.
+                        </label>
                         <Button variant="outline" disabled={busy||manualLegalName.trim().length<2}
                           onClick={()=>{void saveManual()}}>Save manual application into CarUp</Button>
                       </section>
@@ -413,6 +484,46 @@ export default function DealerClaimWorkspace() {
                             className="text-xs text-gray-600">{item}</p>)}
                         </section>
                       )}
+                      {draft && <section className="border-t pt-5 space-y-3">
+                        <h3 className="font-semibold text-lg">Submit version {draft.submission_version} for preliminary review</h3>
+                        <p className="text-sm text-gray-600">
+                          The entire current 12-tab application, corrections, source version and
+                          consent fields will be frozen as a private review snapshot. Ensure
+                          that researched facts are confirmed, at least one branch is recorded,
+                          original company-authority evidence exists, and your signer and
+                          privacy acknowledgement are present in the saved workbook.
+                        </p>
+                        <label className="flex gap-2 items-start text-sm">
+                          <input type="checkbox" checked={submitAcknowledged}
+                            onChange={e=>setSubmitAcknowledged(e.target.checked)}/>
+                          I declare that I have reviewed the submitted business and branch details
+                          and authorize CarUp to send this applicant declaration for
+                          independent preliminary review. This does not constitute company
+                          ownership verification, regulatory approval or a legal electronic signature.
+                        </label>
+                        <Button disabled={busy||!submitAcknowledged}
+                          onClick={()=>{void submitFrozenApplication()}}>
+                          Submit frozen application for independent review
+                        </Button>
+                      </section>}
+                      {complianceSubmissions.length>0 && <section className="border-t pt-5 space-y-3">
+                        <h3 className="font-semibold text-lg">Application review history</h3>
+                        {complianceSubmissions.map(item=><div key={item.submission_id}
+                          className="border rounded-lg p-3 text-sm">
+                          <p className="font-semibold">
+                            Version {item.intake_version} · {item.preliminary_status.replaceAll('_',' ')}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Submitted {new Date(item.submitted_at).toLocaleString()}
+                          </p>
+                          {item.correction_reason&&<p className="mt-2 text-amber-800">
+                            Required action: {item.correction_reason}
+                          </p>}
+                          <p className="text-xs text-gray-600 mt-2">
+                            Preliminary review only — legal compliance and dealer operations not approved.
+                          </p>
+                        </div>)}
+                      </section>}
                       {draft && (
                         <section className="border-t pt-3 text-sm">
                           <h3 className="font-semibold">Saved application version {draft.submission_version}</h3>
