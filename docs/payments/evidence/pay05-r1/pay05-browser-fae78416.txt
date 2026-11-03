@@ -1,0 +1,19 @@
+
+Running 12 tests using 1 worker
+
+  ✓   1 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:247:1 › runtime provenance: the web build and the backend are the candidate; Paynow is the local protocol simulator, real Paynow off (45.1s)
+  ✓   2 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:256:1 › C (browser, desktop): the garage connects ITS OWN Paynow merchant — field errors where they belong, the key never shown again (26.5s)
+  ✓   3 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:300:1 › C (browser, desktop): an independent operator verifies — three reviews and a note; the server proves the key with Paynow (40.4s)
+  ✓   4 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:336:1 › D/E (browser, desktop): the customer pays on Paynow's (simulated) page; coming back proves nothing until CarUp reads Paynow (1.1m)
+  ✓   5 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:363:1 › D/E (browser, tablet): EcoCash — "approve on your phone" is pending, never paid, until Paynow confirms (1.0m)
+  ✓   6 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:386:1 › D/E (browser, mobile): InnBucks — the code stays on screen, survives a reload in "continue this payment", and counts only when Paynow says Paid (1.1m)
+  ✓   7 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:417:1 › D/E (browser, mobile): O'mari — a wrong code is refused in words; the right one completes an authenticated payment (1.0m)
+  ✓   8 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:445:1 › E (browser, tablet): the garage reads its Paynow payments in its own words; refunds are guided to the Paynow dashboard (55.0s)
+  ✓   9 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:460:1 › E (browser, desktop): a stopped request stays HELD — the operator sees it with CarUp's time and cannot release it early (1.0m)
+  ✓  10 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:480:3 › E/F: Paynow checkout, garage connection and operator panel at desktop — accessible, no overflow, no clipped control (1.2m)
+  ✓  11 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:480:3 › E/F: Paynow checkout, garage connection and operator panel at tablet — accessible, no overflow, no clipped control (1.0m)
+  ✓  12 [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:480:3 › E/F: Paynow checkout, garage connection and operator panel at mobile — accessible, no overflow, no clipped control (1.0m)
+
+  Slow test file: [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts (11.2m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  12 passed (11.3m)

@@ -1,0 +1,667 @@
+{
+  "programme": "CARUP-PAY-04-LR01",
+  "level": "Level 1 (local simulator; no provider, no money)",
+  "recorded_at": "2026-11-03T15:42:22.542Z",
+  "backend_commit": "fae7841611b49d3569ec2f1d9cb0c3702a0ef46a",
+  "harness_commit": "fae7841611b49d3569ec2f1d9cb0c3702a0ef46a",
+  "stack": "carup-pay04-supabase 127.0.0.1:56321/56322",
+  "results": [
+    {
+      "case": "1-5",
+      "title": "Customer requests service; garage estimates; customer authorizes; work completed; parts usage reconciled",
+      "pass": true,
+      "detail": {
+        "can_issue_invoice": true,
+        "parts_used": [
+          {
+            "id": "a618cc5d-e89c-4d7d-9fbe-a88717e1fc1e",
+            "quantity": 2,
+            "active": true
+          }
+        ],
+        "suggested_lines": [
+          {
+            "category": "labour",
+            "source_kind": "service_record",
+            "quantity": "1",
+            "unit_price": "140.00"
+          },
+          {
+            "category": "part",
+            "source_kind": "part_usage",
+            "quantity": "2",
+            "unit_price": "35.00"
+          }
+        ]
+      }
+    },
+    {
+      "case": "6",
+      "title": "Garage issues the correct invoice (and untrue lines are refused)",
+      "pass": true,
+      "detail": {
+        "manual_part": [
+          400,
+          "A part can only be invoiced from a part recorded as used on this job. Record the part first."
+        ],
+        "over_quantity": [
+          400,
+          "A part line bills more than was used on this job."
+        ],
+        "issued": 201,
+        "number": "INV-000019",
+        "total": "210.00",
+        "lines": [
+          [
+            "labour",
+            "1",
+            "140.00",
+            "140.00"
+          ],
+          [
+            "part",
+            "2",
+            "35.00",
+            "70.00"
+          ]
+        ]
+      }
+    },
+    {
+      "case": "7",
+      "title": "Customer accesses the invoice, the garage’s payment instructions and how to pay",
+      "pass": true,
+      "detail": {
+        "invoice_visible": true,
+        "lines": 2,
+        "online_payment": {
+          "available": true,
+          "simulated": true,
+          "merchant_display_name": "PAY04 QA Garage A (simulated merchant)",
+          "max_amount": "210.00",
+          "currency": "USD",
+          "simulation_notice": "Simulated payment provider — test environment. No real money moves."
+        },
+        "instructions_version": 1
+      }
+    },
+    {
+      "case": "8",
+      "title": "Garage records a partial external payment (cash)",
+      "pass": true,
+      "detail": {
+        "status": 201,
+        "payment_status": "partially_paid",
+        "receipt": "RCT-000022"
+      }
+    },
+    {
+      "case": "9",
+      "title": "Invoice balance decreases correctly",
+      "pass": true,
+      "detail": {
+        "invoice_id": "af81582a-eab2-4fdc-9efa-c7d0373685ea",
+        "currency": "USD",
+        "invoice_status": "issued",
+        "total_amount": 210,
+        "declared_paid": 60,
+        "provider_paid": 0,
+        "paid_amount": 60,
+        "balance_amount": 150,
+        "provider_reserved": 0,
+        "uncommitted_balance": 150,
+        "payment_status": "partially_paid"
+      }
+    },
+    {
+      "case": "15",
+      "title": "Duplicate payment request is idempotent",
+      "pass": true,
+      "detail": {
+        "replayed": true,
+        "rows": "1"
+      }
+    },
+    {
+      "case": "16",
+      "title": "Overpayment fails",
+      "pass": true,
+      "detail": {
+        "status": 409,
+        "message": "That is more than the invoice balance (150.00 remaining)."
+      }
+    },
+    {
+      "case": "17",
+      "title": "Wrong currency fails (never converted)",
+      "pass": true,
+      "detail": {
+        "declared": [
+          400,
+          "The payment currency must match the invoice currency. Amounts are never converted."
+        ],
+        "online_collection_currency": "USD"
+      }
+    },
+    {
+      "case": "10",
+      "title": "Garage records the remaining payment (bank transfer)",
+      "pass": true,
+      "detail": {
+        "payment_status": "paid",
+        "money": {
+          "invoice_id": "af81582a-eab2-4fdc-9efa-c7d0373685ea",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 210,
+          "declared_paid": 210,
+          "provider_paid": 0,
+          "paid_amount": 210,
+          "balance_amount": 0,
+          "provider_reserved": 0,
+          "uncommitted_balance": 0,
+          "payment_status": "paid"
+        }
+      }
+    },
+    {
+      "case": "11",
+      "title": "Receipt is generated from the actual payment record",
+      "pass": true,
+      "detail": [
+        {
+          "n": "RCT-000022",
+          "amount": 60,
+          "pay": "a210a535-4c5e-433a-8f1c-5d25c9377ae7",
+          "pay_amount": 60,
+          "source": "garage_recorded_external",
+          "status": "issued"
+        },
+        {
+          "n": "RCT-000023",
+          "amount": 150,
+          "pay": "287ba28e-155d-4434-9f36-dc97b0199b1b",
+          "pay_amount": 150,
+          "source": "garage_recorded_external",
+          "status": "issued"
+        }
+      ]
+    },
+    {
+      "case": "12",
+      "title": "Customer sees the correct payment provenance",
+      "pass": true,
+      "detail": {
+        "payment_status": "paid",
+        "labels": [
+          "Recorded by the garage. CarUp has not processed or verified this payment.",
+          "Recorded by the garage. CarUp has not processed or verified this payment."
+        ],
+        "money": {
+          "declared_paid": "210.00",
+          "provider_paid": "0.00",
+          "provider_reserved": "0.00",
+          "uncommitted_balance": "0.00"
+        },
+        "provider_payments": [
+          "stopped"
+        ]
+      }
+    },
+    {
+      "case": "18",
+      "title": "Payment reversal updates the balance and the receipt state",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "money": {
+          "invoice_id": "af81582a-eab2-4fdc-9efa-c7d0373685ea",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 210,
+          "declared_paid": 60,
+          "provider_paid": 0,
+          "paid_amount": 60,
+          "balance_amount": 150,
+          "provider_reserved": 0,
+          "uncommitted_balance": 150,
+          "payment_status": "partially_paid"
+        },
+        "receipt": "voided",
+        "payment_rows_including_reversal": "3"
+      }
+    },
+    {
+      "case": "13",
+      "title": "An unauthorized customer cannot read the invoice",
+      "pass": true,
+      "detail": {
+        "pay04_view": 404,
+        "mine_contains": false,
+        "garage_view": 403,
+        "start_payment": 404
+      }
+    },
+    {
+      "case": "14",
+      "title": "The wrong garage cannot mutate the invoice",
+      "pass": true,
+      "detail": {
+        "garageB_pay": 404,
+        "garageB_void": 404,
+        "garageB_reverse": 404,
+        "garageA_mechanic_pay": 403,
+        "garageB_view": 404
+      }
+    },
+    {
+      "case": "19",
+      "title": "Provider-simulated success produces a separately classified, confirmed payment",
+      "pass": true,
+      "detail": {
+        "started": 201,
+        "replay_same_collection": true,
+        "in_flight": {
+          "invoice_id": "ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 120,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 120,
+          "provider_reserved": 120,
+          "uncommitted_balance": 0,
+          "payment_status": "unpaid"
+        },
+        "simulator_redirect": {
+          "status": 303,
+          "location": "http://127.0.0.1:5203/dashboard/service-requests?invoice=ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6&collection=1cd82d7c-b964-481b-affa-46d0f40ec4ba&pay04=returned"
+        },
+        "verified_state": "confirmed",
+        "money_after": {
+          "invoice_id": "ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 120,
+          "declared_paid": 0,
+          "provider_paid": 120,
+          "paid_amount": 120,
+          "balance_amount": 0,
+          "provider_reserved": 0,
+          "uncommitted_balance": 0,
+          "payment_status": "paid"
+        },
+        "canonical_row": {
+          "gateway": "pay04_garage_provider_simulator",
+          "status": "paid",
+          "pay02_product_code": "gar.invoice.customer_payment",
+          "pay02_commercial_category": "category_b_third_party",
+          "pay02_funds_owner": "garage_business_tenant",
+          "pay02_legal_beneficiary": "tenant:e1d7ba56-aa40-499e-865b-4aba5b97bbc6",
+          "pay02_settlement_status": "not_applicable_sandbox",
+          "pay01a_actor_id": "p4qa_customer_c67c3dde"
+        },
+        "declared_rows": "0",
+        "provider_receipt": {
+          "receipt_number": "RCT-000024",
+          "amount": 120,
+          "payment_source": "provider_confirmed",
+          "status": "issued"
+        },
+        "confirmed_notifications": "1",
+        "stock_movements_before_after_payment": [
+          "39",
+          "39"
+        ]
+      }
+    },
+    {
+      "case": "20",
+      "title": "A forged webhook cannot settle an invoice",
+      "pass": true,
+      "detail": {
+        "unsigned": 400,
+        "wrong_signature": 400,
+        "stale_signature": 400,
+        "money": {
+          "invoice_id": "c2acf6ea-321a-4e34-a5c3-c6fc02ab762b",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 60,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 60,
+          "provider_reserved": 60,
+          "uncommitted_balance": 0,
+          "payment_status": "unpaid"
+        },
+        "canonical_status": "pending"
+      }
+    },
+    {
+      "case": "21",
+      "title": "A partial provider refund generates the correct reconciliation state (F5 hold, operator resolution)",
+      "pass": true,
+      "detail": {
+        "external_refund": 200,
+        "held_status": "reconciliation_hold",
+        "held_money": {
+          "invoice_id": "ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 120,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 120,
+          "provider_reserved": 120,
+          "uncommitted_balance": 0,
+          "payment_status": "unpaid"
+        },
+        "hold_listed": true,
+        "garage_admin_resolve": 403,
+        "resolved": [
+          200,
+          "partially_refunded"
+        ],
+        "money_after": {
+          "invoice_id": "ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 120,
+          "declared_paid": 0,
+          "provider_paid": 90,
+          "paid_amount": 90,
+          "balance_amount": 30,
+          "provider_reserved": 0,
+          "uncommitted_balance": 30,
+          "payment_status": "partially_paid"
+        },
+        "receipts": [
+          {
+            "n": "RCT-000024",
+            "amount": 120,
+            "status": "voided"
+          },
+          {
+            "n": "RCT-000025",
+            "amount": 90,
+            "status": "issued"
+          }
+        ]
+      }
+    },
+    {
+      "case": "22",
+      "title": "A provider outage does not fabricate a payment",
+      "pass": true,
+      "detail": {
+        "outage_webhook_delivery": [
+          {
+            "type": "payment.updated",
+            "status": 502
+          }
+        ],
+        "provider_redirect": 303,
+        "verify_during_outage": [
+          502,
+          "PAY04_PROVIDER_RETRIEVAL_UNAVAILABLE"
+        ],
+        "canonical_status_during": "pending",
+        "money_during": {
+          "invoice_id": "669fd362-ab40-4d8e-9741-7dd4b3986a07",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 50,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 50,
+          "provider_reserved": 50,
+          "uncommitted_balance": 0,
+          "payment_status": "unpaid"
+        },
+        "customer_sees": "awaiting_provider",
+        "recovery_delivery": [
+          {
+            "type": "payment.updated",
+            "status": 200
+          }
+        ],
+        "money_after": {
+          "invoice_id": "669fd362-ab40-4d8e-9741-7dd4b3986a07",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 50,
+          "declared_paid": 0,
+          "provider_paid": 50,
+          "paid_amount": 50,
+          "balance_amount": 0,
+          "provider_reserved": 0,
+          "uncommitted_balance": 0,
+          "payment_status": "paid"
+        },
+        "declared_rows": "0"
+      }
+    },
+    {
+      "case": "23",
+      "title": "Cancellation and adjustment rules preserve history",
+      "pass": true,
+      "detail": {
+        "void_with_declared_payment": [
+          409,
+          "This invoice has payments recorded against it. Reverse them before voiding."
+        ],
+        "void_with_online_payment_in_progress": [
+          409,
+          "A payment through the garage’s payment provider is in progress on this invoice. Wait for it to finish, or stop it, before voiding."
+        ],
+        "checkout_stopped": 200,
+        "voided": 200,
+        "reissued": [
+          201,
+          "INV-000024",
+          "80.00"
+        ],
+        "old_invoice_history": [
+          "issued",
+          "payment_recorded",
+          "payment_reversed",
+          "voided"
+        ],
+        "old_invoice_provider_history": [
+          "initiated",
+          "provider_attached",
+          "cancelled",
+          "provider_observed"
+        ]
+      }
+    },
+    {
+      "case": "R",
+      "title": "The garage refunds a provider-confirmed payment in full; the customer is told",
+      "pass": true,
+      "detail": {
+        "customer_refund": 403,
+        "refund": [
+          200,
+          "refunded"
+        ],
+        "money": {
+          "invoice_id": "1757cf83-4750-4e1b-89b0-56c94efe9024",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 70,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 70,
+          "provider_reserved": 0,
+          "uncommitted_balance": 70,
+          "payment_status": "unpaid"
+        },
+        "refunded_notifications": "1"
+      }
+    },
+    {
+      "case": "RV1",
+      "title": "A waiting provider row never claims confirmation; the invoice then names the source that counts",
+      "pass": true,
+      "detail": {
+        "waiting_row": {
+          "state": "awaiting_provider",
+          "source_label": "Through the garage’s own payment provider. Money paid this way goes to the garage, not to CarUp."
+        },
+        "confirmed_state": "confirmed",
+        "invoice_source_label": "Confirmed by the garage’s payment provider. The money is paid to the garage, not to CarUp."
+      }
+    },
+    {
+      "case": "RV2",
+      "title": "A part billed on an issued invoice cannot be reversed, even on a reopened work order; after a void it can",
+      "pass": true,
+      "detail": {
+        "reopened": 200,
+        "reverse_while_billed": [
+          409,
+          "This part is billed on an issued invoice. Void the invoice before reversing the part."
+        ],
+        "voided": 200,
+        "reverse_after_void": [
+          200,
+          ""
+        ]
+      }
+    },
+    {
+      "case": "C1",
+      "title": "Concurrency: five simultaneous online payments for the whole balance — exactly one reserves it",
+      "pass": true,
+      "detail": {
+        "statuses": [
+          409,
+          409,
+          409,
+          201,
+          409
+        ],
+        "money": {
+          "invoice_id": "51aa9fa1-3d5c-4bfe-8781-5375723d2587",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 100,
+          "declared_paid": 0,
+          "provider_paid": 0,
+          "paid_amount": 0,
+          "balance_amount": 100,
+          "provider_reserved": 100,
+          "uncommitted_balance": 0,
+          "payment_status": "unpaid"
+        }
+      }
+    },
+    {
+      "case": "C2",
+      "title": "Concurrency: a cash record racing the reservation can never over-commit the invoice",
+      "pass": true,
+      "detail": {
+        "status": 409,
+        "message": "Part of this balance is being paid through the garage’s payment provider, so it cannot be recorded again. At most 0.00 can be recorded now."
+      }
+    },
+    {
+      "case": "C3",
+      "title": "Concurrency: five provider event deliveries at once change nothing once the money is counted (one allocation, one receipt)",
+      "pass": true,
+      "detail": {
+        "allocations_before": "1",
+        "allocations_after": "1",
+        "live_receipts": "1",
+        "money": {
+          "invoice_id": "51aa9fa1-3d5c-4bfe-8781-5375723d2587",
+          "currency": "USD",
+          "invoice_status": "issued",
+          "total_amount": 100,
+          "declared_paid": 0,
+          "provider_paid": 100,
+          "paid_amount": 100,
+          "balance_amount": 0,
+          "provider_reserved": 0,
+          "uncommitted_balance": 0,
+          "payment_status": "paid"
+        },
+        "deliveries": [
+          [
+            {
+              "type": "payment.updated",
+              "status": 200
+            }
+          ],
+          [
+            {
+              "type": "payment.updated",
+              "status": 200
+            }
+          ],
+          [
+            {
+              "type": "payment.updated",
+              "status": 200
+            }
+          ],
+          [
+            {
+              "type": "payment.updated",
+              "status": 200
+            }
+          ],
+          [
+            {
+              "type": "payment.updated",
+              "status": 200
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "case": "INV",
+      "title": "Database invariants over every invoice of garage A",
+      "pass": true,
+      "detail": {
+        "over_allocated": "0",
+        "receipts_not_equal_counted": "0",
+        "non_external_declared_rows": "0",
+        "garage_money_as_carup_money": "0",
+        "garage_collection_rows_by_gateway": "pay04_garage_provider_simulator:24,paynow_zimbabwe:56",
+        "stock_movement_types_seen": "consumption,opening,reversal"
+      }
+    }
+  ],
+  "facts": {
+    "job1": {
+      "caseId": "c14d8825-fb39-4654-b897-9b7da8fbf964",
+      "workOrderId": "37f8bad0-4342-46d8-95cf-3cbc861ae0ea"
+    },
+    "invoice1": {
+      "id": "af81582a-eab2-4fdc-9efa-c7d0373685ea",
+      "number": "INV-000019",
+      "total": "210.00"
+    },
+    "invoice2": {
+      "id": "ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6",
+      "number": "INV-000020",
+      "collection": "1cd82d7c-b964-481b-affa-46d0f40ec4ba"
+    },
+    "raceInvoice": "51aa9fa1-3d5c-4bfe-8781-5375723d2587",
+    "raceCollection": "7872710e-5cb5-4dd6-ba3a-be0484c63249"
+  },
+  "summary": {
+    "total": 26,
+    "passed": 26,
+    "failed": []
+  }
+}

@@ -1,0 +1,3 @@
+PAY-05-R1 state invariants at fae7841611b49d3569ec2f1d9cb0c3702a0ef46a, on disposable PostgreSQL
+Finance scenarios replayed from the independent review: 8; with invariant violations: 0
+Scenario contents are held privately. See the certification, section 8.

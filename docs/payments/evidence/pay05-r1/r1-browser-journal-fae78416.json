@@ -1,0 +1,524 @@
+[
+  {
+    "step": "fixtures",
+    "at": "2026-11-03T15:04:04.709Z",
+    "escrow": {
+      "invoice": "INV-000009",
+      "status": "pending"
+    },
+    "released": {
+      "invoice": "INV-000010",
+      "status": "pending"
+    },
+    "settled": {
+      "invoice": "INV-000011",
+      "status": "pending"
+    },
+    "disputed": {
+      "invoice": "INV-000012",
+      "status": "paid"
+    },
+    "lateOpen": {
+      "invoice": "INV-000013",
+      "status": "cancelled"
+    },
+    "lateClosed": {
+      "invoice": "INV-000014",
+      "status": "cancelled"
+    },
+    "reversed": {
+      "invoice": "INV-000015",
+      "status": "paid"
+    },
+    "counted": {
+      "invoice": "INV-000016",
+      "status": "paid"
+    },
+    "waiting": {
+      "invoice": "INV-000017",
+      "status": "pending"
+    },
+    "waitingPast": {
+      "invoice": "INV-000018",
+      "status": "pending"
+    },
+    "reviewedHeld": {
+      "invoice": "INV-000019",
+      "status": "pending"
+    },
+    "notNeeded": {
+      "invoice": "INV-000020",
+      "status": "pending"
+    },
+    "closedLive": {
+      "invoice": "INV-000021",
+      "status": "cancelled"
+    },
+    "partial": {
+      "invoice": "INV-000022",
+      "status": "paid"
+    }
+  },
+  {
+    "step": "customer-escrow-desktop",
+    "at": "2026-11-03T15:05:17.295Z",
+    "state": "at_paynow",
+    "facts": {
+      "provider": "Paid into Paynow; Paynow releases it after its 24-hour window",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not pay again. Paynow releases this money to the garage, or CarUp reviews it."
+    }
+  },
+  {
+    "step": "customer-released-desktop",
+    "at": "2026-11-03T15:05:23.643Z",
+    "state": "released",
+    "facts": {
+      "provider": "Waiting for approval on the phone",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not approve the old request on your phone. If you already did, check its status before paying again."
+    }
+  },
+  {
+    "step": "customer-settled-desktop",
+    "at": "2026-11-03T15:05:30.042Z",
+    "state": "settled_outside",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: settled outside CarUp.",
+      "next": "If you also paid through Paynow, check its status and tell the garage."
+    }
+  },
+  {
+    "step": "customer-disputed-desktop",
+    "at": "2026-11-03T15:05:36.226Z",
+    "state": "under_review",
+    "facts": {
+      "provider": "Disputed; Paynow holds the money",
+      "allocation": "Not counted on this invoice",
+      "review": "CarUp is reviewing this payment.",
+      "next": "Do not pay again until the review ends."
+    }
+  },
+  {
+    "step": "customer-lateOpen-desktop",
+    "at": "2026-11-03T15:05:42.257Z",
+    "state": "under_review",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Not counted on this invoice",
+      "review": "CarUp is reviewing this payment.",
+      "next": "Do not pay again until the review ends."
+    }
+  },
+  {
+    "step": "customer-lateClosed-desktop",
+    "at": "2026-11-03T15:06:12.743Z",
+    "state": "closed_not_counted",
+    "facts": {
+      "provider": "Cancelled",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: it does not count on this invoice.",
+      "next": "If Paynow took your money, ask the garage how it was settled."
+    }
+  },
+  {
+    "step": "customer-reversed-desktop",
+    "at": "2026-11-03T15:06:18.940Z",
+    "state": "not_counted",
+    "facts": {
+      "provider": "A status CarUp does not recognise",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: it counts again only if Paynow reports it paid.",
+      "next": "Ask the garage before paying again: Paynow may have returned this money."
+    }
+  },
+  {
+    "step": "customer-counted-desktop",
+    "at": "2026-11-03T15:06:24.805Z",
+    "state": "confirmed",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Counted on this invoice: 25.00 USD",
+      "review": "None",
+      "next": ""
+    }
+  },
+  {
+    "step": "customer-reviewedHeld-desktop",
+    "at": "2026-11-03T15:06:30.942Z",
+    "state": "reviewed_held",
+    "facts": {
+      "provider": "Cancelled",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: it counts only if Paynow reports it paid.",
+      "next": "Do not pay again yet. Ask the garage: Paynow may still hold this money."
+    }
+  },
+  {
+    "step": "customer-notNeeded-desktop",
+    "at": "2026-11-03T15:06:37.073Z",
+    "state": "no_longer_needed",
+    "facts": {
+      "provider": "Waiting for payment",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not complete this request: this invoice no longer needs it. If you already paid it, check its status and ask the garage."
+    }
+  },
+  {
+    "step": "customer-closedLive-desktop",
+    "at": "2026-11-03T15:06:43.256Z",
+    "state": "closed_live",
+    "facts": {
+      "provider": "No status recorded",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not approve this request on your phone: CarUp closed it. If you already did, check its status and tell the garage."
+    }
+  },
+  {
+    "step": "customer-partial-desktop",
+    "at": "2026-11-03T15:07:14.908Z",
+    "state": "confirmed_partial",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Counted on this invoice: 15.00 USD",
+      "review": "CarUp is reviewing the money that is not counted.",
+      "next": "Do not pay again until the review ends."
+    }
+  },
+  {
+    "step": "garage-desktop",
+    "at": "2026-11-03T15:08:21.603Z",
+    "ok": true
+  },
+  {
+    "step": "operator-desktop",
+    "at": "2026-11-03T15:09:15.468Z",
+    "ok": true
+  },
+  {
+    "step": "customer-escrow-tablet",
+    "at": "2026-11-03T15:10:20.191Z",
+    "state": "at_paynow",
+    "facts": {
+      "provider": "Paid into Paynow; Paynow releases it after its 24-hour window",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not pay again. Paynow releases this money to the garage, or CarUp reviews it."
+    }
+  },
+  {
+    "step": "customer-released-tablet",
+    "at": "2026-11-03T15:10:27.141Z",
+    "state": "released",
+    "facts": {
+      "provider": "Waiting for approval on the phone",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not approve the old request on your phone. If you already did, check its status before paying again."
+    }
+  },
+  {
+    "step": "customer-settled-tablet",
+    "at": "2026-11-03T15:10:33.258Z",
+    "state": "settled_outside",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: settled outside CarUp.",
+      "next": "If you also paid through Paynow, check its status and tell the garage."
+    }
+  },
+  {
+    "step": "customer-disputed-tablet",
+    "at": "2026-11-03T15:10:39.288Z",
+    "state": "under_review",
+    "facts": {
+      "provider": "Disputed; Paynow holds the money",
+      "allocation": "Not counted on this invoice",
+      "review": "CarUp is reviewing this payment.",
+      "next": "Do not pay again until the review ends."
+    }
+  },
+  {
+    "step": "customer-lateOpen-tablet",
+    "at": "2026-11-03T15:10:45.372Z",
+    "state": "under_review",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Not counted on this invoice",
+      "review": "CarUp is reviewing this payment.",
+      "next": "Do not pay again until the review ends."
+    }
+  },
+  {
+    "step": "customer-lateClosed-tablet",
+    "at": "2026-11-03T15:11:21.740Z",
+    "state": "closed_not_counted",
+    "facts": {
+      "provider": "Cancelled",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: it does not count on this invoice.",
+      "next": "If Paynow took your money, ask the garage how it was settled."
+    }
+  },
+  {
+    "step": "customer-reversed-tablet",
+    "at": "2026-11-03T15:11:28.440Z",
+    "state": "not_counted",
+    "facts": {
+      "provider": "A status CarUp does not recognise",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: it counts again only if Paynow reports it paid.",
+      "next": "Ask the garage before paying again: Paynow may have returned this money."
+    }
+  },
+  {
+    "step": "customer-counted-tablet",
+    "at": "2026-11-03T15:11:34.619Z",
+    "state": "confirmed",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Counted on this invoice: 25.00 USD",
+      "review": "None",
+      "next": ""
+    }
+  },
+  {
+    "step": "customer-reviewedHeld-tablet",
+    "at": "2026-11-03T15:11:40.825Z",
+    "state": "reviewed_held",
+    "facts": {
+      "provider": "Cancelled",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: it counts only if Paynow reports it paid.",
+      "next": "Do not pay again yet. Ask the garage: Paynow may still hold this money."
+    }
+  },
+  {
+    "step": "customer-notNeeded-tablet",
+    "at": "2026-11-03T15:11:46.961Z",
+    "state": "no_longer_needed",
+    "facts": {
+      "provider": "Waiting for payment",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not complete this request: this invoice no longer needs it. If you already paid it, check its status and ask the garage."
+    }
+  },
+  {
+    "step": "customer-closedLive-tablet",
+    "at": "2026-11-03T15:11:53.157Z",
+    "state": "closed_live",
+    "facts": {
+      "provider": "No status recorded",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not approve this request on your phone: CarUp closed it. If you already did, check its status and tell the garage."
+    }
+  },
+  {
+    "step": "customer-partial-tablet",
+    "at": "2026-11-03T15:12:22.773Z",
+    "state": "confirmed_partial",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Counted on this invoice: 15.00 USD",
+      "review": "CarUp is reviewing the money that is not counted.",
+      "next": "Do not pay again until the review ends."
+    }
+  },
+  {
+    "step": "garage-tablet",
+    "at": "2026-11-03T15:13:28.718Z",
+    "ok": true
+  },
+  {
+    "step": "operator-tablet",
+    "at": "2026-11-03T15:14:24.769Z",
+    "ok": true
+  },
+  {
+    "step": "customer-escrow-mobile",
+    "at": "2026-11-03T15:15:30.054Z",
+    "state": "at_paynow",
+    "facts": {
+      "provider": "Paid into Paynow; Paynow releases it after its 24-hour window",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not pay again. Paynow releases this money to the garage, or CarUp reviews it."
+    }
+  },
+  {
+    "step": "customer-released-mobile",
+    "at": "2026-11-03T15:15:36.122Z",
+    "state": "released",
+    "facts": {
+      "provider": "Waiting for approval on the phone",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not approve the old request on your phone. If you already did, check its status before paying again."
+    }
+  },
+  {
+    "step": "customer-settled-mobile",
+    "at": "2026-11-03T15:15:42.337Z",
+    "state": "settled_outside",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: settled outside CarUp.",
+      "next": "If you also paid through Paynow, check its status and tell the garage."
+    }
+  },
+  {
+    "step": "customer-disputed-mobile",
+    "at": "2026-11-03T15:15:48.343Z",
+    "state": "under_review",
+    "facts": {
+      "provider": "Disputed; Paynow holds the money",
+      "allocation": "Not counted on this invoice",
+      "review": "CarUp is reviewing this payment.",
+      "next": "Do not pay again until the review ends."
+    }
+  },
+  {
+    "step": "customer-lateOpen-mobile",
+    "at": "2026-11-03T15:15:54.470Z",
+    "state": "under_review",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Not counted on this invoice",
+      "review": "CarUp is reviewing this payment.",
+      "next": "Do not pay again until the review ends."
+    }
+  },
+  {
+    "step": "customer-lateClosed-mobile",
+    "at": "2026-11-03T15:16:30.705Z",
+    "state": "closed_not_counted",
+    "facts": {
+      "provider": "Cancelled",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: it does not count on this invoice.",
+      "next": "If Paynow took your money, ask the garage how it was settled."
+    }
+  },
+  {
+    "step": "customer-reversed-mobile",
+    "at": "2026-11-03T15:16:37.004Z",
+    "state": "not_counted",
+    "facts": {
+      "provider": "A status CarUp does not recognise",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: it counts again only if Paynow reports it paid.",
+      "next": "Ask the garage before paying again: Paynow may have returned this money."
+    }
+  },
+  {
+    "step": "customer-counted-mobile",
+    "at": "2026-11-03T15:16:42.703Z",
+    "state": "confirmed",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Counted on this invoice: 25.00 USD",
+      "review": "None",
+      "next": ""
+    }
+  },
+  {
+    "step": "customer-reviewedHeld-mobile",
+    "at": "2026-11-03T15:16:48.671Z",
+    "state": "reviewed_held",
+    "facts": {
+      "provider": "Cancelled",
+      "allocation": "Not counted on this invoice",
+      "review": "Reviewed: it counts only if Paynow reports it paid.",
+      "next": "Do not pay again yet. Ask the garage: Paynow may still hold this money."
+    }
+  },
+  {
+    "step": "customer-notNeeded-mobile",
+    "at": "2026-11-03T15:16:54.921Z",
+    "state": "no_longer_needed",
+    "facts": {
+      "provider": "Waiting for payment",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not complete this request: this invoice no longer needs it. If you already paid it, check its status and ask the garage."
+    }
+  },
+  {
+    "step": "customer-closedLive-mobile",
+    "at": "2026-11-03T15:17:01.088Z",
+    "state": "closed_live",
+    "facts": {
+      "provider": "No status recorded",
+      "allocation": "Not counted on this invoice",
+      "review": "None",
+      "next": "Do not approve this request on your phone: CarUp closed it. If you already did, check its status and tell the garage."
+    }
+  },
+  {
+    "step": "customer-partial-mobile",
+    "at": "2026-11-03T15:17:31.187Z",
+    "state": "confirmed_partial",
+    "facts": {
+      "provider": "Paid",
+      "allocation": "Counted on this invoice: 15.00 USD",
+      "review": "CarUp is reviewing the money that is not counted.",
+      "next": "Do not pay again until the review ends."
+    }
+  },
+  {
+    "step": "garage-mobile",
+    "at": "2026-11-03T15:18:37.726Z",
+    "ok": true
+  },
+  {
+    "step": "operator-mobile",
+    "at": "2026-11-03T15:19:33.559Z",
+    "ok": true
+  },
+  {
+    "step": "keyboard-customer-stop-mobile",
+    "at": "2026-11-03T15:21:40.551Z",
+    "invoice": "INV-000023"
+  },
+  {
+    "step": "keyboard-customer-states-mobile",
+    "at": "2026-11-03T15:22:43.177Z",
+    "ok": true
+  },
+  {
+    "step": "keyboard-customer-stop-desktop",
+    "at": "2026-11-03T15:24:50.291Z",
+    "invoice": "INV-000024"
+  },
+  {
+    "step": "keyboard-customer-states-desktop",
+    "at": "2026-11-03T15:25:53.687Z",
+    "ok": true
+  },
+  {
+    "step": "keyboard-garage",
+    "at": "2026-11-03T15:28:01.113Z",
+    "invoice": "INV-000025"
+  },
+  {
+    "step": "keyboard-operator",
+    "at": "2026-11-03T15:30:08.973Z",
+    "no_focus_ring_stops": 0
+  },
+  {
+    "step": "focus-indicator-gaps",
+    "at": "2026-11-03T15:31:06.226Z",
+    "count": 0,
+    "stops": []
+  }
+]
