@@ -18,6 +18,7 @@ const MANUAL_KEYS=Object.freeze({
     'country','gps_latitude','gps_longitude','maps_url','visiting_hours',
     'site_capacity','business_contact_phone','source_confirmation',
   ],
+  CONSENTS_DECLARATIONS:['signer_name','signer_role','privacy_acknowledgment'],
 });
 function reject(message){
   const error=new Error(message);error.statusCode=400;return error;
@@ -66,7 +67,7 @@ function loadExisting(workbook,priorDocument){
 }
 export async function buildManualDealerWorkbook(claim,source,patch,priorDocument=null){
   if(!patch||typeof patch!=='object'||Array.isArray(patch)||
-    Object.keys(patch).some(k=>!['BUSINESS','BRANCHES'].includes(k)))
+    Object.keys(patch).some(k=>!['BUSINESS','BRANCHES','CONSENTS_DECLARATIONS'].includes(k)))
     throw reject('MANUAL_PATCH_UNKNOWN_DOMAIN');
   const workbook=await buildPrefilledDealerWorkbook(claim,source);
   if(priorDocument)loadExisting(workbook,priorDocument);
