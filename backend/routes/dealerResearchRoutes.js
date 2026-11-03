@@ -7,7 +7,7 @@ import { exportBlankDealerIntakeXlsx } from '../services/dealer/dealerIntakeWork
 import {
   uploadPrivateClaimEvidence,listMyClaimEvidence,reviewerEvidencePreview,
   reviewDealerClaim,submitClaimAppeal,exportClaimPrefilledWorkbook,
-  importClaimWorkbook,readMyClaimIntakeDraft,listClaimReviewQueue,
+  importClaimWorkbook,readMyClaimIntakeDraft,listClaimReviewQueue,listReviewClaimEvidence,
 } from '../services/dealer/dealerClaimApplicationService.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { rateLimiter } from '../middleware/securityMiddleware.js';
@@ -150,6 +150,12 @@ router.get('/api/admin/dealership/claims/queue',reviewer,async(req,res,next)=>{
   try {
     const claims=await listClaimReviewQueue(req.userContext);
     res.set('Cache-Control','no-store').json({claims});
+  } catch(error){errorResponse(res,next,error)}
+});
+router.get('/api/admin/dealership/claims/:claimId/evidence',reviewer,async(req,res,next)=>{
+  try {
+    const evidence=await listReviewClaimEvidence(req.params.claimId,req.userContext);
+    res.set('Cache-Control','no-store').json({evidence});
   } catch(error){errorResponse(res,next,error)}
 });
 // Reviewer must reenter their actual account password for each decision or private
