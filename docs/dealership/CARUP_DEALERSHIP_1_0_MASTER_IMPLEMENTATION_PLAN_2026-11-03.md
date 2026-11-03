@@ -1,13 +1,15 @@
 # CARUP DEALERSHIP 1.0 — MASTER IMPLEMENTATION, DATA-INTAKE, COMMERCE AND ACCEPTANCE PLAN
 
 **Programme ID:** CARUP-DEALER-ONB-001  
-**Version:** 1.0 — proposed for Product Owner review; NOT IMPLEMENTATION AUTHORITY  
+**Version:** 1.1 — claim-first/prelisted dealership programme; proposed for Product Owner review; NOT IMPLEMENTATION AUTHORITY  
 **Date:** 2026-11-03 (Asia/Tokyo)  
 **Repository:** https://github.com/kudzimusar/carup  
 **Document custody:** docs-only proposal branch docs/carup-dealer-1-0-master-plan-20261103; draft review only  
 **Programme controller:** CarUp Programme Moderator, operating under 11-11 Tech governance and exact-head evidence controls  
 **Product Owner approval:** PENDING  
-**Implementation specialist / team:** NOT APPOINTED — selected only after Owner review  
+**Implementation specialist / team:** NOT APPOINTED — selected only after Owner review
+**Execution specification:** docs/dealership/CARUP_DEALERSHIP_1_0_LR01_UNIFIED_IMPLEMENTATION_AGENT_PROMPT.md (same docs-only branch)
+**Controlling external source:** [Zimbabwe Car Dealers & Automotive Companies Database](https://docs.google.com/spreadsheets/d/10YntHvtk9PhrRjZQEMHWfnZgqT84hisTW_oOnt2ZhNQ/edit) — 10 original research tabs + DEV 1–10 guidance/claim registry  
 **Production, shared staging, migrations, real provider charges and merges:** NOT AUTHORIZED by this document
 
 > This is the comprehensive decision and implementation blueprint requested by the Owner. It unifies the previously discussed 25 dealership capabilities, the Zimbabwe dealer research workbook, O2 OCR and workbook foundations, existing compliance and corporate authorities, marketplace and dealer storefront functionality, and CarUp Payments (including PAY-03B and PAY-05 Paynow). It is an implementation specification, not a claim that every feature already works, and is not itself an instruction to begin source changes.
@@ -20,22 +22,23 @@
 
 CarUp must allow an existing or new dealership to:
 
-1. Register or safely claim an already researched dealership/branch.
-2. Download a comprehensive, field-defined Excel onboarding workbook or bring its own Excel/CSV records.
-3. Complete the worksheet offline, once, and upload it. Structured Excel cells are parsed directly; **OCR is used to read unstructured supporting images/PDFs, not to re-read Excel cells**.
-4. Receive an automatically populated, fully editable dealership application: legal identity, organization, branches, licences, authorizations, operations, sourcing, finance, warranty, buyer policies, media, contact channels and linked vehicle inventory.
-5. See row- and field-level errors, conflicting evidence and import provenance; correct only genuine gaps without retyping accepted values.
-6. Upload original regulatory evidence and authorize Document Intelligence to propose extracted facts, never verification decisions.
-7. Confirm a versioned participation declaration and submit a governed application.
-8. Receive independent CarUp compliance decisions, organization/tenant provisioning and role activation.
-9. Use a real dealer workspace to administer branches, authorized staff, vehicle inventory, leads, policies, compliance renewals and permitted commercial services.
-10. Present an accurate, attractive, accessible, SEO-capable public dealership page and searchable directory, powered by a buyer-safe publication projection only.
-11. Optionally purchase approved CarUp services or dealer subscriptions using an authorized payment method; Paynow must be integrated **only through its actual eligible first-party merchant arrangement and approved provider state**, never by routing CarUp service money into a garage's separate Paynow merchant.
-12. Keep business verification independent of vehicle/VIN-level identity, duty, inspection, title and listing eligibility.
+1. **CarUp first builds a prelisted research-sourced directory** from the 104 existing dealer/branch discoveries (not 111 distinct dealers), after source/safety/duplicate review. Categorize every source row; link probable legal parents and branches without declaring them verified. Render eligible, truthfully labelled public research profiles **before owner claims**, with "Claim this dealership" and a clear unclaimed/not-business-verified state. Records failing publication review remain internal until resolved.
+2. The real business representative finds its specific profile and submits a secure **business claim request**. Independently validate lawful authority before any private editing/tenant/role access; handle conflicts, multiple claims, branches and appeals.
+3. **After a safe claim is approved**, offer the authorized representative a **dealership-specific prefilled XLSX** using supported, provenance-labelled source data, or their own Excel/CSV records; the workbook contains missing sections to complete. Applicants must confirm imported research values rather than the source becoming silently dealer-verified.
+4. Complete the prefilled worksheet offline, once, and upload it. Structured Excel cells are parsed directly; **OCR is used to read unstructured supporting images/PDFs, not to re-read Excel cells**.
+5. Receive an automatically populated, fully editable dealership application: legal identity, organization, branches, licences, authorizations, operations, sourcing, finance, warranty, buyer policies, media, contact channels and linked vehicle inventory.
+6. See row- and field-level errors, conflicting evidence and import provenance; correct only genuine gaps without retyping accepted values.
+7. Upload original regulatory evidence and authorize Document Intelligence to propose extracted facts, never verification decisions.
+8. Confirm a versioned participation declaration and submit a governed application.
+9. Receive independent CarUp compliance decisions, organization/tenant provisioning and role activation.
+10. Use a real dealer workspace to administer branches, authorized staff, vehicle inventory, leads, policies, compliance renewals and permitted commercial services.
+11. Upgrade the prelisted public profile to an accurate, attractive, accessible, SEO-capable public dealership page and searchable directory, powered by a buyer-safe publication projection only.
+12. Optionally purchase approved CarUp services or dealer subscriptions using an authorized payment method; Paynow must be integrated **only through its actual eligible first-party merchant arrangement and approved provider state**, never by routing CarUp service money into a garage's separate Paynow merchant.
+13. Keep business verification independent of vehicle/VIN-level identity, duty, inspection, title and listing eligibility.
 
 ### 0.2 Full acceptance outcome
 
-A dealer with a completed valid workbook can import all supported values without manual re-entry, resolve only exceptions, submit documentary evidence and signed declarations, be independently approved and automatically provisioned into a correctly scoped legal organization and dealer tenant, operate their branch/inventory tools, and have an approved buyer-safe profile publicly visible. Suspensions, expiry, corrections, publication withdrawal and payment entitlements remain accurate across every surface.
+A reviewed, categorized research source catalogue yields public **unclaimed, clearly unverified** informational profiles for eligible real-world dealer/branch discoveries, while unreliable or unsafe records are withheld. A rightful business representative can **claim their existing profile**, receive an applicant-specific prefilled workbook, import all supported values without re-entry, resolve exceptions, submit documentary evidence and signed declarations, be independently approved and automatically provisioned into a correctly scoped legal organization and dealer tenant, operate their branch/inventory tools, and upgrade the existing stable public URL to an approved buyer-safe company profile. Suspensions, expiry, corrections, publication withdrawal and payment entitlements remain accurate across every surface.
 
 **Full completion** requires integrated PostgreSQL tests, exact-head CI, physical authenticated UAT, visual and accessibility evidence, a 12-dealership pilot, independent certification and explicit Owner go-live authorization. Passing unit tests alone or showing a beautiful mock page does not meet this definition.
 
@@ -47,7 +50,14 @@ A dealer with a completed valid workbook can import all supported values without
 - A document being uploaded or OCR-read does not mean it has been verified. A company being verified does not verify every vehicle. A merchant paying CarUp does not confer a trust badge.
 - No fabricated dealers, stock, locations, prices, inventory counts, sales, customer reviews, complaint counts, verification labels or payment successes. Missing complaint data is **Not measured**, never zero.
 - No unauthorized merge, production change, shared-staging mutation, third-party charge, migration or payment-provider activation. Use explicit environment and provider custody gates.
-- Research directory rows are **potential dealer/branch discoveries**, not verified business entities or permission to create accounts for those businesses.
+- Research directory rows are **potential dealer/branch discoveries**, not verified legal entities or permission to create accounts, memberships or verification badges. A source-grounded public *unclaimed informational listing* is allowed only after a documented eligibility review, with an explicit **"Unclaimed · Not independently business-verified"** disclosure and no claims of current licensing/stock/sales/ownership.
+- **Population must precede claims:** create and categorize a reviewed source-backed prelisting catalogue and the public claim entrypoints as the first working product capability; separate research publication eligibility from full compliance/active dealer publication.
+- **104 vs 111:** 104 actual records have seed IDs ZW-DEAL-0001 through ZW-DEAL-0104 on **Car Dealers Database rows 8–111**. Row 111 is a sheet row, not proof of 111 dealers. These are discovery/branch records, not 104 unique legal entities. Never fabricate seven records or claim all 104 are safe to publish without case-by-case review.
+- Brand text or categories such as "Authorized Franchise Dealer" are **source labels, not CarUp verification**; remove/qualify regulated or official-affiliation claims in unclaimed public display unless independently corroborated and approved. Known URLs, phones, addresses and emails are research data; verify public/business nature, timeliness, lawfulness and site-entity match before publication.
+- **Unclaimed is not an endorsement:** no customer reviews, service guarantees, OEM badges, dealer inventory, warranty claims, complaint counts or staff account until verified through their respective authorities.
+- **Claim authority:** do not let clicking Claim, email-domain inference, workbook upload, phone possession or payment directly confer staff role or data edit. Independent identity/organization evidence, anti-takeover review, audited decision and appeals required.
+- **Branding:** official business logos are optional. Verify image origin, licence/permission and entity/branch alignment; else use a clearly generic CarUp initials placeholder. No unlicensed hotlink or borrowed OEM mark.
+- **Canonical precedence:** this plan and its bound implementation prompt are the controlling product specification. The exact attached Google Sheet (17 original/DEV tabs before revision; now 10 original + DEV 1–10) supplies source observations and field evidence, NOT authority to invent policies. Future agent must consult both before EVERY phase and reconcile actual code; any uncovered requirement becomes a documented exception for Moderator/Owner review, not an independent design expansion.
 - Use approved open-source/free components or already-authorized provider arrangements. Do not introduce paid AI, OCR, geocoding or third-party infrastructure as an unapproved dependency.
 - Each specialist produces evidence and a recommendation. Independent certification and final Moderator ACCEPT / REMEDIATE / BLOCK remain distinct.
 
@@ -72,7 +82,7 @@ This is a **source/evidence snapshot, not a claim of live deployment**. The acti
 | Dealer workspace | web/src/pages/dashboard/dealer/DealerDashboard.tsx | Some tenant-scoped inventory improvements; sample fixed branch selector and local-only permission toggles remain; not complete operations. |
 | Dealer subscription foundation | Draft PR #251, head c2d548edbe4cc7ac9528f3c4a2c7f55a1d8bad88; docs/payments/CARUP_PAY_03B_DEALER_BUSINESS_SUBSCRIPTIONS.md | Legal-organization-owned subscription/entitlement architecture and local/sandbox tests. Dealer storefront plan is unpriced and commercially blocked; not live. |
 | PAY-05 Paynow | Draft PR #254, head 1d3b690198c5f0842fc580f36280714fedaba32a; docs/payments/CARUP_PAY_05_FINAL_CERTIFICATION.md | Level-1 garage-owned customer invoice collections: local protocol simulator, local PostgreSQL/HTTP/browser and CI evidence. No real Paynow provider call or live money; independent final certification remains required. |
-| Zimbabwe dealer source workbook | Google Sheet “Zimbabwe Car Dealers & Automotive Companies Database”, 10 tabs, as reviewed 2026-11-03 | 104 researched dealer/branch entries; 104 intake records **Not started**, 0 formal submissions, 0 verified business claims, 0 approved public summaries, 0 recorded feedback entries. Research presence is not verification. |
+| Zimbabwe dealer source workbook | Google Sheet “Zimbabwe Car Dealers & Automotive Companies Database”, **10 original research tabs plus 10 DEV tabs (DEV 1–10)**, revised 2026-11-03 | 104 researched dealer/branch entries on rows 8–111, 104 intake records **Not started**, 0 formal submissions, 0 independently verified business claims, 0 approved full dealer summaries. DEV 8 catalogues all 104 prelisting candidates; DEV 9 defines claim states; DEV 10 adds seed/claim tests. No business is verified by population. |
 
 **GitHub references:** https://github.com/kudzimusar/carup/pull/208 ; /pull/221 ; /pull/222 ; /pull/251 ; /pull/254.  
 **Note:** These code references are intentionally not asserted to be merged, deployed or run together. D0 must establish the exact implementation parent and current database truth before any source work. No local runtime was executed in the preparation of this plan.
@@ -85,8 +95,8 @@ Every capability has a user outcome, owning authority and acceptance gate; “im
 
 | ID | Capability | Required behavior | Owner of truth / acceptance |
 |---|---|---|---|
-| C01 | Online dealership registration | Business account, legal identity, contact, accountable person, draft continuation; no self-provisioned dealer authority | Registration + Dealer Compliance; tests for identity and registration scopes |
-| C02 | Excel bulk onboarding | Versioned downloadable dealer template; one-file upload populates all permitted fields, branches and child records; no retyping | Dealer import domain; 100% mapped permitted fields and read-back parity |
+| C01 | Seeded discovery and secure dealer registration/claim | Existing unclaimed public business discovery, claim request, identity review, then legal-account application; no self-provisioned authority | Research catalogue + claim service + Registration + Dealer Compliance; verified claim takeover tests |
+| C02 | Prefilled, claim-bound Excel onboarding | Versioned **dealer-specific prefilled** workbook seeded with reviewed research-source candidates after independent claim approval; one upload updates all permitted business/branch/child records without retyping | Dealer import domain + claim identity scope; source versus applicant-confirmed provenance and 100% read-back parity |
 | C03 | Existing-data migration | Existing XLSX/CSV headers and shapes, safe preview/map/dry-run, stable-ID matching | Import domain; conflict/duplicate tests |
 | C04 | AI-assisted field mapping | Deterministic header mapping first; AI only optional, advisory, bounded by allowlists; human confirmation | Governed CarUp AI adapter; no invented row data or authority |
 | C05 | OCR document extraction | Certificate/tax/licence/address evidence; per-field provenance and manual confirmation; expiry and issuer candidates | Document Intelligence observes, Dealer Compliance decides |
@@ -102,8 +112,8 @@ Every capability has a user outcome, owning authority and acceptance gate; “im
 | C15 | Real dealer dashboard | Profile, branch status, inventory, inquiries, policy, payments, compliance tasks and real metrics | Existing relevant domain read models; no mock counters |
 | C16 | Staff permissions | Invitations, authorization and true persisted owner/admin/staff permissions | Corporate/AUTH and tenant membership; tenant isolation |
 | C17 | Vehicle inventory integration | Dealer stock import, per-VIN listing proof, drafts, publish/unpublish, real branch association | Canonical vehicle/seller/marketplace; no blanket duty badges |
-| C18 | Public dealership directory | Browse/search/filter only explicitly published dealer profiles | Buyer-safe public projection; accurate counts and pagination |
-| C19 | Rich public dealer page | Branding, about, branches/maps, contact, stock, services, links, verified claims, disclosure dates | Approved versioned projection, privacy-safe rendering |
+| C18 | Prelisted and approved dealership directory | Browse/search/filter publication-eligible **unclaimed research listings** and separately approved dealer profiles with honest claim/verification state; suppress withheld/duplicate/disputed cases | Research-public/approved-public projection policy; accurate eligible counts and pagination |
+| C19 | Upgradeable stable dealer public page | Starter research-sourced page with reviewed name/category/location/source and claim action; after approval upgrade **same stable identity URL** to branded inventory/service/verified page | Versioned two-tier buyer-safe projection, claim-state correctness and privacy-safe rendering |
 | C20 | Buyer assurance | Contract, duty caveats, inspection rights, legitimate clearances and traceable provenance | Dealer policy + vehicle-specific evidence; scope labels |
 | C21 | Finance/payment disclosures | Financing partners, terms, deposits, merchant policy, published currency and fees | Versioned policy terms; regulated/legal approval where required |
 | C22 | Warranty/after-sales | Workshops, parts and support, coverage/exclusions, partners, durations | Branch/service capabilities + valid policy versions |
@@ -122,7 +132,7 @@ Every capability has a user outcome, owning authority and acceptance gate; “im
 - Visitor/buyer: view only published buyer-safe dealer profiles and vehicle listings.
 - Applicant: register, claim entity, upload own files, edit draft, correct machine candidates, sign declarations; **no verification, role assignment or publication powers**.
 - Dealer owner and delegated staff: operate only their actual organizational membership; branch-specific scopes as granted.
-- CarUp research/data team: seed source discoveries and provenance, never confer verification or customer identity.
+- CarUp research/data team: seed source discoveries, verify safe publication eligibility and categorize research records; never confer business verification or customer identity.
 - Independent dealer compliance reviewer: verify scoped claims with evidence, record reasoned decisions after step-up, without acting as the applicant.
 - Operations/finance operator: approve merchant/payment and certain policy actions with dual control, not compliance claims by virtue of billing access.
 - Customer reviewer/complainant and moderator: only transaction-linked review/complaint evidence with consent and fair response process.
@@ -130,12 +140,15 @@ Every capability has a user outcome, owning authority and acceptance gate; “im
 
 ### 3.2 Happy path for the dealer
 
-Account -> establish/claim business identity -> download or import existing workbook -> inspect field mappings -> fix only blocking errors -> preview read-back populated application -> upload documents -> OCR observations -> confirm correct facts -> consent/declarations -> submit -> compliance decision -> approve -> organization and membership activation -> authorized workspace -> publish approved buyer-safe profile -> manage vehicles and branches -> optionally purchase approved services -> renew/review.
+CarUp sources 104 records -> review source quality and legal/branch grouping -> categorize/suppress ineligible -> prelist eligible unclaimed public profiles -> business discovers existing URL -> submits claim -> CarUp independently authenticates business control -> claim approved -> download **prefilled** dealer-specific workbook (or securely import own records) -> inspect field mappings -> fix only blocking errors -> preview read-back populated application -> upload documents -> OCR observations -> confirm correct facts -> consent/declarations -> submit -> compliance decision -> approve -> organization and membership activation -> authorized workspace -> publish approved buyer-safe profile -> manage vehicles and branches -> optionally purchase approved services -> renew/review.
 
 ### 3.3 Adverse paths
 
 - Existing research listing belongs to another legal entity, franchise or branch.
 - Another actor tries to claim the same legal registration.
+- A claimant controls an email/domain or mobile number but not the legal business, or claims a branch without parent authority.
+- Public research record has a wrong street/website, stale phone, private individual contact or unverifiable franchise/authorization label.
+- Two claimed profiles are later determined to be branches of the same parent, or a dispute/closure requires prelisting suppression.
 - Two companies share a trading name; branches share a street address.
 - Missing provider, invalid PDF, timeout, unreadable or confidently wrong OCR.
 - Workbook contains a forged role, verified flag, “no complaints”, payment confirmation or tenant ID.
@@ -167,6 +180,10 @@ Every adverse path must fail closed, preserve audit and show a truthful actionab
 2. **dealer_intake_sheet_rows** — sheet, physical row, stable source ID, target entity type/id, candidate payload, errors/warnings, applied result; no raw PII in audit logs.
 3. **dealer_intake_field_provenance** — property key, source class, document/source reference, actor, submission version, verified review reference, override precedence and update time.
 4. **dealer_research_identity_crosswalk** — source list, seed dealer ID, matched dealer/legal-organization/branch IDs, match evidence, reviewer, suppression/merge rationale and conflict state.
+4A. **dealer_research_seed_records** (only if no existing source catalogue can own this) — immutable source-qualified external key, original name/category/brand/address/contact/website, retrieval/corroboration dates, original rows/hash, public field eligibility, candidate parent/branch ID, suppression and evidence. A research record is **not a legal organization**.
+4B. **dealer_prelisting_public_versions** — revisioned allowlisted research-safe projection and publication decision/reviewer, status PRELISTED_UNCLAIMED / WITHHELD / SUPPRESSED / DUPLICATE / UNDER_DISPUTE; never compliance verified. Use the existing public profile version authority where safe instead of parallel public truth.
+4C. **dealer_claim_requests and claim evidence/decision events** — claimed seed IDs, applicant auth identity, asserted relationship, legal/branch scope, private evidence references, audit and reviewer decision, uniqueness and dispute/appeal outcomes; no direct tenant/role write from submission.
+4D. **dealer_seed_import_receipts** — source file SHA, sheet and row count, category/grouping disposition, reviewed/public/withheld/duplicate counts, first/last applied timestamps and idempotent rerun outcome.
 5. **dealer_business_authorizations** — licence/OEM/PRAZ/sector claim, issuer, legal and facility scope, jurisdiction, evidence, start/end dates, verification and state.
 6. **dealer_operating_capabilities** — sourcing channels, stock model, brands, capacity with measurement period, workshop/inspection/parts capabilities, evidence scope.
 7. **dealer_finance_partners** — authorized finance partners and written, approved lender/merchant claims, effective dates and territory.
@@ -195,7 +212,10 @@ User (actual human) -> authorized membership -> legal organization -> operationa
 
 ### 4.4 Business and listing truth
 
-Dealer Compliance governs eight lifecycle dimensions; publishing must additionally require applicable active_state and valid legal/tenant/membership authority, no suspended/restricted/expired state, required claims verified, approved public revision and any listing-specific completeness. Define **one policy shared across** admin status, public projection, vehicle publish API, seller authority and marketplace search.
+**Two independent public publication gates exist:**
+1. **Research prelisting gate:** CarUp research authority reviews source quality, source links, business-versus-branch identity, public/business-safe facts, regulated-affiliation language, stale contacts, suppression requests, and logo rights. It can publish **only a minimal, clearly unclaimed/not independently business-verified informational profile** with attribution/as-of date. It creates no dealer organization, tenant, staff permission, seller authority, inventory, verified badge or service payment entitlement.
+2. **Claimed full-dealership gate:** Dealer Compliance governs identity, active_state, scoped review, organization/tenant membership, restrictions/suspension/expiry, buyer-safe approved version and VIN-specific listing authority. A prelisting remains unverified even when someone files a claim; claim approval alone does not equal compliance/operating activation. After fully approved dealer activation the same public identity can upgrade to the full validated profile.
+Define one explicit domain-owned policy per gate and shared enforcement at admin, public projection, search/cache, seller API and marketplace boundaries. An ineligible prelisting must be suppressed immediately; a revoked full listing must be retracted or, only if policy review permits, downgraded to a legally safe unclaimed-style record without implying valid dealer authority.
 
 Separate approved dealer profile visibility from VIN-specific vehicle listing visibility; a business cannot make its stock duty-paid merely by filling in “typical stock duty status.”
 
@@ -204,6 +224,7 @@ Separate approved dealer profile visibility from VIN-specific vehicle listing vi
 | Classification | Examples | Allowed use |
 |---|---|---|
 | Private regulated | tax IDs, government IDs, banking details, licences as raw scans, internal reviewer notes, security and IP data | Authorized applicant/reviewer only; masked in staff views as needed |
+| Research-sourced unclaimed | original source company/branch name, generic category, corroborated public address/website, checked public business contact | Reviewed minimal public listing with attribution/as-of date and conspicuous **Unclaimed · Not independently business-verified** label; not a dealer endorsement |
 | Applicant-declared | hours, brand specialization, typical sourcing, lot capacity, contacts, financing options | Private draft; may be published only if policy permits and clearly labelled dealer-declared |
 | Independently reviewed | legal name, scoped licence, verified branch location, OEM authorization | May be specifically labelled CarUp reviewed with source/scope/date |
 | Transaction-derived | actual on-platform stock, sales if authoritative, verified buyer reviews and complaints | Publish only with sufficient transaction proof, consent, moderation, sample/period |
@@ -217,7 +238,7 @@ Separate approved dealer profile visibility from VIN-specific vehicle listing vi
 
 **CarUp Dealer Intake Workbook v1.0 is the single dealer-facing canonical template**, generated from a backend field registry. Both website manual forms and XLSX imports reference that same registry; they must not drift.
 
-The 10-tab Zimbabwe source/research workbook is **not** issued unchanged. It includes internal verification, evidence, quality and buyer feedback worksheets; a dealer must not edit reviewer decisions or publish research claims. Preserve it internally as a research and migration crosswalk.
+The 10-tab Zimbabwe source/research workbook is **not** issued unchanged. The same Google Sheet now has **10 original tabs and DEV 1–10 developer-reference tabs**, including a 104-row seed catalogue and claim tests. It includes internal verification, evidence, quality and buyer feedback worksheets; a dealer must not edit reviewer decisions or publish research claims. Preserve it internally as a research, public-prelisting candidate, and migration crosswalk. Only a separately generated, claim-bound prefilled CUSTOMER workbook is shared with an approved claimant.
 
 ### 5.2 Customer-facing versioned tabs
 
@@ -260,17 +281,33 @@ No customer workbook may include columns purporting to set **reviewer_verified**
 - Enforce file size, row/column count, sheet count, ZIP expansion, MIME magic, formula/link/CSV injection and malware policy.
 - No assumption that all existing dealer data is clean or in one file. Support import previews with optional mapping profiles saved *per organization*.
 
-### 5.5 Migration of Zimbabwe research directory
+### 5.5 Seed-first migration of Zimbabwe research directory and initial prelisting
 
-Research workbook (10 tabs) has 104 source discoveries and zero verified dealer/public records. Its importer is **internal-only**:
-1. Ingest with source-locked provenance; do not create 104 verified dealer accounts.
-2. Detect legal parent and branch clusters; match to canonical entities only with evidence.
-3. Retain research seed IDs as crosswalk references.
-4. Allow eligible dealer to claim an actual business through ownership proof, avoiding hostile or duplicate claims.
-5. Apply dealer-approved corrections through normal intake, not research write authority.
-6. Preserve internal verification decisions, research notes and buyer complaint logs as non-importable private domains.
-7. Run an initial **12 representative branch pilot** including franchise, independent, multi-branch, consignment/import and different Zimbabwe locales.
-8. Produce authoritative conversion metrics: research discovered, claimed, submitted, verified, active, published; never combine these as a single “registered dealers” number.
+The research source records **104 discovery/branch rows (A8:K111)** with IDs ZW-DEAL-0001 to ZW-DEAL-0104, not 111 distinct dealers. The source workbook's row number 111 is not a dealer count. Original 10 tabs plus DEV 1–10 must be attached to the development run. **DEV 8 - Seed Catalogue** is the full 104-row import/reference manifest, **DEV 9 - Claim Workflow** defines claim control, and **DEV 10 - Seed Tests** supplies additional required cases. The 104 existing detailed intakes are still **Not started**, and no claims or full verification are recorded.
+
+The **first functional product slice** is a prelisting importer/public directory, not blank-only registration:
+1. Read all 104 source IDs (no synthesized extra seven). Idempotently create private source-locked research candidates, with original values, timestamped source URL and row-level file/hash receipts. Source-to-entity keys must not create accounts, dealer roles, subscriptions, inventory or compliance-approved legal entities.
+2. Categorize by source-backed business model (franchise/official-label claimant **unverified** pending proof; independent; used/pre-owned; importer; commercial/heavy vehicle; assembler; workshop/service; marketplace/brokerage; customs/clearing; multi-category). Save **source-category** separately from CarUp verified capabilities. Do not flatten multivalued model/brand fields.
+3. Reconcile potential **legal parent / dealership group / distinct branch** with explicit grouping confidence and human review. Display 104 *source records* and an independently calculated, evidence-backed count of *distinct organizations* only after dedupe; do not equate the two.
+4. For each source row, perform minimal public eligibility review: public/business legal interest, URL legitimacy and current operation, address/region plausibility, ownership versus branch, no sensitive person/contact, applicable removal requests, source-attribution requirements, unsafe false licensing/franchise words, and duplication. Status: CANDIDATE_PENDING_REVIEW -> PRELISTED_UNCLAIMED or WITHHELD / DUPLICATE / SUPPRESSED / UNDER_DISPUTE. Publishing a candidate without a decision is forbidden.
+5. Create **real, useful initial public directory and stable dealer/branch pages for eligible records** using only allowlisted research-safe facts. Clearly label them **Unclaimed · Not independently business-verified**, state data source/as-of or "information may be outdated," provide "Claim this dealership," and offer correction/report/removal. Do not show an approval shield, a dealer-operated sales listing or badges based on research category alone.
+6. For each source-backed public field, capture provenance, field eligibility decision and last check. Use official business logos only when entity alignment and image rights are documented. Otherwise show an excellent generic branded initials placeholder. Do not hotlink a manufacturer logo as dealer brand.
+7. Preserve source discoveries that are withheld (do not invent them publicly). Record per-row counts for imported, categorized, duplicate/grouped, eligible/published, withheld, source-correction-needed and logo approved/placeholder. Never claim **104 published** unless 104 actually pass.
+8. Claimant must select a specific source-backed business/branch; server verifies the claimed scope and applicant authority without exposing internal evidence. Multiple branch claim may be processed as a governed parent organization group; conflict and preexisting account routes must not takeover another tenant.
+9. **After independent CLAIM_APPROVED**, generate a **prefilled, versioned, actor-bound customer workbook** using reviewed research candidates and known linked branches. Keep provenance column notes/metadata and mark imported research as **NEEDS_DEALER_CONFIRMATION**. The dealer corrects names/locations, adds missing legal evidence/policies, signs/consents in server flow and uploads once. Do not give private reviewer/evidence data or research contact fields forbidden for publicity to another party.
+10. Execute the standard import/Document Intelligence/compliance workflow; preserve original seed IDs, stable public URLs, claimant role and source attribution. Only full independent compliance/operating approval upgrades the same public profile to FULL_DEALER_APPROVED with correct tenant-scoped inventory and entitlements.
+11. Run **12 representative dealer/branch scenarios** including unclaimed, rightful claimant, competing claimant, franchise branch and importer/clearing; write dry-run receipts and UAT cases. Source correction, takedown, appeal and identity resolution must be tested before public deployment.
+12. Produce stage funnel metrics: source discoveries (104 baseline), reviewed, dedupe/grouped, eligible public prelistings, withheld, claim attempts, claims approved/rejected/disputed, workbooks exported/uploaded, compliance submitted/approved, live approved profiles; the count of research discoveries is **not** an account or verified dealer count.
+
+### 5.6 Claim-bound prefilled workbook and no-reentry contract
+
+- The official dealer-facing XLSX has one canonical field-registry schema shared with manual UI. A **claimant-specific export** adds prepopulation from permitted seed data, stable `seed_dealer_id` and `branch_ref`, export revision, application ID, schema version, server-side integrity receipt and `source_status`/confirmation flags; these keys are **references, not authority**.
+- An approved claimant receives its own scoped downloadable file; a random visitor or unapproved claimant cannot download a private company dossier, legal scan or another application's prefilled workbook. A preview of publicly reviewed facts may be offered before claim.
+- On reupload, company and branch data already present must populate the correct canonical editable form with source and modification provenance. Dealer confirmation is explicit; auto-filled source text does not become "dealer declared" until confirmed, nor "CarUp verified" until reviewed.
+- Any claim version change, duplicate claim or stale source/verified-field collision raises a human-visible conflict. Cannot silently overwrite approved data or transfer branch ownership.
+- The exported file must never include internal Verification Tracker decisions, Evidence Register private links, moderation, complaint records, payment ledger, secret metadata or any buyer identity.
+- Existing dealer-registration path without a matching prelisting remains supported: safe **new business** application, duplicate discovery check and later attachment to approved source entity, with the same privacy and compliance gates.
+- The agent must prove export -> edit offline -> upload -> persisted field read-back -> review -> full public profile upgrade for at least one realistic grouped multi-branch fixture.
 
 ---
 
@@ -356,6 +393,10 @@ International mode uses country-code policy versions, correct document labels, c
 
 ### 8.3 Approved -> operational dealer transition (P0)
 
+Claim-approved status is NOT business-operating approval. Seeded discovery -> claim independent authority -> private application completion -> legal and compliance approval -> tenant membership/activation are distinct transitions. No claimant can edit the seed source itself or control an existing tenant until the applicable governed transition passes. Rejected/disputed claimants receive no credentials for the business.
+
+
+
 Governed server-side action:
 1. Verify approved application, signer, legal entity match and conditional requirements.
 2. Idempotently bind/create canonical organization and dealership tenant, rejecting ambiguous legal entities and cross-tenant collisions.
@@ -392,12 +433,14 @@ Dashboard values must come from measured read models. If no authoritative sales 
 
 ### 9.2 Public dealer directory
 
-**Proposed URL:** /dealers. Search by city/province, dealership type, brand, advertised services, approved branch distance (when geocoded), available real vehicles, declared vs verified capability. Paginated source-backed results only. Maintain index freshness and consistent search/list counts; no mocked verified badges or undisclosed sponsored ranking.
+**Proposed URL:** /dealers. **Population first:** publish eligible, reviewed informational profiles from the 104-record seed catalogue before any dealer claims. Show distinct, searchable results for `PRELISTED_UNCLAIMED` and `FULL_DEALER_APPROVED` with clear **source research versus independent business verification** distinction. Visitors can search by verified/published city/province, source-category (not verified franchise certification), and approved claims; stock/services filters apply only where actual approved data exists. Pages need claim CTA and report-correction action. Exclude WITHHELD, DUPLICATE, SUPPRESSED, under legal dispute or unsafe records. Keep counts and search consistent; no source-only "Authorized dealer" badge, fake inventory or sponsorship ranking.
 
 ### 9.3 Public dealer profile
 
-**Proposed URL:** /dealers/{approved-slug}; stable slug + immutable ID redirect policy.
-- Header: authorized logo, legal/trading public name, branch region, safe contact/website, narrowly scoped verified claims and review date.
+**Proposed URL:** /dealers/{slug}; stable seed-backed canonical identity and immutable ID redirect policy. The same URL must work when an unclaimed source-backed profile becomes claimed and fully approved.
+- **UNCLAIMED starter view:** only publication-reviewed source name, broadly categorized business type, area/branch, checked public business address/website/contact where allowed, source/as-of date, "Unclaimed · Not independently business-verified" disclosure, **Claim this dealership** action, correction/report/removal control and reviewed official logo or generic initials placeholder. No buyer reviews, stock, payment service, licence/OEM trust badge or unwarranted operations assertions.
+- **CLAIM PENDING:** maintain informational view unless suppression is required; never disclose claimant name, documents or reviewer correspondence, and never falsely label the business as owned or verified.
+- **FULL_APPROVED view:** authorized logo, legal/trading public name, branch region, safe contact/website, narrowly scoped independently reviewed claims and review date; same stable identity and existing links.
 - Overview: dealer-approved description, model/specialization, sourcing and current company claim state.
 - Locations: verified branches, address, coordinates, real hours, phones, map and direction links; no synthetic map pins.
 - Cars for sale: canonical live VIN-specific listings with publication status, images, accurate prices/currency, duty disclosure per vehicle; link to listing/Passport.
@@ -411,9 +454,13 @@ Dashboard values must come from measured read models. If no authoritative sales 
 
 ### 9.4 Public profile projection contract
 
-Create a versioned server-produced buyer-safe read model separate from private dealer tables. Explicit allowlist, field-level provenance/verification labels, approved media and links, no tax numbers, registration scans, bank details, internal notes, private people or storage paths. Revision invalidation on compliance decisions. Server-side privacy and role tests; no broad SELECT * exposure.
+Create a versioned server-produced buyer-safe read model separate from private dealer tables, with **two disjoint projection schemas**: `unclaimed_research_profile_v1` (sourced/publication-reviewed only) and `approved_dealer_profile_v1` (claim, legal, operating and compliance-approved). They have distinct badge/metadata rules but share a stable public slug or alias after merge/upgrade. Explicit allowlist, field-level provenance/verification labels, approved media and links, no tax numbers, registration scans, bank details, internal notes, private people or storage paths. Revision invalidation on source-correction, duplicate, takedown, claimant dispute, compliance decision, expiry and removal. Server-side privacy and role tests; no broad SELECT * exposure. Do not misrepresent public CarUp research pages as seller-operated storefronts.
 
 ### 9.5 Presentation QA
+
+The first public directory acceptance is **eligible prelisted profiles shown before any account/claim**; the second is a rightful-claim-to-full-profile upgrade under the same stable URL. Test missing/misidentified logo, third-party marketplace source versus official source, parent/branch duplication, location correction, takedown/dispute, stale cache, source-label leakage into approved badges and inability of a visitor to download private prefilled workbooks.
+
+
 
 Test 390, 768, 1280 and 1920 px, real text overflow, long names, many branches, empty data, RTL/international considerations as relevant, screen reader labels, keyboard focus, mobile menu, website/phone link sanitization, map graceful degradation, images, structured metadata, canonical URLs, social previews, SEO indexing rules, loading/empty/error states and public cache invalidation. Check exact database-to-API-to-page parity; visual polish cannot replace correctness.
 
@@ -471,22 +518,22 @@ The phases below are **proposed sequencing**. No phase is authorized by filing t
 
 | Phase | Dependency / detailed scope | Required output | Gate to exit |
 |---|---|---|---|
-| **D0 — Authority & fault inventory** | Compare current main vs O2 #208, OC #221/#222, Corporate/Garage/Seller, PAY #251/#254; inspect actual schemas, APIs, UAT and deployments | Evidence-indexed field-by-field source contract; baseline SHA; failure register; conflict/ancestry map; one authority owner per record | Moderator signs off factual inventory; no assertions of deployed parity without physical evidence |
-| **D1 — Data & workbook contract** | Define dealer entity/branch/authorizations/policies; map 40-column intake + verification/buyer-assurance sheets, ten-tab research, 25 capabilities; privacy matrix | Versioned dealer schema/field registry, entity ERD, workbook layouts, CSV mapping, API contracts, migration/additive DDL plan | 100% disposition of source fields, no accidental import of reviewer/governance fields |
-| **D2 — P0 authority and truth repairs** | Complaint “0” fix; deriveCanPublish active state; account->organization->tenant->role ownership model; govern reviewer and document operations | Fail-closed compliance/activation ADRs, P0 fixes as Owner-authorized separate changes, regression matrix | No forged role/tenant, no false complaint assertion, no conflicting active/public gate |
-| **D3 — Official workbook & forms** | Generate beautiful annotated dealer-facing XLSX; same registry drives manual form/help/error display; schema versions and conditionals | Dealer Workbook v1, accessible manual editor, sample/test files, metadata and guides | Workbook keys and UI/DB validators agree; exported/saved draft parity |
-| **D4 — Multi-sheet import and migration** | Secure parser, field matching, checksum confirmations, stable identity, staged draft, idempotency, internal research crosswalk | One-upload intake engine, review report, import histories, rollback/recovery, 104-row internal migration dry run | Full valid workbook imports without re-entry; duplicate/conflict and DB parity proof |
+| **D0 — Authority, worksheet & source review** | Compare main vs O2/OC/PAY lineages, inspect actual schema; attach and freeze the live 104-row Google Sheet and DEV 1–10; review source/business eligibility | SHA-pinned source/workbook manifest, 104-row completeness receipt, duplicate/parent/branch analysis, security/authority inventory | 104 valid stable IDs and no unapproved 111 count or self-verified sources |
+| **D1 — Source registry, claim & workbook contract** | Define prelisting, categories, grouping, claim requests/decisions, legal/branch/tenant identities; map 40-column intake and all research/DEV fields | Versioned two-tier public projection, seed and claim schema, full field registry and country/permissions contract | All 104 source records classifiable, safe decisions, no applicant access to reviewer/governance data |
+| **D2 — P0 truth, source-publication & claim safety** | Complaint-0 fix, reconcile active full-public gate vs unclaimed research-public gate; authenticate claims, disputes, correction/takedown and separate claimant role from business authority | Reviewer-safe claim decisions, prelisting eligibility service and no-bypass publication policy | Cannot self-claim another organization or publish unsafe/verified claims from research |
+| **D3 — Claim-bound prefilled workbook & forms** | Generate from shared registry a dealer-specific prefilled XLSX from claim-approved seed plus unfilled sections; support blank/no-seed path | Versioned XLSX with source flags, legal/branch keys, safe download, manual editor, sample/test files | Pre-export provenance and postupload persisted parity with no re-entry |
+| **D4 — Seed all 104, prelist then import** | Idempotently seed and categorize all 104 discovery/branch records, group/dedupe; publish only source-reviewed safe unclaimed pages; secure claim service + multi-sheet prefilled import | Real 104-row catalogue, source-to-branch map, publication/suppression receipts, prelisted directory, claim endpoints and no-reentry import | All 104 accounted for; eligible live in isolated test; claim->prefill->upload parity; no fake verified entities |
 | **D5 — OCR reconvergence** | Governance-safe Document Intelligence for business docs incl. PDF page strategy; candidate reconciliation and user confirmation | Document-class schemas, tests and UX; privacy/provider qualification evidence | Real-document corpus passes accuracy/security, no extraction-driven approval |
-| **D6 — Activation and corporate governance** | Approved applicant->legal organization->dealer tenant->owner/member->workspace with idempotent service transaction | Canonical activation contract, membership and suspension/reinstatement tests | Approved dealer reaches correct real workspace; rejected/expired dealer cannot |
+| **D6 — Claim approval and corporate activation** | Independently approve lawful claimant of a specific prelisted company/branch, then separate full company compliance; idempotently activate organization/dealer tenant/member only after full approval | Audited claim/appeal state and canonical activation contract with stable public identity | Claim alone gives no tenant/role; compliant approved owner reaches correct workspace |
 | **D7 — Private dealer workspace** | Profiles, branches, inventory references, staff/permissions, policies, contacts, media, compliance, notifications, pricing/lead views | Production-shaped dealer UI/API; no fixed fake branches or local-only permissions | Actual data read-back and tenant isolation across all operations |
-| **D8 — Public directory and pages** | Buyer-safe projection, approved public media, search/index, SEO, profile and stock links, disclosures/complaint counts | Real directory and mobile dealer detail; retraction/invalidations | Only verified/approved and clearly declared public values, no private leaks |
+| **D8 — Unclaimed-to-approved public directory** | Populate source-reviewed unclaimed profiles with claim CTA, source labels/placeholders; after full approval upgrade same stable URL with safe inventory/services/media | Two-tier safe public API/search, SEO, correction/takedown, compliant full dealer profiles | Eligible research pages exist without claimed accounts, correct labels, secure full upgrade |
 | **D9 — Commercial Paynow/entitlement integration** | Define first-party CarUp service billing vs dealer/garage payees; approved PAY-02 products, PAY-03B owner subscriptions; Paynow activation requirements | Commercial owner-decision register, first-party Paynow integration spec, separately tested payments/entitlement workflow if later authorized | Unpriced/live-unauthorized checkout refuses; correct legal beneficiary; exact provider reconciliation |
 | **D10 — Country configuration** | Zimbabwe conditional catalogue, legal review, expansion policy plug-in; currency, locale and documents | Jurisdiction/version registry, Zimbabwe-qualified rules, country pilot plan | No incorrect jurisdiction-required fields; proper expiry and consent |
-| **D11 — Independent end-to-end certification & pilot** | Database/migrations, 12 dealer sample, real upload/OCR, auth, reviewer, payments offline, public snapshots, responsive UX | Gate matrix, golden UAT scripts, red-team negatives, exact-head CI and screenshots; consolidated independent report | Independent recommendation + final Moderator disposition + Owner release approval |
+| **D11 — Seed/claim/full-lifecycle certification** | Reconcile all 104 seed receipts, group/eligibility, initial unclaimed pages, rightful/hostile/disputed claims, branded/placeholder logos, prefilled export/import, full approval, PAY and 12-case pilot | Source/claims and end-to-end gate matrix, red-team tests, exact-head CI, responsive screenshots, independent dossier | Correct 104/111 interpretation, public prelisting validity, denied takeover and complete upgrade are demonstrably proven |
 
 ### 11.1 P0 to P2 priorities
 
-**P0 / before public rollout:** authoritative source reconciliation; fixed zero-complaint summary; consistent active/compliance/listing policy; secure legal organization/tenant activation; complete dealer-specific schema; no-reentry import core; private/public separation; independent reviewer and evidence custody; no fake public directory records.
+**P0 / before public rollout:** verify/source-categorize all 104 records; source-by-source public eligibility/suppression; separate unclaimed and full publication gates; secure ownership claim/takedown/appeal; fixed zero-complaint summary; consistent active/compliance/listing policy; secure legal organization/tenant activation; prefilled no-reentry workbook; private/public separation, reviewer and evidence custody; no fake verified records.
 
 **P1 / required complete 1.0:** versioned signed agreement, branches/GPS, legal authorizations and conditional laws, production-shaped dashboards, OCR reconvergence, safe research directory identity linking, real public profile and search, media, warranty/finance/buyer policies, real user notices and accessibility.
 
@@ -509,22 +556,26 @@ All packages are future proposed assignments, not orders issued now.
 
 ### 12.1 Required exact-head test stack
 
-1. **Field contract:** all tab/column definitions map to a canonical target or explicit non-importability; field count and schema version pinned; no drift with manual UI.
-2. **Parser:** XLSX many-sheet, CSV, quoted/newlines, empty, merged cell, formulas, duplicate headings/keys, whitespace, 1000+ rows, malicious ZIP expansion, CSV injection, wrong MIME, old version, non-document file.
-3. **Import/migration:** idempotent replay, partial storage failure, atomic child linking, ambiguous research crosswalk, cross-tenant collision, source edits, material verified-field conflict, re-import + stale SHA confirmation.
-4. **OCR:** live-evaluation fixture corpus, accuracy and hallucination guard, independent review gating, provider outage, PDF page handling, privacy and document class mismatch.
-5. **Identity:** forged company owner, forged member/tenant/role, rejected signatory, applicant-to-active transition, suspension immediate revoke, reviewer step-up.
-6. **Compliance:** legal/branch authorization scope, issuer/date/expiry, applicable/not-applicable, true complaints measurement, independent decision vs imported claims, event/cache invalidation.
-7. **Payments:** no first-party charge without approval; PAY-03B version/price/tax/merchant; PAY-05 inherited garage isolation; payment statuses and cross-merchant mismatch; provider return is not payment; manual “paid” never accepted.
-8. **Public privacy:** safe exact projection, no private IDs/docs/tax/banking, no unauthorized merchant secrets, no internal notes in search/snippet/logs.
-9. **Marketplace:** public dealer->actual published VIN listings, correct branch membership, duty/title/inspection per VIN, withdrawn dealer and stock retraction.
-10. **Accessibility/visual:** 390/768/1280/1920; keyboard, screen reader, no overflow or broken imagery/links, representative long African legal names and multiple branches.
-11. **Operational:** precise row errors, importer telemetry, audit and event reconciliation, change history, backups/rollback, non-leaking logs and retention rules.
-12. **Physical UAT:** authenticated actual app on isolated approved database; source SHA/deployment SHA/schema fingerprint and test output all correlated.
+1. **Field contract and pinned reference:** 10 original research tabs + DEV 1–10 must match the attached Google workbook, all 104 seed IDs must be inventoried, all tab/column definitions map to a canonical target or explicit non-importability; schema version pinned and no manual UI drift.
+2. **Seed catalogue / claim:** idempotent full 104-row fixture import; categories and legal parent/branch grouping without false legal entity creation; public source eligibility and selective suppression; prelist page when unclaimed; safe owner/branch claims, conflicts/appeals and no role escalation; claim-bound prefilled export and distinct private/public records.
+4. **Parser:** XLSX many-sheet, CSV, quoted/newlines, empty, merged cell, formulas, duplicate headings/keys, whitespace, 1000+ rows, malicious ZIP expansion, CSV injection, wrong MIME, old version, non-document file.
+4. **Import/migration:** idempotent replay, partial storage failure, atomic child linking, ambiguous research crosswalk, cross-tenant collision, source edits, material verified-field conflict, re-import + stale SHA confirmation.
+5. **OCR:** live-evaluation fixture corpus, accuracy and hallucination guard, independent review gating, provider outage, PDF page handling, privacy and document class mismatch.
+6. **Identity:** forged company owner, forged member/tenant/role, rejected signatory, applicant-to-active transition, suspension immediate revoke, reviewer step-up.
+7. **Compliance:** legal/branch authorization scope, issuer/date/expiry, applicable/not-applicable, true complaints measurement, independent decision vs imported claims, event/cache invalidation.
+8. **Payments:** no first-party charge without approval; PAY-03B version/price/tax/merchant; PAY-05 inherited garage isolation; payment statuses and cross-merchant mismatch; provider return is not payment; manual “paid” never accepted.
+9. **Public privacy:** safe exact projection, no private IDs/docs/tax/banking, no unauthorized merchant secrets, no internal notes in search/snippet/logs.
+10. **Marketplace:** public dealer->actual published VIN listings, correct branch membership, duty/title/inspection per VIN, withdrawn dealer and stock retraction.
+11. **Accessibility/visual:** 390/768/1280/1920; keyboard, screen reader, no overflow or broken imagery/links, representative long African legal names and multiple branches.
+12. **Operational:** precise row errors, importer telemetry, audit and event reconciliation, change history, backups/rollback, non-leaking logs and retention rules.
+13. **Physical UAT:** authenticated actual app on isolated approved database; source SHA/deployment SHA/schema fingerprint and test output all correlated.
 
 ### 12.2 Quantified exit targets (proposed standards)
 
+- **104/104 unique research seed IDs reconciled** (not 111), with row-level category, matching/branch grouping, source provenance, eligibility, publication/suppression and logo outcome; publish only genuinely eligible entries.
 - **100% of workbook field definitions accounted for** in schema, import and UI parity matrix; unimportable fields explicitly listed.
+- **100% of allowed prefilled cells** on a rightful claimant's export round-trip into the correct editable business/branch records; no source-to-verified state promotion.
+- **0 successful hostile claims or unauthorized private workbook exports**, with tested disputes/appeals/takedowns and stable URL public upgrade.
 - **100% valid, importable pilot cells** read back into correct canonical record without retyping; no unknown silent drops.
 - **0 unauthorized compliance/publication/tenant/merchant writes** under adversarial cases.
 - **0 private source values in public projection** and **0 fabricated sales, reviews, unresolved complaints or provider confirmations**.
@@ -603,9 +654,9 @@ Programme ID and work package; frozen parent SHA and source/target branch; accep
 
 **O2. Legal dealer onboarding terms:** company participation agreement, required signer, jurisdiction and privacy/dispute language.
 
-**O3. Public information policy:** which unverified but self-declared values may be shown, and what legally sensitive identifiers must never be exposed.
+**O3. Public information policy:** Owner has directed **prelisted public research profiles before claims**; the agent must implement publication only for source-reviewed safe business facts labelled unclaimed/not business-verified. Any material unresolved legal/licensing/contact ambiguity is withheld or escalated. Owner may separately approve the detailed allowlist and takedown policy, not bypass the safety gate.
 
-**O4. Dealer identity claims:** whether a CarUp-seeded discovery profile is claimable only after documentary proof, and merger/appeal policy.
+**O4. Dealer identity claims:** Owner requires a **Claim this dealership** process with independent documentary/authority proof before edit or membership; define exact evidence criteria, contested legal parent/branch ownership, appeal and removal policy under compliance reviewer approval. No mere email-domain match can auto-approve.
 
 **O5. Business licences:** authorize independent current Zimbabwe regulatory/legal qualification for tax, bonded, OEM, PRAZ and international profiles; avoid treating research examples as law.
 
@@ -617,7 +668,11 @@ Programme ID and work package; frozen parent SHA and source/target branch; accep
 
 **O9. Feature release gates:** choose which P2 items may launch after baseline 1.0, without removing their documented data relationships.
 
-**O10. Assignment:** only after Owner has inspected this plan, Owner chooses the specialist/team, whether one long-run unit or tightly governed lanes, and approves a frozen D0 instruction.
+**O10. Assignment:** Owner requires **one isolated long-run implementation** with sequential D0–D11 checkpoints under one run; implementation starts only after Owner explicitly sends the canonical agent prompt. No intermediate partial handoffs or merges.
+
+**O11. Logos:** official source/entity-matched business logos only after image-rights and permitted-use review; otherwise standard initials placeholder. Do not invent logos or display unverified official franchise branding.
+
+**O12. Initial public seed policy:** maintain documented per-source eligibility, source/as-of attribution, correction/takedown path and suppression; if uncertain about a material claim, the agent may withhold the record and document the issue rather than silently invent permission.
 
 No unresolved decision above is to be silently interpreted as implementation approval.
 
@@ -627,6 +682,9 @@ No unresolved decision above is to be silently interpreted as implementation app
 
 A completed Dealership 1.0 programme delivers:
 
+- [ ] **All 104 research entries** imported as source-preserving candidates with category, provenance and grouping dispositions (not a fictional 111 businesses), and reviewed public eligibility decisions.
+- [ ] **Eligible unclaimed public profiles** live within isolated test build with truthful unverified label, correction/takedown route, optional authorized logo or initials placeholder and secure **Claim this dealership** CTA.
+- [ ] **Rightful claim and claimant-specific prefilled Excel** demonstrated; hostile/duplicate claims, disputes, branch ownership and account takeover fail closed.
 - [ ] Accepted architecture and field-ownership ADR; one canonical legal/dealer/tenant authority.
 - [ ] Downloadable versioned dealer XLSX and accessible manual forms using one field registry.
 - [ ] Existing-data CSV/XLSX import and full multi-sheet dealer intake.
@@ -637,7 +695,7 @@ A completed Dealership 1.0 programme delivers:
 - [ ] Approved dealer automatic organization/tenant/role activation and governed revocation.
 - [ ] Tenant-safe branch, inventory, staff/roles, contacts, policies and operations dashboard.
 - [ ] Canonical VIN inventory import and link to existing Seller/Marketplace tools.
-- [ ] Public searchable dealer directory and responsive dealer pages with approved images, branches, actual stock, policies, safe contacts and precise trust labels.
+- [ ] Public searchable dealer directory supporting **source-reviewed prelisted/unclaimed** and **fully approved** profiles at stable URLs; only approved full profiles include real stock, services, scoped verification and commercial entitlements.
 - [ ] Authentic transaction-based reviews and **Not measured** for unmeasured complaints.
 - [ ] PAY-02/PAY-03B commercial products integrated with properly authorized first-party Paynow capability where eligible; PAY-05 garage collections untouched and not misrepresented as live.
 - [ ] Zimbabwe rules plus bounded international country-config model.
@@ -646,7 +704,7 @@ A completed Dealership 1.0 programme delivers:
 
 ### Completion rule
 
-**Do not call the system complete** merely because a workbook uploads, OCR reads a test file, a profile page renders, a dealer receives an approval badge or a simulated payment succeeds. The accepted outcome is one coherent, accurate, governed, end-to-end dealer lifecycle, with separately authorized commerce and public presentation.
+**Do not call the system complete** merely because 104 records were imported, 104 pages were generated (without eligibility review), a workbook uploads, OCR reads a test file, a profile page renders, a dealer receives an approval badge or a simulated payment succeeds. The accepted outcome is one coherent, accurate, governed, end-to-end dealer lifecycle, with separately authorized commerce and public presentation.
 
 ---
 
@@ -691,4 +749,12 @@ A completed Dealership 1.0 programme delivers:
 | Fake branch selector and local permissions | D7 live branch/membership read and write authorities |
 | Source researched 104 entities not verified | D4 internal identity crosswalk + D11 pilot |
 
-**Owner review status at publication: PENDING. This plan has no authority to start implementation, merge, deploy or collect real payments.**
+### Appendix C. Version 1.1 source-to-implementation authority and change control
+
+**Always-reference rule:** At the start of the long run and at each D0–D11 phase, the agent must read and cite (a) **this complete canonical master plan**, (b) **the attached Google Sheet export** of “Zimbabwe Car Dealers & Automotive Companies Database” including all original 10 tabs and DEV 1–10, and (c) **the bound implementation prompt** at `docs/dealership/CARUP_DEALERSHIP_1_0_LR01_UNIFIED_IMPLEMENTATION_AGENT_PROMPT.md`. Maintain a phase-by-phase traceability ledger citing plan section, worksheet tab/range/seed IDs, canonical code path, tests, evidence and source SHA. A plan/worksheet inconsistency is a **BLOCKED_REQUIREMENT or OWNER_DECISION** entry; do not silently invent new product behavior. The sheet controls what the 104 **research** records actually say. The plan controls permitted behavior, privacy, governance, workflows and acceptance. Source code controls preexisting storage/runtime authority once D0 reconciled.
+
+**Developer workbook contract:** [Google Sheets source](https://docs.google.com/spreadsheets/d/10YntHvtk9PhrRjZQEMHWfnZgqT84hisTW_oOnt2ZhNQ/edit). Original 10 tabs remain research/private governance. DEV 1–10 support development: read-me, field map, generated customer-template spec, 25 capabilities, gap closure, money flows, baseline tests, **104-row seed catalogue**, **claim workflow**, **seed/claim acceptance tests**. Download all tabs as .xlsx and attach. Confirm file SHA/size and IDs; no extra 7 invented entries.
+
+**Long-run acceptance:** Source-preserving 104-record catalogue; every source row categorized and given eligibility disposition; only eligible public unclaimed listings; secure claim request/reviewer approval with failed hostile cases; prefilled versioned workbook export and import parity; full independent compliance/tenant activation; same stable public page upgrades truthfully; original 25 capabilities; financial safety; exact-head tests. All work remains on isolated feature branch, draft/unmerged for Moderator and Owner review.
+
+**Owner review status: PENDING. No implementation, merge, deployment, migration of shared data or real payment is authorized by this documentation edit alone.**
