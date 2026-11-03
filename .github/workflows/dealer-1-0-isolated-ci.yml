@@ -18,6 +18,7 @@ on:
       - 'web/src/App.tsx'
       - 'backend/tests/differentiator-journey.test.js'
       - 'database/migrations/*dealer_research_seed_candidates.sql'
+      - 'database/test/dealer_1_0_pglite_check.mjs'
       - 'docs/dealership/**'
       - '.github/workflows/dealer-1-0-isolated-ci.yml'
   pull_request:
@@ -28,6 +29,7 @@ on:
       - 'backend/tests/dealer-*.test.js'
       - 'backend/tests/differentiator-journey.test.js'
       - 'database/migrations/*dealer_research_seed_candidates.sql'
+      - 'database/test/dealer_1_0_pglite_check.mjs'
       - 'docs/dealership/**'
       - '.github/workflows/dealer-1-0-isolated-ci.yml'
 
@@ -74,6 +76,8 @@ jobs:
             backend/tests/dealer-workbook-roundtrip.test.js \
             backend/tests/dealer-claim-application.test.js \
             backend/tests/differentiator-journey.test.js
+      - name: Isolated PostgreSQL migration and claim authority proof (PGlite)
+        run: node database/test/dealer_1_0_pglite_check.mjs
       - name: Web TypeScript validation
         run: npx tsc --noEmit --project web/tsconfig.app.json
       - name: Web production build (artifact not deployed)
