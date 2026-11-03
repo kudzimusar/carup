@@ -20,6 +20,11 @@ type ResearchProfile = {
   claimed: false
   business_verified: false
 }
+type ReviewedResearchContacts={
+  seed_dealer_id:string;reviewed_public_address:string|null;
+  reviewed_public_phone:string|null;reviewed_public_website:string|null;
+  source_checked_at:string|null;source_label?:string;business_verified:false
+}
 type ClaimScope = 'BRANCH' | 'PARENT_ORGANIZATION'
 type RepresentativeRelationship =
   'LEGAL_OWNER' | 'DIRECTOR' | 'AUTHORIZED_REPRESENTATIVE' |
@@ -32,6 +37,8 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
   const { seedId } = useParams<{seedId: string}>()
   const { user, token } = useAuth()
   const [profile, setProfile] = useState<ResearchProfile | null>(null)
+  const [reviewedContacts,setReviewedContacts]=useState<ReviewedResearchContacts|null>(null)
+  const [contactAvailability,setContactAvailability]=useState<'loading'|'ready'|'unavailable'>('loading')
   const [loaded, setLoaded] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading')
   const [scope, setScope] = useState<ClaimScope>('BRANCH')
   const [relationship, setRelationship] = useState<RepresentativeRelationship>('AUTHORIZED_REPRESENTATIVE')
@@ -55,6 +62,23 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
       if (!active) return
       setProfile(result.profile)
       setLoaded('ready')
+      setReviewedContacts(null)
+      setContactAvailability('loading')
+      apiRequest<{contacts:ReviewedResearchContacts}>({
+        baseUrl:API,
+        path:'/dealership/research/'+encodeURIComponent(key)+'/contact',
+      }).then(detail=>{
+        if(!active)return
+        setReviewedContacts(detail.contacts)
+        setContactAvailability('ready')
+      }).catch(()=>{
+        if(!active)return
+        setReviewedContacts(null)
+        setContactAvailability('unavailable')
+      })
+      if(typeof document!=='undefined'){
+        document.title=result.profile.name+' · Unclaimed research · CarUp dealers'
+      }
     }).catch((error: unknown) => {
       if (!active) return
       const status = error && typeof error === 'object' && 'status' in error
@@ -128,6 +152,34 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                   <MapPin className="w-4 h-4" aria-hidden="true" />
                   <span>{profile.city}, Zimbabwe (research city only)</span>
                 </div>
+
+                {contactAvailability==='unavailable'&&<p role="status" className="mt-3 text-sm text-amber-800">
+                  Publication-reviewed source contact details are unavailable.
+                  No unreviewed private source values are shown.
+                </p>}
+                {reviewedContacts&&contactAvailability==='ready'&&
+                  <div className="mt-4 space-y-2 text-sm">
+                    {reviewedContacts.reviewed_public_address&&<p>
+                      <strong>Research address reviewed for display:</strong>
+                      {' '}{reviewedContacts.reviewed_public_address}
+                    </p>}
+                    {reviewedContacts.reviewed_public_phone&&<p>
+                      <strong>Research business phone reviewed for display:</strong>
+                      {' '}{reviewedContacts.reviewed_public_phone}
+                    </p>}
+                    {reviewedContacts.reviewed_public_website&&<p>
+                      <a className="text-blue-700 underline" target="_blank"
+                        rel="noopener noreferrer nofollow"
+                        href={reviewedContacts.reviewed_public_website}>
+                        Reviewed source business website
+                      </a>
+                    </p>}
+                    {reviewedContacts.source_checked_at&&<p className="text-xs text-gray-500">
+                      Contact display review:
+                      {' '}{new Date(reviewedContacts.source_checked_at).toLocaleDateString()}.
+                      This is not independent legal-business verification.
+                    </p>}
+                  </div>}
                 <p className="text-sm text-gray-500 mt-3">
                   No CarUp-verified licence, official franchise affiliation, current stock, reviews, sale record, warranty or payment eligibility is asserted by this listing.
                 </p>
