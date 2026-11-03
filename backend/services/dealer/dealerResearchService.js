@@ -5,6 +5,7 @@
  */
 import { supabase } from '../../db/supabase.js';
 import {requireReviewerPassword} from './dealerClaimApplicationService.js';
+import {getReviewedFullStorefront,listReviewedFullStorefronts} from './dealerFullStorefrontService.js';
 
 export const PUBLIC_STATUS = 'PRELISTED_UNCLAIMED';
 export const PUBLIC_COLUMNS =
@@ -42,9 +43,15 @@ function trim(value, maximum, minimum = 0) {
 }
 
 /** A private source record can NEVER be projected by this function. */
-export function publicResearchProjection(row) {
+export function publicResearchProjection(row, approvedFull = null) {
   if (!row || row.publication_status !== PUBLIC_STATUS) return null;
+  if (approvedFull) return Object.freeze({
+    ...approvedFull, source_attribution:row.source_attribution,
+    source_research_category:row.public_research_category,
+    source_reviewed_at:row.reviewed_at,
+  });
   return Object.freeze({
+    tier:'PRELISTED_UNCLAIMED',
     seed_dealer_id: row.seed_dealer_id,
     slug: row.public_slug,
     name: row.public_name,
@@ -81,7 +88,11 @@ export async function listPublicResearch({ q, city, page = 1, limit = 30 } = {})
   }
   const { data, count, error } = await request;
   if (error) throw domainError(error,'research directory');
-  return { entries: (data || []).map(publicResearchProjection).filter(Boolean),
+  // A full storefront is visible ONLY through the live legal/tenant/policy-safe
+  // database view. One batched read avoids per-profile private table exposure.
+  const approved=await listReviewedFullStorefronts((data||[]).map(r=>r.seed_dealer_id));
+  return { entries: (data||[]).map(row=>
+    publicResearchProjection(row,approved.get(row.seed_dealer_id)||null)).filter(Boolean),
     total: Number.isInteger(count) ? count : null, page: Math.floor(offset / pageSize) + 1, limit: pageSize };
 }
 
@@ -91,7 +102,8 @@ export async function getPublicResearch(seedId) {
     .select(PUBLIC_COLUMNS).eq('seed_dealer_id', id)
     .eq('publication_status',PUBLIC_STATUS).maybeSingle();
   if (error) throw domainError(error,'research profile');
-  return publicResearchProjection(data);
+  if (!data) return null;
+  return publicResearchProjection(data,await getReviewedFullStorefront(id));
 }
 
 /** Private allowlisted research queue; no source contacts, ownership PII or raw rows. */
