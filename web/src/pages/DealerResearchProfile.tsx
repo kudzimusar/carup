@@ -150,7 +150,8 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                   ) : claimOutcome === 'pending-evidence' ? (
                     <div role="status" className="bg-slate-50 border rounded-lg p-4">
                       Request recorded, awaiting documentary proof and independent review.
-                      No dealership control has been granted. Further evidence intake is not yet available in this implementation.
+                      No dealership control has been granted. Go to My Claim Applications to submit private evidence, follow independent review, and—only after approval—download your prefilled workbook.
+                      <p className="mt-3"><Link className="text-blue-700 underline" to="/dealers/claims">Open My Claim Applications</Link></p>
                     </div>
                   ) : (
                     <form onSubmit={submitClaim} className="space-y-4">
