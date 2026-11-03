@@ -1,253 +1,198 @@
-import { useState, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { toast } from 'sonner'
-import {
-  Car, Users, TrendingUp, DollarSign, ArrowRight,
-  MapPin, BarChart3, Settings, Loader2
-} from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Car, MapPin, ShieldCheck, Users, AlertTriangle, ArrowRight } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { apiRequest, resolveApiBaseUrl, type AuthHeaders } from '@/lib/apiClient'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
-import type { Vehicle } from '@/types'
 import DealerIntelligence from '@/components/intelligence/DealerIntelligence'
+import type { Vehicle } from '@/types'
 
+type DealerProfile={
+  id:string;legal_name:string|null;trading_name:string|null;tenant_id:string|null
+  identity_status:string;compliance_review_state:string
+  active_state:string;restriction_state:string;suspension_state:string
+  investigation_state:string;expiry_date:string|null
+}
+type Branch={id:string;dealer_id:string;name:string|null;address:string|null}
+const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
+  typeof window==='undefined'?undefined:window.location.hostname)
+function authHeaders(userId:string,token:string):AuthHeaders{
+  return {'x-session-token':token,'x-user-id':userId}
+}
 
-export default function DealerDashboard() {
-  const { fetchDealerInventory, loading } = useCarUpApi()
-
-  // Branch switcher state
-  const [selectedBranch, setSelectedBranch] = useState('Harare')
-  const [liveInventory, setLiveInventory] = useState<Vehicle[]>([])
-  const [inventoryState, setInventoryState] = useState<'loading' | 'ready' | 'failed'>('loading')
-
-  useEffect(() => {
-    // Live inventory only. Falling back to mock vehicles made an empty or failing read look like real
-    // stock, and an error is not an inventory — an empty list is the honest result in both cases.
-    // TENANT-SCOPED inventory. This previously read the PUBLIC platform-wide
-    // vehicle list, so "Total Inventory" counted every published vehicle on CarUp
-    // and "branch stock" filtered other dealers' cars by location. A failed read
-    // is reported rather than rendered as an empty lot.
-    fetchDealerInventory()
-      .then(data => { setLiveInventory(Array.isArray(data) ? data : []); setInventoryState('ready') })
-      .catch(() => { setLiveInventory([]); setInventoryState('failed') })
-  }, [fetchDealerInventory])
-
-  // A vehicle with no recorded location is NOT in Harare — an unlocated vehicle is unlocated, so it is
-  // no longer filed under the default branch.
-  const currentBranchStock = liveInventory.filter(v => v.location === selectedBranch).slice(0, 5)
-
-  interface BranchPermissions {
-    pricing: Record<string, boolean>;
-    escrow: Record<string, boolean>;
-    listings: Record<string, boolean>;
-    [key: string]: Record<string, boolean>;
-  }
-
-  // Permissions state
-  const [permissions, setPermissions] = useState<BranchPermissions>({
-    pricing: { Owner: true, Admin: true, Staff: false },
-    escrow: { Owner: true, Admin: false, Staff: false },
-    listings: { Owner: true, Admin: true, Staff: true }
-  })
-
-  const togglePermission = (scope: string, role: string) => {
-    setPermissions(prev => ({
-      ...prev,
-      [scope]: {
-        ...prev[scope],
-        [role]: !prev[scope][role]
-      }
-    }))
-    toast.success(`Permission updated for ${role}.`)
-  }
-
-  return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Dealer Dashboard</h1>
-          <p className="text-gray-500">Dealer workspace</p>
-        </div>
-        
-        {/* Branch Inventory Selector */}
-        <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border text-xs text-gray-600 shadow-sm">
-          <MapPin className="w-4 h-4 text-orange-500" />
-          <span>Branch Location:</span>
-          <select 
-            value={selectedBranch} 
-            onChange={(e) => {
-              setSelectedBranch(e.target.value);
-              toast.success(`Switched active branch to ${e.target.value}.`);
-            }}
-            className="border-none bg-transparent p-0 font-bold focus:ring-0 text-gray-800 cursor-pointer outline-none"
-          >
-            <option value="Harare">Harare Central</option>
-            <option value="Bulawayo">Bulawayo Showroom</option>
-          </select>
-        </div>
+/**
+ * Dealer workspace 1.0 — real owner-scoped reads, no invented business metrics,
+ * no fake Harare/Bulawayo branches, no local-only permission toggles.
+ * A research claim never unlocks this workspace; canonical dealer role remains required.
+ */
+export default function DealerDashboard(){
+  const {user,token}=useAuth()
+  const {fetchDealerInventory}=useCarUpApi()
+  const [profile,setProfile]=useState<DealerProfile|null>(null)
+  const [branches,setBranches]=useState<Branch[]>([])
+  const [profileStatus,setProfileStatus]=useState<'loading'|'ready'|'missing'|'error'>('loading')
+  const [inventory,setInventory]=useState<Vehicle[]>([])
+  const [inventoryStatus,setInventoryStatus]=useState<'loading'|'ready'|'error'>('loading')
+  useEffect(()=>{
+    let active=true
+    if(!user||!token){setProfileStatus('missing');return}
+    const hdr=authHeaders(user.id,token)
+    apiRequest<{profile:DealerProfile}>({
+      baseUrl:API,path:'/dealer/profile',authHeaders:hdr,
+    }).then(result=>{
+      if(!active)return
+      setProfile(result.profile)
+      setProfileStatus('ready')
+      return apiRequest<{branches:Branch[]}>({
+        baseUrl:API,path:'/dealer/branches',authHeaders:hdr,
+      }).then(branchResult=>{
+        if(active)setBranches(branchResult.branches||[])
+      }).catch(()=>{if(active)setBranches([])})
+    }).catch(problem=>{
+      if(!active)return
+      const status=(problem as {status?:number})?.status
+      setProfileStatus(status===404?'missing':'error')
+    })
+    return()=>{active=false}
+  },[user,token])
+  useEffect(()=>{
+    let active=true
+    fetchDealerInventory().then(rows=>{
+      if(!active)return
+      setInventory(Array.isArray(rows)?rows:[])
+      setInventoryStatus('ready')
+    }).catch(()=>{
+      if(!active)return
+      setInventory([])
+      setInventoryStatus('error')
+    })
+    return()=>{active=false}
+  },[fetchDealerInventory])
+  const allowedToOperate=Boolean(profile?.tenant_id&&profile.active_state==='active'&&
+    profile.identity_status==='verified'&&profile.compliance_review_state==='passed'&&
+    profile.restriction_state!=='restricted'&&profile.suspension_state!=='suspended'&&
+    profile.investigation_state!=='under_investigation'&&
+    (!profile.expiry_date||new Date(profile.expiry_date).getTime()>=Date.now()))
+  return <main className="max-w-7xl mx-auto space-y-6" data-testid="real-dealer-dashboard">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 className="text-2xl font-bold">Dealer Dashboard</h1>
+        <p className="text-gray-600 mt-1">Real dealership profile, branches, governed inventory and compliance status.</p>
       </div>
-
-      {/* Stats Grid */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          // Only inventory is a real count. Leads / monthly sales / revenue had no data source and were
-          // read from a fabricated `dashboardStats.dealer` block; there is no CRM or sales read model
-          // behind this dashboard, so they say "Not available" rather than invent business performance.
-          { label: 'Total Inventory', value: inventoryState === 'ready' ? liveInventory.length : 'Not available', icon: Car, color: 'text-blue-500', bg: 'bg-blue-50' },
-          { label: 'Leads', value: 'Not available', icon: Users, color: 'text-orange-500', bg: 'bg-orange-50' },
-          { label: 'Monthly Sales', value: 'Not available', icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-50' },
-          { label: 'Revenue (USD)', value: 'Not available', icon: DollarSign, color: 'text-purple-500', bg: 'bg-purple-50' },
-        ].map((stat) => (
-          <Card key={stat.label} className="border-0 card-shadow hover-scale transition-transform">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">{stat.label}</p>
-                  <p className="text-2xl font-bold mt-1">{stat.value}</p>
-                </div>
-                <div className={`w-10 h-10 rounded-lg ${stat.bg} ${stat.color} flex items-center justify-center`}>
-                  <stat.icon className="w-5 h-5" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Main Grid */}
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          {/* Real marketplace inquiries on this dealer's listings (ownership-scoped backend). */}
-          <SellerInquiriesCard />
-
-          {/* Active Branch Stock */}
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-lg flex items-center gap-2">
-                Branch Stock List ({selectedBranch})
-                {loading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
-              </CardTitle>
-              <Badge className="bg-orange-500 text-white font-semibold">Live</Badge>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {currentBranchStock.map((vehicle, idx) => (
-                <div key={idx} className="flex justify-between items-center p-3.5 bg-gray-50 hover:bg-gray-100/50 rounded-xl transition-all border border-gray-100 text-xs">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
-                      <Car className="w-4 h-4 text-orange-600" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-gray-800 text-sm">{vehicle.make} {vehicle.model}</p>
-                      <p className="text-[10px] text-gray-500">VIN: {vehicle.vin} • Status: <span className={vehicle.status === 'Sold' ? 'text-red-500 font-bold' : 'text-green-500'}>{vehicle.status}</span></p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    {/* Price shows only with its recorded currency — no hardcoded USD. The blanket
-                        "ZIMRA Cleared" badge is removed: it was stamped on every row regardless of
-                        whether that vehicle had any customs clearance evidence at all. */}
-                    <p className="font-bold text-orange-600 text-sm">
-                      {Number.isFinite(vehicle.price as number) && vehicle.currency
-                        ? `${vehicle.currency} ${(vehicle.price as number).toLocaleString()}`
-                        : 'Price not recorded'}
-                    </p>
-                  </div>
-                </div>
-              ))}
-              {currentBranchStock.length === 0 && !loading && (
-                <div className="text-center py-6 text-gray-500">No inventory found for {selectedBranch}.</div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Team Permissions Matrix */}
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Team Permissions Matrix</CardTitle>
-              <Settings className="w-4 h-4 text-gray-400" />
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 text-gray-500 text-xs font-semibold uppercase border-b">
-                      <th className="px-6 py-3">Permission Scope</th>
-                      <th className="px-6 py-3 text-center">Owner (L2)</th>
-                      <th className="px-6 py-3 text-center">Admin (L3)</th>
-                      <th className="px-6 py-3 text-center">Sales (L4)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 text-xs">
-                    {[
-                      { scope: 'pricing', label: 'Modify Stock Pricing' },
-                      { scope: 'escrow', label: 'Trigger Escrow Release' },
-                      { scope: 'listings', label: 'Create New Listings' }
-                    ].map((row) => (
-                      <tr key={row.scope} className="hover:bg-gray-50/50">
-                        <td className="px-6 py-4 font-medium text-gray-800">{row.label}</td>
-                        {['Owner', 'Admin', 'Staff'].map((role) => (
-                          <td key={role} className="px-6 py-4 text-center">
-                            <input
-                              type="checkbox"
-                              checked={permissions[row.scope][role]}
-                              onChange={() => togglePermission(row.scope, role)}
-                              className="rounded text-orange-500 focus:ring-orange-400 cursor-pointer h-4.5 w-4.5"
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* The "Sales Performance" chart plotted a static Jan–May series
-              (8/10/12/9/14) identical for every dealer. CarUp holds no
-              authoritative record of a dealer's completed sales, so there is
-              nothing to plot — governed marketplace performance is shown instead,
-              and the absence of sales data is stated rather than drawn. */}
-          <DealerIntelligence windowDays={30} />
-
-          {/* Inventory aging was three fixed Progress bars — 60% / 30% / 10% —
-              hardcoded for every dealer and labelled "(Harare)" whichever branch
-              was selected. `vehicles` carries no governed publication date (only
-              the row-insert timestamp), so days-on-market cannot be computed
-              without inventing it. The absence is named instead. */}
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Inventory aging</CardTitle></CardHeader>
-            <CardContent>
-              <p className="text-sm text-gray-600" data-testid="dealer-inventory-aging-unavailable">
-                Not available. CarUp does not record a governed publication date for a listing,
-                so days on market cannot be measured. This is not zero.
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* Quick Links */}
-          <Card className="border-0 card-shadow">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Quick Actions</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              {[
-                { label: 'Manage Inventory', href: '/dealer/inventory', icon: Car },
-                { label: 'View Leads', href: '/dealer/leads', icon: Users },
-                { label: 'Sales Analytics', href: '/dealer/analytics', icon: BarChart3 },
-              ].map((link) => (
-                <Link key={link.label} to={link.href} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors text-sm">
-                  <link.icon className="w-4 h-4 text-orange-500" />
-                  <span className="flex-1 font-semibold">{link.label}</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
-                </Link>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <Link to="/dealers/claims" className="text-sm text-blue-700 underline underline-offset-4">
+        My dealership claim applications
+      </Link>
     </div>
-  )
+    {profileStatus==='loading'&&<p role="status">Loading your dealer authority…</p>}
+    {profileStatus==='missing'&&<div role="alert" className="rounded-xl border p-5 bg-amber-50 text-amber-900">
+      No approved operational dealership is linked to this signed-in account.
+      A research ownership claim alone does not grant dealership controls.
+    </div>}
+    {profileStatus==='error'&&<div role="alert" className="rounded-xl border p-5 bg-red-50 text-red-800">
+      Dealership authority could not be loaded. No privileged operation is assumed available.
+    </div>}
+    {profileStatus==='ready'&&profile&&<>
+      <Card><CardContent className="p-5">
+        <div className="flex items-start gap-3">
+          <ShieldCheck className="w-6 h-6 text-slate-600 shrink-0" aria-hidden="true"/>
+          <div>
+            <h2 className="text-lg font-semibold">{profile.trading_name||profile.legal_name||'Dealer business identity incomplete'}</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              {allowedToOperate?'Operational conditions currently recorded as satisfied':
+                'Not authorized for full dealer operations on the current evidence'}
+            </p>
+            <dl className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+              {[
+                ['Identity',profile.identity_status],['Compliance',profile.compliance_review_state],
+                ['Operating',profile.active_state],['Restrictions',profile.restriction_state],
+                ['Suspension',profile.suspension_state],['Investigation',profile.investigation_state],
+                ['Tenant membership',profile.tenant_id?'Recorded':'Not recorded'],
+                ['Expiry',profile.expiry_date?new Date(profile.expiry_date).toLocaleDateString():'Not recorded'],
+              ].map(([key,value])=><div key={key}>
+                <dt className="text-gray-500">{key}</dt>
+                <dd className="font-semibold text-gray-800 mt-1 break-words">{value}</dd>
+              </div>)}
+            </dl>
+          </div>
+        </div>
+      </CardContent></Card>
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card><CardContent className="p-5">
+          <Car className="w-5 h-5 text-blue-600 mb-2" aria-hidden="true"/>
+          <p className="text-sm text-gray-600">Canonical dealer inventory</p>
+          <strong className="text-2xl">{inventoryStatus==='ready'?inventory.length:'Not available'}</strong>
+          {inventoryStatus==='error'&&<p className="text-xs text-red-700 mt-2">The inventory read failed; this is not zero.</p>}
+        </CardContent></Card>
+        <Card><CardContent className="p-5">
+          <MapPin className="w-5 h-5 text-slate-700 mb-2" aria-hidden="true"/>
+          <p className="text-sm text-gray-600">Recorded branches</p>
+          <strong className="text-2xl">{branches.length}</strong>
+          <p className="text-xs text-gray-500 mt-2">Branch count reflects own private dealer profile only.</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-5">
+          <Users className="w-5 h-5 text-slate-700 mb-2" aria-hidden="true"/>
+          <p className="text-sm text-gray-600">Completed sales, revenue, staff</p>
+          <strong className="text-lg">Not measured</strong>
+          <p className="text-xs text-gray-500 mt-2">No genuine canonical read model has been established here.</p>
+        </CardContent></Card>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2 space-y-6">
+          <SellerInquiriesCard ownedListings={inventoryStatus==='ready'?inventory:undefined}/>
+          <Card><CardHeader><CardTitle className="text-lg">My recorded branches</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              {branches.length===0&&<p className="text-gray-600 text-sm">No branches are currently recorded for this dealer account.</p>}
+              {branches.map(branch=><div key={branch.id} className="border rounded-lg p-4">
+                <h3 className="font-semibold">{branch.name||'Unnamed recorded branch'}</h3>
+                <p className="text-sm text-gray-600">{branch.address||'Address not recorded'}</p>
+              </div>)}
+              <p className="text-xs text-gray-500">
+                Geographic branch selection is not inferred from VIN city strings.
+                Per-VIN branch attribution requires a governed branch-reference mapping.
+              </p>
+            </CardContent></Card>
+          <Card><CardHeader><CardTitle className="text-lg">Canonical dealer inventory</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              {inventoryStatus==='error'&&<p role="alert">Scoped inventory could not be loaded.</p>}
+              {inventoryStatus==='ready'&&inventory.length===0&&<p className="text-sm text-gray-600">
+                No dealer-owned inventory is recorded. No placeholder vehicle stock has been introduced.
+              </p>}
+              {inventoryStatus==='ready'&&inventory.slice(0,8).map(vehicle=><div key={vehicle.vin} className="border rounded-lg p-3 flex justify-between gap-3">
+                <div>
+                  <p className="font-semibold">{vehicle.make} {vehicle.model}</p>
+                  <p className="text-xs text-gray-600 mt-1">VIN {vehicle.vin} · {vehicle.status||'Status unrecorded'}</p>
+                </div>
+                <p className="text-sm font-semibold text-right">
+                  {Number.isFinite(vehicle.price as number)&&vehicle.currency
+                    ?`${vehicle.currency} ${(vehicle.price as number).toLocaleString()}`:'Price not recorded'}
+                </p>
+              </div>)}
+            </CardContent></Card>
+          <Card><CardContent className="p-5 text-sm text-slate-600 flex gap-3">
+            <AlertTriangle className="w-5 h-5 shrink-0" aria-hidden="true"/>
+            No local permission toggles are offered. Staff roles and powers must be changed only
+            through actual Corporate/AUTH tenant membership authority.
+          </CardContent></Card>
+        </div>
+        <aside className="space-y-5">
+          <DealerIntelligence windowDays={30}/>
+          <Card><CardHeader><CardTitle className="text-lg">Dealer workspace</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              {[
+                ['Manage canonical inventory','/dealer/inventory'],['Buyer inquiries','/dealer/leads'],
+                ['Dealer intelligence','/dealer/analytics'],['Document review','/dealer/evidence'],
+              ].map(([label,url])=><Link key={url} className="flex items-center gap-2 text-blue-700 font-medium text-sm hover:underline" to={url}>
+                <ArrowRight className="w-4 h-4" aria-hidden="true"/>{label}
+              </Link>)}
+              <p className="pt-3 border-t text-xs text-gray-500">
+                Dealer subscriptions remain unpriced/blocked until approved CarUp merchant,
+                product tariffs, finance controls and provider certification.
+              </p>
+            </CardContent></Card>
+        </aside>
+      </div>
+    </>}
+  </main>
 }
