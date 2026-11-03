@@ -19,6 +19,7 @@ const names=[
   '20261103125000_dealer_profile_self_grant_hardening.sql',
   '20261103130000_dealer_document_candidate_ocr_events.sql',
   '20261103131000_dealer_compliance_submission_review.sql',
+  '20261103132000_dealer_canonical_activation_and_legal_gate.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -61,6 +62,8 @@ try{
       registration_number TEXT,tax_id TEXT,physical_address TEXT,
       responsible_person TEXT,operating_country TEXT,
       identity_status TEXT NOT NULL DEFAULT 'unverified',
+      business_evidence_status TEXT NOT NULL DEFAULT 'incomplete',
+      listing_limit INTEGER NOT NULL DEFAULT 0,
       compliance_review_state TEXT NOT NULL DEFAULT 'not_started',
       investigation_state TEXT NOT NULL DEFAULT 'none',
       restriction_state TEXT NOT NULL DEFAULT 'none',
@@ -70,6 +73,35 @@ try{
     );
     ALTER TABLE dealer_profiles ENABLE ROW LEVEL SECURITY;
     GRANT SELECT,INSERT,UPDATE ON dealer_profiles TO authenticated;
+    CREATE TABLE tenants(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,type TEXT NOT NULL,status TEXT DEFAULT 'active',
+      created_at TIMESTAMPTZ DEFAULT now(),updated_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE organizations(
+      id TEXT PRIMARY KEY,name TEXT NOT NULL,type TEXT NOT NULL,
+      created_at TEXT NOT NULL,status TEXT DEFAULT 'active',
+      tenant_id UUID REFERENCES tenants(id)
+    );
+    CREATE TABLE organization_roles(
+      id TEXT PRIMARY KEY,organization_id TEXT NOT NULL REFERENCES organizations(id),
+      name TEXT NOT NULL,level INTEGER NOT NULL,description TEXT
+    );
+    CREATE TABLE organization_users(
+      id TEXT PRIMARY KEY,organization_id TEXT NOT NULL REFERENCES organizations(id),
+      user_id TEXT NOT NULL REFERENCES users(id),role_id TEXT NOT NULL REFERENCES organization_roles(id),
+      status TEXT,joined_at TEXT NOT NULL
+    );
+    CREATE TABLE tenant_users(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id),user_id TEXT NOT NULL REFERENCES users(id),
+      role TEXT NOT NULL,UNIQUE(tenant_id,user_id)
+    );
+    CREATE TABLE dealer_branches(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      dealer_id UUID REFERENCES dealer_profiles(id),name TEXT,address TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
     CREATE TABLE dealer_compliance_requirements(
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       dealer_id UUID NOT NULL REFERENCES dealer_profiles(id),
@@ -88,7 +120,9 @@ try{
       FOR EACH ROW EXECUTE FUNCTION governance_block_mutation();
     INSERT INTO users(id,role,is_verified)
       VALUES ('reviewer1','admin',true),('claimant1','member',false),
-        ('claimant2','member',false),('notreviewer','member',true);
+        ('claimant2','member',false),('notreviewer','member',true),
+        ('policyreviewer','admin',true),('legalreviewer','admin',true),
+        ('activationreviewer','admin',true);
   `);
   for(const name of names){await exec(read(name).up);console.log('APPLIED',name)}
   // Direct authenticated/PostgREST clients cannot mint their own tenant, identity,
@@ -110,7 +144,7 @@ try{
     "SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed"
   )).rows[0].allowed,false);
 
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,16);
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,19);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -214,7 +248,8 @@ try{
     tab_rows:{
       BUSINESS:[{
         claim_reference:uuid(1),source_seed_id:'ZW-DEAL-0001',
-        legal_name:'Fixture Legal Co',operating_country:'ZW',
+        legal_name:'Fixture Legal Co',registration_number:'FIXTURE-REG-001',
+        operating_country:'ZW',
         research_confirmation:'CORRECT',
       }],
       BRANCHES:[{branch_ref:'BR-1',source_seed_id:'ZW-DEAL-0001',
@@ -279,6 +314,91 @@ try{
     'duplicate key value');
   await fails(read('20261103131000_dealer_compliance_submission_review.sql').down,
     'CANNOT_ROLLBACK_WITH_SUBMITTED_COMPLIANCE_CUSTODY');
+  // D6/C11 — only TEST-ONLY fictional policy approval can qualify this local
+  // tenant path. The actual migration creates DRAFT policy, never approval.
+  const testPolicyReview='Detailed independent test review of fictitious documents, correct local registration and branch legal authority.';
+  const secondDraft=await query(
+    'SELECT dealer_save_claim_intake_draft($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8) AS receipt',
+    [uuid(1),claimant,'CARUP_DEALER_INTAKE_1_0',sha,'e'.repeat(64),
+      JSON.stringify(completeApplication),JSON.stringify({BUSINESS:1,BRANCHES:1,
+        CONSENTS_DECLARATIONS:1}),3]);
+  assert.equal(secondDraft.rows[0].receipt.version,4);
+  const legalSubmitted=await query(
+    'SELECT dealer_submit_compliance_application($1,$2,$3,$4,$5) AS receipt',
+    [uuid(1),claimant,4,'CARUP_DEALER_APPLICANT_DECLARATION_1',true]);
+  const legalSubmissionId=legalSubmitted.rows[0].receipt.submission_id;
+  await query('SELECT dealer_review_compliance_submission($1,$2,$3,$4)',[
+    legalSubmissionId,reviewer,'READY_FOR_REGULATORY_REVIEW',
+    'Synthetic independent preliminary escalation for an unlicensed fixture only; actual legal policy not approved.']);
+  const legalExpiry=new Date(Date.now()+10*86400000).toISOString();
+  const sourceRegEvidence=uuid(101),signerEvidence=uuid(100);
+  await exec(`INSERT INTO dealer_claim_private_evidence(
+    evidence_id,claim_id,uploader_user_id,document_class,storage_path,content_sha256,
+    mime_type,file_bytes,scan_state)
+    VALUES ('${sourceRegEvidence}','${uuid(1)}','${claimant}','COMPANY_REGISTRATION',
+    'dealership-claims/${uuid(1)}/${uuid(102)}.pdf','${'f'.repeat(64)}',
+    'application/pdf',1024,'CLEAN_CLAMAV_AT_UPLOAD')`);
+  await fails(`SELECT dealer_record_legal_application_approval(
+   '${legalSubmissionId}','legalreviewer','CARUP_DEALER_ZW_DRAFT_2026_11_03',
+   '${sourceRegEvidence}','${signerEvidence}',
+   'Fixture Synthetic Registry','FIXTURE-REG-001','BRANCH',
+   '${legalExpiry}', '${testPolicyReview}')`,
+   'APPROVED_CURRENT_COUNTRY_POLICY_REQUIRED');
+  assert.equal((await query('SELECT count(*)::int AS n FROM dealer_legal_application_reviews')).rows[0].n,0);
+  // PGlite local ONLY: injection of a labelled synthetic policy simulates a
+  // legal owner's external approval for contract verification; never deployed.
+  await exec(`UPDATE dealer_country_legal_policy_authority
+    SET policy_state='APPROVED',approval_evidence_sha256='${'d'.repeat(64)}',
+    approved_by='policyreviewer',
+    effective_at=now()-interval '1 day',expires_at=now()+interval '30 days'
+    WHERE country_code='ZW' AND policy_version='CARUP_DEALER_ZW_DRAFT_2026_11_03'`);
+  await fails(`SELECT dealer_record_legal_application_approval(
+   '${legalSubmissionId}','${claimant}','CARUP_DEALER_ZW_DRAFT_2026_11_03',
+   '${sourceRegEvidence}','${signerEvidence}',
+   'Fixture Synthetic Registry','FIXTURE-REG-001','BRANCH',
+   '${legalExpiry}', '${testPolicyReview}')`,
+   'INDEPENDENT_LEGAL_REVIEWER_REQUIRED');
+  const qualified=await query(
+    'SELECT dealer_record_legal_application_approval($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS receipt',
+    [legalSubmissionId,'legalreviewer','CARUP_DEALER_ZW_DRAFT_2026_11_03',
+     sourceRegEvidence,signerEvidence,'Fixture Synthetic Registry',
+     'FIXTURE-REG-001','BRANCH',legalExpiry,testPolicyReview]);
+  const legalId=qualified.rows[0].receipt.legal_review_id;
+  assert.equal(qualified.rows[0].receipt.public_verified,false);
+  await fails(`SELECT dealer_activate_approved_legal_claim(
+    '${legalId}','legalreviewer',
+    'The legal reviewer attempted to self-grant operational tenant role to a submitted company, prohibited by maker checker.')`,
+    'SEPARATE_ACTIVATION_APPROVER_REQUIRED');
+  const activated=await query(
+    'SELECT dealer_activate_approved_legal_claim($1,$2,$3) AS receipt',
+    [legalId,'activationreviewer',
+      'Independent synthetic final fixture activation follows an approved test policy and different original and legal reviewers.']);
+  const tenant=activated.rows[0].receipt.tenant_id;
+  assert.equal(activated.rows[0].receipt.idempotent,false);
+  assert.equal(activated.rows[0].receipt.public_verified_badge_granted,false);
+  assert.equal(activated.rows[0].receipt.vehicle_listing_authority_granted,false);
+  assert.equal(activated.rows[0].receipt.payment_entitlement_granted,false);
+  const reactivated=await query(
+    'SELECT dealer_activate_approved_legal_claim($1,$2,$3) AS receipt',
+    [legalId,'activationreviewer',
+      'Independent synthetic final fixture activation follows an approved test policy and different original and legal reviewers.']);
+  assert.equal(reactivated.rows[0].receipt.idempotent,true);
+  assert.equal((await query('SELECT count(*)::int AS n FROM tenants')).rows[0].n,1);
+  assert.equal((await query('SELECT count(*)::int AS n FROM organizations')).rows[0].n,1);
+  assert.equal((await query('SELECT count(*)::int AS n FROM tenant_users')).rows[0].n,1);
+  assert.equal((await query('SELECT count(*)::int AS n FROM organization_users')).rows[0].n,1);
+  const linked=await query('SELECT role FROM tenant_users WHERE tenant_id=$1 AND user_id=$2',
+    [tenant,claimant]);
+  assert.equal(linked.rows[0].role,'dealer');
+  assert.equal((await query("SELECT count(*)::int AS n FROM dealer_profiles WHERE user_id='claimant1'")).rows[0].n,1);
+  await fails('UPDATE dealer_legal_application_reviews SET verdict=\'REJECTED\'','APPEND_ONLY_LEDGER');
+  await fails(read('20261103132000_dealer_canonical_activation_and_legal_gate.sql').down,
+    'CANNOT_ROLLBACK_WITH_LEGAL_ACTIVATION_CUSTODY');
+  await exec(`UPDATE dealer_research_claim_requests
+    SET claim_status='CLAIM_REVOKED' WHERE claim_id='${uuid(1)}'`);
+  assert.equal((await query('SELECT operating_status FROM dealer_approved_seed_links')).rows[0].operating_status,'SUSPENDED');
+  assert.equal((await query('SELECT active_state FROM dealer_profiles WHERE user_id=$1',[claimant])).rows[0].active_state,'inactive');
+  assert.equal((await query('SELECT status FROM tenants WHERE id=$1',[tenant])).rows[0].status,'suspended');
   // D5: OCR is candidate-only and immutable; original-custody mismatch refuses.
   await fails(`SELECT dealer_record_candidate_document_extraction(
     '${uuid(1)}','${uuid(100)}','${outsider}','${sha}',
@@ -369,7 +489,7 @@ try{
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 8 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 9 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;
