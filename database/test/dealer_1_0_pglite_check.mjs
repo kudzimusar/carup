@@ -45,7 +45,7 @@ try{
     DO $$ BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     DO $$ BEGIN CREATE ROLE service_role; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     CREATE SCHEMA auth;
-    CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE SQL STABLE AS $ SELECT NULL::UUID $;
+    CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE SQL STABLE AS $$ SELECT NULL::UUID $$;
     CREATE TABLE users(
       id TEXT PRIMARY KEY,role TEXT NOT NULL DEFAULT 'member',
       is_verified BOOLEAN NOT NULL DEFAULT false
