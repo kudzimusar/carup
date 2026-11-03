@@ -24,6 +24,8 @@ import dealerResearchRouter from './dealerResearchRoutes.js';
 import {getMyDealerMembershipSummary} from '../services/dealer/dealerOperationsReadService.js';
 import {getMyVerifiedDealerWorkspace,addDeclaredDealerBranch}
   from '../services/dealer/dealerVerifiedWorkspaceService.js';
+import {listMyOperationalDeclarations,recordMyOperationalDeclaration}
+  from '../services/dealer/dealerOperationalDeclarationsService.js';
 import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   createOrUpdateProfile,
@@ -82,6 +84,31 @@ router.post('/api/dealer/operational-branches',
 });
 
 
+
+// Versioned private dealer-supplied descriptions, policies and terms.
+// No invented lender, warranty approval, review, merchant or public trust grant.
+router.get('/api/dealer/operational-declarations',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const declarations=await listMyOperationalDeclarations(req.userContext);
+    res.set('Cache-Control','no-store').json({declarations});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+router.post('/api/dealer/operational-declarations/:section',
+ authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const receipt=await recordMyOperationalDeclaration(
+      req.userContext,req.params.section,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({receipt});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
 
 router.post('/api/dealer/profile', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
   try {
