@@ -8,6 +8,7 @@ import {
   uploadPrivateClaimEvidence,listMyClaimEvidence,reviewerEvidencePreview,
   reviewDealerClaim,submitClaimAppeal,exportClaimPrefilledWorkbook,
   importClaimWorkbook,saveManualClaimDraft,readMyClaimIntakeDraft,listClaimReviewQueue,listReviewClaimEvidence,
+  previewMyClaimCsv,importMyClaimCsv,
 } from '../services/dealer/dealerClaimApplicationService.js';
 import { createClaimDocumentCandidate,listMyClaimDocumentCandidates } from '../services/dealer/dealerDocumentCandidateService.js';
 import {readMyClaimJurisdictionPreview} from '../services/dealer/dealerJurisdictionPreview.js';
@@ -139,6 +140,36 @@ router.get('/api/dealership/claims/:claimId/ocr-candidates',
   try{
     const candidates=await listMyClaimDocumentCandidates(req.params.claimId,req.userContext);
     res.set('Cache-Control','no-store').json({candidates});
+  }catch(error){errorResponse(res,next,error)}
+});
+
+// Legacy CSV data remains private. A read-only header preview precedes a
+// separate checksum/version-bound explicit human-confirmed mapping commit.
+function csvEnvelope(raw){
+  if(typeof raw!=='string'||raw.length>2.8*1024*1024||
+    !/^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(raw))
+    throw Object.assign(new Error('INVALID_CSV_BASE64'),{statusCode:400});
+  const bytes=Buffer.from(raw,'base64');
+  if(bytes.toString('base64').replace(/=+$/,'')!==raw.replace(/=+$/,''))
+    throw Object.assign(new Error('NON_CANONICAL_CSV_BYTES'),{statusCode:400});
+  return bytes;
+}
+router.post('/api/dealership/claims/:claimId/csv-preview',
+ claimWriteLimit,session,async(req,res,next)=>{
+  try{
+    const preview=await previewMyClaimCsv(
+      req.params.claimId,req.userContext,
+      csvEnvelope(req.body?.csv_base64),req.body?.target_tab);
+    res.set('Cache-Control','no-store').status(200).json({preview});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/dealership/claims/:claimId/csv-import',
+ claimWriteLimit,session,async(req,res,next)=>{
+  try{
+    const receipt=await importMyClaimCsv(
+      req.params.claimId,req.userContext,
+      csvEnvelope(req.body?.csv_base64),req.body||{});
+    res.set('Cache-Control','no-store').status(200).json(receipt);
   }catch(error){errorResponse(res,next,error)}
 });
 
