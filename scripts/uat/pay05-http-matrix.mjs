@@ -131,8 +131,12 @@ const connectBody = (letter, items, extra = {}) => ({
 });
 const merchantOf = (tenant) => json(`select row_to_json(m) from (select id, status, gateway, merchant_reference from pay04_garage_merchant_accounts where tenant_id = ${lit(tenant)} and gateway = 'paynow_zimbabwe' order by registered_at desc limit 1) m`);
 // Paynow reports no currency: the operator also attests each integration's currency configuration (independent review P3)
-const verifyBody = { legal_identity_reviewed: true, settlement_account_reviewed: true, currency_configuration_reviewed: true,
+const REVIEWS = { legal_identity_reviewed: true, settlement_account_reviewed: true, currency_configuration_reviewed: true,
   note: 'Legal name, registration, settlement account and currency configuration checked (PAY-05 QA).' };
+// R1 (ICR-P1): each integration's own settlement currency, as the operator found it in the merchant's Paynow account
+const currencyEvidence = (merchantId) => Object.fromEntries((json(`select json_agg(json_build_object('id', id, 'currency', currency)) from pay05_merchant_integrations where merchant_account_id = ${lit(merchantId)} and status = 'pending_verification'`) || [])
+  .map((r) => [r.id, { settlement_currency: r.currency, reference: 'Simulated Paynow merchant settlement page reviewed (PAY-05 QA)' }]));
+const verifyBody = (merchantId) => ({ ...REVIEWS, currency_evidence: currencyEvidence(merchantId) });
 
 // ───────────────────────────── C: merchant ownership, onboarding, verification ─────────────────────────────
 let INV_A1;
@@ -162,54 +166,72 @@ await step('M2', 'Connection refusals: mechanic, customer, InnBucks in ZWG, "ZIG
   const bRows = sql(`select count(*) from pay04_garage_merchant_accounts where tenant_id = ${lit(accounts.garageB)} and gateway = 'paynow_zimbabwe'`);
   const pass = mech.status === 403 && [401, 403].includes(cust.status) && code(innbucksZwg) === 'PAY05_METHOD_NOT_AVAILABLE'
     && code(zig) === 'PAY05_CURRENCY_NOT_SUPPORTED' && code(noAttest) === 'PAY05_ATTESTATION_REQUIRED'
-    && code(stolen) === 'PAY05_INTEGRATION_ALREADY_REGISTERED' && code(second) === 'PAY05_MERCHANT_ALREADY_CONNECTED' && bRows === '0';
+    && code(stolen) === 'PAY05_INTEGRATION_NOT_ACCEPTED' && code(second) === 'PAY05_MERCHANT_ALREADY_CONNECTED' && bRows === '0';
   return { pass, detail: { mechanic: mech.status, customer: cust.status, innbucks_zwg: [innbucksZwg.status, code(innbucksZwg)], zig: [zig.status, code(zig)],
     no_attestation: [noAttest.status, code(noAttest)], garage_a_integration_by_b: [stolen.status, code(stolen)], second_connection: [second.status, code(second)],
     garage_b_rows_left: bRows } };
 });
 
-await step('M3', 'Verification refusals: the garage itself, an operator who is a garage member, incomplete evidence, no note', async () => {
-  const self = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, verifyBody, as.adminA);
-  const member = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, verifyBody, as.opsMemberA);
-  const partial = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, { ...verifyBody, settlement_account_reviewed: false }, as.ops);
-  const noCurrency = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, { ...verifyBody, currency_configuration_reviewed: false }, as.ops);
-  const noNote = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, { ...verifyBody, note: '' }, as.ops);
+await step('M3', 'Verification refusals: the garage itself, an operator who is a garage member, incomplete evidence, no note, no per-currency evidence, a currency that differs', async () => {
+  const body = verifyBody(facts.merchantA);
+  const self = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, body, as.adminA);
+  const member = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, body, as.opsMemberA);
+  const partial = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, { ...body, settlement_account_reviewed: false }, as.ops);
+  const noCurrency = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, { ...body, currency_configuration_reviewed: false }, as.ops);
+  const noNote = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, { ...body, note: '' }, as.ops);
+  // R1 (ICR-P1): the tick-box alone is not enough, and an integration settling in another currency cannot collect this one
+  const noEvidence = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, REVIEWS, as.ops);
+  const [firstId] = Object.keys(body.currency_evidence);
+  const wrongCurrency = body.currency_evidence[firstId].settlement_currency === 'USD' ? 'ZWG' : 'USD';
+  const differs = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, { ...body,
+    currency_evidence: { ...body.currency_evidence, [firstId]: { ...body.currency_evidence[firstId], settlement_currency: wrongCurrency } } }, as.ops);
   const still = merchantOf(accounts.garageA).status;
   const pass = self.status === 403 && code(member) === 'PAY05_REVIEWER_SEPARATION_REQUIRED' && code(partial) === 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE'
-    && code(noCurrency) === 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE' && code(noNote) === 'PAY05_REASON_REQUIRED' && still === 'pending_verification';
+    && code(noCurrency) === 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE' && code(noNote) === 'PAY05_REASON_REQUIRED' && code(noEvidence) === 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE'
+    && code(differs) === 'PAY05_CURRENCY_EVIDENCE_MISMATCH' && still === 'pending_verification';
   return { pass, detail: { garage_admin: self.status, operator_member: [member.status, code(member)], partial_evidence: [partial.status, code(partial)],
-    currency_not_reviewed: [noCurrency.status, code(noCurrency)], no_note: [noNote.status, code(noNote)], status_after: still } };
+    currency_not_reviewed: [noCurrency.status, code(noCurrency)], no_note: [noNote.status, code(noNote)], no_per_currency_evidence: [noEvidence.status, code(noEvidence)],
+    currency_differs: [differs.status, code(differs)], status_after: still } };
 });
 
 await step('M4', 'An independent operator verifies; the SERVER proves every key with an authenticated Paynow trace; the customer can now pay', async () => {
-  const r = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, verifyBody, as.ops);
-  const rows = json(`select json_agg(json_build_object('currency', currency, 'status', status, 'probe', verification_evidence->'credential_probe'->>'result', 'fp_matches', verification_evidence->'credential_probe'->>'credential_fingerprint' = credential_fingerprint, 'verified_by', verified_by) order by currency) from pay05_merchant_integrations where merchant_account_id = ${lit(facts.merchantA)}`);
+  const r = await call('POST', `/api/pay05/admin/merchants/${facts.merchantA}/verify`, verifyBody(facts.merchantA), as.ops);
+  const rows = json(`select json_agg(json_build_object('currency', currency, 'status', status, 'probe', verification_evidence->'credential_probe'->>'result', 'fp_matches', verification_evidence->'credential_probe'->>'credential_fingerprint' = credential_fingerprint, 'verified_by', verified_by, 'settles', currency_evidence->>'settlement_currency') order by currency) from pay05_merchant_integrations where merchant_account_id = ${lit(facts.merchantA)}`);
   const audit = sql(`select string_agg(event_type, ',' order by seq) from pay05_merchant_audit_events where merchant_account_id = ${lit(facts.merchantA)}`);
   const traces = (await simControl('GET', '/transactions')).length; // probes are traces, never payments
   const option = (await paymentView(INV_A1.id)).json?.online_payment;
-  const pass = ok(r, 200) && merchantOf(accounts.garageA).status === 'verified' && rows.every((x) => x.status === 'verified' && x.probe === 'authenticated' && x.fp_matches && x.verified_by === accounts.ops.userId)
+  const pass = ok(r, 200) && merchantOf(accounts.garageA).status === 'verified' && rows.every((x) => x.status === 'verified' && x.probe === 'authenticated' && x.fp_matches && x.verified_by === accounts.ops.userId && x.settles === x.currency)
     && /registered/.test(audit) && /verified/.test(audit) && option?.available === true && option.provider === 'paynow' && option.simulated === true
     && option.currency === 'USD' && option.methods.join(',') === 'ecocash,innbucks,omari,onemoney,web' && /not proof of payment/i.test(option.notices?.no_redirect_proof || '');
   facts.simTransactionsAfterProbe = traces;
   return { pass, detail: { status: r.status, integrations: rows, audit, option } };
 });
 
-await step('M5', 'A wrong integration key fails the server probe: refused verification, a recorded provider error, rejection, then a correct reconnection', async () => {
-  const wrong = { ...integrations.B_USD, integration_key: randomUUID() };
-  const c1 = await call('POST', '/api/pay05/garage/paynow/connect', connectBody('B', [wrong]), as.adminB);
+await step('M5', 'R1 (ICR-S2): a wrong key is refused at connect in the same words as another garage’s ID, and reserves nothing; a pending merchant is not "connected"; a rejected ID cools down', async () => {
+  await quietSensitiveWindow();
+  const spare = await simControl('POST', '/integrations', { currency: 'USD', methods: ['web', 'ecocash'], name: 'PAY-05 R1 QA spare' });
+  const spareItem = { currency: 'USD', integration_id: String(spare.integrationId), integration_key: String(spare.key), methods: ['web', 'ecocash'] };
+  const wrong = await call('POST', '/api/pay05/garage/paynow/connect', connectBody('B', [{ ...spareItem, integration_key: randomUUID() }]), as.adminB);
+  const taken = await call('POST', '/api/pay05/garage/paynow/connect', connectBody('B', [integrations.A_USD]), as.adminB);
+  const reserved = Number(sql(`select count(*) from pay05_merchant_integrations where integration_id = ${lit(spareItem.integration_id)}`));
+  const probeErrors = Number(sql(`select count(*) from pay05_provider_errors where tenant_id = ${lit(accounts.garageB)} and kind = 'credential_probe_failed'`));
+  // the real key connects: pending, not "connected", not payable
+  const c1 = await call('POST', '/api/pay05/garage/paynow/connect', connectBody('B', [spareItem]), as.adminB);
   const m1 = merchantOf(accounts.garageB);
-  const v1 = await call('POST', `/api/pay05/admin/merchants/${m1.id}/verify`, verifyBody, as.ops);
-  const probeErrors = Number(sql(`select count(*) from pay05_provider_errors where merchant_account_id = ${lit(m1.id)} and kind = 'credential_probe_failed'`));
-  const rej = await call('POST', `/api/pay05/admin/merchants/${m1.id}/reject`, { reason: 'Integration key does not match the integration ID (probe refused).' }, as.ops);
+  const overview = (await call('GET', '/api/pay04/garage/financial-overview', undefined, as.adminB)).json?.provider;
+  const rej = await call('POST', `/api/pay05/admin/merchants/${m1.id}/reject`, { reason: 'The legal name does not match this merchant (PAY-05 R1 QA).' }, as.ops);
+  const overviewRejected = (await call('GET', '/api/pay04/garage/financial-overview', undefined, as.adminB)).json?.provider;
+  const coolDown = await call('POST', '/api/pay05/garage/paynow/connect', connectBody('B', [spareItem]), as.adminB);
+  await quietSensitiveWindow();
   const c2 = await call('POST', '/api/pay05/garage/paynow/connect', connectBody('B', [integrations.B_USD]), as.adminB);
   const m2 = merchantOf(accounts.garageB);
-  const v2 = await call('POST', `/api/pay05/admin/merchants/${m2.id}/verify`, verifyBody, as.ops);
+  const v2 = await call('POST', `/api/pay05/admin/merchants/${m2.id}/verify`, verifyBody(m2.id), as.ops);
   facts.merchantB = m2.id;
-  const pass = ok(c1, 201) && code(v1) === 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE' && probeErrors >= 1 && ok(rej, 200)
-    && sql(`select status from pay04_garage_merchant_accounts where id = ${lit(m1.id)}`) === 'rejected' && ok(c2, 201) && m2.id !== m1.id
-    && ok(v2, 200) && merchantOf(accounts.garageB).status === 'verified';
-  return { pass, detail: { wrong_key_connect: c1.status, verify_wrong_key: [v1.status, code(v1)], probe_errors: probeErrors, rejected: rej.status,
-    reconnect: c2.status, verify_correct_key: v2.status } };
+  const pass = code(wrong) === 'PAY05_INTEGRATION_NOT_ACCEPTED' && wrong.status === taken.status && JSON.stringify(wrong.json) === JSON.stringify(taken.json) && reserved === 0 && probeErrors >= 1
+    && ok(c1, 201) && overview?.connected === false && overview?.status === 'pending_verification' && overview?.simulated === true && ok(rej, 200) && overviewRejected?.connected === false
+    && code(coolDown) === 'PAY05_INTEGRATION_NOT_ACCEPTED' && ok(c2, 201) && m2.id !== m1.id && ok(v2, 200) && merchantOf(accounts.garageB).status === 'verified';
+  return { pass, detail: { wrong_key: [wrong.status, wrong.json], another_garages_id: [taken.status, taken.json], spare_rows_reserved: reserved, probe_errors: probeErrors,
+    right_key: c1.status, overview_pending: overview, rejected: rej.status, overview_rejected: overviewRejected, rejected_id_cool_down: [coolDown.status, code(coolDown)], reconnect: c2.status, verify: v2.status } };
 });
 
 // ───────────────────────────── the expiry/late-money collection starts EARLY (CarUp's TTL runs during other cases) ─────
@@ -225,6 +247,15 @@ await step('L0', 'A customer starts an EcoCash request and never approves it; wh
   return { pass: r.status === 201 && p?.initiation === 'attached' && p?.phone === '077*****01' && Number(m.provider_reserved) === 35 && Number(m.paid_amount) === 0
     && early.status === 409 && code(early) === 'PAY05_HOLD_NOT_RELEASABLE' && !txOf(LATE.collection).hold_released_at,
   detail: { status: r.status, paynow: p, money: m, expires_at: r.json?.expires_at, release_before_expiry: [early.status, code(early)] } };
+});
+
+// R1: a second request whose time runs with L0's: released later, then paid into Paynow behind CarUp's back
+let AGAIN;
+await step('L0b', 'R1: a second unapproved EcoCash request, started now so that CarUp’s time runs out with the first', async () => {
+  const inv = await invoice('A', { cost: '30.00', sellPrice: '5.00' });
+  const r = await start(inv.id, { method: 'ecocash', phone: '0779000002' });
+  AGAIN = { invoice: inv, collection: r.json?.collection_id, startedAt: Date.now() };
+  return { pass: r.status === 201 && r.json?.paynow?.initiation === 'attached', detail: { status: r.status } };
 });
 
 let UNC;
@@ -627,6 +658,204 @@ await step('L3', 'Late money with no room left: the garage took cash for the who
   detail: { cash: [cash.status, cash.json?.payment_status], discrepancies: openDiscrepancies(LATE.collection), state: v.json?.collection?.state, money: m, operator_listed: listed } };
 });
 
+// ───────────────────────────── PAY-05-R1: money, identity, reviews and words ─────────────────────────────
+const resolve = (collection, type, resolution, note = 'Reviewed in the garage’s Paynow records (PAY-05 R1 QA).') => {
+  const id = sql(`select id from pay04_garage_payment_discrepancies where collection_id = ${lit(collection)} and discrepancy_type = ${lit(type)} and status = 'open' limit 1`);
+  return call('POST', `/api/pay04/admin/discrepancies/${id}/resolve`, { resolution, note }, as.ops);
+};
+const cashFor = (invoiceId, amount) => call('POST', `/api/garage/invoices/${invoiceId}/payments`, { amount, method: 'cash', reference: 'Counter (R1 QA)', idempotency_key: key('r1-cash') }, as.adminA);
+const counted = (collection) => Number(sql(`select pay04_collection_allocated(${lit(collection)})`));
+const allReceipts = (collection) => Number(sql(`select count(*) from pay04_garage_provider_receipts where collection_id = ${lit(collection)}`));
+const observationsOf = (collection) => Number(sql(`select count(*) from pay05_paynow_observations where collection_id = ${lit(collection)}`));
+let phoneSeq = 100;
+async function openRequest({ cost = '20.00', sellPrice = '5.00' } = {}) {
+  const inv = await invoice('A', { cost, sellPrice });
+  phoneSeq += 1;
+  const r = await start(inv.id, { method: 'ecocash', phone: `0779000${phoneSeq}` });
+  if (r.status !== 201) throw new Error(`start ${r.status} ${JSON.stringify(r.json).slice(0, 200)}`);
+  return { inv, collection: r.json.collection_id, sim: await simTxFor(r.json.collection_id), total: inv.total_amount };
+}
+/** What a customer may never read while the facts say otherwise. */
+const FALSE_WORDS = /nothing (was|is) (paid|charged)|still counts|confirmed by paynow/i;
+const wordsOf = (row) => JSON.stringify([row?.state_label, row?.paynow?.provider_status_label, row?.paynow?.facts]);
+const customerRow = async (invoiceId, collection) => (await paymentView(invoiceId)).json?.provider_payments?.find((p) => p.id === collection);
+
+await step('F1', 'R1 (ICR-M1): Paid, then Paynow reverses it, then an operator settles outside CarUp: never counted again, no new receipt, the garage records its cash, a later Refunded still acts', async () => {
+  const q = await openRequest();
+  await simSetStatus(q.sim.guid, 'Paid');
+  const paid = await waitFor(() => counted(q.collection) === 25);
+  const receiptAtPaid = liveReceipts(q.collection);
+  await simSetStatus(q.sim.guid, 'Reversed');
+  const reversed = await waitFor(() => /provider_status_unrecognized/.test(openDiscrepancies(q.collection)));
+  const uncounted = counted(q.collection);
+  const corrected = await resolve(q.collection, 'provider_status_unrecognized', 'provider_corrected');
+  const settled = await resolve(q.collection, 'provider_status_unrecognized', 'settled_off_platform');
+  const afterSettle = { counted: counted(q.collection), live: liveReceipts(q.collection), all: allReceipts(q.collection), money: money(q.inv.id) };
+  const view = await customerRow(q.inv.id, q.collection);
+  const cash = await cashFor(q.inv.id, '25.00');
+  await simSetStatus(q.sim.guid, 'Refunded');
+  const refunded = await waitFor(() => payStatus(q.collection) === 'refunded');
+  const end = money(q.inv.id);
+  return { pass: paid && receiptAtPaid === 1 && reversed && uncounted === 0 && code(corrected) === 'PAY05_CORRECTION_NOT_CONFIRMED_BY_PROVIDER' && ok(settled, 200)
+    && afterSettle.counted === 0 && afterSettle.live === 0 && afterSettle.all === 1 && Number(afterSettle.money.uncommitted_balance) === 25 && view?.state === 'settled_outside' && !FALSE_WORDS.test(wordsOf(view))
+    && view?.paynow?.facts?.counted === false && ok(cash, 201) && refunded && Number(end.paid_amount) === 25 && Number(end.provider_paid) === 0 && counted(q.collection) === 0,
+  detail: { corrected_refused: code(corrected), settled: settled.status, after_settlement: afterSettle, customer_state: view?.state, customer_facts: view?.paynow?.facts, cash: cash.status, end } };
+});
+
+await step('F2', 'R1 (ICR-M3): new money after a settlement is never dropped and never allocated: it opens a review the operator sees; the same report again adds nothing', async () => {
+  const q = await openRequest();
+  await simSetStatus(q.sim.guid, 'Reversed');
+  await waitFor(() => /provider_status_unrecognized/.test(openDiscrepancies(q.collection)));
+  await resolve(q.collection, 'provider_status_unrecognized', 'settled_off_platform');
+  const cash = await cashFor(q.inv.id, '25.00');
+  await simSetStatus(q.sim.guid, 'Paid');
+  const seen = await waitFor(() => /provider_paid_after_close/.test(openDiscrepancies(q.collection)));
+  const exc = await call('GET', '/api/pay04/admin/exceptions', undefined, as.ops);
+  const listed = (exc.json?.discrepancies || []).some((d) => d.collection_id === q.collection && d.type === 'provider_paid_after_close');
+  const before = { obs: observationsOf(q.collection), count: sql(`select observation_count from pay04_garage_payment_discrepancies where collection_id = ${lit(q.collection)} and discrepancy_type = 'provider_paid_after_close'`) };
+  const check = await verify(q.collection);
+  const after = sql(`select observation_count from pay04_garage_payment_discrepancies where collection_id = ${lit(q.collection)} and discrepancy_type = 'provider_paid_after_close'`);
+  const lastOutcome = sql(`select outcome from pay05_paynow_observations where collection_id = ${lit(q.collection)} order by seq desc limit 1`);
+  const m = money(q.inv.id);
+  return { pass: ok(cash, 201) && seen && listed && allocations(q.collection) === 0 && allReceipts(q.collection) === 0 && Number(m.paid_amount) === 25 && Number(m.provider_paid) === 0
+    && check.json?.collection?.state === 'under_review' && lastOutcome === 'after_settlement' && after === before.count && !/confirmed by paynow/i.test(JSON.stringify(check.json?.paynow)),
+  detail: { cash: cash.status, review_open: seen, operator_listed: listed, allocations: allocations(q.collection), money: m, last_outcome: lastOutcome, check_state: check.json?.collection?.state } };
+});
+
+await step('F3', 'R1 (ICR-M2): Paid, Disputed, Paid, Disputed through Paynow’s own signed updates on the real resulturl: each is applied; none is a resend', async () => {
+  const q = await openRequest();
+  const steps = [];
+  for (const [word, expected] of [['Paid', 25], ['Disputed', 0], ['Paid', 25], ['Disputed', 0], ['Paid', 25]]) {
+    await simSetStatus(q.sim.guid, word);
+    const reached = await waitFor(() => counted(q.collection) === expected, { timeoutMs: 10_000 });
+    steps.push([word, counted(q.collection), reached]);
+  }
+  const events = sql(`select count(distinct event_id) || '/' || count(*) from pay05_paynow_observations where collection_id = ${lit(q.collection)} and via = 'status_update'`);
+  return { pass: steps.every(([, , reached]) => reached) && events === '5/5' && liveReceipts(q.collection) === 1, detail: { steps, distinct_events_of_status_updates: events, live_receipts: liveReceipts(q.collection) } };
+});
+
+await step('F4', 'R1 (ICR-S1): variants of a captured signed update (padding, an empty field, a lower-case hash) are one message on the real route: no Paynow read, no row, no money', async () => {
+  const q = await openRequest();
+  await simSetStatus(q.sim.guid, 'Paid');
+  await waitFor(() => counted(q.collection) === 25);
+  const key2 = keyOf(integrations.A_USD.integration_id);
+  const message = statusUpdate(await simTxFor(q.collection), { signingKey: key2 });
+  const rows = observationsOf(q.collection);
+  const answers = [];
+  for (const v of [message, `${message}&x=`, message.replace('status=Paid', 'status=Paid%20'), message.replace(/hash=([0-9A-F]+)/, (_, h) => `hash=${h.toLowerCase()}`)]) {
+    const r = await postResult(q.collection, v);
+    answers.push([r.status, r.json?.duplicate]);
+  }
+  return { pass: answers.every(([status, duplicate]) => status === 200 && duplicate === true) && observationsOf(q.collection) === rows && liveReceipts(q.collection) === 1 && allocations(q.collection) === 1,
+    detail: { answers, observations: [rows, observationsOf(q.collection)], allocations: allocations(q.collection) } };
+});
+
+await step('F5', 'R1 (ICR-M2): an update whose confirming poll disagrees is answered non-2xx, so Paynow resends; once the poll agrees it applies', async () => {
+  const q = await openRequest();
+  const key2 = keyOf(integrations.A_USD.integration_id);
+  const paidMessage = statusUpdate(q.sim, { status: 'Paid', signingKey: key2 });
+  const first = await postResult(q.collection, paidMessage);
+  const during = counted(q.collection);
+  await simSetStatus(q.sim.guid, 'Paid', { notify: false });
+  const second = await postResult(q.collection, paidMessage);
+  return { pass: first.status === 503 && first.json?.error === 'PAY05_STATUS_UPDATE_RETRY' && during === 0 && second.status === 200 && second.json?.applied === true && counted(q.collection) === 25,
+    detail: { unconfirmed: [first.status, first.json], while_unconfirmed_counted: during, confirmed: [second.status, second.json], counted: counted(q.collection) } };
+});
+
+await step('F6', 'R1 (ICR-S1): a replayed captured update costs at most the budget of Paynow reads per collection, then answers non-2xx; ordinary reads still work', async () => {
+  const q = await openRequest();
+  await simSetStatus(q.sim.guid, 'Paid');
+  await waitFor(() => counted(q.collection) === 25);
+  const key2 = keyOf(integrations.A_USD.integration_id);
+  const stale = statusUpdate(await simTxFor(q.collection), { status: 'Disputed', signingKey: key2 });
+  const answers = [];
+  for (let i = 0; i < 14; i += 1) answers.push((await postResult(q.collection, stale)).status);
+  const reads = Number(sql(`select status_update_reads_in_window from pay05_paynow_transactions where collection_id = ${lit(q.collection)}`));
+  const v = await verify(q.collection);
+  return { pass: reads === 12 && answers.every((s) => s === 503) && counted(q.collection) === 25 && v.json?.collection?.state === 'confirmed', detail: { answers, reads_in_window: reads, counted: counted(q.collection) } };
+});
+
+await step('F7', 'R1 (ICR-M4): a dispute Paynow never speaks of again has an exit: not "acknowledged", but settled outside CarUp, which counts nothing and frees the room for real cash', async () => {
+  const q = await openRequest();
+  await simSetStatus(q.sim.guid, 'Paid');
+  await waitFor(() => counted(q.collection) === 25);
+  await simSetStatus(q.sim.guid, 'Disputed');
+  await waitFor(() => /provider_disputed/.test(openDiscrepancies(q.collection)));
+  const ack = await resolve(q.collection, 'provider_disputed', 'acknowledged');
+  const held = money(q.inv.id);
+  const settled = await resolve(q.collection, 'provider_disputed', 'settled_off_platform');
+  const m = money(q.inv.id);
+  const cash = await cashFor(q.inv.id, '25.00');
+  return { pass: ack.status >= 400 && Number(held.provider_reserved) === 25 && ok(settled, 200) && Number(m.provider_reserved) === 0 && Number(m.uncommitted_balance) === 25 && counted(q.collection) === 0 && liveReceipts(q.collection) === 0 && ok(cash, 201),
+    detail: { acknowledge_refused: [ack.status, code(ack)], reserved_during: held.provider_reserved, settled: settled.status, money: m, cash: cash.status } };
+});
+
+await step('F8', 'R1 (ICR-M5, M6): a Disputed with another amount is a dispute, not a mismatch; a Refunded with another figure applies in full and keeps the figure as evidence', async () => {
+  const q = await openRequest();
+  await simSetStatus(q.sim.guid, 'Paid');
+  await waitFor(() => counted(q.collection) === 25);
+  await simControl('POST', `/transactions/${q.sim.guid}/status`, { status: 'Disputed', amount: '20.00', notify: false });
+  await verify(q.collection);
+  const opened = openDiscrepancies(q.collection);
+  const corrected = await resolve(q.collection, 'provider_disputed', 'provider_corrected');
+  const q2 = await openRequest();
+  await simSetStatus(q2.sim.guid, 'Paid');
+  await waitFor(() => counted(q2.collection) === 25);
+  await simControl('POST', `/transactions/${q2.sim.guid}/status`, { status: 'Refunded', amount: '5.00', notify: false });
+  await verify(q2.collection);
+  const figure = sql(`select evidence->>'observed_amount_minor' from pay04_garage_payment_discrepancies where collection_id = ${lit(q2.collection)} and discrepancy_type = 'provider_refund_unquantified'`);
+  const outcome = sql(`select outcome from pay05_paynow_observations where collection_id = ${lit(q2.collection)} order by seq desc limit 1`);
+  return { pass: opened === 'provider_disputed' && code(corrected) === 'PAY05_DISPUTE_NOT_RESOLVED_BY_PROVIDER' && counted(q.collection) === 0
+    && payStatus(q2.collection) === 'refunded' && counted(q2.collection) === 0 && figure === '500' && outcome === 'applied' && !/amount_mismatch/.test(openDiscrepancies(q2.collection)),
+  detail: { disputed_reviews: opened, corrected_refused: code(corrected), refunded_status: payStatus(q2.collection), paynow_figure_kept: figure, observation_outcome: outcome } };
+});
+
+await step('F9', 'R1 (ICR-W2, W6): a released request tells the customer not to approve it and offers nothing to act on; the operator still sees and can read it, with no release', async () => {
+  const view = await customerRow(LATE.invoice.id, LATE.collection);
+  const row = await customerRow(AGAIN.invoice.id, AGAIN.collection);
+  const wait = AGAIN.startedAt + (TTL_SECONDS + 5) * 1000 - Date.now();
+  if (wait > 0) await pause(wait);
+  const rel = await call('POST', `/api/pay05/admin/collections/${AGAIN.collection}/release-hold`, { reason: 'Customer abandoned the EcoCash prompt (R1 QA).' }, as.ops);
+  const released = await customerRow(AGAIN.invoice.id, AGAIN.collection);
+  const list = await call('GET', '/api/pay05/admin/held-collections', undefined, as.ops);
+  const listed = (list.json?.held || []).find((h) => h.collection_id === AGAIN.collection);
+  const check = await call('POST', `/api/pay05/admin/collections/${AGAIN.collection}/reconcile`, {}, as.ops);
+  const words = wordsOf(released);
+  return { pass: ok(rel, 200) && released?.state === 'released' && !/waiting for you|still counts|approve the payment on your phone\./i.test(released?.paynow?.provider_status_label ?? '') && /Do not approve/i.test(released?.paynow?.facts?.next_step ?? '')
+    && !released?.paynow?.needs_otp && !released?.paynow?.checkout_url && !released?.paynow?.authorization_code && !FALSE_WORDS.test(words)
+    && Boolean(listed) && listed.released === true && listed.can_release === false && ok(check, 200), detail: { earlier_views: [view?.state, row?.state], released: released?.state, facts: released?.paynow?.facts, operator_row: listed && { state: listed.state, can_release: listed.can_release, reason: listed.release_blocked_reason }, reread: check.status } };
+});
+
+await step('F10', 'R1 (duplicate payments): money reaches Paynow on a released request though Paynow’s update was lost: the next Pay reads it first and refuses; nothing new is reserved', async () => {
+  const sim = await simTxFor(AGAIN.collection);
+  await simSetStatus(sim.guid, 'Delivered', { notify: false });
+  // the read made while the page was open is older than a minute only after a pause: the start's own read is what must catch it
+  await pause(61_000);
+  const refused = await start(AGAIN.invoice.id, { method: 'ecocash', phone: '0779000003' });
+  const seen = txOf(AGAIN.collection).provider_status;
+  const rows = Number(sql(`select count(*) from pay04_garage_collections where invoice_id = ${lit(AGAIN.invoice.id)}`));
+  const option = (await paymentView(AGAIN.invoice.id)).json?.online_payment;
+  const m = money(AGAIN.invoice.id);
+  return { pass: code(refused) === 'PAY05_EARLIER_REQUEST_UNRESOLVED' && seen === 'delivered' && rows === 1 && option?.available === false && option?.reason === 'earlier_request_unresolved' && Number(m.paid_amount) === 0,
+    detail: { refused: [refused.status, code(refused)], provider_status_now: seen, collections_on_invoice: rows, option, money: m } };
+});
+
+await step('F11', 'R1 (ICR-W1, W3): every row of this run reads truthfully: no "nothing was paid" while Paynow reports money, no "Paid" unless counted', async () => {
+  const rows = json(`select json_agg(json_build_object('invoice', c.invoice_id, 'id', c.id)) from pay04_garage_collections c where c.gateway = 'paynow_zimbabwe' and c.payer_user_id = ${lit(accounts.customer.userId)}`) || [];
+  const seen = new Map();
+  const bad = [];
+  for (const invoiceId of new Set(rows.map((r) => r.invoice))) {
+    for (const p of (await paymentView(invoiceId)).json?.provider_payments || []) {
+      seen.set(p.state, (seen.get(p.state) || 0) + 1);
+      if (['awaiting_delivery', 'delivered', 'paid', 'disputed'].includes(p.paynow?.provider_status) && /nothing (was|is) (paid|charged)/i.test(wordsOf(p))) bad.push([p.id, p.state, 'false nothing']);
+      if (p.state !== 'confirmed' && /confirmed by paynow|^Paid —/i.test(p.paynow?.provider_status_label ?? '')) bad.push([p.id, p.state, 'false paid']);
+      if (p.state === 'confirmed' && !(p.paynow?.facts?.counted === true)) bad.push([p.id, p.state, 'confirmed but not counted']);
+      if (!p.paynow?.facts) bad.push([p.id, p.state, 'no facts']);
+    }
+  }
+  return { pass: bad.length === 0 && seen.size >= 5, detail: { rows_by_state: Object.fromEntries(seen), violations: bad } };
+});
+
 // ───────────────────────────── operator controls ─────────────────────────────
 await step('O1', 'Availability: a garage cannot switch Paynow; the operator switches it off (checkouts refused) and on, with a reason', async () => {
   const garage = await call('PUT', '/api/pay05/admin/availability', { available: false, note: 'Garage trying to switch Paynow off' }, as.adminA);
@@ -682,12 +911,14 @@ await step('INV', 'Invariants: no key plaintext anywhere; garage money only; pai
   const all = await simControl('GET', '/transactions');
   const perRef = refs.map((ref) => all.filter((t) => t.reference === ref).length);
   const zig = sql(`select (select count(*) from payment_transactions where currency = 'ZIG') + (select count(*) from pay04_garage_collections where currency = 'ZIG')`);
-  const pass = Object.values(keyHits).every((n) => n === 0) && over === '0' && carupMoney === '0' && badReceipt === '0' && perRef.every((n) => n <= 1) && zig === '0';
-  return { pass, detail: { key_plaintext_hits: keyHits, over_allocated: over, garage_money_as_carup_money: carupMoney, receipts_not_equal_counted: badReceipt,
+  // R1: counted Paynow money has Paynow's own applied Paid as its latest word; nothing settled grew after settlement
+  const countedWithoutPaid = sql(`select count(*) from pay04_garage_collections c where c.gateway = 'paynow_zimbabwe' and pay04_collection_allocated(c.id) > 0 and pay05_latest_provider_status(c.id) is distinct from 'paid'`);
+  const pass = Object.values(keyHits).every((n) => n === 0) && over === '0' && carupMoney === '0' && badReceipt === '0' && perRef.every((n) => n <= 1) && zig === '0' && countedWithoutPaid === '0';
+  return { pass, detail: { counted_without_paynows_paid: countedWithoutPaid, key_plaintext_hits: keyHits, over_allocated: over, garage_money_as_carup_money: carupMoney, receipts_not_equal_counted: badReceipt,
     paynow_requests_per_collection_max: Math.max(0, ...perRef), collections_checked: refs.length, zig_rows: zig } };
 });
 
-const out = { programme: 'CARUP-PAY-05-LR01', level: 'Level 1 (local Paynow protocol simulator; no provider, no money)', recorded_at: new Date().toISOString(),
+const out = { programme: 'CARUP-PAY-05-R1', level: 'Level 1 (local Paynow protocol simulator; no provider, no money)', recorded_at: new Date().toISOString(),
   backend_commit: commit, harness_commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), stack: 'carup-pay04-supabase 127.0.0.1:56321/56322 (reused)',
   collection_ttl_seconds: TTL_SECONDS, results, facts,
   summary: { total: results.length, passed: results.filter((r) => r.pass).length, failed: results.filter((r) => !r.pass).map((r) => r.case) } };

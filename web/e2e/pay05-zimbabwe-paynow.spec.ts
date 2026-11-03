@@ -284,6 +284,11 @@ test('C (browser, desktop): an independent operator verifies — three reviews a
   await expect(verify).toBeDisabled()
   await card.getByTestId('paynow-op-currency').check()
   await card.getByTestId('paynow-op-note').fill('Legal name, settlement account and the USD integration\'s currency checked (PAY-05 browser QA).')
+  // R1 (ICR-P1): each integration's own settlement currency, and where it was checked
+  await expect(verify).toBeDisabled()
+  await expect(card.getByTestId('paynow-op-verify-why')).toContainText('settlement currency')
+  await card.locator('select[data-testid^="paynow-op-settles-"]').selectOption('USD')
+  await card.locator('input[data-testid^="paynow-op-settles-ref-"]').fill('Simulated Paynow merchant settlement page reviewed (PAY-05 browser QA).')
   await expect(verify).toBeEnabled()
   await axeClean(page, '[data-testid="paynow-operator"]')
   await shot(page, '[data-testid="paynow-op-merchant"]:has-text("PAY05 QA Garage C")', '03-operator-verify-ready-desktop')
