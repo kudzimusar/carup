@@ -81,7 +81,6 @@ const simTxFor = async (collectionId: string) => {
   const ref = sql(`select payment_reference from pay04_garage_collections where id = ${lit(collectionId)}`)
   return ((await sim('GET', '/transactions')) as Array<{ guid: string; reference: string }>).find((t) => t.reference === ref)
 }
-const payStatus = (collectionId: string) => sql(`select p.status from pay04_garage_collections c join payment_transactions p on p.reference = c.payment_reference where c.id = ${lit(collectionId)}`)
 
 /** A completed, authorized job at garage C with recorded parts, invoiced (the PAY-04 product path). */
 async function invoiceAtGarageC(cost = '40.00', sellPrice = '10.00') {
