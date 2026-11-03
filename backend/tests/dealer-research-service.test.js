@@ -111,6 +111,10 @@ test('S11 valid claim is accepted as pending evidence only, never grants a tenan
           maybeSingle: async () => ({data:rawPrivate,error:null}),
         };
       }
+      if (table === 'dealer_full_storefront_current') { return {
+        select() { return this; }, eq() { return this; },
+        maybeSingle: async () => ({data:null,error:null}),
+      }; }
       if (table === 'dealer_research_claim_requests') {
         return {
           insert(payload) {
