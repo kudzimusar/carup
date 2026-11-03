@@ -7,9 +7,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const manifest=JSON.parse(readFileSync(new URL('./fixtures/dealer_source_104_safe_manifest.json',import.meta.url),'utf8'));
-const byCount=(key)=>Object.fromEntries(Object.entries(
+const byCount=(key)=>Object.fromEntries(
   manifest.rows.reduce((m,r)=>(m.set(r[key],(m.get(r[key])||0)+1),m),new Map())
-));
+);
 test('S01/S02 104 exact canonical IDs, immutable source row crosswalk, local source checksum',()=>{
   assert.equal(manifest.schema,'CARUP_DEALER_SOURCE_104_SAFE_MANIFEST_1');
   assert.match(manifest.original_source_sha256,/^[a-f0-9]{64}$/);
