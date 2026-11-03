@@ -108,6 +108,29 @@ test('onboarding: a second call updates the same profile (no duplicate)', async 
   assert.equal(p2.trading_name, 'Acme Renamed');
 });
 
+test('P0 malicious applicant cannot assign a tenant or change verified legal identity', async () => {
+  installMock();
+  const profile = await onboard('dealer-1', { tenant_id: 'victim-tenant' });
+  assert.equal(profile.tenant_id, undefined);
+  Object.assign(db.dealer_profiles[0], { identity_status: 'verified' });
+  await assert.rejects(
+    svc.createOrUpdateProfile('dealer-1', { legal_name:'Impersonated Verified Entity' }),
+    /Verified legal identity change requires independent correction review/,
+  );
+  assert.equal(db.dealer_profiles[0].legal_name,'Acme Motors');
+});
+
+test('P0 applicant-provided verified document status and arbitrary storage path cannot bypass OCR custody', async () => {
+  installMock();
+  const profile = await onboard();
+  const record = await svc.uploadDocument(profile.id, {
+    doc_type:'business_registration', status:'verified',
+    file_ref:'private://other-business-document',
+  });
+  assert.equal(record.status,'pending');
+  assert.equal(record.file_ref,null);
+});
+
 // ── missing documents ────────────────────────────────────────────────────────────────
 test('missing documents: a blocking requirement that is not verified blocks publication', async () => {
   installMock();
@@ -251,6 +274,9 @@ test('admin listing is tenant-scoped: a t1 admin does not see a t2 dealer', asyn
   installMock();
   await onboard('dealer-1', { tenant_id: 't1' });
   await onboard('dealer-2', { tenant_id: 't2' });
+  // Only canonical server-side activation can set tenant membership, not user input.
+  db.dealer_profiles[0].tenant_id = 't1';
+  db.dealer_profiles[1].tenant_id = 't2';
   const t1 = await svc.listProfiles({ tenantId: 't1' });
   assert.equal(t1.length, 1);
   assert.equal(t1[0].tenant_id, 't1');
