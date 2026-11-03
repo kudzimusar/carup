@@ -175,7 +175,7 @@ GRANT EXECUTE ON FUNCTION dealer_record_independent_claim_review(UUID,TEXT,TEXT,
 CREATE OR REPLACE FUNCTION dealer_request_claim_appeal(
  p_claim_id UUID,p_appellant_id TEXT,p_reason TEXT
 ) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp
-AS $
+AS $$
 DECLARE c dealer_research_claim_requests%ROWTYPE; v_appeal UUID;
 BEGIN
  IF length(btrim(coalesce(p_reason,''))) NOT BETWEEN 40 AND 3000
@@ -193,7 +193,7 @@ BEGIN
  RETURN jsonb_build_object('appeal_id',v_appeal,'claim_id',p_claim_id,
    'status','PENDING_INDEPENDENT_APPEAL_REVIEW','authority_granted',false);
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION dealer_request_claim_appeal(UUID,TEXT,TEXT)
  FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION dealer_request_claim_appeal(UUID,TEXT,TEXT) TO service_role;
