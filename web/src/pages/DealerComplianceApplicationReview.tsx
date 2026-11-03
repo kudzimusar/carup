@@ -91,6 +91,11 @@ export default function DealerComplianceApplicationReview(){
         Back to independent claim review
       </Link>
       <h1 className="text-3xl font-bold mt-5">Independent dealer application review</h1>
+      <p className="mt-3 text-sm">
+        <Link to="/admin/dealer-legal-activation" className="text-blue-700 underline">
+          Open separate final legal and canonical activation review
+        </Link>
+      </p>
       <p className="max-w-4xl text-gray-600 mt-2">
         Claim ownership approval, applicant document submission and actual legal/operational
         business activation are separate authorities. This workbench only records
