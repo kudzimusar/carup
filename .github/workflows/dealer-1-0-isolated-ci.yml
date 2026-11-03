@@ -94,6 +94,7 @@ jobs:
             backend/tests/dealer-full-storefront.test.js \
             backend/tests/dealer-commercial-readiness.test.js \
             backend/tests/dealer-staff-membership.test.js \
+            backend/tests/dealer-tenant-inventory.test.js \
             backend/tests/differentiator-journey.test.js
       - name: Isolated PostgreSQL migration and claim authority proof (PGlite)
         run: |
