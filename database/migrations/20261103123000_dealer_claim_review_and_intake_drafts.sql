@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS dealer_claim_appeals (
   appellant_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   appeal_reason TEXT NOT NULL CHECK (length(btrim(appeal_reason)) BETWEEN 40 AND 3000),
   status TEXT NOT NULL DEFAULT 'PENDING_INDEPENDENT_APPEAL_REVIEW'
-    CHECK (status='PENDING_INDEPENDENT_APPEAL_REVIEW'),
+    CHECK (status IN ('PENDING_INDEPENDENT_APPEAL_REVIEW','REVIEWED_BY_INDEPENDENT_REVIEWER')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (claim_id,appellant_user_id)
 );
@@ -160,6 +160,8 @@ BEGIN
  VALUES (p_claim_id,p_reviewer_id,p_evidence_id,p_verdict,
    nullif(btrim(p_issuer),''),nullif(btrim(p_scope),''),btrim(p_reason));
  UPDATE dealer_research_claim_requests SET claim_status=p_verdict WHERE claim_id=p_claim_id;
+ UPDATE dealer_claim_appeals SET status='REVIEWED_BY_INDEPENDENT_REVIEWER'
+  WHERE claim_id=p_claim_id AND status='PENDING_INDEPENDENT_APPEAL_REVIEW';
  RETURN jsonb_build_object('claim_id',p_claim_id,'status',p_verdict,
   'dealer_operational',false,'tenant_activated',false);
 END;
@@ -168,6 +170,33 @@ REVOKE ALL ON FUNCTION dealer_record_independent_claim_review(UUID,TEXT,TEXT,TEX
  FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION dealer_record_independent_claim_review(UUID,TEXT,TEXT,TEXT,UUID,TEXT,TEXT)
  TO service_role;
+
+-- Applicant-owned appeal, DB-atomic and never grants authority on its own.
+CREATE OR REPLACE FUNCTION dealer_request_claim_appeal(
+ p_claim_id UUID,p_appellant_id TEXT,p_reason TEXT
+) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp
+AS $
+DECLARE c dealer_research_claim_requests%ROWTYPE; v_appeal UUID;
+BEGIN
+ IF length(btrim(coalesce(p_reason,''))) NOT BETWEEN 40 AND 3000
+   THEN RAISE EXCEPTION 'INVALID_APPEAL_REASON'; END IF;
+ SELECT * INTO c FROM dealer_research_claim_requests WHERE claim_id=p_claim_id FOR UPDATE;
+ IF NOT FOUND OR c.claimant_user_id<>p_appellant_id
+   THEN RAISE EXCEPTION 'CLAIM_NOT_OWNED'; END IF;
+ IF c.claim_status NOT IN ('CLAIM_REJECTED','CLAIM_DISPUTED','CLAIM_REVOKED')
+   THEN RAISE EXCEPTION 'CLAIM_NOT_APPEAL_ELIGIBLE'; END IF;
+ INSERT INTO dealer_claim_appeals (claim_id,appellant_user_id,appeal_reason)
+ VALUES (p_claim_id,p_appellant_id,btrim(p_reason))
+ RETURNING appeal_id INTO v_appeal;
+ UPDATE dealer_research_claim_requests SET claim_status='CLAIM_APPEALED'
+  WHERE claim_id=p_claim_id;
+ RETURN jsonb_build_object('appeal_id',v_appeal,'claim_id',p_claim_id,
+   'status','PENDING_INDEPENDENT_APPEAL_REVIEW','authority_granted',false);
+END;
+$;
+REVOKE ALL ON FUNCTION dealer_request_claim_appeal(UUID,TEXT,TEXT)
+ FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION dealer_request_claim_appeal(UUID,TEXT,TEXT) TO service_role;
 
 -- Atomic claim-scoped idempotent intake replacement + receipt. Existing separate
 -- legal and compliance authorities remain untouched until a different approved transition.
@@ -225,6 +254,7 @@ GRANT EXECUTE ON FUNCTION dealer_save_claim_intake_draft(UUID,TEXT,TEXT,TEXT,TEX
  TO service_role;
 
 -- +migrate Down
+DROP FUNCTION IF EXISTS dealer_request_claim_appeal(UUID,TEXT,TEXT);
 DROP FUNCTION IF EXISTS dealer_save_claim_intake_draft(UUID,TEXT,TEXT,TEXT,TEXT,JSONB,JSONB,INTEGER);
 DROP FUNCTION IF EXISTS dealer_record_independent_claim_review(UUID,TEXT,TEXT,TEXT,UUID,TEXT,TEXT);
 DROP TABLE IF EXISTS dealer_claim_intake_receipts;
