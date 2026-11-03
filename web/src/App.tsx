@@ -29,6 +29,7 @@ import DealerClaimWorkspace from './pages/DealerClaimWorkspace'
 import DealerClaimReview from './pages/DealerClaimReview'
 import DealerResearchReview from './pages/DealerResearchReview'
 import DealerComplianceApplicationReview from './pages/DealerComplianceApplicationReview'
+import DealerLegalActivationReview from './pages/DealerLegalActivationReview'
 import GarageDirectory from './pages/GarageDirectory'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
@@ -428,6 +429,7 @@ export default function App() {
           <Route path="/admin/dealer-claims" element={<DealerClaimReview />} />
           <Route path="/admin/dealer-research-review" element={<DealerResearchReview />} />
           <Route path="/admin/dealer-compliance-submissions" element={<DealerComplianceApplicationReview />} />
+          <Route path="/admin/dealer-legal-activation" element={<DealerLegalActivationReview />} />
           <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />
