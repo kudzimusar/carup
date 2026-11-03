@@ -54,14 +54,18 @@ export class PaynowProtocolSimulator {
 
   // ── simulated merchant onboarding (what Paynow would issue the garage) ──────────────────────────────────────
 
-  issueIntegration({ currency, methods, escrow = false, name = 'Simulated garage integration' }) {
+  /**
+   * `testModeAuthEmail` makes this integration behave as Paynow's test mode does: an express request must carry the merchant's
+   * own login e-mail (docs: test_mode). The ICR found the simulator's "any e-mail" hid that rule (ICR-P2).
+   */
+  issueIntegration({ currency, methods, escrow = false, name = 'Simulated garage integration', testModeAuthEmail = null }) {
     if (!PAY05_CURRENCIES.includes(currency)) throw new Pay05Error('PAY05_CURRENCY_NOT_SUPPORTED', 422);
     const enabled = [...new Set(methods)].filter((m) => PAY05_METHODS.includes(m));
     if (!enabled.length) throw new Pay05Error('PAY05_METHODS_INVALID', 422);
     let integrationId;
     do integrationId = String(20000 + crypto.randomInt(70000)); while (this.integrations.has(integrationId));
     const key = crypto.randomUUID();
-    this.integrations.set(integrationId, { integrationId, key, currency, methods: enabled, escrow, name });
+    this.integrations.set(integrationId, { integrationId, key, currency, methods: enabled, escrow, name, testModeAuthEmail });
     return { integrationId, key, currency, methods: enabled, escrow };
   }
 
@@ -102,6 +106,9 @@ export class PaynowProtocolSimulator {
     if (!amountMinor || amountMinor <= 0) return errorReply('Invalid amount field');
     const method = express ? fields.get('method') : 'web';
     if (express && (!PAY05_METHODS.includes(method) || method === 'web')) return errorReply('Invalid method');
+    if (express && integration.testModeAuthEmail && fields.get('authemail') !== integration.testModeAuthEmail) {
+      return errorReply('Invalid authemail: test mode needs the merchant login e-mail');
+    }
     if (!integration.methods.includes(method)) return errorReply('Payment method not enabled for this integration');
     if (method === 'innbucks' && integration.currency !== 'USD') return errorReply('InnBucks is a USD only payment option');
     const phone = fields.get('phone') || null;

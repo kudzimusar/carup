@@ -4,7 +4,8 @@
 simulator**. Real Paynow is not authorized and cannot be reached (`BLOCKED_OWNER_PROVIDER_EVIDENCE`, see §8).
 Nothing here is a statement of commercial readiness.
 **Issue:** kudzimusar/carup#252 · **Parent:** PAY-04 accepted head `18440746` (+ Checkpoint A reconciliation `b3ca4d21`)
-**Certification:** [CARUP_PAY_05_FINAL_CERTIFICATION.md](CARUP_PAY_05_FINAL_CERTIFICATION.md) · **Evidence:** [evidence/pay05/](evidence/pay05/)
+**Certification:** [CARUP_PAY_05_R1_CERTIFICATION.md](CARUP_PAY_05_R1_CERTIFICATION.md) supersedes [CARUP_PAY_05_FINAL_CERTIFICATION.md](CARUP_PAY_05_FINAL_CERTIFICATION.md) · **Evidence:** [evidence/pay05-r1/](evidence/pay05-r1/), and the preserved [evidence/pay05/](evidence/pay05/)
+**Remediation:** CARUP-PAY-05-R1 (#256). This document states the corrected rules. Their defect-by-defect closure is in [CARUP_PAY_05_R1_DEFECT_CLOSURE.md](CARUP_PAY_05_R1_DEFECT_CLOSURE.md).
 
 PAY-05 lets a customer pay a garage invoice through **the garage's own Paynow merchant account**. Paynow's hosted page
 and the Express methods EcoCash, OneMoney, InnBucks and O'mari are supported, in USD and ZWG. The money belongs to the
@@ -69,7 +70,7 @@ No Paynow endpoint was contacted.
 | 12 | Status update to `resulturl`, up to 10 resends; validate the hash; poll to confirm | S | D/status_update | A verified update is only a **trigger**; the money effect comes from a fresh poll of the stored poll URL. Retry interval, source IPs and ordering are unverified. |
 | 13 | Poll = empty POST to `pollurl` | S | D/polling_status | Implemented with a read ticket for ordering (§5.4). Rate limits are unverified. |
 | 14 | Trace `/interface/trace` by merchant trace; a "trace error does not necessarily mean … not found" | S | D/polling_status | Used only to recover a lost reply; never to send twice. Two authenticated NotFound replies at least 60 s apart resolve a request as absent. |
-| 15 | Statuses Paid, Awaiting Delivery, Delivered, Created, Sent, Cancelled, Disputed, Refunded | S | D/status_update | Each kept distinct. **Only Paid counts.** Escrow (Awaiting Delivery, Delivered) is held, not counted. "Failed" (test mode), "Created but not paid" and "Awaiting Redirect" (SDK words) are pending, never money. Unknown words go to review. |
+| 15 | Statuses Paid, Awaiting Delivery, Delivered, Created, Sent, Cancelled, Disputed, Refunded | S | D/status_update | Each kept distinct. **Only Paid counts.** Escrow (Awaiting Delivery, Delivered) is held, not counted. "Failed" (test mode) closes a request on which no money was ever reported, like Cancelled; after money it is a review. "Created but not paid" and "Awaiting Redirect" (SDK words) are pending. Any other word is a review. |
 | 16 | Expiry of unpaid transactions | **?** | nothing documented | CarUp's own collection time only starts a **hold**. Paynow may still take the money: the room stays held until Paynow reports an outcome or an operator releases it after a fresh unpaid read. |
 | 17 | Merchant cancel API | **U** | absent everywhere; D/status_update ("may not be resumed") | `cancelCheckout` returns `unsupported_by_provider` and makes no call. A customer "stop" is recorded; the UI says Paynow cannot cancel. |
 | 18 | Merchant refund API | **U** | F/497 (staff): "refund option is not available for merchants" | CarUp refuses (`PAY05_PROVIDER_REFUND_UNSUPPORTED`) and guides the garage to its Paynow dashboard. A reported `Refunded` is recorded and reviewed. |
@@ -155,9 +156,12 @@ PAY-05 adds no second money system. A Paynow collection **is** a PAY-04 collecti
 - canonical `payment_transactions` row (PAY-02 classification);
 - lock order (invoice advisory → payment reference → rows).
 
-Nine accepted PAY-04 functions gain bounded Paynow hunks. Three more refuse Paynow rows: the simulator-path suspend
-and refund writers, and the resolve hunk. `backend/tests/pay05-pay04-function-drift.test.js` derives all twelve from
-the accepted text and pins every other statement aimed at PAY-04 tables.
+Eleven accepted functions are replaced: nine gain bounded Paynow hunks, and the simulator-path suspend and refund writers
+refuse Paynow rows. `backend/tests/pay05-pay04-function-drift.test.js` derives all eleven from the accepted text and pins
+every other statement aimed at PAY-04 tables.
+
+R1 is a forward migration (`20261104100000`): the PAY-05 migration stays byte-identical, and each function R1 replaces is
+PAY-05's text plus hunks marked `PAY-05-R1` (`backend/tests/pay05-r1-function-drift.test.js`). It rewrites no row.
 
 The Paynow adapter implements the PAY-04 provider-adapter contract (`pay04ProviderAdapters.js`):
 - `createCheckout`
@@ -183,46 +187,72 @@ Any PAY-04 path that did not dispatch to PAY-05 fails closed.
 
 ### 5.3 Paynow statuses → money
 
+**The rule (R1):** Paynow money counts only while Paynow's own latest evaluated word is a matching Paid that CarUp applied.
+The reprojection enforces it for every path. No operator closure and no canonical row still reading `paid` can count money by
+themselves, and a receipt exists only for money that counts.
+
 | Paynow says | CarUp | Room |
 |---|---|---|
 | Created / Sent (and SDK pending words) | pending, nothing counted | held |
 | Awaiting Delivery / Delivered (escrow) | pending, nothing counted | held |
 | **Paid** (amount = the request) | **counted**, provider receipt issued, customer notified | consumed |
 | Paid, wrong amount | `amount_mismatch` review, nothing counted | held until resolved |
-| Paid after CarUp closed the payment | `provider_paid_after_close` review, never counted | — |
-| Cancelled / Failed | closed, nothing counted | freed |
-| Disputed | held, not counted, `provider_disputed` review; ended only by Paynow's own later Paid | held |
-| Refunded | not counted; `provider_refund_unquantified` for the operator (Paynow names no amount) | freed |
+| Money after CarUp closed the payment, or after a settlement, whatever its amount | `provider_paid_after_close` review, never counted | — |
+| Cancelled / Failed, with no money ever reported | closed, nothing counted | freed |
+| Cancelled / Failed **after** Paynow reported money | `provider_status_unrecognized` review: not an applied close | held until reviewed |
+| Disputed, whatever its amount | not counted, `provider_disputed` review; Paynow's figure kept as evidence | held |
+| Refunded, whatever figure it carries | applied as a full refund; not counted; `provider_refund_unquantified` once per collection, keeping Paynow's figure as evidence | freed |
+| Refunded on a payment CarUp closed with late money | the payment stays closed; the operator is told | — |
 | An unknown word, or a step back from money | `provider_status_unrecognized` review | held |
+| A money word on an integration with no reviewed settlement currency | `currency_mismatch` review, never allocated | held until resolved |
+
+The same report repeated after an operator closed its review is recorded only (`after_review`): a re-read neither reopens the
+review nor takes the room back. A different report is evaluated.
 
 ### 5.4 Ordering: why a stale read can never move money (independent review D1)
 
 Paynow is read outside any database lock (a poll, a trace, an O'mari reply, or the poll a status update triggers), so
 the order reads arrive in is not the order Paynow answered them. Every read takes a database **read ticket**
 (`pay05_begin_paynow_read`) **before** it is sent:
-- A read older than the latest read CarUp evaluated is recorded as `superseded` and never applied.
+- A read older than the latest read CarUp evaluated is recorded as `superseded` and never applied, **unless its word moves the
+  payment forward** (Sent → escrow → Paid → Disputed → Refunded). A ticket orders when CarUp asked, not when Paynow answered, so
+  a Paid or a Disputed is never lost to ticket order. A forward word's effect is reversible only by Paynow's next word.
 - A pre-payment status arriving after money (a lagging replica) is a `stale_regression`, also recorded and ignored.
-- Every observation records its outcome: `applied`, `review`, `superseded`, `stale_regression`, `after_settlement` or
-  `after_close`.
-- "Paynow reports Paid", which the operator needs to end a dispute, means a read CarUp **applied**.
+- Every observation records its outcome: `applied`, `review`, `superseded`, `stale_regression`, `after_settlement`,
+  `after_close` or `after_review`.
+- "Paynow reports Paid", which the operator needs to end a dispute or correct a mismatch, means a read CarUp **applied**.
 
-A status update counts as a resend only if both hold:
-- it is byte-identical to the last one CarUp recorded;
-- CarUp still holds the status that update reported.
-
-The sequence Paid → Disputed (learned by poll) → Paid is therefore three events.
+**A status update's identity (R1).** Paynow's messages carry no sequence number, and its hash covers only the trimmed values:
+- A message's identity is the hash Paynow sent, in one case, so padded or otherwise trivially varied copies are one message.
+- It is a duplicate, with no second read, only if it is the message CarUp recorded last **and** CarUp still holds the status it
+  reports. A status that differs from the one CarUp holds is never a duplicate.
+- Its event identity adds a monotonic per-collection generation, so a legitimate repeat (Paid, Disputed, Paid, Disputed) is a new
+  event, and concurrent deliveries of one message are one.
+- CarUp answers non-2xx when the confirming poll was not evaluated or does not yet show what Paynow said (the same word, or one
+  further along), so Paynow resends and CarUp reads again.
+- At most twelve update-triggered reads per collection in ten minutes (`pay05_begin_status_update_read`). Past that CarUp answers
+  non-2xx and makes no read. Ordinary reads are unaffected.
 
 ### 5.5 Holds, release, late money, settlement
 
 - A collection's time (`expires_at`, 30 minutes in production) only starts a hold.
-- **Release:** an operator who is not the payer and not a garage member can release the room after expiry, given
-  either:
-  - a fresh read: the **latest** authenticated read of any kind, at most 15 minutes old, showing Created or Sent; or
+- **Release:** an operator who is not the payer and not a garage member can release the room after expiry, with no review open,
+  given either:
+  - a fresh read: the **latest** authenticated read of any kind, at most 15 minutes old, showing Created, Sent, or a reviewed
+    Cancelled or Failed; or
   - for a request Paynow never confirmed, a fresh trace attempt.
 - **Late money:** money that arrives after a release counts only into free room; otherwise it is unallocated money for
   an operator. It is never counted twice.
-- **Settlement:** the operator can settle a wrong-amount Paid or an unrecognised status **outside CarUp**. That
-  releases the room, and later reports of the same money are recorded only.
+- **Settlement:** the operator can settle a wrong-amount Paid, an unrecognised status, a dispute or an unverifiable currency
+  **outside CarUp**. That caps the payment at what counted then (for these reviews nothing), and frees the room so the garage can
+  record what it really received.
+- **After a settlement** only a repeat of the settled evidence is recorded-only (`after_settlement`). New money opens a review and
+  is never allocated; a later Disputed or Refunded still acts on whatever part still counts.
+- **Every review has an exit.** A dispute closes on Paynow's own Paid, as settled outside CarUp, or as acknowledged once Paynow has
+  closed it. None of those counts money, except Paynow's own Paid.
+- **Paying again:** a new request first re-reads any earlier request on the invoice that no longer holds room. If Paynow holds money
+  on one, or a review of it is open, no new request starts (`PAY05_EARLIER_REQUEST_UNRESOLVED`). Paynow's read failing refuses too.
+- Released and settled requests stay on the operator's list and are re-read at most hourly when someone looks at the invoice.
 
 ### 5.6 What fails closed
 
@@ -231,7 +261,9 @@ The sequence Paid → Disputed (learned by poll) → Paid is therefore three eve
 | Cancel | Stop recorded; room held; UI says so |
 | Expiry | Hold + operator release after a fresh unpaid read |
 | Refund API | Refused with dashboard guidance; Refunded recorded on report |
-| Currency field | Operator currency attestation; one integration per currency |
+| Currency field | Each integration's own settlement currency, reviewed by the operator in the merchant's Paynow account and stored once at verification. Without it an integration collects nothing and in-flight money is a currency review. No conversion, ever. One integration per currency. Real settlement-currency reconciliation stays a Level 2 gate. |
+| Customer-fee inclusion (unknown) | A fee-inclusive amount stays an amount review and counts nothing. A real mode cannot be verified without a fee-handling attestation. |
+| Hosts of returned URLs (unknown) | Only `https://www.paynow.co.zw`. A refused URL treats the request as possibly existing and recovers it by trace. An O'mari request with no address for its code says so instead of offering a form. |
 | F5 partial-refund evidence | `PAY05_F5_NOT_APPLICABLE`: a Paynow payment never enters an F5 hold |
 | Real Paynow at Level 1 | Mode `simulator` only. `paynow_real_enabled` is refused by a CHECK constraint, and the adapter requires `CARUP_PAY05_REAL_PROVIDER_AUTHORIZED` |
 
@@ -259,8 +291,28 @@ The sequence Paid → Disputed (learned by poll) → Paid is therefore three eve
   - read provider errors and the merchant audit history;
   - resolve reviews with Paynow-specific options.
 
-Accessibility is designed for WCAG 2.2 AA at 1440/768/390 px: labelled controls, errors tied to fields, live regions,
-focus moved to results, 44 px targets. It is verified with axe in headed Chromium (see the certification).
+**What every Paynow row states, separately (R1).** The server writes these parts and every surface shows them (`PaynowFacts`), for
+the customer and, in third-person words, for the garage and operators:
+
+| Part | What it says |
+|---|---|
+| Paynow reports | Paynow's own last evaluated word, never a claim by CarUp |
+| On this invoice | Counted (and how much), or not counted |
+| Review | Under review, reviewed and not counted, settled outside CarUp, or none |
+| What to do | The next step, including "do not pay again" while a payment is unresolved |
+| Last read from Paynow | When CarUp last read it. **Check payment status** is what reads again |
+
+The words follow from that:
+- never "nothing was paid or charged" while Paynow reports paid, escrow or disputed;
+- never "Waiting for you…" or "it still counts" for a released or settled request;
+- "Paid" only when the money counts;
+- a lost answer to an O'mari code says to check before entering it again, because Paynow may have taken the payment;
+- no second payment is prompted while an earlier request is unresolved;
+- the InnBucks code, O'mari form and page link stay available past CarUp's time while the amount stays reserved.
+
+Accessibility is designed for WCAG 2.2 AA at 1440/768/390 px: labelled controls, errors tied to fields, live regions already on
+the page before they speak, focus moved to new content after each action, 44 px targets. It is verified with axe in headed
+Chromium, and by keyboard alone for the customer, the garage and the operator (see the certification).
 
 ## 7. Security model
 
@@ -310,7 +362,7 @@ Activation needs:
 | 5 | Callback retry interval, source IPs, ordering, fee-inclusive amounts | Read tickets + poll confirmation |
 | 6 | Polling rate limits; IP blocking of cloud egress (forum: shared IPs blocked) | Refresh at most once a minute per request; a static-IP egress may be needed |
 | 7 | Returned-URL hosts (`:7106`, `staging.`) | Only `https://www.paynow.co.zw` allowed |
-| 8 | ZWG per integration, per-method currency, limits | Operator currency attestation |
+| 8 | ZWG per integration, per-method currency, limits, **how an integration's settlement currency is proven** | Per-integration reviewed settlement currency; collects nothing without it |
 | 9 | Current fees and settlement fees | Not modelled |
 | 10 | Marketplace model: CarUp initiating with the garage's own credentials | Garage-owned integration only; CarUp is never the merchant |
 | 11 | Escrow / BuySafe delivery confirmation via API | Escrow is never money |
@@ -320,22 +372,27 @@ Activation needs:
 | 15 | InnBucks / O'mari fixtures, sandbox host | Simulator only |
 | 16 | Chargeback notification | None assumed |
 | 17 | Receipt documents | CarUp provider receipt from the confirmed payment |
-| 18 | **Test mode requires `authemail` = the merchant's login e-mail** (D/test_mode) | Real modes unreachable. A per-integration test e-mail is needed for the Checkpoint G rehearsal. |
+| 18 | **Test mode requires `authemail` = the merchant's login e-mail** (D/test_mode) | Real modes unreachable. A `paynow_test` integration must carry its own merchant login e-mail (`test_auth_email`); the simulator can enforce the rule. |
 | 19 | **The NotFound trace reply's hash formula** (the docs' example does not verify under the assumed formula) | An unverifiable reply is never "authenticated": verification refuses. Confirm with Paynow before Level 2. |
 
 ## 9. Operations (operator runbook, short)
 
-- **Verify** a pending merchant: check the legal documents, the settlement account and each integration's currency in
-  the garage's Paynow account, add a note, then **Verify**. The server then probes every key. On a refused probe,
-  reject with the reason; the garage sees it.
+- **Verify** a pending merchant: check the legal documents and the settlement account, then for **each integration** record the
+  currency it settles in as you found it in the garage's Paynow account, and where you checked it. Add a note, then **Verify**. The
+  server then probes every key. An integration settling in another currency cannot collect this one; do not verify it.
+- **Connecting** already proved the key: a wrong key, another garage's ID and a recently rejected ID all read the same to the garage.
 - **Held requests:** a stopped or expired Paynow request keeps its room. After its expiry, **Release** (or **Close
-  unconfirmed request**). The server reads Paynow first and refuses if it is not fresh-unpaid.
-- **Reviews** (garage payments operator page):
+  unconfirmed request**). The server reads Paynow first and refuses if it is not fresh-unpaid, or if a review is open. The panel offers
+  the action only where the database would allow it, says why otherwise, and keeps **Check with Paynow** on every row, released and
+  settled ones included.
+- **Reviews** (garage payments operator page). No closure counts money: only Paynow's own matching Paid does.
 
   | Review | Resolution |
   |---|---|
-  | `provider_disputed` | Ends on Paynow's own Paid |
-  | `amount_mismatch` | `provider_corrected`, or **settled outside CarUp** (frees the room) |
+  | `provider_disputed` | Ends on Paynow's own Paid; or **settled outside CarUp**; or acknowledged once Paynow has closed it |
+  | `amount_mismatch` | `provider_corrected` once Paynow's latest word is a matching Paid, or **settled outside CarUp** (frees the room) |
+  | `provider_status_unrecognized` | Acknowledged (stays uncounted unless Paynow reports it paid), `provider_corrected`, or settled outside CarUp |
+  | `currency_mismatch` | Settled outside CarUp: this integration has no reviewed settlement currency |
   | `provider_paid_after_close` | Settled outside CarUp, or acknowledged |
   | `provider_refund_unquantified` | Acknowledged once the Paynow records are checked |
 
@@ -358,7 +415,7 @@ Activation needs:
 
 | Layer | Files |
 |---|---|
-| Database | `database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql` |
+| Database | `database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql` (frozen), `20261104100000_carup_pay05_r1_financial_integrity.sql` |
 | Protocol / custody / adapter | `backend/services/payment/pay05PaynowProtocol.js`, `pay05CredentialVault.js`, `pay05PaynowAdapter.js`, `pay05Contract.js` |
 | Services | `pay05MerchantService.js`, `pay05PaynowCollectionService.js`, PAY-05 dispatch in `pay04GaragePaymentService.js`, `pay05ProductCoverage.js` |
 | Routes | `backend/routes/pay05ZimbabweCollectionRoutes.js` (limiters in `server.js`, one CSRF exemption) |

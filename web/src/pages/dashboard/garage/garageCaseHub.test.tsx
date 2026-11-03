@@ -460,7 +460,7 @@ describe('the estimate form', () => {
     // nothing changed on the server, so nothing was re-read and the draft is still a draft
     expect(fetchGarageCaseHub).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('estimate-status')).toHaveTextContent('Draft')
-    expect(screen.queryByTestId('case-notice')).toBeNull()
+    expect(screen.getByTestId('case-notice')).toBeEmptyDOMElement()
   })
 
   it('after a successful send the hub is RE-READ and the screen shows what the server now says', async () => {

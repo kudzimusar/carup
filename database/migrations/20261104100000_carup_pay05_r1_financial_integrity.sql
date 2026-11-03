@@ -147,6 +147,23 @@ BEGIN
   RETURN NEW;
 END $$;
 
+-- pay05_assert_independent_reviewer: PAY-05 text + the hunks marked "PAY-05-R1" (drift-tested)
+CREATE OR REPLACE FUNCTION public.pay05_assert_independent_reviewer(
+  p_acct public.pay04_garage_merchant_accounts, p_actor_id text, p_actor_role text)
+RETURNS void LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+  IF coalesce(p_actor_role, '') NOT IN ('admin', 'super_admin') OR NOT public.pay03b_is_platform_admin(p_actor_id) THEN
+    RAISE EXCEPTION 'PAY05_VERIFICATION_AUTHORITY_REFUSED';
+  END IF;
+  IF trim(p_actor_id) = p_acct.registered_by
+     OR EXISTS (SELECT 1 FROM public.tenant_users WHERE tenant_id = p_acct.tenant_id AND user_id = trim(p_actor_id))
+     OR EXISTS (SELECT 1 FROM public.pay05_merchant_integrations WHERE merchant_account_id = p_acct.id AND registered_by = trim(p_actor_id))
+     -- PAY-05-R1: a person who ever worked at this garage, though removed since: the workforce record outlives the membership (ICR-S3)
+     OR EXISTS (SELECT 1 FROM public.garage_workforce_profiles WHERE tenant_id = p_acct.tenant_id AND user_id = trim(p_actor_id)) THEN
+    RAISE EXCEPTION 'PAY05_REVIEWER_SEPARATION_REQUIRED';
+  END IF;
+END $$;
+
 -- pay05_verified_integration: PAY-05 text + the hunks marked "PAY-05-R1" (drift-tested)
 CREATE OR REPLACE FUNCTION public.pay05_verified_integration(p_merchant_account_id uuid, p_currency text)
 RETURNS uuid LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$

@@ -6,7 +6,8 @@
  *  - POST /api/pay05/paynow/webhook/:collectionId   Paynow's resulturl. No session and no CSRF token can exist on a
  *    provider's POST: it is authenticated by the SHA-512 hash with THIS collection's own integration key, bound to the
  *    collection's reference and poll URL, and its money effect is a fresh poll. Rate-limited in server.js. Every refusal
- *    gets one identical answer (400 PAY05_STATUS_UPDATE_REFUSED); a transient failure 503 PAY05_STATUS_UPDATE_RETRY.
+ *    gets one identical answer (400 PAY05_STATUS_UPDATE_REFUSED). 503 PAY05_STATUS_UPDATE_RETRY asks Paynow to resend: a
+ *    transient failure, a confirming poll that was not evaluated or does not yet agree, or a spent read budget.
  *  - O'mari one-time password (the customer, own collection only).
  *  - The garage administrator's Paynow connection (connect / view / disconnect). Identity and tenant come from the session;
  *    the integration key is sealed before storage and never returned.
@@ -79,7 +80,7 @@ router.post('/api/pay05/paynow/webhook/:collectionId', requirePay05, async (req,
     const e = err instanceof Pay04Error ? err : pay05Failure(err);
     // Paynow resends on any HTTP error. A caller without the integration key learns nothing here: every refusal (no such
     // collection, malformed, unsigned, forged, foreign) gets the same answer, and only a transient failure on CarUp's side
-    // (Paynow unreachable for the confirming poll, credentials unavailable) asks for the retry (independent review S5).
+    // (Paynow unreachable for the confirming poll, its answer not yet confirming) asks for the retry (independent review S5).
     // The specific reason is recorded for the operator (pay05_provider_errors), not returned.
     if ((e.status || 409) >= 500) return res.status(503).json({ error: 'PAY05_STATUS_UPDATE_RETRY' });
     return res.status(400).json({ error: 'PAY05_STATUS_UPDATE_REFUSED' });

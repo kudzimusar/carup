@@ -258,3 +258,33 @@ test('the simulator server listens where fetch may reach it: never a WHATWG "bad
   assert.match(src, /\?\? 5071\)/);
   assert.doesNotMatch(src, /\?\? 5061\)|--port 5061/);
 });
+
+// ───────────────── PAY-05-R1: what the simulator used to hide (ICR-P2, P3, P4) ─────────────────
+
+test('R1 (ICR-P2): in test mode Paynow takes only the merchant\'s own login e-mail on an express request', async () => {
+  const sim = new PaynowProtocolSimulator({ origin: ORIGIN, env });
+  const issued = sim.issueIntegration({ currency: 'USD', methods: ['ecocash'], testModeAuthEmail: 'merchant@example.invalid' });
+  const adapter = new PaynowAdapter({ integration: { integrationId: issued.integrationId, key: issued.key, currency: 'USD', methods: ['ecocash'], mode: 'simulator' },
+    merchantReference: 'pnm_x', endpoints: { initiate: `${ORIGIN}/interface/initiatetransaction`, remote: `${ORIGIN}/interface/remotetransaction`, trace: `${ORIGIN}/interface/trace` },
+    allow: { origins: [ORIGIN] }, transport: simulatorTransport(sim) });
+  const request = (authEmail) => adapter.createCheckout({ reference: `pay04_gar_${newMerchantTrace().slice(0, 12)}`, amountMinor: 1000, currency: 'USD', method: 'ecocash', phone: '0771234567', authEmail,
+    returnUrl: 'https://carup.example/back', resultUrl: 'https://carup.example/result', merchantTrace: newMerchantTrace() });
+  await assert.rejects(request('payer@example.invalid'), (e) => e.code === 'PAY05_PROVIDER_REFUSED' && /authemail/.test(e.details.provider_error));
+  const accepted = await request('merchant@example.invalid');
+  assert.ok(accepted.pollUrl);
+});
+
+test('R1 (ICR-P4): a Paynow reply naming a host outside the allowlist is never followed, and the request is treated as possibly existing', async () => {
+  const { sim, adapter } = world();
+  sim.inject('initiate', { kind: 'foreign_pollurl' });
+  await assert.rejects(adapter.createCheckout(checkout({ method: 'ecocash', phone: '0771234567', authEmail: 'payer@example.invalid' })),
+    (e) => e.code === 'PAY05_PROVIDER_URL_REFUSED' && e.details?.outcome === 'unknown');
+});
+
+test('R1 (ICR-P6): padding a value still verifies, as Paynow\'s published vector requires, and identity collapses it (see the protocol tests)', async () => {
+  const { signPairs, verifyPairs } = await import('../services/payment/pay05PaynowProtocol.js');
+  const key = '11111111-2222-3333-4444-555555555555';
+  const signed = signPairs([['reference', 'R1'], ['status', 'Paid']], key);
+  const padded = signed.map(([k, v]) => (k === 'status' ? [k, `${v} `] : [k, v]));
+  assert.equal(verifyPairs(padded, key).valid, true);
+});

@@ -146,9 +146,8 @@ export default function GarageCaseDetail() {
         </aside>
 
         <div className="space-y-8 min-w-0 lg:col-span-2 lg:col-start-1 lg:row-start-1">
-          {notice && (
-            <p className="rounded-lg bg-green-50 p-3 text-sm text-green-800" role="status" data-testid="case-notice">{notice}</p>
-          )}
+          {/* in the page, empty, before its words arrive, so they are announced (ICR-W5) */}
+          <p className={notice ? 'rounded-lg bg-green-50 p-3 text-sm text-green-800' : ''} role="status" aria-live="polite" data-testid="case-notice">{notice ?? ''}</p>
           <ScopedError scope="case" error={error} />
 
           {terminal && (

@@ -251,6 +251,11 @@ test('non-2xx when the confirming poll was superseded by a newer read', { skip }
     return reply;
   };
   await rejectsWith(webhook(s.collection_id, sent, { transport: slow }), 'PAY05_STATUS_UPDATE_UNCONFIRMED');
+  // Paynow's resend of that same message reads again: the superseded read did not use the message up
+  const t = counting();
+  const out = await webhook(s.collection_id, sent, { transport: t });
+  assert.equal(t.calls.length, 1, 'a resend after an unevaluated read takes a new read');
+  assert.equal(out.duplicate_event, false);
 });
 
 test('ICR-S1: a per-collection budget bounds the reads status updates can trigger; other collections and polls are unaffected', { skip }, async () => {
@@ -332,6 +337,34 @@ test('ICR-M3: settled and released requests stay on the operator list and are re
   const t = counting();
   await P.refreshPaynowCollection({ db, env, transport: t, collection: c });
   assert.equal(t.calls.length, 0, 'no read within the slow window');
+});
+
+test('ICR-M3: looking at an invoice re-reads a request settled outside CarUp, whatever its canonical status', { skip }, async () => {
+  const inv = await invoice(33);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000216' }, `r1-vis2-${run}`);
+  const guid = await guidOf(s.collection_id);
+  await sim.simulator.setStatus(guid, 'Paid');
+  await sim.simulator.setStatus(guid, 'Reversed');
+  await q("SELECT pay04_resolve_garage_payment_discrepancy((SELECT id FROM pay04_garage_payment_discrepancies WHERE collection_id = $1 AND status = 'open'),'settled_off_platform',$2,'admin','Settled with the customer outside CarUp.')", [s.collection_id, ids.op]);
+  assert.equal((await one('SELECT p.status FROM pay04_garage_collections c JOIN payment_transactions p ON p.reference = c.payment_reference WHERE c.id = $1', [s.collection_id])).status, 'paid');
+  await sim.simulator.setStatus(guid, 'Paid', { notify: false });
+  await q("SET session_replication_role = replica");
+  await q("UPDATE pay05_paynow_observations SET observed_at = clock_timestamp() - interval '2 hours' WHERE collection_id = $1", [s.collection_id]);
+  await q("SET session_replication_role = origin");
+  await S.refreshClosingCollections({ db, env, invoiceId: inv.id });
+  assert.equal(await openReview(s.collection_id, 'provider_paid_after_close'), 1, 'the view found the new money');
+});
+
+test('ICR Info: a garage does not read CarUp operators\' identities or notes about its own merchant', { skip }, async () => {
+  const view = await M.getGaragePaynowConnection({ db, env, actor: garageA() });
+  assert.ok(view.merchant.integrations.length);
+  for (const i of view.merchant.integrations) assert.equal(i.verified_by, null);
+  const wire = JSON.stringify(view);
+  assert.ok(!wire.includes(ids.op), 'no operator id');
+  assert.ok(!wire.includes('Reviewed for the R1 service tests.'), 'no operator note');
+  const operatorView = (await M.listPaynowMerchants({ db, env })).merchants.find((m) => m.id === world.merchant);
+  assert.equal(operatorView.integrations[0].verified_by, ids.op, 'operators still see who did it');
+  assert.equal(operatorView.integrations[0].currency_evidence.settlement_currency, operatorView.integrations[0].currency);
 });
 
 // ────────────────────────────── duplicate-payment prompts ──────────────────────────────
@@ -450,6 +483,33 @@ test('ICR-P1: without its reviewed settlement currency an integration is not off
     await q('UPDATE pay05_merchant_integrations SET currency_evidence = $2::jsonb WHERE id = $1', [row.id, JSON.stringify(row.currency_evidence)]);
     await q("SET session_replication_role = origin");
   }
+});
+
+// ────────────────────────────── what real Paynow may do that the simulator did not (ICR-P3, P4) ──────────────────────────────
+
+test('ICR-P3: if Paynow reports an amount including customer fees, it stays an amount review and counts nothing', { skip }, async () => {
+  const inv = await invoice(100);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000214' }, `r1-p3-${run}`);
+  const guid = await guidOf(s.collection_id);
+  await sim.simulator.setStatus(guid, 'Paid', { amount: '103.50' });
+  assert.equal(await openReview(s.collection_id, 'amount_mismatch'), 1);
+  assert.equal((await money(inv.id)).provider_paid, '0.00');
+  assert.equal(await liveReceipts(s.collection_id), 0);
+  const out = await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: s.collection_id, deps });
+  assert.equal(out.collection.state, 'under_review');
+});
+
+test('ICR-P4: an O\'mari request recovered by trace has no address for the code: no form, words instead, and the code is refused if sent', { skip }, async () => {
+  const inv = await invoice(32);
+  sim.simulator.inject('initiate', { kind: 'drop_response' });
+  const s = await start(inv, { method: 'omari', phone: '0719000215' }, `r1-p4-${run}`);
+  const tx = await txOf(s.collection_id);
+  assert.equal(tx.initiation_state, 'attached', 'recovered by trace');
+  assert.equal(tx.remote_otp_url, null);
+  const out = await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: s.collection_id, deps });
+  assert.equal(out.paynow.needs_otp, false);
+  assert.equal(out.paynow.otp_unavailable, true);
+  await rejectsWith(P.submitPaynowOtp({ db, env, actor: customer(), collectionId: s.collection_id, body: { otp: '123456' }, deps }), 'PAY05_OTP_NOT_EXPECTED');
 });
 
 // ────────────────────────────── the invariant across this whole file ──────────────────────────────

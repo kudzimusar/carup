@@ -27,6 +27,14 @@ export const R1_HUNKS = {
              OR (OLD.initiation_state = 'unknown' AND NEW.initiation_state IN ('attached', 'traced_absent', 'refused'))
 `],
   ],
+  pay05_assert_independent_reviewer: [
+    [`     OR EXISTS (SELECT 1 FROM public.pay05_merchant_integrations WHERE merchant_account_id = p_acct.id AND registered_by = trim(p_actor_id)) THEN
+`,
+     `     OR EXISTS (SELECT 1 FROM public.pay05_merchant_integrations WHERE merchant_account_id = p_acct.id AND registered_by = trim(p_actor_id))
+     -- PAY-05-R1: a person who ever worked at this garage, though removed since: the workforce record outlives the membership (ICR-S3)
+     OR EXISTS (SELECT 1 FROM public.garage_workforce_profiles WHERE tenant_id = p_acct.tenant_id AND user_id = trim(p_actor_id)) THEN
+`],
+  ],
   pay05_verified_integration: [
     [`     AND public.pay05_mode_permitted(i.mode)
 `,

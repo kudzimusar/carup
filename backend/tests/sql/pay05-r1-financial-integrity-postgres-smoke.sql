@@ -437,6 +437,31 @@ BEGIN
   RAISE NOTICE 'PAY05_R1 B4 PASS';
 END $$;
 
+-- B3b: after a settlement, a Paid of ANOTHER amount is evidence against what still counted: it stops counting at once, and a
+-- closure of the review never brings it back.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_res jsonb;
+BEGIN
+  g := pg_temp.garage('r1b6');
+  PERFORM pg_temp.merchant(g, 'r1b6', '52006');
+  inv := pg_temp.invoice(g, 'r1b6', 30.00);
+  c := pg_temp.start(inv.id, 30.00, 'r1b6-key-0000001', 60);
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'sent');
+  PERFORM pg_temp.expired(c);
+  PERFORM pay05_release_paynow_hold(c, 'r1-op', 'admin', 'Unpaid request past its time.');
+  PERFORM pg_temp.cash(g, inv.id, 15.00, 'r1b6');
+  PERFORM pg_temp.read(c, 'paid');
+  PERFORM pg_temp.resolve(c, 'unallocated_provider_money', 'settled_off_platform');
+  PERFORM pg_temp.check(pg_temp.counted(c) = 15, 'B3b 15 counts');
+  v_res := pg_temp.read(c, 'paid', 2400);
+  PERFORM pg_temp.check(pg_temp.open_disc(c, 'provider_paid_after_close'), 'B3b a review opens');
+  PERFORM pg_temp.check(pg_temp.counted(c) = 0 AND pg_temp.live_receipts(c) = 0, 'B3b what counted stops at once');
+  PERFORM pg_temp.resolve(c, 'provider_paid_after_close', 'acknowledged');
+  PERFORM pg_temp.check(pg_temp.counted(c) = 0, 'B3b and stays stopped');
+  RAISE NOTICE 'PAY05_R1 B3b PASS';
+END $$;
+
 -- B5: an older read arriving after a settlement is superseded, not new money.
 DO $$
 DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_res jsonb; t1 bigint; t2 bigint;
@@ -611,6 +636,33 @@ BEGIN
   RAISE NOTICE 'PAY05_R1 F2 PASS';
 END $$;
 
+-- F2b: an observation recorded as applied really was. If the money writer ever declines, the whole observation aborts rather
+-- than leaving an "applied" row for something that was not (ICR-M6). The stub lives and dies inside this subtransaction.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_rows bigint;
+BEGIN
+  g := pg_temp.garage('r1f4');
+  PERFORM pg_temp.merchant(g, 'r1f4', '54004');
+  inv := pg_temp.invoice(g, 'r1f4', 20.00);
+  c := pg_temp.start(inv.id, 20.00, 'r1f4-key-0000001');
+  PERFORM pg_temp.send_attach(c);
+  SELECT count(*) INTO v_rows FROM pay05_paynow_observations WHERE collection_id = c;
+  BEGIN
+    CREATE OR REPLACE FUNCTION public.pay04_apply_garage_provider_snapshot(p_collection_id uuid, p_status text, p_provider_payment_id text, p_refund_id text,
+      p_event_id text, p_event_type text, p_amount_minor bigint, p_currency text, p_merchant_reference text,
+      p_refunded_minor bigint, p_pending_refund_minor bigint, p_refund_ids text[], p_mismatch text, p_detected_via text)
+    RETURNS jsonb LANGUAGE sql AS $f$ SELECT '{"applied": false, "refused": "stubbed"}'::jsonb $f$;
+    PERFORM pg_temp.expect(format($q$SELECT pg_temp.read(%L, 'paid')$q$, c), 'PAY05_OBSERVATION_NOT_APPLIED');
+    RAISE EXCEPTION 'R1_F2B_UNDO';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'R1_F2B_UNDO' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.check((SELECT count(*) FROM pay05_paynow_observations WHERE collection_id = c) = v_rows, 'F2b nothing half-recorded');
+  PERFORM pg_temp.read(c, 'paid');
+  PERFORM pg_temp.check(pg_temp.counted(c) = 20, 'F2b the real writer is back');
+  RAISE NOTICE 'PAY05_R1 F2b PASS';
+END $$;
+
 -- F3: Refunded after CarUp closed a payment whose late money was seen tells the operator; without money it is just recorded.
 DO $$
 DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; c2 uuid; v_res jsonb;
@@ -758,6 +810,22 @@ BEGIN
   RAISE NOTICE 'PAY05_R1 K2 PASS';
 END $$;
 
+-- K3 (ICR-S3): an operator who worked at the garage cannot verify it by being removed first. A membership with no workforce
+-- record leaves no trace, which is the residual risk this cannot close without a membership history.
+DO $$
+DECLARE g uuid; v_acct uuid; v_profile uuid;
+BEGIN
+  g := pg_temp.garage('r1k5');
+  INSERT INTO users (id, name, email, role, join_date) VALUES ('r1k5-op', 'r1k5-op', 'r1k5-op@example.invalid', 'admin', '2026-01-01');
+  INSERT INTO tenant_users (tenant_id, user_id, role) VALUES (g, 'r1k5-op', 'admin');
+  INSERT INTO garage_workforce_profiles (tenant_id, user_id, staff_code, employment_classification, employment_status, start_date, created_by_user_id)
+    VALUES (g, 'r1k5-op', 'R1K5-O', 'employee', 'active', '2026-10-01', 'r1k5-admin') RETURNING id INTO v_profile;
+  v_acct := pg_temp.register(g, 'r1k5', jsonb_build_array(pg_temp.integration('USD', '57005', ARRAY['web'])));
+  DELETE FROM tenant_users WHERE tenant_id = g AND user_id = 'r1k5-op';
+  PERFORM pg_temp.expect(format($q$SELECT pay05_verify_paynow_merchant(%L, 'r1k5-op', 'admin', %L, 'Reviewed the merchant.')$q$, v_acct, pg_temp.evidence(v_acct)), 'PAY05_REVIEWER_SEPARATION_REQUIRED');
+  RAISE NOTICE 'PAY05_R1 K3 PASS';
+END $$;
+
 -- ═══════════════════════════ L. currency authority ═══════════════════════════
 
 -- L1 (ICR-P1): verification requires each integration's own reviewed settlement currency, and refuses a mismatch.
@@ -837,6 +905,33 @@ BEGIN
   v_ev := pg_temp.evidence(v_acct);
   PERFORM pg_temp.expect(format($q$SELECT pay05_verify_paynow_merchant(%L, 'r1-op', 'admin', %L, 'Reviewed the merchant.')$q$, v_acct, v_ev), 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE');
   RAISE NOTICE 'PAY05_R1 L4 PASS';
+END $$;
+
+-- L5 (ICR-P2): a Paynow test-mode integration needs the merchant's login e-mail; other modes never hold one. Real modes are off
+-- by constraint, so this block lifts the constraint inside its own subtransaction and undoes everything it did.
+DO $$
+DECLARE g uuid; v_item jsonb; v_row pay05_merchant_integrations%ROWTYPE;
+BEGIN
+  g := pg_temp.garage('r1l6');
+  v_item := pg_temp.integration('USD', '58007', ARRAY['ecocash'], 'paynow_test');
+  BEGIN
+    ALTER TABLE pay05_runtime_guard DROP CONSTRAINT pay05_real_paynow_requires_activation_migration;
+    UPDATE pay05_runtime_guard SET paynow_real_enabled = true WHERE singleton;
+    PERFORM pg_temp.expect(format($q$SELECT pay05_register_paynow_merchant(%L, gen_random_uuid(), 'r1l6-admin', 'L6 Garage', pg_temp.profile('L6 Motors (Pvt) Ltd'), %L)$q$, g, jsonb_build_array(v_item)), 'PAY05_TEST_AUTH_EMAIL_REQUIRED');
+    PERFORM pg_temp.register(g, 'r1l6', jsonb_build_array(v_item || jsonb_build_object('test_auth_email', 'merchant@example.invalid')));
+    SELECT * INTO v_row FROM pay05_merchant_integrations WHERE tenant_id = g;
+    PERFORM pg_temp.check(v_row.test_auth_email = 'merchant@example.invalid', 'L5 kept on the test-mode integration');
+    PERFORM pg_temp.expect(format($q$UPDATE pay05_merchant_integrations SET test_auth_email = 'other@example.invalid' WHERE id = %L$q$, v_row.id), 'PAY05_INTEGRATION_IMMUTABLE');
+    RAISE EXCEPTION 'R1_L5_UNDO';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'R1_L5_UNDO' THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.check((SELECT NOT paynow_real_enabled FROM pay05_runtime_guard), 'L5 real Paynow is off again');
+  PERFORM pg_temp.expect($q$UPDATE pay05_runtime_guard SET paynow_real_enabled = true$q$, 'pay05_real_paynow_requires_activation_migration');
+  -- a simulator integration can never carry one
+  PERFORM pg_temp.register(g, 'r1l6', jsonb_build_array(pg_temp.integration('USD', '58008', ARRAY['web']) || jsonb_build_object('test_auth_email', 'merchant@example.invalid')));
+  PERFORM pg_temp.check((SELECT test_auth_email IS NULL FROM pay05_merchant_integrations WHERE integration_id = '58008'), 'L5 a simulator integration holds none');
+  RAISE NOTICE 'PAY05_R1 L5 PASS';
 END $$;
 
 -- ═══════════════════════════ N. identity columns, budget, least privilege ═══════════════════════════

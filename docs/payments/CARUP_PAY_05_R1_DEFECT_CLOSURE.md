@@ -1,0 +1,112 @@
+# CARUP-PAY-05-R1 — Defect closure matrix
+
+Every finding of the independent certification CARUP-PAY-05-ICR-01 (issue #255, remediation issue #256), with its correction, the
+regression test that failed before it and passes after it, and what risk remains. Reproductions and working sequences stay in the
+restricted handoff; this file names causes and corrections only.
+
+**Reproduced by:** "F" finance, "N" negative-path, "S" security, "P" protocol and "W" web are the ICR's specialist reviewers, who each
+found and reproduced their findings independently. The ICR's certifier session re-ran every executable reproduction. R1 replayed the
+same scripts against the corrected code, in restricted custody, with only the fixture changes the new onboarding rules require.
+
+**Where tests live:**
+- `smoke`: `backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql` (real PostgreSQL), by block;
+- `services`: `backend/tests/pay05-r1-services.test.js` (real PostgreSQL and real HTTP to the protocol simulator);
+- `views`: `backend/tests/pay05-paynow-views.test.js`;
+- `protocol`: `backend/tests/pay05-paynow-protocol.test.js`;
+- `adapter`: `backend/tests/pay05-paynow-adapter.test.js`;
+- `truth`: `web/src/lib/pay05PaynowTruth.test.ts`;
+- `screens`: `web/src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx`;
+- `matrix`: `scripts/uat/pay05-http-matrix.mjs`, by case;
+- `browser`: `web/e2e/pay05-r1-state-truth.spec.ts`.
+
+## Critical and High
+
+| ID | Sev. | By | Root cause | Correction | Regression | After | Residual risk |
+|---|---|---|---|---|---|---|---|
+| ICR-M1 | Critical | F, N | The reprojection counted from the canonical status alone. Closing a review therefore counted money again on a canonical row still reading `paid`, and the settlement cap covered only PAY-04's own review type. | Paynow money counts only while Paynow's own latest evaluated word is a matching applied Paid. A settlement caps a payment at what counted then, for every Paynow review type. `provider_corrected` needs Paynow's own Paid. | smoke A1–A5, A7; services "settlement racing a Paid"; matrix F1 | Never re-counted, no new receipt, the garage records real cash, a later Refunded still acts | None known at Level 1 |
+| ICR-M2 | High | N, F | A status update's identity remembered one step, so a repeat of an earlier message was discarded as a resend, with a 200 that ended Paynow's retries. | Identity is the received Paynow hash plus a monotonic per-collection generation. A status differing from the one held is never a duplicate. Non-2xx when the confirming poll was not evaluated or does not agree. | services "ICR-M2", "non-2xx…"; smoke N1; matrix F3, F5 | Each dispute and each Paid applies | Real dispute word sequences are a Level 2 question |
+| ICR-M3 | High | N, F | After a settlement every Paynow report was ignored unconditionally, and released or settled requests were no longer read. | Only a repeat of the settled evidence is recorded-only. New money opens `provider_paid_after_close` and is never allocated. Disputed and Refunded still act on what counts. Settled and released requests stay listed and are re-read hourly. | smoke B1–B5; services "ICR-M3"; matrix F2 | New money is reviewed, audited, unallocated | Hourly re-reads depend on someone viewing the invoice; Paynow's own update is the primary signal |
+| ICR-W1 | High | W | Paynow rows used PAY-04's state words, which assume a provider that can cancel and expire. | Paynow-aware states and words on every surface, in the server and the client. | views (exhaustive), truth, screens, browser | No "nothing was paid" while Paynow reports money | None known |
+| ICR-W2 | High | W | The label followed Paynow's word alone, whatever CarUp had done with the request. | A released or settled request is never "waiting", offers no link, code or form, and says not to approve it. "It still counts" removed. | views, truth, screens; matrix F9; browser | Words and actions agree | A customer can still approve the old prompt on the handset; Paynow cannot cancel it. CarUp re-reads before any new request |
+| ICR-W3 | High | W | "Paid — confirmed by Paynow" came from Paynow's status, not from what CarUp counted. | "Paid" only when counted; otherwise "Paynow reports it paid", with allocation as a separate part. | views, truth; matrix F11 | Never confirmed unless counted | None known |
+| ICR-W4 | High | W | Every O'mari failure used one "nothing changed" sentence. | Failures are classified: only Paynow's refusal is definite. A lost answer says Paynow may have taken the payment and to check first. | truth | Truthful for every failure class | Real OTP-after-timeout behaviour is a Level 2 question |
+| ICR-P1 | High, **Level 2 gate** | P | Paynow's API carries no currency, and verification held one global tick-box. | Each integration's own reviewed settlement currency is required at verification, refused if it differs, and written once. Without it nothing begins, and in-flight money is a `currency_mismatch` review. No conversion. | smoke L1–L3; services "ICR-P1"; matrix M3 | Fails closed | **Remains a Level 2 gate:** how a settlement currency is proven, and reconciliation against real settlement, need Owner and Paynow |
+
+## Medium (13)
+
+| ID | By | Root cause | Correction | Regression | After | Residual risk |
+|---|---|---|---|---|---|---|
+| ICR-M4 | N, F | Cancelled or Failed after money was applied as a close, and a dispute could only end on a later Paid. | Cancelled or Failed after money is a review. A dispute can be settled outside CarUp at any time, or acknowledged once Paynow closed it; neither counts. A reviewed reversal can be released. | smoke D1–D3, D5; matrix F7 | Every review has an exit | A settlement relies on the operator's note; Paynow's later report is reviewed |
+| ICR-M5 | F | The amount check ran before the dispute branch. | Disputed is always a dispute; the amount is evidence. | smoke D4; matrix F8 | Nothing can count it | None known |
+| ICR-M6 | F, N | A Refunded of another figure was refused by the writer after being recorded as applied. | It applies as a full refund, keeps the figure as evidence, and an observation recorded as applied really was. | smoke F1, F2b; matrix F8 | Applied in full | A real partial refund is unknown: the operator confirms in Paynow's records |
+| ICR-S1 | S | Duplicate detection hashed the bytes received, while Paynow's hash ignores padding and empty fields. | Same identity fix as ICR-M2; a per-collection budget for update-triggered reads; a real-mode result URL must be https. | services "ICR-S1"; views; protocol; matrix F4, F6 | Variants are one message; reads are bounded | A holder of a captured message can still cost twelve reads in ten minutes per collection |
+| ICR-S2 | S | An ID was reserved on registration with no proof of its key, and the refusal revealed that it was in use. | The key is proved at connect, before anything is written, and the database requires that proof. One generic refusal. A rejected ID cools down, and repeated failed proofs stop probing. | smoke K1; services "ICR-S2"; matrix M5 | No squatting, no oracle | The proof relies on Paynow signing NotFound with the queried key (a Level 2 question) |
+| ICR-P2 | P | Express requests carried the payer's e-mail in every mode; the simulator accepted any. | A `paynow_test` integration carries its merchant login e-mail. The simulator can enforce the rule. | smoke L5; views; adapter | Test-mode rule modelled | Real test mode unexercised (Level 2) |
+| ICR-P3 | P | Whether `amount` includes customer fees is unknown. | Fail closed: a fee-inclusive amount stays an amount review. Real modes need a fee-handling attestation at verification. | smoke L4; services "ICR-P3" | Counts nothing | **BLOCKED:** Paynow's answer decides whether real payments would all be reviews |
+| ICR-P4 | P | Returned hosts are unknown, and a request recovered by trace had no address for its O'mari code. | The allowlist is kept. A refused URL keeps the request recoverable. An O'mari request with no address says so instead of offering a form. A trace reply's page link is kept when Paynow names one. | adapter; services "ICR-P4"; screens | Never stranded silently | **BLOCKED:** real hosts need Paynow's answer |
+| ICR-W5 | W | Controls unmounted while focused, and two results were inserted with their words. | Focus moves to the new content after each listed action. Result regions are on the page before they speak. | screens; browser keyboard walks | Keyboard users keep their place | Real screen-reader output not tested |
+| ICR-W6 | W | The panel offered release on state alone. | `can_release` and its reason come from the server and mirror the database's rules; the database still decides. | views; screens; browser | Offered only when allowed | None known |
+| ICR-W7 | W | Means of payment vanished at CarUp's own time, though the amount stayed reserved. | The code, form and link stay while it is reserved; the stop warning says it stays reserved. | views, truth, screens; browser | No dead end | A trace-recovered hosted request has a link only if Paynow's reply names one |
+| ICR-W8 | W | "Connected" followed any non-suspended merchant, and the simulator badge followed PAY-04's gateway only. | Connected means customers can pay through it; pending says so; rejected reads as not connected; a simulator-mode Paynow merchant shows the badge. | matrix M5; browser | Truthful | None known |
+| ICR-W9 | W | PAY-04's words assume money moved. | Paynow rows read "in progress or under review and not counted"; PAY-04's rows are unchanged. | truth | Truthful | None known |
+
+## Low (16)
+
+| ID | By | Disposition | Correction or reason | Regression | Residual risk |
+|---|---|---|---|---|---|
+| ICR-M7 | N | Corrected | A word that moves a payment forward is never superseded by ticket order. | smoke G1, G2 | An older-ticket Refunded or Disputed applies; Paynow's next word governs |
+| ICR-M8 | N | Corrected | A refusal after a concurrent trace can close the request. | smoke I1 | None known |
+| ICR-M9 | F | Corrected | Money after a close is late money whatever its amount, and re-reserves nothing. | smoke I2 | None known |
+| ICR-M10 | F | Corrected | One refund review per collection; a repeat after any closed review is recorded only. | smoke F2, D5 | None known |
+| ICR-M11 | F, N | Corrected | An ID verified for one garage is refused to another; the same garage may reconnect. | smoke K2 | A genuine ownership transfer needs an operator and a reviewed path (Level 2) |
+| ICR-S3 | S | Partly corrected | An ex-employee with a workforce record is refused. | smoke K3 | **Open:** a membership with no workforce record leaves no trace. Closing it needs a membership history in Garage foundations, outside R1's boundary. |
+| ICR-S4 | S | Tracked (Level 2) | The per-collection budget bounds reads. Limiter buckets need Paynow's source addresses and real traffic. | services "ICR-S1" | Status updates share one per-IP bucket; a 429 makes Paynow resend |
+| ICR-S5 | S | Tracked (**Level 2 blocker**) | KEK rotation needs a design for immutable sealed columns. | none at Level 1 | A KEK change strands integrations; the resulturl stays uniform, and reads fail closed |
+| ICR-S6 | S | Corrected | Before a signature is proved, a key that cannot be opened answers as any other refusal. | services "ICR-S6" | None known |
+| ICR-P5 | P | Corrected | The poll URL binds by canonical comparison: case and encoding are not another payment. | services "ICR-P5"; protocol | None known |
+| ICR-P6 | P | Kept, pinned | Paynow's published vector needs trimmed values, and identity now collapses padding. | adapter "ICR-P6"; services "ICR-S1" | Whether real inbound values carry spaces is a Level 2 question; a mismatch fails closed |
+| ICR-W10 | W | Corrected | `hold_released` and `system:expiry` read as words; the "stopped or closed" event label. | truth; screens | None known |
+| ICR-W11 | W | Corrected | No raw code or browser text reaches a person; operators keep the code beside the words. | truth | None known |
+| ICR-W12 | W | Corrected | One idempotency key per thing asked for, so editing and restoring retries the same request. | screens | None known |
+| ICR-W13 | W | Corrected | Disabled controls say why, tied to the field and the button. | screens | None known |
+| ICR-W14 | W | Corrected | An unconfirmed request is said to be unconfirmed. | truth | None known |
+
+## Informational (11) and documentation (2)
+
+| Item | Disposition |
+|---|---|
+| GCM tag length not pinned in code | Corrected (`authTagLength: 16`), with a truncated-tag test |
+| Key fingerprint is an unkeyed hash prefix | Kept: keys are high-entropy, and a keyed digest would tie it to the KEK. Recorded |
+| Identity sequences not revoked | Corrected; smoke N3 |
+| Disconnect audits a dual-role person as `admin` | Corrected: the garage path acts as the garage |
+| The garage view shows operators' IDs and notes | Corrected; services "ICR Info" |
+| A `super_admin` who is not a platform admin is probed before the database refuses | Kept: no money or key effect; the database refuses. Recorded |
+| Late binding leaves the intent NULL and marks closed although nothing closed | Kept: money is correct. Recorded |
+| The webhook accepts only form-urlencoded | Kept pending Paynow's answer (Level 2 question 7) |
+| The 46-character reference | Kept pending Paynow's answer |
+| Test-mode Paid is indistinguishable from real Paid | Kept: real modes are off by constraint; a Level 2 item |
+| The credential probe assumes NotFound is signed with the queried key | Kept: an unverifiable reply is never "authenticated". A Level 2 question |
+| Documentation: the replaced-function count | Corrected (11) |
+| Documentation: the capability matrix's "Failed" row | Corrected |
+
+## Cross-program test guard
+
+| Item | Correction | Regression |
+|---|---|---|
+| O2-X4 fingerprint guard (cross-program security test guard defect) | The word-level exclusion is replaced by one schema node: this table, this exact declaration, this file. Any other declaration, however spelled or wherever placed, is a violation, and only reviewed files may read the column. Biometric architecture is not touched. | `backend/tests/o2-x4-biometric-interface.test.js`: the Moderator's two-table fixture, narrowed declarations, added and renamed columns, queries, views, declarations in function bodies, unreviewed files, and Trust's fingerprint |
+
+## Deliberate changes to accepted tests
+
+These assertions changed because R1 corrects what they pinned. Nothing else in an accepted test changed.
+
+| Test | Change | Why |
+|---|---|---|
+| PAY-05 smoke, fixtures | Registration carries the connect probe; verification carries per-integration currency evidence | ICR-S2, P1 |
+| PAY-05 smoke | `PAY05_INTEGRATION_ALREADY_REGISTERED` → `PAY05_INTEGRATION_NOT_ACCEPTED` | ICR-S2: one generic refusal |
+| PAY-05 smoke | `settled_off_platform` on a dispute no longer refused; `acknowledged` is what stays invalid while Paynow says Disputed | ICR-M4: a silent dispute needs an exit |
+| `pay05-paynow-services.test.js` | A wrong key is refused at connect, not at verification; fixtures as above | ICR-S2, P1 |
+| `pay05-paynow-views.test.js`, `pay05-paynow-protocol.test.js` | The Paid label; the event-identity signature | ICR-W3, M2 |
+| HTTP matrix M2, M3, M4, M5 | As above; M5 now covers the cool-down and the merchant's status on the garage page | ICR-S2, P1, W8 |
+| Web tests in `pay05Paynow.test.ts`, `PaynowOperatorPanel.test.tsx`, `PaynowConnection.test.tsx` | Fixtures and words | ICR-W3, W6, W11, P1, S2 |
+| `garageCaseHub.test.tsx` | The notice region is always on the page, empty until it speaks | ICR-W5 |
+| `o2-x4-biometric-interface.test.js` | The exception replaced as above | Moderator, issue #255 |

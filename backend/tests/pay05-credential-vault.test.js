@@ -75,3 +75,14 @@ test('only plausible integration keys are accepted, and the fingerprint is a sho
   assert.throws(() => integrationKeyAad({ ...binding, currency: 'ZIG' }), /PAY05_CURRENCY_NOT_SUPPORTED/);
   assert.throws(() => integrationKeyAad({ ...binding, mode: 'prod' }), /PAY05_MODE_INVALID/);
 });
+
+test('R1 (ICR Info): a truncated GCM tag never opens a key', async () => {
+  const { integrationKeyAad, openIntegrationKey, sealIntegrationKey } = await import('../services/payment/pay05CredentialVault.js');
+  const { randomBytes } = await import('node:crypto');
+  const env = { CARUP_PAY05_CREDENTIAL_KEK: randomBytes(32).toString('base64'), CARUP_PAY05_CREDENTIAL_KEK_VERSION: '1' };
+  const aad = integrationKeyAad({ tenantId: 't1', merchantAccountId: 'm1', currency: 'USD', integrationId: '123', mode: 'simulator' });
+  const sealed = sealIntegrationKey('11111111-2222-3333-4444-555555555555', { aad, env });
+  assert.equal(openIntegrationKey(sealed, { aad, env }), '11111111-2222-3333-4444-555555555555');
+  const truncated = { ...sealed, tag: Buffer.from(sealed.tag, 'base64').subarray(0, 8).toString('base64') };
+  assert.throws(() => openIntegrationKey(truncated, { aad, env }), /PAY05_CREDENTIAL_UNAVAILABLE/);
+});

@@ -587,9 +587,11 @@ export async function checkPaynowCollection({ db = defaultDb, env = process.env,
 
 /** The customer's view of a request, in the words its current state allows (ICR-W3): "counted" only when it was. */
 async function customerPaynowOutcome(db, out, collection) {
-  const view = paynowView(await transactionOf(db, collection.id), { customer: true });
-  return { ...forCustomer(out), paynow: withCollectionState(view, out.collection?.state,
-    { counted: out.collection?.counted_amount ?? 0, currency: collection.currency, customer: true }) };
+  const view = withCollectionState(paynowView(await transactionOf(db, collection.id), { customer: true }), out.collection?.state,
+    { counted: out.collection?.counted_amount ?? 0, currency: collection.currency, customer: true });
+  const told = forCustomer(out);
+  if (told.collection) told.collection.paynow = view;
+  return { ...told, paynow: view };
 }
 
 export async function verifyCustomerPaynow({ db = defaultDb, env = process.env, transport = null, collection, deps = {} }) {
