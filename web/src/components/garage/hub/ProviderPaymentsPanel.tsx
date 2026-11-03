@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney, type GarageInvoice } from '@/lib/garageBusiness'
 import { dateTimeLabel } from '@/lib/garageWorkspace'
-import { activityActor, DISCREPANCY_LABEL, PROVIDER_EVENT_LABEL, PROVIDER_STATE_TONE, type ProviderPayment, pay04ErrorText } from '@/lib/pay04GaragePayments'
+import { activityActor, discrepancyLabel, PROVIDER_EVENT_LABEL, PROVIDER_STATE_TONE, type ProviderPayment, pay04ErrorText } from '@/lib/pay04GaragePayments'
 import { FormError, INPUT_CLASS, type HubRun } from './hubUi'
 import { PAYNOW_METHOD_LABEL, pay05ErrorText, paynowStatusLine, type PaynowProviderPayment } from '@/lib/pay05Paynow'
 import PaynowFacts from '@/components/garage/PaynowFacts'
@@ -118,7 +118,7 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
           <PaynowFacts facts={paynow?.facts} />
           {discrepancies.map((d) => (
             <p key={d.id} className="text-xs text-red-800" data-testid="provider-payment-discrepancy">
-              Under review: {DISCREPANCY_LABEL[d.type] ?? d.type}{d.amount ? ` (${formatMoney(d.amount, payment.currency)})` : ''}. CarUp operations has been alerted.
+              Under review: {discrepancyLabel(d)}{d.amount ? ` (${formatMoney(d.amount, payment.currency)})` : ''}. CarUp operations has been alerted.
             </p>
           ))}
         </div>

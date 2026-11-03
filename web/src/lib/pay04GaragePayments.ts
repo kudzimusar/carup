@@ -40,7 +40,7 @@ export type ProviderPayment = {
   /** PAY-05: what CarUp counts of this payment */
   counted_amount?: Decimal
   /** garage and operator views only */
-  open_discrepancies?: Array<{ id: string; type: string; amount: Decimal | null; first_detected_at: string; observation_count: number }>
+  open_discrepancies?: Array<{ id: string; type: string; amount: Decimal | null; first_detected_at: string; observation_count: number; opened_by_operator?: boolean }>
 }
 
 export type ProviderReceipt = {
@@ -254,6 +254,12 @@ export function paymentStatusLabel(invoice: Pick<GarageInvoice, 'payment_status'
   const whole = invoice.payment_status === 'paid' ? 'Paid in full' : 'Partly paid'
   if (!provider) return `${whole} (recorded by the garage)`
   return declared ? `${whole} (recorded by the garage and confirmed by its payment provider)` : `${whole} (confirmed by the garage’s payment provider)`
+}
+
+/** What a review is about, in words. A review an operator opened says so: Paynow did not report anything new. */
+export function discrepancyLabel(d: { type: string; opened_by_operator?: boolean; evidence?: unknown }): string {
+  const opened = d.opened_by_operator || (d.evidence as { reason?: string } | null | undefined)?.reason === 'operator_opened'
+  return opened ? 'Opened by a CarUp operator: nothing else could move this request' : DISCREPANCY_LABEL[d.type] ?? d.type
 }
 
 export const PROVIDER_STATE_TONE: Record<ProviderPaymentState, string> = {

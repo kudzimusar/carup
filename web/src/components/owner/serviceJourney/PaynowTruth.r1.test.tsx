@@ -267,6 +267,28 @@ describe('PFR-L3: the garage reads a part-counted payment with its refund guidan
   })
 })
 
+describe('PFR-M1: a review an operator opened says so', () => {
+  const opened = { id: 'd1', collection_id: COLL, gateway: 'paynow_zimbabwe', type: 'provider_status_unrecognized', amount: '60.00', currency: 'USD', invoice_number: 'INV-1',
+    garage: 'P5 Garage', detected_via: 'operator_review', first_detected_at: '2026-11-02T10:00:00Z', last_observed_at: '2026-11-02T10:00:00Z', observation_count: 1, history: [],
+    evidence: { reason: 'operator_opened', note: 'Paynow keeps this money in escrow.' } }
+  it('the operator reads who opened it and why, not that Paynow reported an unknown word', async () => {
+    api.fetchGaragePaymentExceptions.mockResolvedValue({ discrepancies: [opened], reconciliation_holds: [] })
+    api.fetchGarageMerchantAccounts.mockResolvedValue({ accounts: [] })
+    render(<MemoryRouter><GaragePaymentsOperator /></MemoryRouter>)
+    const row = await screen.findByTestId('operator-discrepancy')
+    expect(row).toHaveTextContent(/Opened by a CarUp operator/)
+    expect(row).not.toHaveTextContent(/does not recognise/)
+  })
+  it('the garage reads the same', () => {
+    const inv = { id: 'inv-9', currency: 'USD', status: 'issued', provider_payments_supported: true, provider_receipts: [], provider_source_label: 'x', provider_history: [],
+      provider_payments: [row({ provider_status: 'delivered' }, { state: 'under_review', state_label: 'Under review — not counted', open_discrepancies: [{ id: 'd1', type: 'provider_status_unrecognized', amount: '60.00', opened_by_operator: true, first_detected_at: '', observation_count: 1 }] })] }
+    render(<ProviderPaymentsPanel invoice={inv as never} canAct busy={false} run={vi.fn() as never} />)
+    const panelRow = screen.getByTestId('provider-payment-row')
+    expect(panelRow).toHaveTextContent(/Opened by a CarUp operator/)
+    expect(panelRow).not.toHaveTextContent(/does not recognise/)
+  })
+})
+
 describe('ICR-W7: no dead ends while the money stays reserved', () => {
   it('the InnBucks code stays on screen past CarUp’s time; the stop warning says the amount stays reserved', async () => {
     api.fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([

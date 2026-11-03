@@ -189,7 +189,9 @@ export async function loadProviderParts(db, invoiceIds, { payerUserId = null, in
       ...(includeDiscrepancies ? {
         payer_user_id: c.payer_user_id, payment_reference: c.payment_reference, provider_payment_id: c.provider_payment_id,
         open_discrepancies: open.map((d) => ({ id: d.id, type: d.discrepancy_type, amount: pay04Money(d.detected_amount, d.currency),
-          first_detected_at: d.first_detected_at, observation_count: d.observation_count })),
+          first_detected_at: d.first_detected_at, observation_count: d.observation_count,
+          // PAY-05: a review an operator opened says so: Paynow reported nothing new (PFR-M1)
+          ...(d.evidence?.reason === 'operator_opened' ? { opened_by_operator: true } : {}) })),
       } : {}),
     };
     out.collections.set(c.invoice_id, [...(out.collections.get(c.invoice_id) || []), view]);
