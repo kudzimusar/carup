@@ -135,10 +135,13 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
     setChecked(null) // the outcome region empties, so the same answer twice is still said twice
     try {
       const outcome = await verifyGarageInvoicePayment(pending.collectionId) as PaynowOutcome
+      // the button disables itself while checking, which drops the focus: it moves to the answer (CERT-2)
+      focusOutcome.current = true
       setChecked({ outcome, failed: false })
       setPending((p) => (p ? { ...p, paynow: outcome.paynow ?? p.paynow, state: outcome.collection?.state ?? p.state } : p))
       onChanged?.()
     } catch {
+      focusOutcome.current = true
       setChecked({ outcome: null, failed: true })
     } finally {
       setBusy(false)

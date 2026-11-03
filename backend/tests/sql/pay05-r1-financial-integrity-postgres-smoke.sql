@@ -1536,6 +1536,137 @@ BEGIN
   RAISE NOTICE 'PAY05_R1 R12 PASS';
 END $$;
 
+-- R13 (CERT-1): a Paynow dispute after a refund stays open: CarUp does not close it on Paynow's behalf. Paynow's own Refunded still does.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; d pay04_garage_payment_discrepancies%ROWTYPE;
+BEGIN
+  g := pg_temp.garage('r1r13');
+  PERFORM pg_temp.merchant(g, 'r1r13', '60091');
+  inv := pg_temp.invoice(g, 'r1r13', 25.00);
+  c := pg_temp.start(inv.id, 25.00, 'r1r13-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'paid');
+  PERFORM pg_temp.read(c, 'refunded');
+  PERFORM pg_temp.resolve(c, 'provider_refund_unquantified', 'acknowledged');
+  PERFORM pg_temp.read(c, 'disputed');
+  SELECT * INTO d FROM pay04_garage_payment_discrepancies WHERE collection_id = c AND discrepancy_type = 'provider_disputed';
+  PERFORM pg_temp.check(d.status = 'open' AND d.resolved_by IS NULL AND d.resolution IS NULL, 'R13 the dispute stays open, credited to no one');
+  PERFORM pg_temp.check(pg_temp.counted(c) = 0, 'R13 nothing counts');
+  PERFORM pg_temp.check((SELECT provider_reserved FROM pay04_invoice_money(inv.id)) = 25.00, 'R13 the amount stays reserved while Paynow holds it in dispute');
+  PERFORM pg_temp.check((SELECT uncommitted_balance FROM pay04_invoice_money(inv.id)) = 0.00, 'R13 no second payment can fill that room');
+  -- reprojecting again changes nothing
+  PERFORM pay04_reproject_garage_collection(c, 'r13_again', NULL);
+  PERFORM pg_temp.check((SELECT status FROM pay04_garage_payment_discrepancies WHERE id = d.id) = 'open', 'R13 a later reprojection does not close it');
+  -- Paynow's own word closes it
+  PERFORM pg_temp.read(c, 'refunded');
+  SELECT * INTO d FROM pay04_garage_payment_discrepancies WHERE id = d.id;
+  PERFORM pg_temp.check(d.status = 'resolved' AND d.resolution = 'refunded_to_customer', 'R13 Paynow''s own Refunded closes the dispute');
+  PERFORM pg_temp.check((SELECT provider_reserved FROM pay04_invoice_money(inv.id)) = 0.00, 'R13 and frees the room');
+  RAISE NOTICE 'PAY05_R1 R13 PASS';
+END $$;
+
+-- R13b (CERT-1): such a dispute has an operator's exit, and it counts nothing.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid;
+BEGIN
+  g := pg_temp.garage('r1r13b');
+  PERFORM pg_temp.merchant(g, 'r1r13b', '60092');
+  inv := pg_temp.invoice(g, 'r1r13b', 25.00);
+  c := pg_temp.start(inv.id, 25.00, 'r1r13b-key-00001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'paid');
+  PERFORM pg_temp.read(c, 'refunded');
+  PERFORM pg_temp.read(c, 'disputed');
+  PERFORM pg_temp.resolve(c, 'provider_disputed', 'settled_off_platform');
+  PERFORM pg_temp.check(pg_temp.counted(c) = 0 AND pg_temp.live_receipts(c) = 0, 'R13b settling counts nothing');
+  PERFORM pg_temp.check((SELECT provider_reserved FROM pay04_invoice_money(inv.id)) = 0.00, 'R13b and frees the room');
+  RAISE NOTICE 'PAY05_R1 R13b PASS';
+END $$;
+
+-- R14 (CERT-3): "refunded to the customer" is refused while Paynow's latest word reports money.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid;
+BEGIN
+  g := pg_temp.garage('r1r14');
+  PERFORM pg_temp.merchant(g, 'r1r14', '60093');
+  inv := pg_temp.invoice(g, 'r1r14', 40.00);
+  c := pg_temp.start(inv.id, 40.00, 'r1r14-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'paid');
+  PERFORM pg_temp.read(c, 'refunded');
+  PERFORM pg_temp.read(c, 'paid');
+  PERFORM pg_temp.check(pay05_latest_provider_status(c) = 'review:paid', 'R14 Paynow''s latest word is a Paid under review');
+  PERFORM pg_temp.expect(pg_temp.resolve_sql(c, 'provider_status_unrecognized', 'refunded_to_customer'), 'PAY05_REVIEW_MONEY_STILL_REPORTED');
+  PERFORM pg_temp.check((SELECT provider_reserved FROM pay04_invoice_money(inv.id)) = 40.00, 'R14 the room stays held');
+  PERFORM pg_temp.read(c, 'refunded');
+  PERFORM pg_temp.check(pay05_latest_provider_status(c) IN ('refunded', 'review:refunded'), 'R14 Paynow then reports it refunded');
+  PERFORM pg_temp.check(pg_temp.counted(c) = 0, 'R14 nothing counted at any point');
+  RAISE NOTICE 'PAY05_R1 R14 PASS';
+END $$;
+
+-- R15 (CERT-4): an invoice is not voided with a review open on it, settled or not. A refund to confirm is money gone, and does not block.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; inv2 garage_invoices%ROWTYPE; inv3 garage_invoices%ROWTYPE; c uuid; c2 uuid; c3 uuid;
+BEGIN
+  g := pg_temp.garage('r1r15');
+  PERFORM pg_temp.merchant(g, 'r1r15', '60094');
+  -- settled, then Paynow disputes it
+  inv := pg_temp.invoice(g, 'r1r15', 42.00);
+  c := pg_temp.start(inv.id, 42.00, 'r1r15-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'unrecognized');
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'settled_off_platform');
+  PERFORM pg_temp.read(c, 'disputed');
+  PERFORM pg_temp.check(EXISTS (SELECT 1 FROM pay04_garage_payment_discrepancies WHERE collection_id = c AND status = 'open'), 'R15 a review is open on the settled request');
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r15-admin')$q$, g, inv.id), 'PAY04_INVOICE_HAS_PROVIDER_PAYMENTS');
+  -- closing the review frees the void
+  PERFORM pay04_resolve_garage_payment_discrepancy(q.id, 'settled_off_platform', 'r1-op', 'admin', 'The operator reviewed the Paynow merchant records for this payment.')
+    FROM pay04_garage_payment_discrepancies q WHERE q.collection_id = c AND q.status = 'open';
+  PERFORM garage_ops07_void_invoice(g, inv.id, 'the customer changed their mind', 'r1r15-admin');
+  PERFORM pg_temp.check((SELECT status = 'voided' FROM garage_invoices WHERE id = inv.id), 'R15 voided once the review closed');
+  -- settled, then Paynow reports late money
+  inv2 := pg_temp.invoice(g, 'r1r15', 35.00);
+  c2 := pg_temp.start(inv2.id, 35.00, 'r1r15-key-000002');
+  PERFORM pg_temp.send_attach(c2);
+  PERFORM pg_temp.read(c2, 'unrecognized');
+  PERFORM pg_temp.resolve(c2, 'provider_status_unrecognized', 'settled_off_platform');
+  PERFORM pg_temp.read(c2, 'paid');
+  PERFORM pg_temp.check(EXISTS (SELECT 1 FROM pay04_garage_payment_discrepancies WHERE collection_id = c2 AND status = 'open'), 'R15 late money opens a review');
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r15-admin')$q$, g, inv2.id), 'PAY04_INVOICE_HAS_PROVIDER_PAYMENTS');
+  -- a refund to confirm does not block the void
+  inv3 := pg_temp.invoice(g, 'r1r15', 30.00);
+  c3 := pg_temp.start(inv3.id, 30.00, 'r1r15-key-000003');
+  PERFORM pg_temp.send_attach(c3);
+  PERFORM pg_temp.read(c3, 'paid');
+  PERFORM pg_temp.read(c3, 'refunded');
+  PERFORM pg_temp.check(EXISTS (SELECT 1 FROM pay04_garage_payment_discrepancies WHERE collection_id = c3 AND discrepancy_type = 'provider_refund_unquantified' AND status = 'open'), 'R15 the refund review is open');
+  PERFORM garage_ops07_void_invoice(g, inv3.id, 'the customer changed their mind', 'r1r15-admin');
+  PERFORM pg_temp.check((SELECT status = 'voided' FROM garage_invoices WHERE id = inv3.id), 'R15 a refund to confirm does not block');
+  RAISE NOTICE 'PAY05_R1 R15 PASS';
+END $$;
+
+-- R15b (CERT-7): money Paynow reports Paid and an operator settled outside CarUp holds nothing: with its review closed, the invoice can be voided.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_cash uuid;
+BEGIN
+  g := pg_temp.garage('r1r15b');
+  PERFORM pg_temp.merchant(g, 'r1r15b', '60095');
+  inv := pg_temp.invoice(g, 'r1r15b', 40.00);
+  c := pg_temp.start(inv.id, 40.00, 'r1r15b-key-00001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.expired(c);
+  PERFORM pg_temp.read(c, 'sent');
+  PERFORM pg_temp.release(c);
+  v_cash := (garage_ops07_record_payment(g, inv.id, 40, 'USD', 'cash', 'till 15', now(), 'r1r15b-admin', 'r1r15b-cash-000001')->>'payment_id')::uuid;
+  PERFORM pg_temp.read(c, 'paid');
+  PERFORM pg_temp.check(pay05_latest_provider_status(c) = 'paid' AND pg_temp.status(c) = 'paid' AND pg_temp.counted(c) = 0, 'R15b Paynow''s latest word is Paid, and no room to count it');
+  PERFORM pg_temp.resolve(c, 'unallocated_provider_money', 'settled_off_platform');
+  PERFORM garage_ops07_reverse_payment(g, v_cash, 'Cash was recorded in error', 'r1r15b-admin', 'r1r15b-rev-000001');
+  PERFORM garage_ops07_void_invoice(g, inv.id, 'the customer changed their mind', 'r1r15b-admin');
+  PERFORM pg_temp.check((SELECT status = 'voided' FROM garage_invoices WHERE id = inv.id), 'R15b voided');
+  RAISE NOTICE 'PAY05_R1 R15b PASS';
+END $$;
+
 DO $$
 BEGIN
   UPDATE pay05_runtime_guard SET paynow_simulator_enabled = false WHERE singleton;

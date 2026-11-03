@@ -949,3 +949,27 @@ test('every Paynow collection this file made: counted money has Paynow\'s applie
             OR (SELECT count(*) FROM pay04_garage_provider_receipts r WHERE r.collection_id = c.id AND r.status = 'issued') <> 1)`, [world.g])).rows;
   assert.deepEqual(bad, []);
 });
+
+test('CERT-1: a dispute after a refund stays open and the customer is told so: no second payment, and no word of a refund as the answer', { skip }, async () => {
+  const inv = await invoice(25);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000391' }, `r1-cert1-${run}`);
+  const guid = await guidOf(s.collection_id);
+  await sim.simulator.setStatus(guid, 'Paid');
+  await sim.simulator.setStatus(guid, 'Refunded');
+  await resolve(s.collection_id, 'provider_refund_unquantified', 'acknowledged');
+  await sim.simulator.setStatus(guid, 'Disputed');
+  const view = await customerView(inv);
+  const row = rowOf(view, s.collection_id);
+  assert.equal(row.state, 'under_review');
+  assert.match(row.paynow.facts.review, /reviewing/);
+  assert.match(row.paynow.facts.next_step, /Do not pay again/);
+  assert.equal(view.online_payment.available, false, 'no second payment while Paynow holds the first in dispute');
+  const m = await money(inv.id);
+  assert.equal(Number(m.provider_reserved), 25);
+  assert.equal(Number(m.provider_paid), 0);
+  // the operator's queue has it
+  const { rows: disputes } = await q("SELECT status, resolved_by FROM pay04_garage_payment_discrepancies WHERE collection_id = $1 AND discrepancy_type = 'provider_disputed'", [s.collection_id]);
+  assert.equal(disputes.length, 1);
+  assert.equal(disputes[0].status, 'open');
+  assert.equal(disputes[0].resolved_by, null);
+});

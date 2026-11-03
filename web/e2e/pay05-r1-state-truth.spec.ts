@@ -526,6 +526,25 @@ for (const vp of [{ name: 'mobile', width: 390, height: 844 }, { name: 'desktop'
     note(`keyboard-customer-stop-${vp.name}`, { invoice: row.number })
   })
 
+  test(`keyboard, customer at ${vp.name}: a check that pays the invoice in full keeps the focus on the invoice`, async ({ page }) => {
+    const row = await request()
+    await pause(65_000)
+    await page.setViewportSize({ width: vp.width, height: vp.height })
+    await login(page, 'customer')
+    await page.goto('/dashboard/service-requests')
+    const card = invoiceCard(page, row.number)
+    await expect(card).toBeVisible({ timeout: 30_000 })
+    await tabToMarked(page, card.getByTestId('how-to-pay-toggle'))
+    await page.keyboard.press('Enter')
+    await expect(card.getByTestId('my-provider-payments')).toBeVisible({ timeout: 30_000 })
+    await setStatus(row, 'Paid')
+    await tabTo(page, (f) => f.id === 'my-provider-payment-check')
+    await page.keyboard.press('Enter')
+    await expect(card.getByTestId('invoice-nothing-owed')).toContainText('nothing left to pay', { timeout: 60_000 })
+    await expectFocus(page, 'invoice-nothing-owed')
+    note(`keyboard-customer-paid-${vp.name}`, { invoice: row.number })
+  })
+
   test(`keyboard, customer at ${vp.name}: past CarUp's time the means of payment stay reachable; a released request offers none`, async ({ page }) => {
     await page.setViewportSize({ width: vp.width, height: vp.height })
     await login(page, 'customer')

@@ -5,6 +5,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { paynowOutcomeMessage } from '@/lib/pay05Paynow'
+import { returnOutcomeMessage } from '@/lib/pay04GaragePayments'
 
 const api = vi.hoisted(() => ({
   fetchGarageInvoicePaymentOptions: vi.fn(), startGarageInvoicePayment: vi.fn(), verifyGarageInvoicePayment: vi.fn(),
@@ -435,5 +437,64 @@ describe('ICR-W13: a disabled control says why', () => {
     const hint = screen.getByTestId('paynow-phone-hint')
     expect(screen.getByTestId('paynow-phone').getAttribute('aria-describedby')).toContain(hint.id)
     expect(screen.getByTestId('paynow-start').getAttribute('aria-describedby')).toContain(hint.id)
+  })
+})
+
+describe('A keyboard user keeps their place when a check answers (CERT-2)', () => {
+  it('a row: the answer takes the focus, because the button disables itself while checking', async () => {
+    api.fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([row()]))
+    api.verifyGarageInvoicePayment.mockResolvedValue({ paynow: pview(), collection: { state: 'awaiting_provider' } })
+    await openHowToPay()
+    const check = await screen.findByTestId('my-provider-payment-check')
+    check.focus()
+    fireEvent.click(check)
+    await waitFor(() => expect(screen.getByTestId('my-provider-payment-outcome')).not.toBeEmptyDOMElement())
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('my-provider-payment-outcome')))
+  })
+  it('a row: so it does when the check itself fails', async () => {
+    api.fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([row()]))
+    api.verifyGarageInvoicePayment.mockRejectedValue(new Error('PAY05_PROVIDER_UNREACHABLE'))
+    await openHowToPay()
+    fireEvent.click(await screen.findByTestId('my-provider-payment-check'))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('my-provider-payment-outcome')))
+  })
+  const cardOf = (balance: string, status: string) => ({
+    id: 'inv-9', invoice_number: 'INV-000009', currency: 'USD', status: 'issued', payment_status: status, total_amount: '60.00', paid_amount: '0.00', balance_amount: balance,
+    issued_at: '2026-11-02T10:00:00Z', lines: [], payments: [], receipts: [], payment_source_label: 'x', variance: { state: 'none' }, provider_receipts: [], provider_payments: [],
+    money: { currency: 'USD', invoice_status: 'issued', total_amount: '60.00', declared_paid: '0.00', provider_paid: '60.00', paid_amount: '60.00', balance_amount: balance, provider_reserved: '0.00', uncommitted_balance: balance, payment_status: status },
+  }) as never
+  it('the invoice is paid in full and the way to pay goes away: the invoice says so, and the focus lands there, not at the top of the page', async () => {
+    const view = render(<MemoryRouter><InvoiceCard invoice={cardOf('60.00', 'unpaid')} /></MemoryRouter>)
+    expect(screen.getByTestId('invoice-nothing-owed')).toBeEmptyDOMElement()
+    view.rerender(<MemoryRouter><InvoiceCard invoice={cardOf('0.00', 'paid')} /></MemoryRouter>)
+    const notice = screen.getByTestId('invoice-nothing-owed')
+    await waitFor(() => expect(notice).toHaveTextContent(/nothing left to pay/i))
+    expect(notice).toHaveAttribute('role', 'status')
+    await waitFor(() => expect(document.activeElement).toBe(notice))
+  })
+  it('it does not take the focus from where a person has moved on to', async () => {
+    const elsewhere = document.createElement('button')
+    document.body.appendChild(elsewhere)
+    const view = render(<MemoryRouter><InvoiceCard invoice={cardOf('60.00', 'unpaid')} /></MemoryRouter>)
+    elsewhere.focus()
+    view.rerender(<MemoryRouter><InvoiceCard invoice={cardOf('0.00', 'paid')} /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('invoice-nothing-owed')).toHaveTextContent(/nothing left to pay/i))
+    expect(document.activeElement).toBe(elsewhere)
+    elsewhere.remove()
+  })
+  it('an invoice that was never owed says nothing', () => {
+    render(<MemoryRouter><InvoiceCard invoice={cardOf('0.00', 'paid')} /></MemoryRouter>)
+    expect(screen.getByTestId('invoice-nothing-owed')).toBeEmptyDOMElement()
+  })
+})
+
+describe('Nothing claims an alert no one sent (CERT-5)', () => {
+  it('review words say who can see it', () => {
+    for (const out of [{ paynow: pview({ provider_status: 'disputed' }), collection: { state: 'under_review' } }, { paynow: pview({ provider_status: 'unrecognized' }), collection: { state: 'other' } }]) {
+      const said = paynowOutcomeMessage(out as never, false)!.text
+      expect(said).not.toMatch(/alerted/i)
+      expect(said).toMatch(/can see it/)
+    }
+    expect(returnOutcomeMessage({ collection: { state: 'under_review' } } as never, false)!.text).not.toMatch(/alerted/i)
   })
 })

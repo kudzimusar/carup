@@ -295,7 +295,7 @@ export function returnOutcomeMessage(outcome: CollectionOutcome | null, failed: 
   const state = outcome.collection?.state
   if (state === 'confirmed') return { tone: 'ok', text: 'The garage’s payment provider confirmed your payment. It now counts on the invoice.' }
   if (state === 'awaiting_provider') return { tone: 'wait', text: 'The provider has not confirmed this payment yet. It is not counted until it does.' }
-  if (state === 'under_review' || state === 'confirmed_unallocated') return { tone: 'warn', text: 'This payment needs review before it can count. The garage and CarUp have been alerted.' }
+  if (state === 'under_review' || state === 'confirmed_unallocated') return { tone: 'warn', text: 'This payment needs review before it can count. The garage and CarUp can see it.' }
   // "Nothing was charged" only once the PROVIDER has confirmed the checkout closed unpaid
   if (state === 'stopping' || state === 'expired') {
     return { tone: 'wait', text: 'This checkout ended before the provider confirmed a payment, so it is not counted. CarUp is confirming with the provider that nothing was paid.' }

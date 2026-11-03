@@ -20,7 +20,7 @@ export const REVIEWED_FINGERPRINT_FILES = Object.freeze({
   'database/migrations/20261024140000_garage_communications_events_and_template.sql': Object.freeze({ sha256: '13110aa284a62e281e2f4e20e4069738e501c58030e359a8a93d4a18f2430847', meaning: "Reads Trust's presentation hash to deduplicate events." }),
   'database/migrations/20261102110000_carup_pay04_garage_provider_payments.sql': Object.freeze({ sha256: '95b9ae12bd7c5da17bfdcc72807c607b29b9ca2e16689857885c655a132b2848', meaning: 'One comment: a function body certified by comparison.' }),
   'database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql': Object.freeze({ sha256: '75b16ae8097e6ddfc1a0b113b1ad8b68ba5336952b63f62137c45836576389a4', meaning: 'The approved node below: a 16-hex digest of a Paynow key.' }),
-  'database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql': Object.freeze({ sha256: '06c9ae227a2b41b6f3a643dbf7383f99a5770eacb89c5e4a7b0396820a07cc9d', meaning: 'Writes, compares and audits that digest, and declares nothing.' }),
+  'database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql': Object.freeze({ sha256: '580219a965dad4b0a565281ac25a5b6d27ccd03eac8a6459cbfa2212e8b7f806', meaning: 'Writes, compares and audits that digest, and declares nothing.' }),
 });
 
 /** The one approved schema node: the reviewed files hold exactly this declaration of a fingerprint for a Paynow key, on this table, once. */

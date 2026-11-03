@@ -238,7 +238,7 @@ export function paynowOutcomeMessage(outcome: PaynowOutcome | null, failed: bool
   if (status === 'paid' && state === 'confirmed') return { tone: 'ok', text: 'Paynow confirmed your payment. It now counts on the invoice.' }
   if (state === 'confirmed_partial') return { tone: 'warn', text: 'Paynow reports it paid. Part of it counts on the invoice, and CarUp is reviewing the rest. Do not pay again until the review ends.' }
   if (state === 'under_review' || state === 'confirmed_unallocated') {
-    return { tone: 'warn', text: 'This payment needs review before it can count. The garage and CarUp have been alerted. Do not pay again until the review ends.' }
+    return { tone: 'warn', text: 'This payment needs review before it can count. The garage and CarUp can see it. Do not pay again until the review ends.' }
   }
   // the state speaks first: Paynow's word beside it may be one a review has already closed (PFR-L4)
   if (state === 'reviewed_held') return { tone: 'warn', text: 'CarUp reviewed Paynow’s latest word on this request and does not count it. The amount stays reserved until CarUp releases it. Ask the garage before paying again: Paynow may still hold this money.' }
@@ -255,7 +255,7 @@ export function paynowOutcomeMessage(outcome: PaynowOutcome | null, failed: bool
     return { tone: 'wait', text: 'Your money reached Paynow and is held by Paynow until it is released to the garage. It is not yet counted on the invoice. Do not pay again.' }
   }
   if (status === 'disputed' || status === 'unrecognized') {
-    return { tone: 'warn', text: 'This payment needs review before it can count. The garage and CarUp have been alerted. Do not pay again until the review ends.' }
+    return { tone: 'warn', text: 'This payment needs review before it can count. The garage and CarUp can see it. Do not pay again until the review ends.' }
   }
   if (status === 'paid') return { tone: 'warn', text: 'Paynow reports it paid, but CarUp has not counted it. The garage and CarUp can see it. Do not pay again until it is settled.' }
   if (status === 'cancelled' || status === 'failed') return { tone: 'warn', text: 'Paynow reports this payment was not completed. Nothing was charged.' }

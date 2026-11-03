@@ -315,3 +315,7 @@ test('an operator is told what the garage should do, not addressed as the garage
     assert.doesNotMatch(withCollectionState(paynowView(row), state, {}).facts.next_step, /the garage records/i, `${state}: the garage keeps its own wording`);
   }
 });
+
+test('a closed request says nothing Paynow did not say: its badge does not claim a word Paynow may never have sent', () => {
+  for (const state of ['stopped', 'cancelled']) assert.doesNotMatch(PAYNOW_STATE_LABELS[state], /Paynow reports/, state);
+});

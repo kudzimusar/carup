@@ -259,7 +259,7 @@ export const PAYNOW_STATE_LABELS = Object.freeze({
   not_counted: 'No longer counted — Paynow does not report it paid',
   closed_not_counted: 'Closed — Paynow reported money after it closed; reviewed and not counted',
   closed_live: 'Closed by CarUp — Paynow may still have this request (not counted)',
-  stopped: 'Closed — Paynow reports it cancelled; no money was reported on it',
+  stopped: 'Closed — no money was reported on it',
   cancelled: 'Closed — no money was reported on it',
   confirmed: 'Paid — counted on this invoice',
   confirmed_partial: 'Paid at Paynow — part counted on this invoice, the rest under review',

@@ -973,6 +973,46 @@ await step('G5', 'R1 (PFR-M5): Paynow refuses, CarUp closes, then Paynow’s sig
     detail: { start: [refused.status, code(refused)], delivered: delivered.status, row_state: row?.state, sentence: row?.paynow?.provider_status_label, next_step: row?.paynow?.facts?.next_step, earlier_request: option?.notices?.earlier_request ?? null } };
 });
 
+await step('G6', 'R1 (CERT-1): Paynow disputes a payment after refunding it: the dispute stays open for an operator, in no one\'s name; nothing counts; the customer is told to wait', async () => {
+  const inv = await invoice('A', { cost: '20.00', sellPrice: '5.00' });
+  const started = await start(inv.id, { method: 'ecocash', phone: '0779000034' });
+  const collection = started.json?.collection?.id ?? sql(`select id from pay04_garage_collections where invoice_id = ${lit(inv.id)}`);
+  const sim = await simTxFor(collection);
+  await simSetStatus(sim.guid, 'Paid');
+  await waitFor(() => txOf(collection).provider_status === 'paid');
+  await simSetStatus(sim.guid, 'Refunded');
+  await waitFor(() => /provider_refund_unquantified/.test(openDiscrepancies(collection)));
+  const ack = await resolve(collection, 'provider_refund_unquantified', 'acknowledged');
+  await simSetStatus(sim.guid, 'Disputed');
+  await waitFor(() => /provider_disputed/.test(openDiscrepancies(collection)));
+  const row = await customerRow(inv.id, collection);
+  const view = (await paymentView(inv.id)).json;
+  const who = sql(`select coalesce(resolved_by, 'none') from pay04_garage_payment_discrepancies where collection_id = ${lit(collection)} and discrepancy_type = 'provider_disputed'`);
+  const open = openDiscrepancies(collection);
+  const settled = await resolve(collection, 'provider_disputed', 'settled_off_platform');
+  const after = (await paymentView(inv.id)).json;
+  return { pass: ok(ack, 200) && row?.state === 'under_review' && who === 'none' && /provider_disputed/.test(open) && /Do not pay again/.test(row?.paynow?.facts?.next_step ?? '')
+    && !/alerted/i.test(JSON.stringify(row)) && view?.online_payment?.available === false && counted(collection) === 0 && ok(settled, 200) && Number(after?.money?.provider_reserved) === 0,
+    detail: { ack: ack.status, row_state: row?.state, resolved_by: who, open, available: view?.online_payment?.available, reserved_after_settling: after?.money?.provider_reserved } };
+});
+
+await step('G7', 'R1 (CERT-3, CERT-4): a review with money reported cannot be closed as refunded, and an invoice with a review open cannot be voided', async () => {
+  const inv = await invoice('A', { cost: '20.00', sellPrice: '5.00' });
+  const started = await start(inv.id, { method: 'ecocash', phone: '0779000035' });
+  const collection = started.json?.collection?.id ?? sql(`select id from pay04_garage_collections where invoice_id = ${lit(inv.id)}`);
+  const sim = await simTxFor(collection);
+  await simSetStatus(sim.guid, 'Paid');
+  await waitFor(() => txOf(collection).provider_status === 'paid');
+  await simSetStatus(sim.guid, 'Refunded');
+  await waitFor(() => /provider_refund_unquantified/.test(openDiscrepancies(collection)));
+  await simSetStatus(sim.guid, 'Paid');
+  await waitFor(() => /provider_status_unrecognized/.test(openDiscrepancies(collection)));
+  const refused = await resolve(collection, 'provider_status_unrecognized', 'refunded_to_customer');
+  const voided = await call('POST', `/api/garage/invoices/${inv.id}/void`, { reason: 'Wrong labour rate (R1 QA)' }, as.adminA);
+  return { pass: refused.status >= 400 && code(refused) === 'PAY05_REVIEW_MONEY_STILL_REPORTED' && voided.status >= 400 && counted(collection) === 0,
+    detail: { refused: [refused.status, code(refused)], voided: [voided.status, code(voided)] } };
+});
+
 // ───────────────────────────── operator controls ─────────────────────────────
 await step('O1', 'Availability: a garage cannot switch Paynow; the operator switches it off (checkouts refused) and on, with a reason', async () => {
   const garage = await call('PUT', '/api/pay05/admin/availability', { available: false, note: 'Garage trying to switch Paynow off' }, as.adminA);

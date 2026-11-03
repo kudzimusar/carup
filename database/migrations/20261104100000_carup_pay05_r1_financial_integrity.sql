@@ -440,7 +440,9 @@ BEGIN
       jsonb_build_object('payment_status', v_p.status, 'counted_target', v_target::text, 'allocated', v_alloc::text,
                          'invoice_status', v_inv.status, 'cause', p_cause), 'reprojection', p_event_id);
   END IF;
-  IF v_p.status = 'refunded' THEN
+  -- PAY-05-R1: for Paynow money, a refund closes reviews only when Paynow's own latest word is Refunded. A dispute reported after a
+  -- refund stays open for an operator: CarUp does not close it, or credit Paynow with closing it (CERT-1)
+  IF v_p.status = 'refunded' AND (v_c.gateway <> 'paynow_zimbabwe' OR public.pay05_latest_provider_status(v_c.id) IS NOT DISTINCT FROM 'refunded') THEN
     UPDATE public.pay04_garage_payment_discrepancies SET
       status = 'resolved', resolution = 'refunded_to_customer', resolved_by = v_actor, resolved_role = 'provider_confirmation',
       resolution_note = 'Provider confirmed a full refund of this payment to the customer.', resolved_at = clock_timestamp()
@@ -505,6 +507,11 @@ BEGIN
   SELECT * INTO v_p FROM public.payment_transactions WHERE reference = v_d.payment_reference;
   IF p_resolution = 'refunded_to_customer' THEN
     IF v_p.status <> 'refunded' THEN RAISE EXCEPTION 'PAY04_RESOLUTION_REQUIRES_PROVIDER_REFUND'; END IF;
+    -- PAY-05-R1: not while Paynow's latest word reports money: it would free the room Paynow's money still holds (CERT-3)
+    IF v_c.gateway = 'paynow_zimbabwe'
+       AND replace(coalesce(public.pay05_latest_provider_status(v_d.collection_id), ''), 'review:', '') IN ('paid', 'awaiting_delivery', 'delivered', 'disputed') THEN
+      RAISE EXCEPTION 'PAY05_REVIEW_MONEY_STILL_REPORTED';
+    END IF;
   ELSIF p_resolution = 'settled_off_platform' THEN
     IF v_d.discrepancy_type NOT IN ('unallocated_provider_money', 'provider_paid_after_close')
        -- PAY-05: Paynow paid a different amount, or reported a word no one recognises, and the garage settled it in Paynow or
@@ -1079,12 +1086,19 @@ BEGIN
          SELECT 1 FROM public.pay04_garage_collections c JOIN public.payment_transactions p ON p.reference = c.payment_reference
           WHERE c.invoice_id = OLD.id AND p.status IN ('paid', 'partially_refunded')
             -- PAY-05-R1: a Paynow row still reading paid that no longer counts holds nothing, once settled or once Paynow's latest
-            -- word is not Paid (PFR-L9). Open reviews stay reserved, and refuse below. Later money is never counted on a void invoice.
+            -- word is not Paid (PFR-L9). Open reviews refuse below. Later money is never counted on a void invoice.
             AND NOT (c.gateway = 'paynow_zimbabwe'
                      AND (public.pay05_settled_off_platform(c.id) OR public.pay05_latest_provider_status(c.id) IS DISTINCT FROM 'paid'))) THEN
       RAISE EXCEPTION 'PAY04_INVOICE_HAS_PROVIDER_PAYMENTS';
     END IF;
     IF v_m.provider_reserved <> 0 THEN RAISE EXCEPTION 'PAY04_INVOICE_HAS_PAYMENT_IN_PROGRESS'; END IF;
+    -- PAY-05-R1: nor with a review open on a Paynow request, settled or not: it is closed first. A refund to confirm is money already gone (CERT-4)
+    IF EXISTS (SELECT 1 FROM public.pay04_garage_payment_discrepancies q
+                 JOIN public.pay04_garage_collections c ON c.id = q.collection_id
+                WHERE c.invoice_id = OLD.id AND c.gateway = 'paynow_zimbabwe' AND q.status = 'open'
+                  AND q.discrepancy_type <> 'provider_refund_unquantified') THEN
+      RAISE EXCEPTION 'PAY04_INVOICE_HAS_PROVIDER_PAYMENTS';
+    END IF;
   END IF;
   RETURN NEW;
 END $$;

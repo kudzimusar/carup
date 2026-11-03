@@ -113,6 +113,8 @@ describe('Paying the garage with Paynow', () => {
     fireEvent.click(screen.getByTestId('paynow-check'))
     await waitFor(() => expect(screen.getByTestId('paynow-outcome')).toHaveTextContent(/held by Paynow/))
     expect(screen.getByTestId('paynow-outcome')).toHaveAttribute('data-tone', 'wait')
+    // CERT-2: the button disables itself while checking, so the answer takes the focus
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('paynow-outcome')))
   })
 
   it('W7: while the number is missing, Pay says why it cannot be pressed', async () => {

@@ -122,10 +122,13 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
     try {
       const outcome = await verifyGarageInvoicePayment(collectionId)
       setChecked({ id: collectionId, outcome, failed: false })
+      // the button disables itself while checking, which drops the focus: it moves to the answer (CERT-2)
+      setFocusId(`${uid}-outcome-${collectionId}`)
       await load()
       onChanged?.()
     } catch {
       setChecked({ id: collectionId, outcome: null, failed: true })
+      setFocusId(`${uid}-outcome-${collectionId}`)
     } finally {
       setBusy(false)
     }
