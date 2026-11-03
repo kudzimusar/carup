@@ -34,6 +34,7 @@ import DealerFullStorefrontReview from './pages/DealerFullStorefrontReview'
 import DealerOperatingDetails from './pages/DealerOperatingDetails'
 import DealerBillingReadiness from './pages/DealerBillingReadiness'
 import DealerStaffConsole from './pages/DealerStaffConsole'
+import DealerTenantInventory from './pages/DealerTenantInventory'
 import GarageDirectory from './pages/GarageDirectory'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
@@ -274,6 +275,7 @@ export default function App() {
           <Route path="/dealers/operating-details" element={<DealerOperatingDetails />} />
           <Route path="/dealers/billing" element={<DealerBillingReadiness />} />
           <Route path="/dealers/staff" element={<DealerStaffConsole />} />
+          <Route path="/dealers/stock" element={<DealerTenantInventory />} />
           <Route path="/garages" element={<GarageDirectory />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
