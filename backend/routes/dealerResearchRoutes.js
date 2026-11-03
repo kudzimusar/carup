@@ -13,6 +13,11 @@ import {
 import { createClaimDocumentCandidate,listMyClaimDocumentCandidates } from '../services/dealer/dealerDocumentCandidateService.js';
 import {readMyClaimJurisdictionPreview} from '../services/dealer/dealerJurisdictionPreview.js';
 import {
+  listLegalCountryPolicyReadiness,listPendingLegalDealershipCases,
+  certifyLegalDealerCase,activateLegallyApprovedDealer,
+  readMyOperationalDealerAuthority
+} from '../services/dealer/dealerLegalActivationService.js';
+import {
   submitDealerApplication,listMyDealerApplicationSubmissions,
   listDealerComplianceReviewQueue,previewDealerComplianceCase,
   recordDealerPreliminaryReview,
@@ -44,6 +49,47 @@ function errorResponse(res, next, error) {
   }
   next(error);
 }
+
+// C08–C12: separate legal and final canonical activation authorities.
+// No applicant direct approve/activate and no country-policy approval endpoint.
+router.get('/api/dealership/claims/:claimId/operational-authority',
+  session,async(req,res,next)=>{
+  try{
+    const authority=await readMyOperationalDealerAuthority(
+      req.params.claimId,req.userContext);
+    res.set('Cache-Control','no-store').json({authority});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.get('/api/admin/dealership/legal-policy/readiness',
+  reviewer,async(req,res,next)=>{
+  try{
+    const policies=await listLegalCountryPolicyReadiness(req.userContext);
+    res.set('Cache-Control','no-store').json({policies});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.get('/api/admin/dealership/legal-cases',
+  reviewer,async(req,res,next)=>{
+  try{
+    const cases=await listPendingLegalDealershipCases(req.userContext);
+    res.set('Cache-Control','no-store').json({cases});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/admin/dealership/legal-cases/:submissionId/review',
+  reviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const review=await certifyLegalDealerCase(
+      req.params.submissionId,req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({review});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/admin/dealership/legal-approvals/:legalReviewId/activate',
+  reviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const activation=await activateLegallyApprovedDealer(
+      req.params.legalReviewId,req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({activation});
+  }catch(error){errorResponse(res,next,error)}
+});
 
 // The blank customer-facing workbook never includes internal research or privileged data.
 // Claim-specific, prefilled workbook export remains unavailable until independent approval.
