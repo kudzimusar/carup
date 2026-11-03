@@ -56,7 +56,7 @@ describe('Paynow inputs and labels', () => {
   it('turns refusals into sentences that say nothing was charged where that is true', () => {
     expect(pay05ErrorText('PAY05_PROVIDER_REFUSED')).toMatch(/Nothing was charged/)
     expect(pay05ErrorText('PAY05_PROVIDER_REFUND_UNSUPPORTED')).toMatch(/Paynow dashboard/)
-    expect(pay05ErrorText('PAY05_SOMETHING_NEW')).toMatch(/Nothing was changed/)
+    expect(pay05ErrorText('PAY05_SOMETHING_NEW')).toMatch(/Check this payment’s status before trying again/)
     expect(pay05ErrorText('PAY04_AMOUNT_INVALID')).toBeNull()
   })
   it('W7: every refusal of a Paynow connection reads as its own sentence, never the catch-all', () => {

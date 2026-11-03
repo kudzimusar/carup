@@ -176,16 +176,15 @@ test('R1: a request recovered without an address for the code says so instead of
 });
 
 test('R1: the operator release is offered only when the database would allow it (ICR-W6)', () => {
-  const expired = { expires_at: '2020-01-01T00:00:00Z' };
   const open = { provider_status: 'sent', hold_released_at: null };
-  assert.equal(paynowReleaseBlock({ tx: open, paymentStatus: 'pending', collection: expired }), null);
-  assert.match(paynowReleaseBlock({ tx: { ...open, provider_status: 'paid' }, paymentStatus: 'pending', collection: expired }), /money/);
-  assert.match(paynowReleaseBlock({ tx: { ...open, provider_status: 'delivered' }, paymentStatus: 'pending', collection: expired }), /money/);
-  assert.match(paynowReleaseBlock({ tx: { ...open, provider_status: 'disputed' }, paymentStatus: 'pending', collection: expired }), /money/);
-  assert.match(paynowReleaseBlock({ tx: open, paymentStatus: 'paid', collection: expired }), /no longer waiting/);
-  assert.match(paynowReleaseBlock({ tx: open, paymentStatus: 'pending', collection: { expires_at: '2999-01-01T00:00:00Z' } }), /not run out/);
-  assert.match(paynowReleaseBlock({ tx: open, paymentStatus: 'pending', collection: expired, reviews: [{}] }), /review/);
-  assert.match(paynowReleaseBlock({ tx: { ...open, hold_released_at: 'x' }, paymentStatus: 'pending', collection: expired }), /Already/);
+  assert.equal(paynowReleaseBlock({ tx: open, paymentStatus: 'pending' }), null);
+  for (const word of ['cancelled', 'failed', null, 'created']) assert.equal(paynowReleaseBlock({ tx: { ...open, provider_status: word }, paymentStatus: 'pending' }), null);
+  for (const word of ['paid', 'delivered', 'awaiting_delivery', 'disputed', 'refunded', 'unrecognized']) {
+    assert.match(paynowReleaseBlock({ tx: { ...open, provider_status: word }, paymentStatus: 'pending' }), /money/, word);
+  }
+  assert.match(paynowReleaseBlock({ tx: open, paymentStatus: 'paid' }), /no longer waiting/);
+  assert.match(paynowReleaseBlock({ tx: open, paymentStatus: 'pending', reviews: [{}] }), /review/);
+  assert.match(paynowReleaseBlock({ tx: { ...open, hold_released_at: 'x' }, paymentStatus: 'pending' }), /Already/);
 });
 
 test('R1: what confirms a status update: the same word, or a word further along', () => {

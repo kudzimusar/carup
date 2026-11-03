@@ -99,11 +99,11 @@ describe('Connecting the garage’s own Paynow account', () => {
   })
 
   it('a refusal reads in words and the key is not kept for a retry', async () => {
-    connectGaragePaynow.mockRejectedValue(new Error('PAY05_INTEGRATION_ALREADY_REGISTERED'))
+    connectGaragePaynow.mockRejectedValue(new Error('PAY05_INTEGRATION_NOT_ACCEPTED'))
     await fill()
     fireEvent.click(screen.getByTestId('paynow-connect-attest'))
     fireEvent.click(screen.getByTestId('paynow-connect-submit'))
-    await waitFor(() => expect(screen.getByTestId('garage-paynow-message')).toHaveTextContent('already connected to another account'))
+    await waitFor(() => expect(screen.getByTestId('garage-paynow-message')).toHaveTextContent('could not accept this Paynow integration'))
     expect(screen.getByTestId('paynow-connect-USD-key')).toHaveValue('')
   })
 

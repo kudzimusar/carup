@@ -6,6 +6,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import PaynowOperatorPanel from '@/components/admin/PaynowOperatorPanel'
 import { formatMoney } from '@/lib/garageBusiness'
 import { activityActor, DISCREPANCY_LABEL, minorToMajor, PROVIDER_EVENT_LABEL, type GarageMerchantAccount, type GaragePaymentExceptions, type ProviderActivity, pay04ErrorText } from '@/lib/pay04GaragePayments'
+import { pay05ErrorText } from '@/lib/pay05Paynow'
 
 function Trail({ history }: { history?: ProviderActivity[] }) {
   if (!history?.length) return null
@@ -24,8 +25,10 @@ function Trail({ history }: { history?: ProviderActivity[] }) {
 /** Operators read the refusal in words and keep its code for support. */
 function messageOf(e: unknown, fallback: string): string {
   if (!(e instanceof Error) || !e.message) return fallback
-  const code = /\bPAY04_[A-Z0-9_]+\b/.exec(e.message)?.[0]
-  return code ? `${pay04ErrorText(code)} (${code})` : e.message
+  const code = /\bPAY0[45]_[A-Z0-9_]+\b/.exec(e.message)?.[0]
+  if (code) return `${pay05ErrorText(code) ?? pay04ErrorText(code)} (${code})`
+  // a browser's own error text is not an answer: the operator is told what is known
+  return e instanceof TypeError ? `${fallback} CarUp could not be reached.` : e.message
 }
 const RESOLUTIONS: Record<string, Array<{ value: string; label: string }>> = {
   unallocated_provider_money: [
@@ -40,11 +43,13 @@ const RESOLUTIONS: Record<string, Array<{ value: string; label: string }>> = {
   // PAY-05 (Paynow)
   provider_disputed: [
     { value: 'provider_corrected', label: 'Dispute over: Paynow reports the payment Paid again (CarUp checks)' },
+    { value: 'settled_off_platform', label: 'Settled outside CarUp: it never counts here, and the room is freed (explain in the note)' },
+    { value: 'acknowledged', label: 'Paynow has closed it (Cancelled, Failed or Refunded): reviewed, not counted (CarUp checks)' },
     { value: 'refunded_to_customer', label: 'Refunded to the customer (Paynow must report it refunded)' },
   ],
   provider_status_unrecognized: [
-    { value: 'acknowledged', label: 'Reviewed with Paynow: counting follows the payment’s status again (explain in the note)' },
-    { value: 'provider_corrected', label: 'Paynow corrected its report (verify first)' },
+    { value: 'acknowledged', label: 'Reviewed: it stays uncounted unless Paynow itself reports it paid (explain in the note)' },
+    { value: 'provider_corrected', label: 'Paynow corrected its report: its latest word is a matching Paid (CarUp checks)' },
   ],
   provider_refund_unquantified: [
     { value: 'acknowledged', label: 'Confirmed in the garage’s Paynow records: refunded in full (explain in the note)' },
@@ -64,7 +69,7 @@ const PAYNOW_SETTLED_OUTSIDE = {
 }
 const resolutionsFor = (d: GaragePaymentExceptions['discrepancies'][number]) => {
   const base = RESOLUTIONS[d.type] ?? RESOLUTIONS.default
-  return d.type === 'amount_mismatch' && d.gateway === 'paynow_zimbabwe' ? [...base, PAYNOW_SETTLED_OUTSIDE] : base
+  return ['amount_mismatch', 'currency_mismatch', 'provider_status_unrecognized'].includes(d.type) && d.gateway === 'paynow_zimbabwe' ? [...base, PAYNOW_SETTLED_OUTSIDE] : base
 }
 
 /**
@@ -85,6 +90,17 @@ export default function GaragePaymentsOperator() {
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [resolving, setResolving] = useState<{ id: string; resolution: string; note: string } | null>(null)
+  // the result is said in a region already on the page and takes the focus; forms take it and give it back (ICR-W5)
+  const [focusId, setFocusId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!focusId) return
+    const target = document.getElementById(focusId)
+    if (!target) return
+    target.focus()
+    // the request is spent once focus has moved; until its target is drawn every render tries again
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFocusId(null)
+  })
   const [form, setForm] = useState({ tenant_id: '', merchant_reference: '', display_name: '', currencies: 'USD', authority_note: '' })
 
   const applyExceptions = useCallback((res: GaragePaymentExceptions | null | undefined) => {
@@ -127,11 +143,7 @@ export default function GaragePaymentsOperator() {
         <p className="text-sm text-gray-600">Garage money belongs to the garage. Operators review evidence and close exceptions; they never collect, hold or move it.</p>
         <Badge variant="outline" className="mt-2 whitespace-normal">Level 1: simulated garage payment provider only</Badge>
       </div>
-      {message && (
-        <p role={message.ok ? 'status' : 'alert'} className={`rounded-lg p-3 text-sm ${message.ok ? 'bg-green-50 text-green-900' : 'bg-red-50 text-red-900'}`} data-testid="operator-message">
-          {message.text}
-        </p>
-      )}
+      <p id={`${uid}-message`} tabIndex={-1} role="status" aria-live="polite" className={message ? `rounded-lg p-3 text-sm ${message.ok ? 'bg-green-50 text-green-900' : 'bg-red-50 text-red-900'}` : ''} data-testid="operator-message">{message?.text ?? ''}</p>
 
       <section aria-labelledby={`${uid}-exc`} className="space-y-3" data-testid="operator-exceptions">
         <h2 id={`${uid}-exc`} className="text-lg font-semibold">Needs a decision</h2>
@@ -165,17 +177,19 @@ export default function GaragePaymentsOperator() {
                       <label htmlFor={`${uid}-note-${d.id}`} className="block text-sm font-medium">Note (what you verified, at least 10 characters)</label>
                       <textarea id={`${uid}-note-${d.id}`} rows={3} className="w-full rounded-lg border p-2 text-sm" value={resolving.note}
                         onChange={(e) => setResolving({ ...resolving, note: e.target.value })} data-testid="operator-resolution-note" />
+                      {resolving.note.trim().length < 10 && <p id={`${uid}-note-why-${d.id}`} className="text-xs text-gray-700">Write what you verified to close it.</p>}
                       <div className="flex flex-wrap gap-2">
-                        <Button className="min-h-11" disabled={busy || resolving.note.trim().length < 10} data-testid="operator-resolve-submit"
-                          onClick={() => void act(() => resolveGaragePaymentDiscrepancy(d.id, { resolution: resolving.resolution, note: resolving.note.trim() }), 'Exception closed.').then((ok) => ok && setResolving(null))}>
+                        <Button className="min-h-11" disabled={busy || resolving.note.trim().length < 10} aria-describedby={resolving.note.trim().length < 10 ? `${uid}-note-why-${d.id}` : undefined}
+                          data-testid="operator-resolve-submit"
+                          onClick={() => void act(() => resolveGaragePaymentDiscrepancy(d.id, { resolution: resolving.resolution, note: resolving.note.trim() }), 'Exception closed.').then((ok) => { if (ok) setResolving(null); setFocusId(`${uid}-message`) })}>
                           Close this exception
                         </Button>
-                        <Button variant="outline" className="min-h-11" onClick={() => setResolving(null)}>Cancel</Button>
+                        <Button variant="outline" className="min-h-11" onClick={() => { setResolving(null); setFocusId(`${uid}-resolve-${d.id}`) }} data-testid="operator-resolve-cancel">Cancel</Button>
                       </div>
                     </div>
                   ) : (
-                    <Button variant="outline" className="mt-2 min-h-11" data-testid="operator-resolve"
-                      onClick={() => setResolving({ id: d.id, resolution: resolutionsFor(d)[0].value, note: '' })}>
+                    <Button id={`${uid}-resolve-${d.id}`} variant="outline" className="mt-2 min-h-11" data-testid="operator-resolve"
+                      onClick={() => { setResolving({ id: d.id, resolution: resolutionsFor(d)[0].value, note: '' }); setFocusId(`${uid}-res-${d.id}`) }}>
                       Resolve…
                     </Button>
                   )}

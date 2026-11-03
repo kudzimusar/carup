@@ -29,7 +29,8 @@ const merchant = {
 const minutesFromNow = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString()
 const LATE_PAYMENT = /If the customer pays after the release, CarUp counts it only if the invoice still has room; otherwise it is held for an operator.s review\./
 const held = { collection_id: 'c1', garage: 'P5 Garage', invoice_number: 'INV-000009', amount: '60.00', currency: 'USD', initiated_at: '', expires_at: minutesFromNow(-60),
-  stopped_at: null, paynow: { method: 'ecocash', initiation: 'attached', provider_status: 'sent', provider_status_label: 'Waiting for you to approve the payment on your phone',
+  stopped_at: null, state: 'expired', state_label: 'Past CarUp’s time — the amount stays reserved while CarUp checks with Paynow (not counted)',
+  released: false, settled: false, can_release: true, release_blocked_reason: null, paynow: { method: 'ecocash', initiation: 'attached', provider_status: 'sent', provider_status_label: 'Waiting for you to approve the payment on your phone',
     checkout_url: null, instructions: null, authorization_code: null, authorization_expires: null, otp_reference: null, needs_otp: false, phone: null, hold_released: false } }
 
 beforeEach(() => {
@@ -42,6 +43,11 @@ beforeEach(() => {
 
 /** What useCarUpApi throws for an HTTP refusal: the server's code as the message, with its status and code. */
 const apiFailure = (code: string, status: number) => Object.assign(new Error(code), { status, code })
+/** R1: the integration's own settlement currency, as the operator found it (ICR-P1). */
+const fillSettles = (id = 'i1', currency = 'USD') => {
+  fireEvent.change(screen.getByTestId(`paynow-op-settles-${id}`), { target: { value: currency } })
+  fireEvent.change(screen.getByTestId(`paynow-op-settles-ref-${id}`), { target: { value: 'Simulated merchant settlement page.' } })
+}
 
 describe('Paynow operator panel — words (W10)', () => {
   it('names each key check in words; CarUp’s own trouble is never put in Paynow’s mouth', async () => {
@@ -64,15 +70,16 @@ describe('Paynow operator panel — words (W10)', () => {
     fireEvent.click(screen.getByTestId('paynow-op-settlement'))
     fireEvent.click(screen.getByTestId('paynow-op-currency'))
     fireEvent.change(screen.getByTestId('paynow-op-note'), { target: { value: 'Legal name and settlement account match.' } })
+    fillSettles()
     fireEvent.click(screen.getByTestId('paynow-op-verify'))
     await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveTextContent('US dollars (USD): Paynow refused this key'))
   })
 
-  it('reads a held request’s Paynow status about the customer', async () => {
+  it('reads a held request’s Paynow status about the customer, never to them', async () => {
     render(<PaynowOperatorPanel />)
     const row = await screen.findByTestId('paynow-op-held')
-    expect(row).toHaveTextContent('Waiting for the customer to approve on their phone')
-    expect(row).not.toHaveTextContent(/Waiting for you/)
+    expect(row).toHaveTextContent(/CarUp’s time has passed, but Paynow cannot cancel a request/)
+    expect(row).not.toHaveTextContent(/approve the payment on your phone/)
   })
 
   it('shows each merchant’s history: what happened, who did it, and when', async () => {
@@ -112,10 +119,13 @@ describe('Paynow operator panel', () => {
     const currency = screen.getByTestId('paynow-op-currency')
     expect(currency).toHaveAccessibleName(/^I checked each integration.s currency in the garage.s Paynow account \(Paynow does not tell CarUp the currency\)$/)
     fireEvent.click(currency)
+    expect(verify).toBeDisabled() // R1: each integration's own settlement currency is still missing
+    fillSettles()
     expect(verify).toBeEnabled()
     fireEvent.click(verify)
     await waitFor(() => expect(api.verifyPaynowMerchant).toHaveBeenCalledWith('m1', { legal_identity_reviewed: true, settlement_account_reviewed: true,
-      currency_configuration_reviewed: true, note: 'Legal name and settlement account match.' }))
+      currency_configuration_reviewed: true, note: 'Legal name and settlement account match.',
+      currency_evidence: { i1: { settlement_currency: 'USD', reference: 'Simulated merchant settlement page.' } } }))
     await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveTextContent('another CarUp administrator must review it. (PAY05_REVIEWER_SEPARATION_REQUIRED)'))
     expect(screen.getByText(/a1b2c3d4e5f60718/)).toBeInTheDocument()
   })
@@ -220,6 +230,7 @@ describe('The operator’s result speaks and takes the focus (W8)', () => {
     fireEvent.click(screen.getByTestId('paynow-op-settlement'))
     fireEvent.click(screen.getByTestId('paynow-op-currency'))
     fireEvent.change(screen.getByTestId('paynow-op-note'), { target: { value: 'Legal name and settlement account match.' } })
+    fillSettles()
     screen.getByTestId('paynow-op-verify').focus()
     fireEvent.click(screen.getByTestId('paynow-op-verify'))
     await waitFor(() => expect(screen.getByTestId('paynow-op-message')).toHaveTextContent('PAY05_REVIEWER_SEPARATION_REQUIRED'))

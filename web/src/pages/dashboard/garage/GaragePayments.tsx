@@ -154,7 +154,13 @@ export default function GaragePayments() {
             )}
             <div className="rounded-lg border p-3 text-sm" data-testid="garage-provider-status">
               <p className="font-medium">Online payments</p>
-              {overview.provider.connected ? (
+              {overview.provider.status === 'pending_verification' ? (
+                // PAY-05: a merchant CarUp has not verified takes no payment (ICR-W8)
+                <p data-testid="garage-provider-pending">
+                  Waiting for CarUp to verify {overview.provider.display_name}. Customers cannot pay through it yet; they pay you directly using your payment instructions below.{' '}
+                  {overview.provider.simulated && <Badge variant="outline">Simulated provider — test environment, no real money</Badge>}
+                </p>
+              ) : overview.provider.connected ? (
                 <p>
                   Connected: {overview.provider.display_name} ({overview.provider.currencies.join(', ')}){' '}
                   {overview.provider.simulated && <Badge variant="outline">Simulated provider — test environment, no real money</Badge>}

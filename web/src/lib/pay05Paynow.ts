@@ -14,6 +14,19 @@ export type PaynowMethod = 'web' | 'ecocash' | 'onemoney' | 'innbucks' | 'omari'
 export type PaynowStatus =
   | 'created' | 'sent' | 'awaiting_delivery' | 'delivered' | 'paid' | 'cancelled' | 'failed' | 'disputed' | 'refunded' | 'unrecognized'
 
+/**
+ * One Paynow payment's truth, in the separate parts a person needs (PAY-05-R1): what Paynow reported, what CarUp counted, any
+ * review, what can be done next, and when CarUp last read Paynow. The server writes them; nothing here decides money.
+ */
+export type PaynowFacts = {
+  provider: string
+  counted: boolean
+  allocation: string
+  review: string | null
+  next_step: string | null
+  last_read_at: string | null
+}
+
 export type PaynowView = {
   method: PaynowMethod
   initiation: 'sending' | 'attached' | 'refused' | 'unknown' | 'traced_absent'
@@ -25,8 +38,14 @@ export type PaynowView = {
   authorization_expires: string | null
   otp_reference: string | null
   needs_otp: boolean
+  /** an O'mari request Paynow gave CarUp no address for: a form would only be refused */
+  otp_unavailable?: boolean
   phone: string | null
   hold_released: boolean
+  /** an operator settled this outside CarUp: it never counts again */
+  settled_outside?: boolean
+  last_read_at?: string | null
+  facts?: PaynowFacts
   paynow_reference?: string | null
   provider_error?: string | null
   simulated?: boolean
@@ -42,7 +61,7 @@ export type PaynowOnlineOption = {
   currency: string
   methods: PaynowMethod[]
   simulation_notice: string | null
-  notices: { no_redirect_proof: string; cannot_cancel: string; channel: string }
+  notices: { no_redirect_proof: string; cannot_cancel: string; channel: string; earlier_request?: string | null }
 }
 
 export type PaynowStartResult = {
@@ -111,6 +130,16 @@ export const PAYNOW_REPORTED: Record<PaynowStatus, string> = {
 
 const WAITING_TONE = 'bg-amber-50 text-amber-900 border-amber-300'
 const REVIEW_STATES: ReadonlySet<string> = new Set(['under_review', 'confirmed_unallocated'])
+/** The badge's word for the states Paynow's own rules create. */
+const PAYNOW_STATE_SHORT: Readonly<Record<string, string>> = {
+  at_paynow: 'Held by Paynow — not counted',
+  stopping: 'Stopped waiting — still reserved, not counted',
+  expired: 'Past CarUp’s time — still reserved, not counted',
+  released: 'Released — not counted',
+  settled_outside: 'Settled outside CarUp — not counted',
+  not_counted: 'Not counted',
+  closed_not_counted: 'Closed — not counted',
+}
 
 /**
  * The badge of a Paynow payment. provider_status is only what CarUp APPLIED; the collection state is the truth. So the
@@ -121,6 +150,7 @@ export function paynowStateBadge(state: string | null | undefined, status: Payno
   if (state === 'confirmed') return { label: 'Paid — counted on the invoice', tone: PROVIDER_STATE_TONE.confirmed }
   if (state && REVIEW_STATES.has(state)) return { label: 'Under review — not counted', tone: PROVIDER_STATE_TONE.under_review }
   const tone = state && state in PROVIDER_STATE_TONE ? PROVIDER_STATE_TONE[state as ProviderPaymentState] : WAITING_TONE
+  if (state && PAYNOW_STATE_SHORT[state]) return { label: PAYNOW_STATE_SHORT[state], tone }
   if (status === 'paid') return { label: 'Paynow reports it paid — not counted yet', tone }
   return { label: status ? PAYNOW_STATUS_SHORT[status] : 'Waiting for Paynow', tone }
 }
@@ -134,7 +164,7 @@ export const PAYNOW_STATUS_ABOUT_CUSTOMER: Record<PaynowStatus, string> = {
   sent: 'Waiting for the customer to approve on their phone',
   awaiting_delivery: 'Paid to Paynow — held by Paynow until it is released to the garage (not yet counted)',
   delivered: 'Paid to Paynow — Paynow releases it to the garage after its 24-hour window (not yet counted)',
-  paid: 'Paid — confirmed by Paynow',
+  paid: 'Paynow reports it paid',
   cancelled: 'Cancelled at Paynow — nothing was charged',
   failed: 'Not completed — Paynow reports it cancelled or failed; nothing was charged',
   disputed: 'Disputed with Paynow — the money is held while the dispute is resolved (not counted)',
@@ -144,49 +174,78 @@ export const PAYNOW_STATUS_ABOUT_CUSTOMER: Record<PaynowStatus, string> = {
 /** Before Paynow has reported any status: where the request itself stands, about the customer. */
 const PAYNOW_INITIATION_ABOUT_CUSTOMER: Record<PaynowView['initiation'], string> = {
   attached: 'Waiting for the customer to pay through Paynow',
-  sending: 'CarUp is confirming with Paynow whether it received the payment request (not counted)',
-  unknown: 'CarUp is confirming with Paynow whether it received the payment request (not counted)',
+  sending: 'CarUp has not confirmed that Paynow received this request. It may still exist there (not counted)',
+  unknown: 'CarUp has not confirmed that Paynow received this request. It may still exist there (not counted)',
   refused: 'Paynow refused the payment request — nothing was charged',
   traced_absent: 'Paynow has no record of this payment request (not counted)',
 }
 
+/** What each state means, said the same way to everyone: a state wins over a Paynow word beside it. */
+const PAYNOW_STATE_LINE: Readonly<Record<string, string>> = {
+  released: 'CarUp released this request after Paynow showed it unpaid. It no longer holds this invoice, and it is not counted.',
+  settled_outside: 'Settled outside CarUp. It is not counted on this invoice.',
+  not_counted: 'Paynow no longer reports this as paid, so CarUp does not count it.',
+  closed_not_counted: 'Closed: Paynow reported money after it closed. CarUp reviewed it, and it is not counted.',
+  stopping: 'Paynow cannot cancel a request, so the amount stays reserved while CarUp checks with Paynow. It is not counted.',
+  expired: 'CarUp’s time has passed, but Paynow cannot cancel a request, so the amount stays reserved while CarUp checks with Paynow. It is not counted.',
+}
+
 /**
  * The sentence about a Paynow payment, by the same rule: under review says so first, then what Paynow reported; a paid
- * status CarUp did not count is not called paid. The customer reads the server's second-person label; the garage and
- * operators read it written about the customer.
+ * status CarUp did not count is not called paid; a request CarUp released or settled is never waiting for anyone. The customer
+ * reads the server's second-person label; the garage and operators read it written about the customer.
  */
 export function paynowStatusLine(state: string | null | undefined, view: PaynowView, audience: 'customer' | 'garage' = 'customer'): string {
   const status = view.provider_status
-  if (state && REVIEW_STATES.has(state)) return `Under review — not counted.${status ? ` ${PAYNOW_REPORTED[status]}.` : ''}`
-  if (status === 'paid' && state !== 'confirmed') return 'Paynow reports it paid, but CarUp has not counted it yet.'
-  if (audience === 'customer') return view.provider_status_label
+  const reported = status ? ` ${PAYNOW_REPORTED[status]}.` : ''
+  if (state && REVIEW_STATES.has(state)) return `Under review — not counted.${reported}`
+  if (state === 'confirmed') return 'Paid — counted on the invoice.'
+  // a request no longer waited on is never said to be waiting, by any word of Paynow's it last read
+  const stillWaiting = status === 'created' || status === 'sent'
+  if (view.settled_outside) return `${PAYNOW_STATE_LINE.settled_outside}${stillWaiting ? '' : reported}`
+  if (view.hold_released) return `${PAYNOW_STATE_LINE.released}${stillWaiting ? '' : reported}`
+  const moneyAtPaynow = status === 'awaiting_delivery' || status === 'delivered'
+  if (state && PAYNOW_STATE_LINE[state] && !moneyAtPaynow) return `${PAYNOW_STATE_LINE[state]}${stillWaiting ? '' : reported}`
+  if (status === 'paid') return 'Paynow reports it paid, but CarUp has not counted it yet.'
+  if (audience === 'customer' && view.initiation !== 'sending' && view.initiation !== 'unknown') return view.provider_status_label
   return status ? PAYNOW_STATUS_ABOUT_CUSTOMER[status] : PAYNOW_INITIATION_ABOUT_CUSTOMER[view.initiation] ?? view.provider_status_label
 }
 
 /**
- * What the customer is told after checking a Paynow payment. Success only when Paynow's own status is Paid AND CarUp
- * counted it; escrow is "paid to Paynow, not yet counted"; a lost request is "checking", never "nothing was charged".
+ * What the customer is told after checking a Paynow payment. Success only when CarUp counted it; escrow is "paid to Paynow,
+ * not yet counted"; a lost request is "not confirmed", never "nothing was charged"; a request CarUp released or settled says
+ * so and never invites paying it.
  */
 export function paynowOutcomeMessage(outcome: PaynowOutcome | null, failed: boolean): { tone: 'ok' | 'wait' | 'warn' | 'error'; text: string } {
   if (failed || !outcome) {
     return { tone: 'error', text: 'CarUp could not check this payment with Paynow just now. Nothing is shown as paid until it can. Try “Check payment status” again.' }
   }
   const status = outcome.paynow?.provider_status ?? null
-  const state = outcome.collection?.state
+  const state = outcome.collection?.state as string | undefined
   if (status === 'paid' && state === 'confirmed') return { tone: 'ok', text: 'Paynow confirmed your payment. It now counts on the invoice.' }
   if (state === 'under_review' || state === 'confirmed_unallocated' || status === 'disputed' || status === 'unrecognized') {
-    return { tone: 'warn', text: 'This payment needs review before it can count. The garage and CarUp have been alerted.' }
+    return { tone: 'warn', text: 'This payment needs review before it can count. The garage and CarUp have been alerted. Do not pay again until the review ends.' }
+  }
+  if (state === 'settled_outside') return { tone: 'warn', text: 'This payment was settled outside CarUp, so it is not counted on the invoice. If you also paid through Paynow, tell the garage.' }
+  if (state === 'not_counted') return { tone: 'warn', text: 'Paynow no longer reports this payment as paid, so it is not counted on the invoice. Ask the garage before paying again.' }
+  if (state === 'closed_not_counted') return { tone: 'warn', text: 'Paynow reported money after this payment closed. CarUp reviewed it, and it is not counted on the invoice. Ask the garage how it was settled.' }
+  if (state === 'released') {
+    return { tone: 'warn', text: 'CarUp released this request after Paynow showed it unpaid. Do not approve it on your phone. If you already did, ask the garage before paying again.' }
   }
   if (status === 'awaiting_delivery' || status === 'delivered') {
-    return { tone: 'wait', text: 'Your money reached Paynow and is held by Paynow until it is released to the garage. It is not yet counted on the invoice.' }
+    return { tone: 'wait', text: 'Your money reached Paynow and is held by Paynow until it is released to the garage. It is not yet counted on the invoice. Do not pay again.' }
   }
+  if (status === 'paid') return { tone: 'warn', text: 'Paynow reports it paid, but CarUp has not counted it. The garage and CarUp can see it. Do not pay again until it is settled.' }
   if (status === 'cancelled' || status === 'failed') return { tone: 'warn', text: 'Paynow reports this payment was not completed. Nothing was charged.' }
   if (status === 'refunded') return { tone: 'warn', text: 'Paynow reports this payment was refunded to you.' }
   if (outcome.paynow?.initiation === 'unknown' || outcome.paynow?.initiation === 'sending') {
-    return { tone: 'wait', text: 'CarUp is confirming with Paynow whether it received your payment request. Nothing is counted until it does.' }
+    return { tone: 'wait', text: 'CarUp has not confirmed that Paynow received your payment request. It may still exist there. Nothing is counted until CarUp knows.' }
   }
   return { tone: 'wait', text: outcome.paynow?.provider_status_label ?? 'Paynow has not confirmed this payment yet. It is not counted until it does.' }
 }
+
+/** While the amount stays reserved for it, a request can still be paid, so its link, code and form stay available. */
+const CONTINUABLE_STATES: ReadonlySet<string> = new Set(['awaiting_provider', 'expired', 'stopping'])
 
 /**
  * A Paynow request the customer can still continue (its page link, an InnBucks code, an O'mari code): CarUp is still
@@ -194,14 +253,15 @@ export function paynowOutcomeMessage(outcome: PaynowOutcome | null, failed: bool
  * the server sends it — it may be true while the status is still "created" or "sent".
  */
 export function paynowContinuable(state: string | null | undefined, view: PaynowView | null | undefined): view is PaynowView {
-  if (!view || view.hold_released) return false
-  if (state && state !== 'awaiting_provider') return false
+  if (!view || view.hold_released || view.settled_outside) return false
+  if (state && !CONTINUABLE_STATES.has(state)) return false
   if (view.initiation === 'refused' || view.initiation === 'traced_absent') return false
   return view.needs_otp || view.provider_status === null || view.provider_status === 'created' || view.provider_status === 'sent'
 }
 
-/** A failed PAY-05 or PAY-04 call in words (the message itself when it carries no code). */
+/** A failed PAY-05 or PAY-04 call in words (never a browser's own error text). */
 export function paynowErrorText(err: unknown, fallback: string): string {
+  if (isNetworkFailure(err)) return fallback
   const message = err instanceof Error ? err.message : ''
   return (message && (pay05ErrorText(message) ?? pay04ErrorText(message))) || fallback
 }
@@ -243,6 +303,19 @@ export function paynowStartFailure(err: unknown): { text: string; definite: bool
   return { text: message || PAYNOW_START_UNCONFIRMED, definite: false }
 }
 
+const OTP_ANSWER_LOST = 'CarUp could not confirm what Paynow did with your code. Paynow may have taken the payment, so check this payment’s status before entering the code again.'
+/**
+ * Why sending an O'mari code failed (ICR-W4). Only Paynow's own refusal, or a code that never left CarUp, is definite. Anything
+ * else, a lost connection included, means Paynow may have acted on the code.
+ */
+export function paynowOtpFailure(err: unknown): { text: string; definite: boolean } {
+  if (isNetworkFailure(err)) return { text: `We could not reach CarUp. ${OTP_ANSWER_LOST}`, definite: false }
+  const message = err instanceof Error ? err.message : ''
+  const code = /\bPAY05_OTP_(REJECTED|INVALID|NOT_EXPECTED)\b/.exec(message)?.[0]
+  if (code) return { text: pay05ErrorText(code) ?? OTP_ANSWER_LOST, definite: true }
+  return { text: OTP_ANSWER_LOST, definite: false }
+}
+
 /** PAY-05 is switched off on this server (404 PAY05_DISABLED): a fact to state neutrally, not an error to alarm about. */
 export function isPay05Disabled(err: unknown): boolean {
   if ((err as { code?: unknown } | null)?.code === 'PAY05_DISABLED') return true
@@ -260,7 +333,7 @@ const PAY05_ERROR_TEXT: Record<string, string> = {
   PAY05_OTP_REJECTED: 'Paynow did not accept that code. After five wrong codes Paynow cancels the payment.',
   PAY05_OTP_INVALID: 'Enter the code from the SMS (numbers only).',
   PAY05_OTP_NOT_EXPECTED: 'This payment is not waiting for a code.',
-  PAY05_PROVIDER_READ_FAILED: 'CarUp could not reach Paynow just now. Nothing changed; try again shortly.',
+  PAY05_PROVIDER_READ_FAILED: 'CarUp could not read this payment from Paynow just now, so what is shown may be out of date. Try again shortly.',
   PAY05_PROVIDER_REFUND_UNSUPPORTED: 'Paynow does not let CarUp refund. Refund the customer in your Paynow dashboard; CarUp records it when Paynow reports it.',
   PAY05_DISABLED: 'Paynow payments are switched off right now.',
   PAY05_ATTESTATION_REQUIRED: 'Confirm that this Paynow account and settlement account belong to your garage.',
@@ -274,13 +347,23 @@ const PAY05_ERROR_TEXT: Record<string, string> = {
   PAY05_DUPLICATE_CURRENCY: 'Each currency needs its own Paynow integration — add it once.',
   PAY05_PROFILE_INVALID: 'Fill in the business details: the name customers see (at most 120 characters), the registered business name, the settlement bank (at most 80 characters) and the account holder.',
   PAY05_MERCHANT_ALREADY_CONNECTED: 'This garage already has a Paynow account connected. Disconnect it first.',
-  PAY05_INTEGRATION_ALREADY_REGISTERED: 'That Paynow integration is already connected to another account.',
+  // one answer for a wrong key, another garage's ID and a cool-down: it tells nobody whose ID this is (ICR-S2)
+  PAY05_INTEGRATION_NOT_ACCEPTED: 'CarUp could not accept this Paynow integration. Check the integration ID and key with Paynow and try again later.',
+  PAY05_CONNECT_PROBE_UNAVAILABLE: 'CarUp could not reach Paynow to check this integration key. Nothing was connected; try again shortly.',
+  PAY05_TEST_AUTH_EMAIL_REQUIRED: 'Paynow test mode needs the merchant’s Paynow login e-mail.',
+  PAY05_EARLIER_REQUEST_UNRESOLVED: 'An earlier Paynow request on this invoice may still hold your money, so a new one was not started. Check its status below, or ask the garage.',
+  PAY05_CORRECTION_NOT_CONFIRMED_BY_PROVIDER: 'Not closed: Paynow’s own latest report must be a matching Paid before this can be called corrected. Check with Paynow first.',
+  PAY05_DISPUTE_NOT_RESOLVED_BY_PROVIDER: 'Not closed: this dispute is over only when Paynow reports the payment Paid again. If the garage settled it outside CarUp, close it that way.',
+  PAY05_CURRENCY_EVIDENCE_MISMATCH: 'Not verified: an integration settles in another currency than it collects. CarUp never converts, so it cannot collect that currency.',
+  PAY05_STATUS_UPDATE_UNCONFIRMED: 'Paynow’s message is not yet confirmed by its own status. CarUp reads it again when Paynow resends it.',
+  PAY05_HOLD_RELEASE_REQUIRES_FRESH_TRACE: 'CarUp must try once more to find this request at Paynow before it can be closed. Check with Paynow, then try again.',
+  PAY05_OPERATION_UNAVAILABLE: 'CarUp could not finish that just now. Check this payment’s status before trying again.',
   PAY05_MERCHANT_AUTHORITY_REFUSED: 'Only the garage’s administrator can do this.',
   PAY05_REVIEWER_SEPARATION_REQUIRED: 'Refused: you are connected to this garage, so another CarUp administrator must review it.',
   PAY05_VERIFICATION_AUTHORITY_REFUSED: 'Only a CarUp platform administrator can do this.',
-  PAY05_VERIFICATION_EVIDENCE_INCOMPLETE: 'Not verified: confirm all three reviews (legal identity, settlement account, each integration’s currency) and write a note; every integration key must also prove itself with Paynow.',
+  PAY05_VERIFICATION_EVIDENCE_INCOMPLETE: 'Not verified: confirm all three reviews (legal identity, settlement account, each integration’s own settlement currency and where you checked it) and write a note; every integration key must also prove itself with Paynow.',
   PAY05_MERCHANT_NOT_PENDING: 'This account has already been reviewed.',
-  PAY05_HOLD_NOT_RELEASABLE: 'This payment cannot be released: it is not an unpaid Paynow request past its time.',
+  PAY05_HOLD_NOT_RELEASABLE: 'This payment cannot be released: it is not an unpaid Paynow request past its time with no review open.',
   PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ: 'Paynow must show this request unpaid in a fresh check before its hold can be released.',
   PAY05_RELEASE_SELF_DEALING_REFUSED: 'Refused: you are connected to this payment, so another operator must release it.',
   PAY05_REASON_REQUIRED: 'Give a reason (at least 10 characters).',
@@ -289,7 +372,8 @@ const PAY05_ERROR_TEXT: Record<string, string> = {
 export function pay05ErrorText(message: string): string | null {
   const code = /\bPAY05_[A-Z0-9_]+\b/.exec(message)?.[0]
   if (!code) return null
-  return PAY05_ERROR_TEXT[code] ?? 'That did not go through. Nothing was changed. Try again, or contact CarUp support.'
+  // an unknown refusal promises nothing about the money: the payment itself is the place to look
+  return PAY05_ERROR_TEXT[code] ?? 'That did not go through. Check this payment’s status before trying again, or contact CarUp support.'
 }
 
 export type PaynowIntegrationView = {
@@ -297,6 +381,8 @@ export type PaynowIntegrationView = {
   status: 'pending_verification' | 'verified' | 'suspended' | 'rejected'; credential_fingerprint: string; registered_at: string
   verified_at: string | null; verified_by: string | null; closed_at: string | null; closed_reason: string | null
   probe: { result: string; probed_at: string } | null
+  /** each integration's own settlement currency, as an operator reviewed it */
+  currency_evidence?: { settlement_currency: string; reference: string; reviewed_at: string } | null
 }
 
 export type PaynowMerchant = {
@@ -329,6 +415,11 @@ export type GaragePaynowConnection = {
 export type PaynowHeldCollection = {
   collection_id: string; garage: string | null; invoice_number: string | null; amount: Decimal; currency: string
   initiated_at: string; expires_at: string; stopped_at: string | null; paynow: PaynowView
+  state: string; state_label: string
+  /** released by an operator or settled outside CarUp: no longer holding room, still Paynow's, still re-readable */
+  released: boolean; settled: boolean
+  /** what the database would allow right now, and why not otherwise */
+  can_release: boolean; release_blocked_reason: string | null
 }
 
 export type PaynowProviderError = { id: string; seq: number; tenant_id: string | null; collection_id: string | null; merchant_account_id: string | null; kind: string; detail: Record<string, unknown>; created_at: string }

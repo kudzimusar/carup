@@ -277,7 +277,7 @@ export default function PaynowConnection() {
                 Refunds: Paynow does not let CarUp refund. Refund a customer in your Paynow dashboard; CarUp shows it when Paynow reports it.
               </p>
               {live && !disconnectAsk && (
-                <Button variant="outline" className="min-h-11" onClick={() => setDisconnectAsk(true)} data-testid="garage-paynow-disconnect">Disconnect Paynow</Button>
+                <Button id={`${uid}-disconnect`} variant="outline" className="min-h-11" onClick={() => { setDisconnectAsk(true); setFocusId(`${uid}-reason`) }} data-testid="garage-paynow-disconnect">Disconnect Paynow</Button>
               )}
               {live && disconnectAsk && (
                 <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3" role="group" aria-label="Disconnect Paynow?">
@@ -287,7 +287,7 @@ export default function PaynowConnection() {
                   <div className="flex flex-wrap gap-2">
                     <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || reason.trim().length < 10} onClick={() => void disconnect()}
                       data-testid="garage-paynow-disconnect-confirm">Disconnect</Button>
-                    <Button variant="outline" className="min-h-11 bg-white" disabled={busy} onClick={() => setDisconnectAsk(false)}>Keep it connected</Button>
+                    <Button variant="outline" className="min-h-11 bg-white" disabled={busy} onClick={() => { setDisconnectAsk(false); setFocusId(`${uid}-disconnect`) }}>Keep it connected</Button>
                   </div>
                 </div>
               )}

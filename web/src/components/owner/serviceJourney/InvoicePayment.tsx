@@ -1,4 +1,4 @@
-import { useCallback, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -10,8 +10,9 @@ import {
 } from '@/lib/pay04GaragePayments'
 import { requestDate } from '@/lib/serviceRequests'
 import {
-  PAYNOW_METHOD_LABEL, paynowContinuable, paynowOutcomeMessage, paynowStatusLine, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment,
+  PAYNOW_METHOD_LABEL, paynowContinuable, paynowErrorText, paynowOutcomeMessage, paynowStatusLine, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment,
 } from '@/lib/pay05Paynow'
+import PaynowFacts from '@/components/garage/PaynowFacts'
 import PaynowCheckout from './PaynowCheckout'
 import PaynowPendingPanel from './PaynowPendingPanel'
 
@@ -45,6 +46,21 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
   // PAY-05: the request PaynowCheckout started. It stays on screen through every refresh — even once the whole balance is
   // reserved and Paynow is no longer offered — so its code, OTP form or instructions never vanish right after "Pay".
   const [paynowStarted, setPaynowStarted] = useState<{ collectionId: string; option: PaynowOnlineOption } | null>(null)
+  // Pay's answer was lost: the request may exist, and the refresh that lists it may remove the checkout that said so (ICR-W5)
+  const [lostStart, setLostStart] = useState<string | null>(null)
+  // a result that is not a Paynow read: said in the row's live region, which is already on the page
+  const [notice, setNotice] = useState<{ id: string; text: string } | null>(null)
+  // after each action the focus moves to the new content, once React has drawn it (ICR-W5)
+  const [focusId, setFocusId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!focusId) return
+    const target = document.getElementById(focusId)
+    if (!target) return
+    target.focus()
+    // the request is spent once focus has moved; until its target is drawn every render tries again
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFocusId(null)
+  })
   const loaded = useRef(false)
   const reads = useRef(0)
 
@@ -92,13 +108,15 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
       // the provider's page decides; nothing is paid until CarUp reads the provider's confirmation
       window.location.assign(started.checkout_url)
     } catch (err) {
-      setProblem(err instanceof Error && err.message ? pay04ErrorText(err.message) : 'The payment could not be started. Nothing was charged.')
+      setProblem(err instanceof TypeError ? 'We could not reach CarUp. Your payment may still have been started: check this invoice’s payments before trying again.'
+        : err instanceof Error && err.message ? pay04ErrorText(err.message) : 'The payment could not be started. Nothing was charged.')
       setBusy(false)
     }
   }
 
   const check = async (collectionId: string) => {
     setBusy(true)
+    setNotice(null)
     setChecked(null) // the outcome region empties, so the same answer twice is still said twice
     try {
       const outcome = await verifyGarageInvoicePayment(collectionId)
@@ -117,12 +135,17 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
     setStopError(null)
     setBusy(true)
     try {
-      await cancelGarageInvoicePayment(collectionId, 'Stopped by the customer')
+      const answer = await cancelGarageInvoicePayment(collectionId, 'Stopped by the customer') as { notice?: string } | null
       setKey(newIdempotencyKey())
       await load()
       onChanged?.()
+      setNotice({ id: collectionId, text: answer?.notice
+        ? `Stop recorded. ${answer.notice} The amount stays reserved on this invoice until Paynow closes the request or CarUp releases it.`
+        : 'Stop recorded. The payment shows what the provider confirms.' })
+      setFocusId(`${uid}-outcome-${collectionId}`)
     } catch (err) {
-      setStopError({ id: collectionId, text: err instanceof Error && err.message ? pay04ErrorText(err.message) : 'The checkout could not be stopped. Nothing changed.' })
+      setStopError({ id: collectionId, text: paynowErrorText(err, 'The checkout could not be stopped. Nothing changed.') })
+      setFocusId(`${uid}-stop-error-${collectionId}`)
     } finally {
       setBusy(false)
     }
@@ -181,7 +204,8 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
               <div data-testid="online-payment">
                 {checkoutOption ? (
                   <PaynowCheckout invoiceId={invoice.id} option={checkoutOption} latest={startedRow}
-                    onStarted={(collectionId) => setPaynowStarted({ collectionId, option: checkoutOption })}
+                    onStarted={(collectionId) => { setLostStart(null); setPaynowStarted({ collectionId, option: checkoutOption }) }}
+                    onUnconfirmedStart={(text) => { setLostStart(text); setFocusId(`${uid}-lost-start`) }}
                     onChanged={() => { void load(); onChanged?.() }} />
                 ) : option?.available ? (
                   <div className="rounded-md border p-3 space-y-2">
@@ -208,6 +232,9 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                 )}
               </div>
 
+              {!checkoutOption && lostStart && (
+                <p id={`${uid}-lost-start`} tabIndex={-1} role="alert" className="rounded-md bg-amber-50 p-3 text-amber-950" data-testid="paynow-start-lost">{lostStart}</p>
+              )}
               {data.provider_payments.length > 0 && (
                 <div data-testid="my-provider-payments">
                   <p className="font-medium">Your payments through the provider</p>
@@ -223,41 +250,44 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                           <Badge variant="outline" className={`whitespace-normal ${PROVIDER_STATE_TONE[p.state] ?? ''}`}>{p.state_label}</Badge>
                         </p>
                         {paynow && <p className="mt-1 text-xs text-gray-700" data-testid="my-provider-payment-paynow">{paynowStatusLine(p.state, paynow)}</p>}
+                        <PaynowFacts className="mt-2" facts={paynow?.facts} />
                         {continuable && (
                           <PaynowPendingPanel className="mt-2 rounded-md border border-amber-300 bg-white p-2" collectionId={p.id} paynow={continuable}
                             state={p.state} busy={busy}
-                            onOtpOutcome={(outcome) => { setChecked({ id: p.id, outcome, failed: false }); void load(); onChanged?.() }} />
+                            onOtpOutcome={(outcome) => { setNotice(null); setChecked({ id: p.id, outcome, failed: false }); setFocusId(`${uid}-outcome-${p.id}`); void load(); onChanged?.() }} />
                         )}
                         <div className="mt-2 flex flex-wrap gap-2">
                           <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => void check(p.id)} data-testid="my-provider-payment-check">
                             Check payment status
                           </Button>
                           {p.state === 'awaiting_provider' && stopAsk !== p.id && (!paynow || paynow.provider_status === null || paynow.provider_status === 'created' || paynow.provider_status === 'sent') && (
-                            <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => { setStopAsk(p.id); setStopError(null) }} data-testid="my-provider-payment-stop">
+                            <Button id={`${uid}-stop-${p.id}`} variant="outline" className="min-h-11" disabled={busy}
+                              onClick={() => { setStopAsk(p.id); setStopError(null); setFocusId(`${uid}-ask-${p.id}`) }} data-testid="my-provider-payment-stop">
                               {paynow ? 'Stop waiting for this payment' : 'Stop this checkout'}
                             </Button>
                           )}
                         </div>
                         {stopAsk === p.id && (
-                          <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-amber-900" role="group" aria-label="Stop this checkout?" data-testid="my-provider-payment-stop-ask">
+                          <div id={`${uid}-ask-${p.id}`} tabIndex={-1} className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-amber-900" role="group"
+                            aria-label="Stop this checkout?" data-testid="my-provider-payment-stop-ask">
                             <p>{paynow
-                              ? 'Stop waiting for this Paynow payment? Paynow cannot cancel a payment request: if you do not complete it, nothing is charged; if you do pay it, it still counts.'
+                              ? 'Stop waiting for this Paynow payment? Paynow cannot cancel a payment request, so the amount stays reserved on this invoice until Paynow closes it or CarUp releases it. If you do not complete it, nothing is charged. A payment you complete while it is reserved counts on the invoice.'
                               : 'Stop this checkout? If you already paid at the provider, that payment still counts.'}</p>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy} onClick={() => void stop(p.id)} data-testid="my-provider-payment-stop-confirm">Yes, stop it</Button>
-                              <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => setStopAsk(null)} data-testid="my-provider-payment-stop-keep">Keep it</Button>
+                              <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => { setStopAsk(null); setFocusId(`${uid}-stop-${p.id}`) }} data-testid="my-provider-payment-stop-keep">Keep it</Button>
                             </div>
                           </div>
                         )}
                         {stopError?.id === p.id && (
-                          <p role="alert" className="mt-2 rounded-md bg-red-50 p-2 text-red-900" data-testid="my-provider-payment-stop-error">{stopError.text}</p>
+                          <p id={`${uid}-stop-error-${p.id}`} tabIndex={-1} role="alert" className="mt-2 rounded-md bg-red-50 p-2 text-red-900" data-testid="my-provider-payment-stop-error">{stopError.text}</p>
                         )}
                         {(() => {
                           // a live region in the page before its words arrive (W8)
-                          const message = checked?.id !== p.id ? null : paynow
+                          const message = notice?.id === p.id ? { tone: 'wait' as const, text: notice.text } : checked?.id !== p.id ? null : paynow
                             ? paynowOutcomeMessage(checked.outcome as PaynowOutcome | null, checked.failed) : returnOutcomeMessage(checked.outcome, checked.failed)
                           return (
-                            <p role="status" aria-live="polite" className={message ? `mt-2 rounded-md p-2 ${TONE[message.tone]}` : ''}
+                            <p id={`${uid}-outcome-${p.id}`} tabIndex={-1} role="status" aria-live="polite" className={message ? `mt-2 rounded-md p-2 ${TONE[message.tone]}` : ''}
                               data-testid="my-provider-payment-outcome">{message?.text ?? ''}</p>
                           )
                         })()}

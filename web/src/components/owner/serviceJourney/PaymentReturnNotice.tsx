@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { returnOutcomeMessage, type CollectionOutcome } from '@/lib/pay04GaragePayments'
 import { paynowContinuable, paynowOutcomeMessage, type PaynowOutcome } from '@/lib/pay05Paynow'
+import PaynowFacts from '@/components/garage/PaynowFacts'
 import PaynowPendingPanel from './PaynowPendingPanel'
 
 const TONE = { ok: 'border-green-300 bg-green-50 text-green-900', wait: 'border-amber-300 bg-amber-50 text-amber-900', warn: 'border-amber-300 bg-amber-50 text-amber-900', error: 'border-red-300 bg-red-50 text-red-900' } as const
@@ -28,8 +29,12 @@ export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => v
   const [outcome, setOutcome] = useState<CollectionOutcome | null>(null)
   const [failed, setFailed] = useState(false)
   const started = useRef<string | null>(null)
+  // a person asked: the answer takes the focus, once it is on the page (ICR-W5)
+  const outcomeRef = useRef<HTMLParagraphElement>(null)
+  const [answered, setAnswered] = useState(0)
+  useEffect(() => { if (answered) outcomeRef.current?.focus() }, [answered])
 
-  const check = async () => {
+  const check = async (asked = false) => {
     setPhase('checking')
     setFailed(false)
     try {
@@ -39,6 +44,7 @@ export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => v
       setFailed(true)
     } finally {
       setPhase('done')
+      if (asked) setAnswered((n) => n + 1)
       onSettled?.()
     }
   }
@@ -66,13 +72,15 @@ export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => v
         </p>
       )}
       {/* in the page, empty, while CarUp checks: the words that arrive are announced (W8) */}
-      <p role="status" aria-live="polite" data-testid="payment-return-outcome" data-tone={message?.tone}>{message?.text ?? ''}</p>
+      <p ref={outcomeRef} tabIndex={-1} role="status" aria-live="polite" data-testid="payment-return-outcome" data-tone={message?.tone}>{message?.text ?? ''}</p>
+      {view?.facts && <PaynowFacts facts={view.facts} />}
       {view && paynowContinuable(state, view) && (
         <PaynowPendingPanel collectionId={collectionId} paynow={view} state={state}
-          onOtpOutcome={(answer) => { setOutcome(answer); setFailed(false); onSettled?.() }} />
+          onOtpOutcome={(answer) => { setOutcome(answer); setFailed(false); setAnswered((n) => n + 1); onSettled?.() }} />
       )}
-      {message && message.tone !== 'ok' && (
-        <Button variant="outline" className="min-h-11 bg-white" onClick={() => void check()} data-testid="payment-return-recheck">
+      {/* it stays while a person's re-check runs: taking it away would drop their focus (ICR-W5) */}
+      {((message && message.tone !== 'ok') || (phase === 'checking' && started.current && (outcome || failed))) && (
+        <Button variant="outline" className="min-h-11 bg-white" disabled={phase === 'checking'} onClick={() => void check(true)} data-testid="payment-return-recheck">
           Check payment status
         </Button>
       )}

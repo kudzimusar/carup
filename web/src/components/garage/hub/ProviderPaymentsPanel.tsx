@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -7,6 +7,7 @@ import { dateTimeLabel } from '@/lib/garageWorkspace'
 import { activityActor, DISCREPANCY_LABEL, PROVIDER_EVENT_LABEL, PROVIDER_STATE_TONE, type ProviderPayment, pay04ErrorText } from '@/lib/pay04GaragePayments'
 import { FormError, INPUT_CLASS, type HubRun } from './hubUi'
 import { PAYNOW_METHOD_LABEL, pay05ErrorText, paynowStatusLine, type PaynowProviderPayment } from '@/lib/pay05Paynow'
+import PaynowFacts from '@/components/garage/PaynowFacts'
 
 /**
  * CARUP-PAY-04 — what the invoice's money is made of, for the garage.
@@ -52,10 +53,13 @@ function ReasonAction({ testId, label, hint, submitLabel, minLength, busy, onSub
 }) {
   const [reason, setReason] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
+  const fieldId = useId()
   return (
     <div className="mt-2 space-y-2 rounded-lg bg-gray-50 p-3" data-testid={testId}>
-      <label htmlFor={`${testId}-reason`} className="block text-sm font-medium">{label}</label>
-      <input id={`${testId}-reason`} value={reason} className={INPUT_CLASS} data-testid={`${testId}-reason`} onChange={(e) => setReason(e.target.value)} />
+      <label htmlFor={fieldId} className="block text-sm font-medium">{label}</label>
+      {/* the form takes the focus when it opens (ICR-W5) */}
+      {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
+      <input id={fieldId} autoFocus value={reason} className={INPUT_CLASS} data-testid={`${testId}-reason`} onChange={(e) => setReason(e.target.value)} />
       <p className="text-xs text-gray-600">{hint}</p>
       <FormError message={problem} testId={`${testId}-error`} />
       <div className="flex flex-wrap gap-2">
@@ -84,13 +88,16 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
 }) {
   const { refundGarageProviderPayment, reconcileGarageProviderPayment, cancelGarageProviderPayment } = useCarUpApi()
   const [open, setOpen] = useState<'refund' | 'stop' | null>(null)
+  // a closed form gives the focus back to the row, which is always on the page (ICR-W5)
+  const rowRef = useRef<HTMLLIElement>(null)
+  const closeForm = () => { setOpen(null); requestAnimationFrame(() => rowRef.current?.focus()) }
   const discrepancies = payment.open_discrepancies ?? []
   // PAY-05: a payment through the garage's own Paynow account
   const paynow = (payment as PaynowProviderPayment).paynow ?? null
   // Paynow cannot cancel a request: stopping one records a decision, it does not free the invoice room
   const viaPaynow = payment.gateway === 'paynow_zimbabwe'
   return (
-    <li className="p-3 text-sm" data-testid="provider-payment-row" data-state={payment.state}>
+    <li ref={rowRef} tabIndex={-1} className="p-3 text-sm" data-testid="provider-payment-row" data-state={payment.state}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
           <p className="font-medium">
@@ -109,6 +116,7 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
             </p>
           )}
           <p className="text-xs text-gray-600" data-testid="provider-payment-source">{payment.source_label}</p>
+          <PaynowFacts facts={paynow?.facts} />
           {discrepancies.map((d) => (
             <p key={d.id} className="text-xs text-red-800" data-testid="provider-payment-discrepancy">
               Under review: {DISCREPANCY_LABEL[d.type] ?? d.type}{d.amount ? ` (${formatMoney(d.amount, payment.currency)})` : ''}. CarUp operations has been alerted.
@@ -145,7 +153,7 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
         <ReasonAction
           testId="provider-refund-form" label="Why are you refunding this payment?" minLength={10} busy={busy}
           hint="The full amount goes back to the customer through the provider. It stops counting on the invoice at once and its receipt is voided."
-          submitLabel="Refund the full amount" onClose={() => setOpen(null)}
+          submitLabel="Refund the full amount" onClose={closeForm}
           onSubmit={(reason) => run('closeout', inWords(() => refundGarageProviderPayment(payment.id, reason)), 'Refund sent to the provider. The invoice shows what the provider confirmed.')}
         />
       )}
@@ -154,14 +162,14 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
           testId="provider-stop-form" label="Why stop waiting for this payment?" minLength={3} busy={busy}
           hint={'Paynow cannot cancel a payment request. Stopping records that the customer should not pay through this request; the amount stays held '
             + 'until Paynow reports the outcome, or CarUp’s payment time passes and a CarUp operator releases it.'}
-          submitLabel="Stop waiting" onClose={() => setOpen(null)}
+          submitLabel="Stop waiting" onClose={closeForm}
           onSubmit={(reason) => run('closeout', inWords(() => cancelGarageProviderPayment(payment.id, reason)), 'Stop recorded — the amount stays held until Paynow reports the outcome.')}
         />
       ) : (
         <ReasonAction
           testId="provider-stop-form" label="Why stop this checkout?" minLength={3} busy={busy}
           hint="Nothing has been paid. Stopping releases the amount it was holding on the invoice."
-          submitLabel="Stop the checkout" onClose={() => setOpen(null)}
+          submitLabel="Stop the checkout" onClose={closeForm}
           onSubmit={(reason) => run('closeout', inWords(() => cancelGarageProviderPayment(payment.id, reason)), 'Stop sent to the provider. The payment shows what the provider confirmed.')}
         />
       ))}

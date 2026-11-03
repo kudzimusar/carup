@@ -824,7 +824,7 @@ export async function listHeldPaynowCollections({ db = defaultDb, env = process.
       const view = paynowView(tx);
       const reviews = reviewsOf(c.id);
       const state = paynowCollectionState(c, { status: payments.get(c.payment_reference) }, view, { now, openDiscrepancies: reviews, counted: countedOf(c.id) });
-      const block = paynowReleaseBlock({ tx, paymentStatus: payments.get(c.payment_reference), collection: c, reviews, now });
+      const block = paynowReleaseBlock({ tx, paymentStatus: payments.get(c.payment_reference), reviews });
       return {
         collection_id: c.id, garage: tenants.get(c.tenant_id) ?? null, invoice_number: invoices.get(c.invoice_id) ?? null,
         amount: pay04Money(c.amount, c.currency), currency: c.currency, initiated_at: c.initiated_at, expires_at: c.expires_at,
@@ -837,12 +837,14 @@ export async function listHeldPaynowCollections({ db = defaultDb, env = process.
   return { held };
 }
 
-/** Why the database would refuse to release this hold, in words; null when it would allow it after a fresh read (ICR-W6). */
-export function paynowReleaseBlock({ tx, paymentStatus, collection, reviews = [], now = Date.now() }) {
+/**
+ * Why the database would refuse to release this hold, in words; null when it would allow it after a fresh read and once
+ * CarUp's own time has passed (the panel shows that time and opens the action itself when it passes) (ICR-W6).
+ */
+export function paynowReleaseBlock({ tx, paymentStatus, reviews = [] }) {
   if (tx.hold_released_at) return 'Already released.';
   if (paymentStatus !== 'pending') return 'This payment is no longer waiting on Paynow.';
   if (reviews.length) return 'Close its review first.';
-  if (Date.parse(collection.expires_at) > now) return 'Its time has not run out yet.';
   if (tx.provider_status && !['created', 'sent', 'cancelled', 'failed'].includes(tx.provider_status)) return 'Paynow reports money on this request.';
   return null;
 }

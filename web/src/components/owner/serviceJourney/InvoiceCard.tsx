@@ -9,6 +9,8 @@ import {
 } from '@/lib/garageBusiness'
 import { requestDate } from '@/lib/serviceRequests'
 import { paymentStatusLabel, PROVIDER_STATE_TONE } from '@/lib/pay04GaragePayments'
+import type { PaynowProviderPayment } from '@/lib/pay05Paynow'
+import PaynowFacts from '@/components/garage/PaynowFacts'
 import InvoicePayment from './InvoicePayment'
 
 /**
@@ -198,6 +200,8 @@ export default function InvoiceCard({ invoice: inv, onChanged }: { invoice: Cust
                 </p>
                 <p className="text-xs text-gray-600">Started {requestDate(p.initiated_at)}{p.simulated ? ' · simulated provider (test)' : ''}</p>
                 <p className="mt-1 text-xs text-gray-700">{p.source_label}</p>
+                {/* PAY-05: Paynow's word, CarUp's count and any review are separate facts */}
+                <PaynowFacts className="mt-2" facts={(p as PaynowProviderPayment).paynow?.facts} />
               </li>
             ))}
           </ul>

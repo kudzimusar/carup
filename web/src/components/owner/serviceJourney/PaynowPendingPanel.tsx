@@ -2,7 +2,7 @@ import { useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { MONEY_ACTION_BUTTON_CLASS } from '@/lib/pay04GaragePayments'
-import { paynowContinuable, paynowErrorText, type PaynowOutcome, type PaynowView } from '@/lib/pay05Paynow'
+import { paynowContinuable, paynowOtpFailure, type PaynowOutcome, type PaynowView } from '@/lib/pay05Paynow'
 
 /** Only Paynow's own http(s) page is ever a link: anything else in checkout_url is treated as no link at all. */
 const pageLink = (url: string | null) => (url && /^https?:\/\//i.test(url) ? url : null)
@@ -34,7 +34,7 @@ export default function PaynowPendingPanel({ collectionId, paynow, state = null,
   if (!paynowContinuable(state, paynow)) return null
   const link = pageLink(paynow.checkout_url)
   const noLink = paynow.method === 'web' && !link && (paynow.provider_status === null || paynow.provider_status === 'created')
-  if (!link && !noLink && !paynow.instructions && !paynow.authorization_code && !paynow.needs_otp) return null
+  if (!link && !noLink && !paynow.instructions && !paynow.authorization_code && !paynow.needs_otp && !paynow.otp_unavailable) return null
 
   const sendOtp = async () => {
     if (!/^\d{4,8}$/.test(otp.trim())) { setOtpProblem('Enter the code from the SMS (numbers only).'); return }
@@ -45,7 +45,8 @@ export default function PaynowPendingPanel({ collectionId, paynow, state = null,
       setOtp('')
       onOtpOutcome?.(outcome)
     } catch (err) {
-      setOtpProblem(paynowErrorText(err, 'The code could not be sent to Paynow. Nothing changed.'))
+      // only Paynow's own refusal is definite: a lost answer means Paynow may have taken the payment (ICR-W4)
+      setOtpProblem(paynowOtpFailure(err).text)
     } finally {
       setSending(false)
     }
@@ -70,6 +71,11 @@ export default function PaynowPendingPanel({ collectionId, paynow, state = null,
           {paynow.authorization_expires && <p className="text-xs text-gray-700">Valid until {paynow.authorization_expires} (Paynow’s time)</p>}
         </div>
       )}
+      {paynow.otp_unavailable && (
+        <p className="text-sm" data-testid="paynow-otp-unavailable">
+          Paynow did not give CarUp a way to send your O’mari code for this request. Check its status; if it stays waiting, the garage or CarUp can release it.
+        </p>
+      )}
       {paynow.needs_otp && (
         <div className="space-y-1" data-testid="paynow-otp">
           <label htmlFor={`${uid}-otp`} className="block text-sm font-medium">
@@ -77,12 +83,14 @@ export default function PaynowPendingPanel({ collectionId, paynow, state = null,
           </label>
           <div className="flex flex-wrap gap-2">
             <input id={`${uid}-otp`} inputMode="numeric" autoComplete="one-time-code" value={otp} onChange={(e) => { setOtp(e.target.value); setOtpProblem(null) }}
-              aria-invalid={Boolean(otpProblem)} aria-describedby={otpProblem ? `${uid}-otp-problem` : undefined}
+              aria-invalid={Boolean(otpProblem)} aria-describedby={otpProblem ? `${uid}-otp-problem` : !otp.trim() ? `${uid}-otp-hint` : undefined}
               className="min-h-11 w-40 rounded-lg border border-gray-300 bg-white px-3 text-sm" data-testid="paynow-otp-input" />
-            <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || sending || !otp.trim()} onClick={() => void sendOtp()} data-testid="paynow-otp-submit">
+            <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || sending || !otp.trim()}
+              aria-describedby={!otp.trim() ? `${uid}-otp-hint` : undefined} onClick={() => void sendOtp()} data-testid="paynow-otp-submit">
               Send code to Paynow
             </Button>
           </div>
+          {!otp.trim() && <p id={`${uid}-otp-hint`} className="text-xs text-gray-700" data-testid="paynow-otp-hint">Enter the code from the SMS first.</p>}
           {otpProblem && <p id={`${uid}-otp-problem`} role="alert" className="text-sm text-red-800" data-testid="paynow-otp-problem">{otpProblem}</p>}
         </div>
       )}

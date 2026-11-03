@@ -20,6 +20,8 @@ export type InvoiceMoney = {
 export type ProviderPaymentState =
   | 'awaiting_provider' | 'stopping' | 'stopped' | 'expired' | 'confirmed' | 'confirmed_unallocated' | 'under_review'
   | 'refund_pending' | 'refunded' | 'partially_refunded' | 'cancelled' | 'unknown'
+  // PAY-05 (Paynow cannot cancel or expire a request, and what counts is what was counted)
+  | 'at_paynow' | 'released' | 'settled_outside' | 'not_counted' | 'closed_not_counted'
 
 export type ProviderPayment = {
   id: string
@@ -34,6 +36,8 @@ export type ProviderPayment = {
   gateway: string
   simulated: boolean
   source_label: string
+  /** PAY-05: what CarUp counts of this payment */
+  counted_amount?: Decimal
   /** garage and operator views only */
   open_discrepancies?: Array<{ id: string; type: string; amount: Decimal | null; first_detected_at: string; observation_count: number }>
 }
@@ -73,7 +77,9 @@ export const PROVIDER_EVENT_LABEL: Record<string, string> = {
   receipt_issued: 'Receipt issued',
   receipt_voided: 'Receipt voided',
   refund_requested: 'Refund requested by the garage',
-  cancelled: 'Checkout stopped',
+  cancelled: 'Checkout stopped or closed',
+  // PAY-05 (Paynow)
+  hold_released: 'A CarUp operator released the amount this request held',
   discrepancy_opened: 'Discrepancy opened',
   discrepancy_observed: 'Discrepancy seen again',
   discrepancy_resolved: 'Discrepancy closed',
@@ -81,7 +87,8 @@ export const PROVIDER_EVENT_LABEL: Record<string, string> = {
 
 /** Who did it, in words: the provider, or the person (by role, never by guessed name). */
 export function activityActor(actor: string): string {
-  return actor.startsWith('provider:') ? 'Payment provider' : 'CarUp user'
+  if (actor.startsWith('provider:')) return 'Payment provider'
+  return actor.startsWith('system:') ? 'CarUp' : 'CarUp user'
 }
 
 export type PaymentInstructions = {
@@ -99,7 +106,7 @@ export type PaymentInstructions = {
 
 export type OnlinePaymentOption =
   | { available: true; simulated: boolean; merchant_display_name: string; max_amount: Decimal; currency: string; simulation_notice: string | null }
-  | { available: false; reason: 'not_offered' | 'invoice_not_payable' | 'garage_not_connected' | 'currency_not_supported' | 'provider_not_enabled' | 'payment_in_progress' | 'nothing_due' }
+  | { available: false; reason: 'not_offered' | 'invoice_not_payable' | 'garage_not_connected' | 'currency_not_supported' | 'provider_not_enabled' | 'payment_in_progress' | 'nothing_due' | 'earlier_request_unresolved' }
 
 export type CustomerInvoicePayment = {
   invoice_id: string
@@ -146,7 +153,8 @@ export type GarageFinancialOverview = {
   truncated: boolean
   invoice_count: number
   open_discrepancies: number
-  provider: { connected: false } | { connected: true; gateway: string; simulated: boolean; display_name: string; currencies: string[]; status: string }
+  /** connected = customers can pay through it. A merchant still awaiting CarUp's verification is named, and not connected. */
+  provider: { connected: false; status?: undefined } | { connected: boolean; gateway: string; simulated: boolean; display_name: string; currencies: string[]; status: string }
   provider_payments_enabled: boolean
   payment_instructions: PaymentInstructions | null
   revenue_owner_note: string
@@ -193,6 +201,8 @@ export const ONLINE_PAYMENT_REASON_LABEL: Record<Extract<OnlinePaymentOption, { 
   provider_not_enabled: 'Online payment is switched off right now. Pay the garage directly.',
   payment_in_progress: 'A payment on this invoice is already in progress with the provider.',
   nothing_due: 'Nothing is left to pay on this invoice.',
+  // PAY-05: never prompt a second payment while an earlier request may hold the customer's money
+  earlier_request_unresolved: 'An earlier Paynow request on this invoice may still hold your money. Do not pay again: check its status below, or ask the garage.',
 }
 
 export const DISCREPANCY_LABEL: Record<string, string> = {
@@ -233,9 +243,11 @@ export function paymentStatusLabel(invoice: Pick<GarageInvoice, 'payment_status'
   const declared = invoice.money ? !zero(invoice.money.declared_paid) : true
   if (invoice.payment_status === 'unpaid') {
     // reserved money may be a checkout in progress, a refund in progress or money held for review: none of it counts
-    return invoice.money && !zero(invoice.money.provider_reserved)
-      ? 'Not paid yet — money is with the provider (in progress or under review) and not counted'
-      : 'No payment counted yet'
+    if (!invoice.money || zero(invoice.money.provider_reserved)) return 'No payment counted yet'
+    // PAY-05: a Paynow request may only be waiting for the customer's approval: CarUp does not know any money moved (ICR-W9)
+    return invoice.provider_payments?.some((p) => p.gateway === 'paynow_zimbabwe')
+      ? 'Not paid yet — a Paynow payment is in progress or under review and is not counted'
+      : 'Not paid yet — money is with the provider (in progress or under review) and not counted'
   }
   if (invoice.payment_status !== 'paid' && invoice.payment_status !== 'partially_paid') return 'Payment status unavailable'
   const whole = invoice.payment_status === 'paid' ? 'Paid in full' : 'Partly paid'
@@ -245,6 +257,11 @@ export function paymentStatusLabel(invoice: Pick<GarageInvoice, 'payment_status'
 
 export const PROVIDER_STATE_TONE: Record<ProviderPaymentState, string> = {
   awaiting_provider: 'bg-amber-50 text-amber-900 border-amber-300',
+  at_paynow: 'bg-amber-50 text-amber-900 border-amber-300',
+  released: 'bg-gray-100 text-gray-800 border-gray-300',
+  settled_outside: 'bg-gray-100 text-gray-800 border-gray-300',
+  not_counted: 'bg-amber-50 text-amber-900 border-amber-300',
+  closed_not_counted: 'bg-gray-100 text-gray-800 border-gray-300',
   stopping: 'bg-amber-50 text-amber-900 border-amber-300',
   stopped: 'bg-gray-100 text-gray-800 border-gray-300',
   expired: 'bg-gray-100 text-gray-800 border-gray-300',

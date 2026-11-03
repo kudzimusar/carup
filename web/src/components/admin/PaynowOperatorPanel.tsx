@@ -5,6 +5,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { formatMoney } from '@/lib/garageBusiness'
 import { dateTimeLabel } from '@/lib/garageWorkspace'
 import { MONEY_ACTION_BUTTON_CLASS, pay04ErrorText } from '@/lib/pay04GaragePayments'
+import PaynowFacts from '@/components/garage/PaynowFacts'
 import {
   ACTOR_ROLE_LABEL, CURRENCY_NAME, MERCHANT_EVENT_LABEL, MERCHANT_STATUS_LABEL, PAY05_NOT_OFFERED, PAYNOW_METHOD_LABEL, PROVIDER_ERROR_LABEL, isPay05Disabled,
   pay05ErrorText, paynowStatusLine, probeResultText,
@@ -64,6 +65,8 @@ export default function PaynowOperatorPanel() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [review, setReview] = useState<Record<string, { legal: boolean; settlement: boolean; currency: boolean; note: string }>>({})
+  // each integration's own settlement currency as the operator found it in the garage's Paynow account, and where (ICR-P1)
+  const [settles, setSettles] = useState<Record<string, { currency: string; reference: string }>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [availabilityNote, setAvailabilityNote] = useState('')
   // after each action the result takes the focus, once React has drawn it (W8)
@@ -161,8 +164,13 @@ export default function PaynowOperatorPanel() {
         <ul className="space-y-3">
           {merchants?.map((m) => {
             const r = review[m.id] ?? { legal: false, settlement: false, currency: false, note: '' }
-            // all three human reviews and a note; the server then proves every key with Paynow
-            const reviewed = r.legal && r.settlement && r.currency && r.note.trim().length >= 10
+            const pending = m.integrations.filter((i) => i.status === 'pending_verification')
+            const settleOf = (id: string) => settles[id] ?? { currency: '', reference: '' }
+            const settlesReviewed = pending.every((i) => settleOf(i.id).currency === i.currency && settleOf(i.id).reference.trim().length >= 10)
+            // all three human reviews, each integration's settlement currency and a note; the server then proves every key with Paynow
+            const reviewed = r.legal && r.settlement && r.currency && settlesReviewed && r.note.trim().length >= 10
+            const whyNot = [!r.legal && 'the legal name', !r.settlement && 'the settlement account', !r.currency && 'each integration’s currency',
+              !settlesReviewed && 'each integration’s settlement currency and where you checked it', r.note.trim().length < 10 && 'a review note'].filter(Boolean).join(', ')
             return (
               <li key={m.id} className="space-y-2 rounded-md border p-3" data-testid="paynow-op-merchant" data-status={m.status}>
                 <p className="flex flex-wrap items-center gap-2">
@@ -181,6 +189,7 @@ export default function PaynowOperatorPanel() {
                     <li key={i.id} className="rounded border bg-gray-50 p-2">
                       {CURRENCY_NAME[i.currency] ?? i.currency}: integration {i.integration_id} ({i.mode}) · {i.methods.map((x) => PAYNOW_METHOD_LABEL[x]).join(', ')}
                       {' '}· key <code>{i.credential_fingerprint}</code> · {MERCHANT_STATUS_LABEL[i.status]}{i.probe ? ` · key check: ${probeResultText(i.probe.result)}` : ''}
+                      {i.currency_evidence ? ` · settles in ${i.currency_evidence.settlement_currency} (reviewed: ${i.currency_evidence.reference})` : ''}
                     </li>
                   ))}
                 </ul>
@@ -213,18 +222,40 @@ export default function PaynowOperatorPanel() {
                         data-testid="paynow-op-currency" />
                       I checked each integration’s currency in the garage’s Paynow account (Paynow does not tell CarUp the currency)
                     </label>
+                    {pending.map((i) => (
+                      <fieldset key={i.id} className="space-y-1 rounded-md border border-amber-300 bg-white p-2" data-testid="paynow-op-settles">
+                        <legend className="text-xs font-medium">{CURRENCY_NAME[i.currency] ?? i.currency}: integration {i.integration_id}</legend>
+                        <label htmlFor={`${uid}-settles-${i.id}`} className="block text-xs">The currency this integration settles in, as you found it in the garage’s Paynow account</label>
+                        <select id={`${uid}-settles-${i.id}`} value={settleOf(i.id).currency} className="w-full min-h-11 rounded-lg border border-gray-300 bg-white px-2 text-sm" data-testid={`paynow-op-settles-${i.id}`}
+                          onChange={(e) => setSettles({ ...settles, [i.id]: { ...settleOf(i.id), currency: e.target.value } })}>
+                          <option value="">Choose…</option>
+                          <option value="USD">USD</option>
+                          <option value="ZWG">ZWG</option>
+                        </select>
+                        {settleOf(i.id).currency && settleOf(i.id).currency !== i.currency && (
+                          <p className="text-xs text-red-800" data-testid={`paynow-op-settles-mismatch-${i.id}`}>
+                            It settles in {settleOf(i.id).currency}, so it cannot collect {i.currency}: CarUp never converts. Do not verify it.
+                          </p>
+                        )}
+                        <label htmlFor={`${uid}-settles-ref-${i.id}`} className="block text-xs">Where you checked it (10 to 200 characters)</label>
+                        <input id={`${uid}-settles-ref-${i.id}`} value={settleOf(i.id).reference} maxLength={200} className="w-full min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm"
+                          data-testid={`paynow-op-settles-ref-${i.id}`} onChange={(e) => setSettles({ ...settles, [i.id]: { ...settleOf(i.id), reference: e.target.value } })} />
+                      </fieldset>
+                    ))}
                     <label htmlFor={`${uid}-note-${m.id}`} className="block text-xs font-medium">Review note (at least 10 characters)</label>
                     <input id={`${uid}-note-${m.id}`} value={r.note} onChange={(e) => setReview({ ...review, [m.id]: { ...r, note: e.target.value } })}
                       className="w-full min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm" data-testid="paynow-op-note" />
                     <div className="flex flex-wrap gap-2">
-                      <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !reviewed}
+                      <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy || !reviewed} aria-describedby={!reviewed ? `${uid}-verify-why-${m.id}` : undefined}
                         onClick={() => void act(() => verifyPaynowMerchant(m.id, { legal_identity_reviewed: r.legal, settlement_account_reviewed: r.settlement,
-                          currency_configuration_reviewed: r.currency, note: r.note.trim() }),
+                          currency_configuration_reviewed: r.currency, note: r.note.trim(),
+                          currency_evidence: Object.fromEntries(pending.map((i) => [i.id, { settlement_currency: settleOf(i.id).currency, reference: settleOf(i.id).reference.trim() }])) }),
                           'Verified: every integration key proved itself with Paynow. Customers can now pay this garage through it.', (e) => keyChecksOf(e, m))}
                         data-testid="paynow-op-verify">
                         Check keys with Paynow and verify
                       </Button>
                     </div>
+                    {!reviewed && <p id={`${uid}-verify-why-${m.id}`} className="text-xs text-gray-700" data-testid="paynow-op-verify-why">Still needed: {whyNot}.</p>}
                     {reasonInput(`reject-${m.id}`, 'Reason to reject')}
                     <Button variant="outline" className="min-h-11 bg-white" disabled={busy || reasonOf(`reject-${m.id}`).length < 10}
                       onClick={() => void act(() => rejectPaynowMerchant(m.id, reasonOf(`reject-${m.id}`)), 'Rejected. The garage can connect again with correct details.')}
@@ -250,10 +281,10 @@ export default function PaynowOperatorPanel() {
       </div>
 
       <div className="space-y-3">
-        <h3 className="font-semibold">Paynow requests still holding invoice room</h3>
+        <h3 className="font-semibold">Paynow requests: held, released and settled</h3>
         <p className="text-sm text-gray-700">
           Paynow cannot cancel a payment request. A stopped or expired request keeps its room until Paynow closes it, or until you release it after Paynow shows it
-          unpaid in a fresh check. A request Paynow never confirmed receiving is closed the same way. {LATE_PAYMENT}
+          unpaid in a fresh check. A request Paynow never confirmed receiving is closed the same way. Released and settled requests stay here: Paynow still has them, and you can read them again. {LATE_PAYMENT}
         </p>
         {held?.length === 0 && <p className="text-sm text-gray-700" data-testid="paynow-op-held-empty">Nothing is held.</p>}
         <ul className="space-y-2">
@@ -265,31 +296,42 @@ export default function PaynowOperatorPanel() {
             const waiting = known && expires > now
             const releaseLabel = unconfirmed ? 'Close unconfirmed request' : 'Check with Paynow and release the hold'
             return (
-            <li key={h.collection_id} className="space-y-2 rounded-md border p-3" data-testid="paynow-op-held">
-              <p>{h.garage ?? 'Garage'} · invoice {h.invoice_number ?? '—'} · {formatMoney(h.amount, h.currency)} · {PAYNOW_METHOD_LABEL[h.paynow.method]}</p>
-              <p className="text-sm text-gray-700">{paynowStatusLine(null, h.paynow, 'garage')}{h.stopped_at ? ' · stopped by a person' : ''}</p>
-              {known && !waiting && <p className="text-sm text-gray-700">CarUp’s payment time ended {dateTimeLabel(h.expires_at)}</p>}
+            <li key={h.collection_id} className="space-y-2 rounded-md border p-3" data-testid="paynow-op-held" data-state={h.state}>
+              <p className="flex flex-wrap items-center gap-2">
+                <span>{h.garage ?? 'Garage'} · invoice {h.invoice_number ?? '—'} · {formatMoney(h.amount, h.currency)} · {PAYNOW_METHOD_LABEL[h.paynow.method]}</span>
+                <Badge variant="outline" className="whitespace-normal text-left" data-testid="paynow-op-held-state">{h.state_label}</Badge>
+              </p>
+              <p className="text-sm text-gray-700">{paynowStatusLine(h.state, h.paynow, 'garage')}{h.stopped_at ? ' · stopped by a person' : ''}</p>
+              <PaynowFacts facts={h.paynow.facts} />
+              {known && !waiting && !h.released && <p className="text-sm text-gray-700">CarUp’s payment time ended {dateTimeLabel(h.expires_at)}</p>}
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="min-h-11" disabled={busy}
                   onClick={() => void act(() => reconcilePaynowCollection(h.collection_id), 'Checked with Paynow.')} data-testid="paynow-op-held-check">
                   Check with Paynow
                 </Button>
               </div>
-              {reasonInput(`release-${h.collection_id}`, unconfirmed ? 'Reason to close the request' : 'Reason to release the hold')}
-              {waiting && (
-                <p id={`${uid}-wait-${h.collection_id}`} className="text-sm text-gray-700" data-testid="paynow-op-release-wait">
-                  Can be released after {dateTimeLabel(h.expires_at)} (CarUp’s payment time)
-                </p>
+              {/* offered only when the database would allow it; otherwise it says why, and the check above stays (ICR-W6) */}
+              {!h.can_release ? (
+                <p className="text-sm text-gray-700" data-testid="paynow-op-release-blocked">{h.release_blocked_reason}</p>
+              ) : (
+                <>
+                  {reasonInput(`release-${h.collection_id}`, unconfirmed ? 'Reason to close the request' : 'Reason to release the hold')}
+                  {waiting && (
+                    <p id={`${uid}-wait-${h.collection_id}`} className="text-sm text-gray-700" data-testid="paynow-op-release-wait">
+                      Can be released after {dateTimeLabel(h.expires_at)} (CarUp’s payment time)
+                    </p>
+                  )}
+                  <Button className={`min-h-11 h-auto max-sm:h-auto whitespace-normal py-2 text-left ${MONEY_ACTION_BUTTON_CLASS}`}
+                    disabled={busy || waiting || reasonOf(`release-${h.collection_id}`).length < 10}
+                    aria-describedby={waiting ? `${uid}-wait-${h.collection_id}` : undefined}
+                    onClick={() => void act(() => releasePaynowHold(h.collection_id, reasonOf(`release-${h.collection_id}`)), unconfirmed
+                      ? `Closed: Paynow never confirmed receiving this request, and its invoice room is free. ${LATE_PAYMENT}`
+                      : `Released after a fresh check with Paynow. The invoice room is free. ${LATE_PAYMENT}`)}
+                    data-testid="paynow-op-release">
+                    {releaseLabel}
+                  </Button>
+                </>
               )}
-              <Button className={`min-h-11 h-auto max-sm:h-auto whitespace-normal py-2 text-left ${MONEY_ACTION_BUTTON_CLASS}`}
-                disabled={busy || waiting || reasonOf(`release-${h.collection_id}`).length < 10}
-                aria-describedby={waiting ? `${uid}-wait-${h.collection_id}` : undefined}
-                onClick={() => void act(() => releasePaynowHold(h.collection_id, reasonOf(`release-${h.collection_id}`)), unconfirmed
-                  ? `Closed: Paynow never confirmed receiving this request, and its invoice room is free. ${LATE_PAYMENT}`
-                  : `Released after a fresh check with Paynow. The invoice room is free. ${LATE_PAYMENT}`)}
-                data-testid="paynow-op-release">
-                {releaseLabel}
-              </Button>
             </li>
             )
           })}
