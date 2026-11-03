@@ -167,6 +167,75 @@ export async function reviewResearchSeed(seedId, actor, data) {
   return recorded;
 }
 
+/** Explicit independent source grouping observations. No legal parent verification. */
+export async function recordResearchGroupingReview(seedId,actor,payload={}){
+  const id=normalizeSeedId(seedId);
+  if(!actor?.userId||actor.authenticationMethod!=='session'||!actor.isVerified||
+    !['admin','reviewer','platform_admin','super_admin'].includes(actor.platformRole))
+    throw Object.assign(new Error('Independent verified reviewer required'),{statusCode:403});
+  const related=payload.related_seed_dealer_id==null||payload.related_seed_dealer_id===''?
+    null:normalizeSeedId(payload.related_seed_dealer_id);
+  const states=['POTENTIAL_SAME_PARENT','POTENTIAL_DUPLICATE','CONFIRMED_DISTINCT_RESEARCH',
+    'REVIEWED_BRANCH_RELATIONSHIP','UNRESOLVED_GROUPING'];
+  if(!states.includes(payload.review_state)||typeof payload.reason!=='string'||
+    payload.reason.trim().length<60||payload.reason.length>3000)
+    throw inputError('Documented independent source-grouping decision required');
+  await requireReviewerPassword(actor,null,payload.reviewer_password);
+  const {data,error}=await supabase.rpc('dealer_record_research_grouping_review',{
+    p_seed_id:id,p_related_seed_id:related,p_reviewer_id:actor.userId,
+    p_state:payload.review_state,p_reason:payload.reason.trim(),
+  });
+  if(error)throw domainError(error,'source grouping review');
+  return data;
+}
+
+/** Decide precisely which original business-source contact fields can be shown. */
+export async function recordResearchContactReview(seedId,actor,payload={}){
+  const id=normalizeSeedId(seedId);
+  if(!actor?.userId||actor.authenticationMethod!=='session'||!actor.isVerified||
+    !['admin','reviewer','platform_admin','super_admin'].includes(actor.platformRole))
+    throw Object.assign(new Error('Independent verified reviewer required'),{statusCode:403});
+  if(typeof payload.reason!=='string'||payload.reason.trim().length<80||
+    payload.reason.length>3000)
+    throw inputError('Source and public contact safety rationale requires at least 80 characters');
+  const flags=['display_address','display_phone','display_website','retract'];
+  for(const field of flags)if(typeof payload[field]!=='boolean')
+    throw inputError('Explicit boolean display permissions required: '+field);
+  await requireReviewerPassword(actor,null,payload.reviewer_password);
+  const {data,error}=await supabase.rpc('dealer_record_research_contact_review',{
+    p_seed_id:id,p_reviewer_id:actor.userId,p_reason:payload.reason.trim(),
+    p_display_address:payload.display_address,p_display_phone:payload.display_phone,
+    p_display_website:payload.display_website,p_retract:payload.retract,
+  });
+  if(error)throw domainError(error,'source contact review');
+  return data;
+}
+
+/** Public visibility always follows current source-publication revision, not raw research. */
+export async function getReviewedPublicResearchContacts(seedId){
+  const profile=await getPublicResearch(seedId);
+  if(!profile)return null;
+  const {data,error}=await supabase.from('dealer_research_public_contact_events')
+    .select('source_row_sha256,publication_revision,public_contact_state,public_address,public_business_phone,public_website,source_checked_at')
+    .eq('seed_dealer_id',profile.seed_dealer_id)
+    .order('source_checked_at',{ascending:false})
+    .order('event_id',{ascending:false}).limit(1);
+  if(error)throw domainError(error,'reviewed public business contact');
+  const latest=data?.[0];
+  if(!latest||latest.publication_revision!==profile.revision||
+     latest.public_contact_state!=='DISPLAY_REVIEWED_FIELDS')
+    return {seed_dealer_id:profile.seed_dealer_id,reviewed_public_address:null,
+      reviewed_public_phone:null,reviewed_public_website:null,source_checked_at:null,
+      business_verified:false};
+  return {seed_dealer_id:profile.seed_dealer_id,
+    reviewed_public_address:latest.public_address||null,
+    reviewed_public_phone:latest.public_business_phone||null,
+    reviewed_public_website:latest.public_website||null,
+    source_checked_at:latest.source_checked_at,
+    business_verified:false,logo_rights_approved:false,
+    source_label:'Research source contact reviewed for limited display; legal business not independently verified'};
+}
+
 /**
  * A claim only creates an applicant-scoped PENDING_EVIDENCE record.
  * No direct role/tenant assignment, no review approval and no private seed disclosure.
