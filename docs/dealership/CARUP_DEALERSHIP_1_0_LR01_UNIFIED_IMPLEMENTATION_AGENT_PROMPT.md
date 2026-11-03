@@ -180,7 +180,7 @@ Every phase must begin by re-reading this prompt, the master plan's correspondin
 - Use \`DEV 3\` as the schema specification. Generate a clean official customer-facing template with instructions, BUSINESS, BRANCHES, LICENCES, BRANDS, OPERATIONS, FINANCE, WORKSHOP/WARRANTY, BUYER PROTECTION, DIGITAL MEDIA, vehicle references and server-executed CONSENTS.
 - For CLAIM_APPROVED issue claimant- and claim-specific **PREFILLED** XLSX using reviewed relevant seed values and branch references, field-level provenance \`NEEDS_DEALER_CONFIRMATION\`, version/SHA and blank missing fields.
 - Provide manual form with same field registry and save/resume. Prevent unapproved claimant from downloading a private file, foreign branch data or any reviewer ledger.
-- Exit: generated .xlsx and manual form parity; source-prefund (pre-fill) proof and safe export tests PASS.
+- Exit: generated .xlsx and manual form parity; source-prefill round-trip proof and safe export tests PASS.
 
 ## D4 — Real 104-source seeder, public initial directory and import
 
