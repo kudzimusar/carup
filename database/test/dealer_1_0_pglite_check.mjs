@@ -53,7 +53,7 @@ try{
         ('claimant2','member',false),('notreviewer','member',true);
   `);
   for(const name of names){await exec(read(name).up);console.log('APPLIED',name)}
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,9);
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,10);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
