@@ -187,7 +187,7 @@ test('CarUp differentiator journey (30 steps) through real services', async () =
   assert.ok(db.fraud_case_events.length >= 1, 'step18: case event recorded');
 
   // 19-21. Dealer compliant + completeness passes -> publication eligible (no fraud block now).
-  assert.equal(dealer.deriveCanPublish({ identity_status: 'verified', compliance_review_state: 'passed', suspension_state: 'none', restriction_state: 'none' }, []), true, 'step19: dealer can publish');
+  assert.equal(dealer.deriveCanPublish({ identity_status: 'verified', compliance_review_state: 'passed', active_state: 'active', investigation_state: 'none', suspension_state: 'none', restriction_state: 'none' }, []), true, 'step19: dealer can publish');
   // `now` is supplied because step 25 below reads this decision as the buyer's passport position:
   // an UNSTAMPED decision is not canonical (a score that cannot be shown to be current or stale is
   // reported `not_evaluated`), and the real path — getTrustDecision — always stamps. Without it the
