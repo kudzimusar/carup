@@ -105,7 +105,7 @@ export default function DealerOperatingDetails(){
         <Link to="/dealers/claims" className="text-blue-700 text-sm underline">
           Dealership applications
         </Link>
-        <Link to="/dealer/dashboard" className="text-blue-700 text-sm underline">
+        <Link to="/dealer" className="text-blue-700 text-sm underline">
           Dealer dashboard
         </Link>
       </div>
