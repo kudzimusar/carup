@@ -199,7 +199,7 @@ test('set_expiry: decision sets expiry_date and a past date makes the dealer exp
   const p = await onboard();
   const past = '2020-01-01T00:00:00.000Z';
   const { profile } = await svc.recordDecision(
-    p.id, { decision: 'set_expiry', payload: { expiry_date: past } }, VERIFIED_REVIEWER,
+    p.id, { decision: 'set_expiry', reason:'Independent compliance reviewer is backdating expiry after checking regulatory original evidence', payload: { expiry_date: past } }, VERIFIED_REVIEWER,
   );
   assert.equal(profile.expiry_date, past);
   assert.equal(svc.deriveExpiryState(profile), 'expired');
@@ -325,7 +325,8 @@ test('append-only: a decision writes an immutable row; the DB rejects UPDATE/DEL
   await svc.recordDecision(p.id, { decision: 'restrict', reason: 'Independent review recorded the first restriction event for this business' }, VERIFIED_REVIEWER);
   assert.equal(db.dealer_compliance_decisions.length, 1);
 
-  // A reversal is a NEW row, never an edit.
+  // A reversal is a NEW row, never an edit. Reinstatement requires verified legal posture.
+  Object.assign(db.dealer_profiles[0],{identity_status:'verified',compliance_review_state:'passed',investigation_state:'none'});
   await svc.recordDecision(p.id, { decision: 'reinstate', reason: 'Independent review recorded sufficient compliance evidence to reinstate status' }, VERIFIED_REVIEWER);
   const history = await svc.listDecisions(p.id);
   assert.equal(history.length, 2);
