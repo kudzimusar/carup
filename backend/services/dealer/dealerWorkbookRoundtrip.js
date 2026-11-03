@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import ExcelJS from 'exceljs';
 import {
   CUSTOMER_TABS, DEALER_INTAKE_VERSION, TEMPLATE_FIELD_REGISTRY,
-  buildBlankDealerIntakeWorkbook, safeXlsxText,
+  buildBlankDealerIntakeWorkbook,
 } from './dealerIntakeWorkbook.js';
 
 const hash = b => crypto.createHash('sha256').update(b).digest('hex');
@@ -40,7 +40,12 @@ function sheetFill(sheet, rowIndex, pairs) {
   for (const [name,value] of Object.entries(pairs)) {
     const col = TEMPLATE_FIELD_REGISTRY.find(t=>t.name===sheet.name)?.fields.findIndex(f=>f.key===name) ?? -1;
     if (col<0) throw error('FIELD_REGISTRY_DRIFT', sheet.name+'.'+name);
-    sheet.getRow(rowIndex).getCell(col+1).value=safeXlsxText(value);
+    // XLSX cell assignment of a JavaScript string is a typed literal, not a formula.
+    // Never prepend an apostrophe to the real +263 phone/source values: round-trip
+    // must be byte-for-byte the researched candidate until applicant corrects it.
+    const cell=sheet.getRow(rowIndex).getCell(col+1);
+    cell.numFmt='@';
+    cell.value=value==null?'':String(value);
   }
 }
 /**
@@ -75,7 +80,7 @@ export async function buildPrefilledDealerWorkbook(claim, source, {issuedAt = ne
     ['ISSUED AT',issuedAt.toISOString()],
     ['SOURCE CLASSIFICATION','Research/UNVERIFIED. Contact and branch data require confirmation; never trust research categories as licences.'],
     ['REUPLOAD','Complete all missing required legal fields and return ONE workbook. This does not verify compliance.'],
-  ]) instructions.addRow([label,safeXlsxText(value)]);
+  ]) instructions.addRow([label,value==null?'':String(value)]);
   w.company='CarUp — unverified research candidate';
   return w;
 }
