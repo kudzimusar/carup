@@ -20,6 +20,7 @@
  * by the caller's userId, so a dealer can never read or mutate another dealer's full profile.
  */
 import express from 'express';
+import dealerResearchRouter from './dealerResearchRoutes.js';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import {
   createOrUpdateProfile,
@@ -160,5 +161,9 @@ router.get('/api/dealers/:id/summary', authorizeRole(), async (req, res, next) =
     next(err);
   }
 });
+
+// Canonical dealership research, claim and public routes share this existing dealer router.
+// No new standalone server mount or parallel dealer auth authority is introduced.
+router.use(dealerResearchRouter);
 
 export default router;
