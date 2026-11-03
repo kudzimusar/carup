@@ -47,11 +47,12 @@ function messageOf(e: unknown, fallback: string): string {
  */
 export default function PaynowOperatorPanel() {
   const { fetchPaynowMerchants, verifyPaynowMerchant, rejectPaynowMerchant, suspendPaynowMerchant, setPaynowAvailability,
-    fetchPaynowProviderErrors, fetchPaynowHeldCollections, releasePaynowHold, reconcilePaynowCollection } = useCarUpApi()
+    fetchPaynowProviderErrors, fetchPaynowHeldCollections, releasePaynowHold, reconcilePaynowCollection, openPaynowReview } = useCarUpApi()
   const uid = useId()
   const [merchants, setMerchants] = useState<PaynowMerchant[] | null>(null)
   const [availability, setAvailability] = useState<PaynowAvailability | null>(null)
   const [held, setHeld] = useState<PaynowHeldCollection[] | null>(null)
+  const [heldTotal, setHeldTotal] = useState(0)
   // the clock held requests are measured against: read at every load and every 30 s, so a release opens when CarUp's
   // payment time passes while the panel is open (a render never reads the clock itself)
   const [now, setNow] = useState(0)
@@ -86,7 +87,7 @@ export default function PaynowOperatorPanel() {
     try {
       const [m, h, e] = await Promise.all([fetchPaynowMerchants(), fetchPaynowHeldCollections(), fetchPaynowProviderErrors()])
       if (!Array.isArray(m?.merchants) || !Array.isArray(h?.held) || !Array.isArray(e?.errors)) throw new Error('Unexpected Paynow operator response')
-      setMerchants(m.merchants); setAvailability(m.availability); setHeld(h.held); setNow(Date.now()); setErrors(e.errors); setLoadError(null); setDisabled(false)
+      setMerchants(m.merchants); setAvailability(m.availability); setHeld(h.held); setHeldTotal(h.held_total ?? 0); setNow(Date.now()); setErrors(e.errors); setLoadError(null); setDisabled(false)
     } catch (err) {
       // PAY-05 switched off on this server is a state, not a failure
       if (isPay05Disabled(err)) { setDisabled(true); setLoadError(null); return }
@@ -287,6 +288,12 @@ export default function PaynowOperatorPanel() {
           unpaid in a fresh check. A request Paynow never confirmed receiving is closed the same way. Released and settled requests stay here: Paynow still has them, and you can read them again. {LATE_PAYMENT}
         </p>
         {held?.length === 0 && <p className="text-sm text-gray-700" data-testid="paynow-op-held-empty">Nothing is held.</p>}
+        {/* the oldest are shown first; a queue that shows only part says so */}
+        {held && heldTotal > held.filter((h) => !h.released).length && (
+          <p className="text-sm text-gray-700" data-testid="paynow-op-held-more">
+            Showing the oldest {held.filter((h) => !h.released).length} of {heldTotal} held requests. Deal with these to reach the rest.
+          </p>
+        )}
         <ul className="space-y-2">
           {held?.map((h) => {
             // Paynow never confirmed receiving this request: there is nothing at Paynow to wait for, only a request to close
@@ -329,6 +336,22 @@ export default function PaynowOperatorPanel() {
                       : `Released after a fresh check with Paynow. The invoice room is free. ${LATE_PAYMENT}`)}
                     data-testid="paynow-op-release">
                     {releaseLabel}
+                  </Button>
+                </>
+              )}
+              {/* the exit when nothing else can move it: Paynow keeps it in escrow, or cannot be read (PFR-M1) */}
+              {h.can_open_review && (
+                <>
+                  {reasonInput(`review-${h.collection_id}`, 'Reason to open a review')}
+                  <p className="text-sm text-gray-700">
+                    If Paynow keeps this in escrow or can no longer be read, open a review. Nothing counts meanwhile. Settling the review outside CarUp frees the room, and any later money from Paynow is reviewed, never counted.
+                  </p>
+                  <Button variant="outline" className="min-h-11 h-auto max-sm:h-auto whitespace-normal py-2 text-left"
+                    disabled={busy || reasonOf(`review-${h.collection_id}`).length < 10}
+                    onClick={() => void act(() => openPaynowReview(h.collection_id, reasonOf(`review-${h.collection_id}`)),
+                      'Review opened. It is now in the garage payment reviews, where it can be settled outside CarUp.')}
+                    data-testid="paynow-op-open-review">
+                    Open a review
                   </Button>
                 </>
               )}

@@ -21,7 +21,8 @@ export type ProviderPaymentState =
   | 'awaiting_provider' | 'stopping' | 'stopped' | 'expired' | 'confirmed' | 'confirmed_unallocated' | 'under_review'
   | 'refund_pending' | 'refunded' | 'partially_refunded' | 'cancelled' | 'unknown'
   // PAY-05 (Paynow cannot cancel or expire a request, and what counts is what was counted)
-  | 'at_paynow' | 'released' | 'settled_outside' | 'not_counted' | 'closed_not_counted'
+  | 'at_paynow' | 'released' | 'settled_outside' | 'not_counted' | 'closed_not_counted' | 'closed_live' | 'reviewed_held'
+  | 'no_longer_needed' | 'confirmed_partial'
 
 export type ProviderPayment = {
   id: string
@@ -262,6 +263,10 @@ export const PROVIDER_STATE_TONE: Record<ProviderPaymentState, string> = {
   settled_outside: 'bg-gray-100 text-gray-800 border-gray-300',
   not_counted: 'bg-amber-50 text-amber-900 border-amber-300',
   closed_not_counted: 'bg-gray-100 text-gray-800 border-gray-300',
+  closed_live: 'bg-amber-50 text-amber-900 border-amber-300',
+  reviewed_held: 'bg-amber-50 text-amber-900 border-amber-300',
+  no_longer_needed: 'bg-gray-100 text-gray-800 border-gray-300',
+  confirmed_partial: 'bg-red-50 text-red-900 border-red-300',
   stopping: 'bg-amber-50 text-amber-900 border-amber-300',
   stopped: 'bg-gray-100 text-gray-800 border-gray-300',
   expired: 'bg-gray-100 text-gray-800 border-gray-300',

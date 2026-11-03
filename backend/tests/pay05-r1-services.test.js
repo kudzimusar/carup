@@ -97,6 +97,24 @@ const reviewBody = async (merchantId, note) => {
     currency_evidence: Object.fromEntries(rows.map((r) => [r.id, { settlement_currency: r.currency, reference: 'Simulated Paynow merchant settlement page reviewed' }])) };
 };
 
+const customerView = (inv) => S.getCustomerInvoicePayment({ db, env, actor: customer(), invoiceId: inv.id });
+const rowOf = (view, id) => view.provider_payments.find((p) => p.id === id);
+const pastItsTime = async (id) => {
+  await q('SET session_replication_role = replica');
+  await q("UPDATE pay04_garage_collections SET initiated_at = clock_timestamp() - interval '2 hours', expires_at = clock_timestamp() - interval '1 minute' WHERE id = $1", [id]);
+  await q('SET session_replication_role = origin');
+};
+const ageReads = async (id, minutes = 20) => {
+  await q('SET session_replication_role = replica');
+  await q('UPDATE pay05_paynow_observations SET observed_at = observed_at - make_interval(mins => $2) WHERE collection_id = $1', [id, minutes]);
+  await q('UPDATE pay05_paynow_transactions SET last_read_attempt_at = last_read_attempt_at - make_interval(mins => $2) WHERE collection_id = $1', [id, minutes]);
+  await q('SET session_replication_role = origin');
+};
+const resolve = (id, type, resolution) => q("SELECT pay04_resolve_garage_payment_discrepancy(d.id, $3, $4, 'admin', 'The operator reviewed the Paynow merchant records.') FROM pay04_garage_payment_discrepancies d WHERE d.collection_id = $1 AND d.discrepancy_type = $2 AND d.status = 'open'", [id, type, resolution, ids.op]);
+const release = (id) => P.releasePaynowHold({ db, env, actor: operator(), collectionId: id, body: { reason: 'Past its time, and Paynow shows it unpaid.' } });
+const answer = (id, body, extra) => webhook(id, body, extra).then((out) => ({ ok: true, out }), (err) => ({ ok: false, code: err?.code, status: err?.status }));
+const down = async () => { throw new Error('ECONNREFUSED'); };
+
 before(async () => {
   if (skip) return;
   db = createPgSupabase(PGURL);
@@ -258,7 +276,7 @@ test('non-2xx when the confirming poll was superseded by a newer read', { skip }
   assert.equal(out.duplicate_event, false);
 });
 
-test('ICR-S1: a per-collection budget bounds the reads status updates can trigger; other collections and polls are unaffected', { skip }, async () => {
+test('ICR-S1: a budget per message bounds the reads status updates can trigger; other messages and polls are unaffected', { skip }, async () => {
   const inv = await invoice(23);
   const s = await start(inv, { method: 'ecocash', phone: '0779000207' }, `r1-budget-${run}`);
   const guid = await guidOf(s.collection_id);
@@ -266,14 +284,13 @@ test('ICR-S1: a per-collection budget bounds the reads status updates can trigge
   await sim.simulator.setStatus(guid, 'Disputed', { notify: false });
   const stale = statusMessage(guid);
   await sim.simulator.setStatus(guid, 'Paid');
-  const before2 = (await txOf(s.collection_id)).status_update_reads_in_window;
   const t = counting();
   const outcomes = [];
   for (let i = 0; i < 16; i += 1) {
     try { await webhook(s.collection_id, stale, { transport: t }); outcomes.push('ok'); } catch (err) { outcomes.push(err.code); }
   }
   assert.ok(outcomes.includes('PAY05_STATUS_UPDATE_READS_UNAVAILABLE'), `over budget: ${outcomes.join(',')}`);
-  assert.equal(t.calls.length, 12 - before2, 'no read past the budget');
+  assert.equal(t.calls.length, 12, 'no read past this message\'s budget');
   assert.equal((await money(inv.id)).provider_paid, '23.00', 'the money is untouched');
   // an ordinary read still works
   const out = await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: s.collection_id, deps });
@@ -360,6 +377,7 @@ test('ICR-M3: settled and released requests stay on the operator list and are re
   await sim.simulator.setStatus(guid, 'Paid', { notify: false, amount: '26.00' });
   await q("SET session_replication_role = replica");
   await q("UPDATE pay05_paynow_observations SET observed_at = clock_timestamp() - interval '2 hours' WHERE collection_id = $1", [s.collection_id]);
+  await q("UPDATE pay05_paynow_transactions SET last_read_attempt_at = clock_timestamp() - interval '2 hours' WHERE collection_id = $1", [s.collection_id]);
   await q("SET session_replication_role = origin");
   const c = await one('SELECT * FROM pay04_garage_collections WHERE id = $1', [s.collection_id]);
   await P.refreshPaynowCollection({ db, env, collection: c });
@@ -368,6 +386,7 @@ test('ICR-M3: settled and released requests stay on the operator list and are re
   // and not on every view: five minutes after a read, a request still waiting would be read again, a settled one is not
   await q("SET session_replication_role = replica");
   await q("UPDATE pay05_paynow_observations SET observed_at = clock_timestamp() - interval '5 minutes' WHERE collection_id = $1", [s.collection_id]);
+  await q("UPDATE pay05_paynow_transactions SET last_read_attempt_at = clock_timestamp() - interval '5 minutes' WHERE collection_id = $1", [s.collection_id]);
   await q("SET session_replication_role = origin");
   const t = counting();
   await P.refreshPaynowCollection({ db, env, transport: t, collection: c });
@@ -385,6 +404,7 @@ test('ICR-M3: looking at an invoice re-reads a request settled outside CarUp, wh
   await sim.simulator.setStatus(guid, 'Paid', { notify: false });
   await q("SET session_replication_role = replica");
   await q("UPDATE pay05_paynow_observations SET observed_at = clock_timestamp() - interval '2 hours' WHERE collection_id = $1", [s.collection_id]);
+  await q("UPDATE pay05_paynow_transactions SET last_read_attempt_at = clock_timestamp() - interval '2 hours' WHERE collection_id = $1", [s.collection_id]);
   await q("SET session_replication_role = origin");
   await S.refreshClosingCollections({ db, env, invoiceId: inv.id });
   assert.equal(await openReview(s.collection_id, 'provider_paid_after_close'), 1, 'the view found the new money');
@@ -417,6 +437,7 @@ test('pay again: an earlier released request is re-read first; money at Paynow o
   await sim.simulator.setStatus(guid, 'Delivered', { notify: false });
   await q("SET session_replication_role = replica");
   await q("UPDATE pay05_paynow_observations SET observed_at = clock_timestamp() - interval '5 minutes' WHERE collection_id = $1", [s.collection_id]);
+  await q("UPDATE pay05_paynow_transactions SET last_read_attempt_at = clock_timestamp() - interval '5 minutes' WHERE collection_id = $1", [s.collection_id]);
   await q("SET session_replication_role = origin");
   await rejectsWith(start(inv, { method: 'ecocash', phone: '0779000211' }, `r1-again-${run}-2`), 'PAY05_EARLIER_REQUEST_UNRESOLVED');
   assert.equal(await count("pay04_garage_collections WHERE invoice_id = $1", [inv.id]), 1, 'no second request was created');
@@ -548,6 +569,345 @@ test('ICR-P4: an O\'mari request recovered by trace has no address for the code:
 });
 
 // ────────────────────────────── the invariant across this whole file ──────────────────────────────
+
+// ────────────────────────────── the pre-final adversarial review (PFR) ──────────────────────────────
+
+test('PFR-H2: a reviewed Cancelled after money says what is true, offers no way to complete it, and an operator can release it', { skip }, async () => {
+  const inv = await invoice(31);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000310' }, `r1-pfr-h2-${run}`);
+  const guid = await guidOf(s.collection_id);
+  await sim.simulator.setStatus(guid, 'Delivered');
+  await sim.simulator.setStatus(guid, 'Cancelled');
+  assert.equal(rowOf(await customerView(inv), s.collection_id).state, 'under_review');
+  await resolve(s.collection_id, 'provider_status_unrecognized', 'acknowledged');
+  const row = rowOf(await customerView(inv), s.collection_id);
+  assert.equal(row.state, 'reviewed_held');
+  assert.doesNotMatch(row.paynow.provider_status_label, /nothing was charged/i);
+  assert.doesNotMatch(row.paynow.facts.next_step, /Complete this request/);
+  assert.equal(row.paynow.checkout_url, null);
+  assert.equal(row.paynow.needs_otp, false);
+  await pastItsTime(s.collection_id);
+  await ageReads(s.collection_id);
+  const listed = (await P.listHeldPaynowCollections({ db, env })).held.find((h) => h.collection_id === s.collection_id);
+  assert.equal(listed.can_release, true);
+  await release(s.collection_id);
+  const m = await money(inv.id);
+  assert.equal(Number(m.provider_reserved), 0);
+  assert.equal(Number(m.uncommitted_balance), 31);
+});
+
+test('PFR-H2: a reviewed word CarUp does not know can be released; the list and the database agree', { skip }, async () => {
+  const inv = await invoice(32);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000311' }, `r1-pfr-h2b-${run}`);
+  const guid = await guidOf(s.collection_id);
+  await sim.simulator.setStatus(guid, 'Reversed');
+  await pastItsTime(s.collection_id);
+  let listed = (await P.listHeldPaynowCollections({ db, env })).held.find((h) => h.collection_id === s.collection_id);
+  assert.equal(listed.can_release, false);
+  assert.match(listed.release_blocked_reason, /review/i);
+  await resolve(s.collection_id, 'provider_status_unrecognized', 'acknowledged');
+  listed = (await P.listHeldPaynowCollections({ db, env })).held.find((h) => h.collection_id === s.collection_id);
+  assert.equal(listed.can_release, true);
+  await release(s.collection_id);
+  assert.equal(Number((await money(inv.id)).provider_reserved), 0);
+});
+
+test('PFR-H3: late money under review on a closed request: no new request is offered or accepted until the review ends', { skip }, async () => {
+  const inv = await invoice(70);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000312' }, `r1-pfr-h3-1-${run}`);
+  const guid = await guidOf(s.collection_id);
+  await sim.simulator.setStatus(guid, 'Cancelled');
+  await sim.simulator.setStatus(guid, 'Paid');
+  assert.equal(await openReview(s.collection_id, 'provider_paid_after_close'), 1);
+  const view = await customerView(inv);
+  assert.equal(view.online_payment.available, false);
+  assert.equal(view.online_payment.reason, 'earlier_request_unresolved');
+  await rejectsWith(start(inv, { method: 'ecocash', phone: '0779000312' }, `r1-pfr-h3-2-${run}`), 'PAY05_EARLIER_REQUEST_UNRESOLVED');
+  assert.equal(await count('pay04_garage_collections WHERE invoice_id = $1', [inv.id]), 1, 'no second request was created');
+  await resolve(s.collection_id, 'provider_paid_after_close', 'settled_off_platform');
+  assert.equal((await customerView(inv)).online_payment.available, true, 'the review ended: a new request may start');
+  assert.ok((await start(inv, { method: 'ecocash', phone: '0779000312' }, `r1-pfr-h3-3-${run}`)).collection_id);
+});
+
+test('PFR-H4: late money takes the room; the request still holding it is told not to complete it, and its own money is reviewed, never counted twice', { skip }, async () => {
+  const inv = await invoice(100);
+  const a = await start(inv, { method: 'ecocash', phone: '0779000313' }, `r1-pfr-h4-1-${run}`);
+  const aGuid = await guidOf(a.collection_id);
+  await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: a.collection_id, deps });
+  await pastItsTime(a.collection_id);
+  await release(a.collection_id);
+  const b = await start(inv, { method: 'web' }, `r1-pfr-h4-2-${run}`);
+  assert.ok(rowOf(await customerView(inv), b.collection_id).paynow.checkout_url, 'before: the request can be completed');
+  await sim.simulator.setStatus(aGuid, 'Paid');
+  const m = await money(inv.id);
+  assert.equal(Number(m.provider_paid), 100);
+  const view = await customerView(inv);
+  const row = rowOf(view, b.collection_id);
+  assert.equal(row.state, 'no_longer_needed');
+  assert.equal(row.paynow.checkout_url, null);
+  assert.match(row.paynow.facts.next_step, /Do not complete/);
+  assert.doesNotMatch(row.paynow.provider_status_label, /Waiting for you/);
+  assert.equal(view.online_payment.reason, 'nothing_due');
+  await sim.simulator.setStatus(await guidOf(b.collection_id), 'Paid');
+  assert.equal(Number((await money(inv.id)).provider_paid), 100, 'never more than the invoice');
+  assert.equal(await openReview(b.collection_id, 'unallocated_provider_money'), 1);
+  assert.equal(await liveReceipts(b.collection_id), 0);
+});
+
+test('PFR-H5: the operator\'s queue is chosen in the database, and says how many there are', { skip }, async () => {
+  const inv = await invoice(20);
+  const done = await start(inv, { method: 'ecocash', phone: '0779000314', amount: '10.00' }, `r1-pfr-h5-1-${run}`);
+  await sim.simulator.setStatus(await guidOf(done.collection_id), 'Paid');
+  await pastItsTime(done.collection_id);
+  const stuck = await start(inv, { method: 'ecocash', phone: '0779000314', amount: '10.00' }, `r1-pfr-h5-2-${run}`);
+  await pastItsTime(stuck.collection_id);
+  const all = await P.listHeldPaynowCollections({ db, env, limit: 500 });
+  assert.ok(all.held.some((h) => h.collection_id === stuck.collection_id));
+  assert.ok(!all.held.some((h) => h.collection_id === done.collection_id));
+  assert.equal(typeof all.held_total, 'number');
+  assert.ok(all.held_total >= 1);
+  const one_ = await P.listHeldPaynowCollections({ db, env, limit: 1 });
+  assert.equal(one_.held.filter((h) => !h.released).length, 1);
+  assert.equal(one_.held_total, all.held_total);
+});
+
+test('PFR-M1: a hold Paynow cannot be read for has an exit: an operator opens a review and settles it; the garage can then record cash', { skip }, async () => {
+  const inv = await invoice(44);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000315' }, `r1-pfr-m1-${run}`);
+  await pastItsTime(s.collection_id);
+  await rejectsWith(P.releasePaynowHold({ db, env, transport: down, actor: operator(), collectionId: s.collection_id, body: { reason: 'Past its time, but Paynow cannot be read.' } }), 'PAY05_PROVIDER_READ_FAILED');
+  let listed = (await P.listHeldPaynowCollections({ db, env })).held.find((h) => h.collection_id === s.collection_id);
+  assert.equal(listed.can_open_review, true);
+  await rejectsWith(P.openPaynowReview({ db, env, actor: garageA(), collectionId: s.collection_id, body: { reason: 'A garage may not open this review.' } }), 'PAY05_REVIEW_AUTHORITY_REFUSED');
+  await P.openPaynowReview({ db, env, actor: operator(), collectionId: s.collection_id, body: { reason: 'The merchant replaced its key, so Paynow cannot be read.' } });
+  listed = (await P.listHeldPaynowCollections({ db, env })).held.find((h) => h.collection_id === s.collection_id);
+  assert.equal(listed.can_open_review, false);
+  assert.equal(listed.state, 'under_review');
+  await resolve(s.collection_id, 'provider_status_unrecognized', 'settled_off_platform');
+  assert.equal(Number((await money(inv.id)).provider_reserved), 0);
+  // a settled request whose read fails no longer refuses a new one: an operator took responsibility for it
+  const input = await P.prevalidatePaynowStart({ db, env, transport: down, invoice: inv, body: { method: 'ecocash', phone: '0779000315' }, actorId: ids.cust });
+  assert.ok(input);
+  await q("SELECT garage_ops07_record_payment($1, $2, 44.00, 'USD', 'cash', 'PFR-M1-CASH', now(), $3, $4)", [world.g, inv.id, ids.admin, `r1-pfr-m1-cash-${run}`]);
+  assert.equal(Number((await money(inv.id)).balance_amount), 0);
+});
+
+test('PFR-M1: money held at Paynow past CarUp\'s time: release stays refused, a review is the exit', { skip }, async () => {
+  const inv = await invoice(45);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000316' }, `r1-pfr-m1b-${run}`);
+  await sim.simulator.setStatus(await guidOf(s.collection_id), 'Delivered');
+  await pastItsTime(s.collection_id);
+  const listed = (await P.listHeldPaynowCollections({ db, env })).held.find((h) => h.collection_id === s.collection_id);
+  assert.equal(listed.state, 'at_paynow');
+  assert.equal(listed.can_release, false);
+  assert.equal(listed.can_open_review, true);
+  assert.match(listed.release_blocked_reason, /money/i);
+});
+
+test('PFR-M2: a second delivery whose read saw Paid is not thrown away because an older read wrote first', { skip, timeout: 60_000 }, async () => {
+  const inv = await invoice(50);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000317' }, `r1-pfr-m2-${run}`);
+  const id = s.collection_id;
+  const guid = await guidOf(id);
+  await sim.simulator.setStatus(guid, 'Paid', { notify: false });
+  const paid = statusMessage(guid);
+  await sim.simulator.setStatus(guid, 'Sent', { notify: false });
+  const gate = () => { let open; const p = new Promise((r) => { open = r; }); return { p, open }; };
+  const aReached = gate(); const aGo = gate(); const bReached = gate(); const bGo = gate();
+  const slow = (reached, go) => async (url, opts) => { const reply = await A.httpTransport()(url, opts); reached.open(); await go.p; return reply; };
+  const first = answer(id, paid, { transport: slow(aReached, aGo) });
+  await aReached.p;
+  await sim.simulator.setStatus(guid, 'Paid', { notify: false });
+  const second = answer(id, paid, { transport: slow(bReached, bGo) });
+  await bReached.p;
+  aGo.open();
+  const a = await first;
+  bGo.open();
+  const b = await second;
+  assert.equal(a.ok, false, 'the first read did not show Paid: Paynow is asked to resend');
+  const tx = await txOf(id);
+  assert.equal(tx.provider_status, 'paid', 'the second read is what CarUp holds');
+  assert.equal(Number((await money(inv.id)).provider_paid), 50);
+  assert.equal(b.ok, true, 'it was applied, so Paynow may stop resending');
+  assert.equal((await answer(id, paid)).ok, true, 'a resend is now a duplicate');
+  assert.equal(await liveReceipts(id), 1);
+});
+
+test('PFR-M3: replaying a stale message costs no rows and cannot use up a genuine message\'s reads', { skip }, async () => {
+  const inv = await invoice(60);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000318' }, `r1-pfr-m3-${run}`);
+  const id = s.collection_id;
+  const guid = await guidOf(id);
+  await sim.simulator.setStatus(guid, 'Delivered');
+  const stale = statusMessage(guid);
+  await sim.simulator.setStatus(guid, 'Paid');
+  assert.equal(Number((await money(inv.id)).provider_paid), 60);
+  const rows = await observations(id);
+  const events = await count('pay04_garage_collection_events WHERE collection_id = $1', [id]);
+  const answers = [];
+  for (let i = 0; i < 40; i += 1) answers.push((await answer(id, stale)).ok);
+  assert.equal(answers.filter(Boolean).length, 11, 'twelve reads in ten minutes for this message, the first when it was new');
+  assert.equal(await observations(id), rows, 'no observation rows');
+  assert.equal(await count('pay04_garage_collection_events WHERE collection_id = $1', [id]), events, 'no event rows');
+  await sim.simulator.setStatus(guid, 'Disputed', { notify: false });
+  const genuine = statusMessage(guid);
+  assert.equal((await answer(id, genuine)).ok, true, 'the genuine message has its own reads');
+  assert.equal(Number((await money(inv.id)).provider_paid), 0);
+  assert.equal(await openReview(id, 'provider_disputed'), 1);
+});
+
+test('PFR-M3: a signed message re-split across a field boundary is the same message: it costs reads, never rows, and changes nothing', { skip }, async () => {
+  const inv = await invoice(50);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000319' }, `r1-pfr-m3b-${run}`);
+  const id = s.collection_id;
+  const guid = await guidOf(id);
+  await sim.simulator.setStatus(guid, 'Paid');
+  const params = new URLSearchParams(statusMessage(guid));
+  const amount = params.get('amount'); const word = params.get('status');
+  params.set('amount', `${amount}${word[0]}`); params.set('status', word.slice(1));
+  const shifted = params.toString();
+  const rows = await observations(id);
+  const replies = [];
+  for (let i = 0; i < 15; i += 1) replies.push(await answer(id, shifted));
+  assert.equal(await observations(id), rows, 'no rows');
+  assert.ok(replies.every((r) => !r.ok), 'it does not confirm itself');
+  assert.equal(Number((await money(inv.id)).provider_paid), 50, 'the money is untouched');
+  assert.equal(await liveReceipts(id), 1);
+});
+
+test('PFR-M4: room a refund frees counts the money waiting for it, through the real status update', { skip }, async () => {
+  const inv = await invoice(100);
+  const a = await start(inv, { method: 'ecocash', phone: '0779000320' }, `r1-pfr-m4-1-${run}`);
+  const aGuid = await guidOf(a.collection_id);
+  await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: a.collection_id, deps });
+  await pastItsTime(a.collection_id);
+  await release(a.collection_id);
+  const b = await start(inv, { method: 'ecocash', phone: '0779000320' }, `r1-pfr-m4-2-${run}`);
+  const bGuid = await guidOf(b.collection_id);
+  await sim.simulator.setStatus(bGuid, 'Paid');
+  await sim.simulator.setStatus(aGuid, 'Paid');
+  assert.equal(await openReview(a.collection_id, 'unallocated_provider_money'), 1);
+  await sim.simulator.setStatus(bGuid, 'Refunded');
+  const m = await money(inv.id);
+  assert.equal(Number(m.provider_paid), 100);
+  assert.equal(await openReview(a.collection_id, 'unallocated_provider_money'), 0);
+  assert.equal(await liveReceipts(a.collection_id), 1);
+  assert.equal(await liveReceipts(b.collection_id), 0);
+  assert.equal((await customerView(inv)).online_payment.reason, 'nothing_due');
+});
+
+test('PFR-M5: a closed request never gets waiting words or a way to pay it, and paying again warns about it', { skip }, async () => {
+  const inv = await invoice(66);
+  sim.simulator.inject('initiate', { kind: 'error', message: 'Temporary refusal' });
+  await rejectsWith(start(inv, { method: 'omari', phone: '0779000321' }, `r1-pfr-m5-${run}`), 'PAY05_PROVIDER_REFUSED');
+  const id = (await one('SELECT id FROM pay04_garage_collections WHERE invoice_id = $1', [inv.id])).id;
+  const live = sim.simulator.list().at(-1);
+  const delivered = await answer(id, sim.simulator.statusMessage(sim.simulator.transactions.get(live.guid)));
+  assert.equal(delivered.status === 400, false, 'Paynow\'s signed word is not refused');
+  const view = await customerView(inv);
+  const row = rowOf(view, id);
+  assert.equal(row.payment_status, 'cancelled');
+  assert.equal(row.state, 'closed_live');
+  assert.doesNotMatch(row.paynow.provider_status_label, /Waiting for/);
+  assert.equal(row.paynow.needs_otp, false);
+  assert.equal(row.paynow.otp_unavailable, false);
+  assert.equal(row.paynow.checkout_url, null);
+  assert.match(row.paynow.facts.next_step, /Do not approve/);
+  assert.equal(view.online_payment.available, true);
+  assert.ok(view.online_payment.notices.earlier_request, 'paying again warns that Paynow may still have the old request');
+});
+
+test('PFR-L1: Paid, then a read of another amount, then Paid again: a resend reads again, so the operator can close it on Paynow\'s word', { skip }, async () => {
+  const inv = await invoice(50);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000322' }, `r1-pfr-l1-${run}`);
+  const id = s.collection_id;
+  const guid = await guidOf(id);
+  await sim.simulator.setStatus(guid, 'Paid');
+  await sim.simulator.setStatus(guid, 'Paid', { notify: false, amount: '49.00' });
+  await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: id, deps });
+  assert.equal(await openReview(id, 'amount_mismatch'), 1);
+  await sim.simulator.setStatus(guid, 'Paid', { notify: false, amount: '50.00' });
+  const polls = counting();
+  await answer(id, statusMessage(guid), { transport: polls });
+  assert.equal(polls.calls.length, 1, 'it was read again, not swallowed as a duplicate');
+  assert.equal((await one('SELECT pay05_latest_provider_status($1) AS l', [id])).l, 'paid');
+  await resolve(id, 'amount_mismatch', 'provider_corrected');
+  assert.equal(Number((await money(inv.id)).provider_paid), 50);
+});
+
+test('PFR-L3: a payment counted in part says so, with the part', { skip }, async () => {
+  const inv = await invoice(60);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000323' }, `r1-pfr-l3-${run}`);
+  const id = s.collection_id;
+  await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: id, deps });
+  await pastItsTime(id);
+  await release(id);
+  await q("SELECT garage_ops07_record_payment($1, $2, 30.00, 'USD', 'cash', 'PFR-L3-CASH', now(), $3, $4)", [world.g, inv.id, ids.admin, `r1-pfr-l3-cash-${run}`]);
+  await sim.simulator.setStatus(await guidOf(id), 'Paid');
+  const row = rowOf(await customerView(inv), id);
+  assert.equal(row.state, 'confirmed_partial');
+  assert.match(row.state_label, /part/i);
+  assert.match(row.paynow.provider_status_label, /part/i);
+  assert.match(row.paynow.facts.allocation, /30\.00/);
+  assert.equal(await liveReceipts(id), 1);
+});
+
+test('PFR-L5: "last read" moves with a read recorded only because it repeats what CarUp holds', { skip }, async () => {
+  const inv = await invoice(33);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000324' }, `r1-pfr-l5-${run}`);
+  const id = s.collection_id;
+  const guid = await guidOf(id);
+  await sim.simulator.setStatus(guid, 'Delivered');
+  await sim.simulator.setStatus(guid, 'Cancelled');
+  await resolve(id, 'provider_status_unrecognized', 'acknowledged');
+  await q('SET session_replication_role = replica');
+  await q("UPDATE pay05_paynow_transactions SET last_read_at = clock_timestamp() - interval '3 days', provider_status_at = clock_timestamp() - interval '3 days' WHERE collection_id = $1", [id]);
+  await q('SET session_replication_role = origin');
+  await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: id, deps });
+  const row = rowOf(await customerView(inv), id);
+  assert.ok(Date.now() - Date.parse(row.paynow.facts.last_read_at) < 60_000, 'it shows the read just made');
+});
+
+test('PFR-L7: the customer\'s stop answer carries the customer\'s next step, not the garage\'s', { skip }, async () => {
+  const inv = await invoice(34);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000325' }, `r1-pfr-l7-${run}`);
+  const out = await S.cancelCustomerCollection({ db, env, actor: customer(), collectionId: s.collection_id, body: { reason: 'Stopped by the customer' } });
+  assert.match(out.collection.paynow.facts.next_step, /If you already paid/);
+  assert.doesNotMatch(out.collection.paynow.facts.next_step, /record this amount/i);
+  assert.match(out.paynow.facts.next_step, /If you already paid/);
+  assert.equal(out.collection.paynow.paynow_reference, null);
+});
+
+test('PFR-L11: a garage does not read the operator\'s free-text currency reference', { skip }, async () => {
+  const out = await M.getGaragePaynowConnection({ db, env, actor: garageA() });
+  const usd = out.merchant.integrations.find((i) => i.currency === 'USD');
+  assert.equal(usd.currency_evidence.settlement_currency, 'USD');
+  assert.equal(usd.currency_evidence.reference, undefined);
+});
+
+test('PFR-L12: an operator\'s failed verification probes do not refuse the garage\'s own connection', { skip }, async () => {
+  for (const id of [u('adminl'), u('mechl')]) await q("INSERT INTO users (id,name,email,role,join_date) VALUES ($1,$1,$2,'owner','2026-01-01') ON CONFLICT (id) DO NOTHING", [id, `${id}@example.invalid`]);
+  const g = (await seedGarage('p5l', u('adminl'), u('mechl'))).g;
+  for (let i = 0; i < 6; i += 1) {
+    await q("SELECT pay05_record_provider_error('credential_probe_failed', $1, NULL, NULL, $2::jsonb)", [g, JSON.stringify({ integration_row_id: crypto.randomUUID(), currency: 'USD', result: 'unreachable' })]);
+  }
+  const usd = sim.simulator.issueIntegration({ currency: 'USD', methods: ['web'], name: 'P5L Motors USD' });
+  const out = await M.connectGaragePaynow({ db, env, actor: { id: u('adminl'), tenantId: g, platformRole: 'owner' }, body: { ...profile('P5L Motors (Pvt) Ltd'), integrations: [
+    { currency: 'USD', integration_id: usd.integrationId, integration_key: usd.key, methods: usd.methods }] } });
+  assert.ok(out.merchant.id);
+});
+
+test('PFR-L13: reads that fail keep the slow pace: looking at an invoice again does not read Paynow again', { skip }, async () => {
+  const inv = await invoice(100);
+  const a = await start(inv, { method: 'ecocash', phone: '0779000326', amount: '40.00' }, `r1-pfr-l13-${run}`);
+  await sim.simulator.setStatus(await guidOf(a.collection_id), 'Paid', { amount: '39.00' });
+  await resolve(a.collection_id, 'amount_mismatch', 'settled_off_platform');
+  await ageReads(a.collection_id, 120);
+  const failing = (() => { const calls = []; const t = async (url) => { calls.push(url); throw new Error('ECONNREFUSED'); }; t.calls = calls; return t; })();
+  const collection = await one('SELECT * FROM pay04_garage_collections WHERE id = $1', [a.collection_id]);
+  for (let i = 0; i < 5; i += 1) await P.refreshPaynowCollection({ db, env, transport: failing, collection }).catch(() => null);
+  assert.equal(failing.calls.length, 1, 'one attempt an hour, whether or not it worked');
+});
 
 test('every Paynow collection this file made: counted money has Paynow\'s applied Paid as its latest word and exactly one live receipt', { skip }, async () => {
   const bad = (await q(`SELECT c.id FROM pay04_garage_collections c

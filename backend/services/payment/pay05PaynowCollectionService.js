@@ -182,7 +182,9 @@ export function paynowView(tx, { customer = false } = {}) {
     phone: tx.phone_masked ?? null,
     hold_released: released,
     settled_outside: settled,
-    last_read_at: tx.provider_status_at ?? null,
+    attached_after_close: Boolean(tx.attached_after_close),
+    // when Paynow last showed what CarUp holds, including a read recorded only because it repeats it (PFR-L5)
+    last_read_at: tx.last_read_at ?? tx.provider_status_at ?? null,
     paynow_reference: customer ? null : tx.paynow_reference ?? null,
     provider_error: customer ? null : tx.provider_error ?? null,
   };
@@ -193,31 +195,40 @@ const MONEY_WORDS = new Set(['awaiting_delivery', 'delivered', 'paid', 'disputed
 const ESCROW_WORDS = new Set(['awaiting_delivery', 'delivered']);
 /** Reviews that hold money back. An open "refund to confirm" does not: the money is already gone from the invoice. */
 const HOLDING_REVIEW = (d) => !['unallocated_provider_money', 'provider_refund_unquantified'].includes(d.discrepancy_type);
+/** Reviews pay04_invoice_money keeps the amount reserved for: late money and unallocated money hold no room. */
+const ROOM_HOLDING_REVIEWS = new Set(['amount_mismatch', 'currency_mismatch', 'merchant_mismatch', 'provider_disputed', 'provider_status_unrecognized']);
 
 /**
  * The state of a Paynow payment, for every surface (PAY-05-R1, ICR-W1). PAY-04's state words assume a provider that can
  * cancel and expire; Paynow can do neither, so nothing here is "nothing was paid" on CarUp's own say-so. Counted money is
  * what decides "confirmed": a canonical row still reading paid is not enough.
  */
-export function paynowCollectionState(collection, payment, view, { now = Date.now(), openDiscrepancies = [], counted = 0 } = {}) {
+export function paynowCollectionState(collection, payment, view, { now = Date.now(), openDiscrepancies = [], counted = 0, owed = null } = {}) {
   const status = payment?.status || 'unknown';
   const word = view?.provider_status ?? null;
   const unallocated = openDiscrepancies.some((d) => d.discrepancy_type === 'unallocated_provider_money');
   if (status === 'reconciliation_hold' || openDiscrepancies.some(HOLDING_REVIEW)) return 'under_review';
   if (status === 'refunded') return 'refunded';
   if (status === 'paid') {
-    if (unallocated) return 'confirmed_unallocated';
+    if (unallocated) return Number(counted) > 0 ? 'confirmed_partial' : 'confirmed_unallocated';
     if (Number(counted) > 0) return 'confirmed';
     return view?.settled_outside ? 'settled_outside' : 'not_counted';
   }
   if (view?.settled_outside) return 'settled_outside';
   if (status === 'cancelled') {
     if (MONEY_WORDS.has(word)) return 'closed_not_counted';
-    return collection.cancelled_at && collection.cancelled_by !== 'system:expiry' ? 'stopped' : 'cancelled';
+    if (word === 'refunded') return 'refunded';
+    // Paynow's own signed message showed a request CarUp had closed still exists: closed here, not necessarily there (PFR-M5)
+    if (view?.attached_after_close) return 'closed_live';
+    return collection.cancelled_at && collection.cancelled_by !== 'system:expiry' && !String(collection.cancelled_by ?? '').startsWith('provider:') ? 'stopped' : 'cancelled';
   }
   if (status === 'pending') {
     if (view?.hold_released) return 'released';
     if (ESCROW_WORDS.has(word)) return 'at_paynow';
+    // a word with no way forward, whose review closed: nothing to complete, and only an operator frees the room (PFR-H2)
+    if (word === 'cancelled' || word === 'failed' || word === 'unrecognized') return 'reviewed_held';
+    // other money covered the invoice while this request held room: completing it could only make money CarUp cannot count (PFR-H4)
+    if (owed !== null && Number(collection.amount) > Number(owed)) return 'no_longer_needed';
     if (collection.cancelled_at) return 'stopping';
     if (Date.parse(collection.expires_at) <= now) return 'expired';
     return 'awaiting_provider';
@@ -231,13 +242,17 @@ export const PAYNOW_STATE_LABELS = Object.freeze({
   at_paynow: 'Paid to Paynow and held by Paynow — not counted yet',
   stopping: 'Stopped waiting — the amount stays reserved while CarUp checks with Paynow (not counted)',
   expired: 'Past CarUp’s time — the amount stays reserved while CarUp checks with Paynow (not counted)',
+  reviewed_held: 'Reviewed and not counted — the amount stays reserved until CarUp releases it',
+  no_longer_needed: 'No longer needed — this invoice does not need this request (not counted)',
   released: 'Released by CarUp — this request no longer holds the invoice (not counted)',
   settled_outside: 'Settled outside CarUp — not counted on this invoice',
   not_counted: 'No longer counted — Paynow does not report it paid',
   closed_not_counted: 'Closed — Paynow reported money after it closed; reviewed and not counted',
+  closed_live: 'Closed by CarUp — Paynow may still have this request (not counted)',
   stopped: 'Closed — Paynow reports it cancelled; no money was reported on it',
   cancelled: 'Closed — no money was reported on it',
   confirmed: 'Paid — counted on this invoice',
+  confirmed_partial: 'Paid at Paynow — part counted on this invoice, the rest under review',
   confirmed_unallocated: 'Paid at Paynow — not counted on this invoice (under review)',
   under_review: 'Under review — not counted',
   refunded: 'Paynow reports it refunded — not counted',
@@ -250,12 +265,18 @@ const STATE_SENTENCE = Object.freeze({
   settled_outside: 'This payment was settled outside CarUp. It is not counted on this invoice.',
   not_counted: 'Paynow no longer reports this payment as paid, so CarUp does not count it.',
   closed_not_counted: 'Paynow reported money on this request after it closed. CarUp reviewed it, and it is not counted on this invoice.',
-  stopping: 'You stopped waiting, but Paynow cannot cancel a request. The amount stays reserved while CarUp checks with Paynow (not counted).',
+  closed_live: 'CarUp closed this request, but Paynow may still have it. It is not counted on this invoice.',
+  reviewed_held: 'CarUp reviewed Paynow’s latest word on this request and does not count it. The amount stays reserved until CarUp releases it.',
+  no_longer_needed: 'This invoice no longer needs this request, so it is not one to complete. It is not counted.',
+  stopping: 'CarUp stopped waiting for this request, but Paynow cannot cancel it. The amount stays reserved while CarUp checks with Paynow (not counted).',
   expired: 'CarUp’s time for this request has passed, but Paynow cannot cancel it. The amount stays reserved while CarUp checks with Paynow (not counted).',
   confirmed: 'Paid — counted on this invoice.',
+  confirmed_partial: 'Paynow reports it paid. Part of it counts on this invoice, and CarUp is reviewing the rest.',
   confirmed_unallocated: 'Paynow reports it paid, but it is not counted on this invoice. CarUp is reviewing it.',
   refunded: 'Paynow reports it refunded. It is not counted on this invoice.',
 });
+/** A closed request Paynow's word does not explain never reads as waiting (PFR-M5). */
+const CLOSED_SENTENCE = 'This request is closed, and no money was reported on it.';
 
 const REPORTED_WORDS = Object.freeze({
   created: 'Waiting for payment', sent: 'Waiting for approval on the phone', awaiting_delivery: 'Paid into Paynow and held by Paynow',
@@ -270,6 +291,8 @@ const INITIATION_WORDS = Object.freeze({
 const REVIEW_WORDS = Object.freeze({
   under_review: 'CarUp is reviewing this payment.',
   confirmed_unallocated: 'CarUp is reviewing the money that is not counted.',
+  confirmed_partial: 'CarUp is reviewing the money that is not counted.',
+  reviewed_held: 'Reviewed: it counts only if Paynow reports it paid.',
   settled_outside: 'Reviewed: settled outside CarUp.',
   not_counted: 'Reviewed: it counts again only if Paynow reports it paid.',
   closed_not_counted: 'Reviewed: it does not count on this invoice.',
@@ -282,6 +305,10 @@ const NEXT_STEP = Object.freeze({
     at_paynow: 'Do not pay again. Paynow releases this money to the garage, or CarUp reviews it.',
     under_review: 'Do not pay again until the review ends.',
     confirmed_unallocated: 'Do not pay again until the review ends.',
+    confirmed_partial: 'Do not pay again until the review ends.',
+    reviewed_held: 'Do not pay again yet. Ask the garage: Paynow may still hold this money.',
+    no_longer_needed: 'Do not complete this request: this invoice no longer needs it. If you already paid it, check its status and ask the garage.',
+    closed_live: 'Do not approve this request on your phone: CarUp closed it. If you already did, check its status and tell the garage.',
     released: 'Do not approve the old request on your phone. If you already did, check its status before paying again.',
     settled_outside: 'If you also paid through Paynow, check its status and tell the garage.',
     not_counted: 'Ask the garage before paying again: Paynow may have returned this money.',
@@ -295,6 +322,10 @@ const NEXT_STEP = Object.freeze({
     at_paynow: 'Paynow holds this money. It counts when Paynow reports it paid.',
     under_review: 'A CarUp operator reviews it. It does not count meanwhile.',
     confirmed_unallocated: 'A CarUp operator reviews the money that is not counted.',
+    confirmed_partial: 'A CarUp operator reviews the money that is not counted.',
+    reviewed_held: 'A CarUp operator releases the amount once Paynow’s word is confirmed. Do not record it as paid unless the customer really paid you.',
+    no_longer_needed: 'Other money already covers this amount. If Paynow also reports this request paid, a CarUp operator reviews it.',
+    closed_live: 'CarUp closed this request, but Paynow may still have it. If Paynow reports money on it, a CarUp operator reviews it.',
     released: 'The amount is free again. If Paynow later reports it paid, it counts only if room remains.',
     settled_outside: 'Record what you really received. If Paynow reports more money, a new review opens.',
     not_counted: 'Record what you really received. Paynow’s own Paid would count it again.',
@@ -311,15 +342,20 @@ const NEXT_STEP = Object.freeze({
 export function withCollectionState(view, state, { counted = 0, currency = null, customer = false } = {}) {
   if (!view) return view;
   const said = view.provider_status ? STATUS_WORDS[view.provider_status] : null;
+  const closedQuietly = CLOSED_STATES.has(state) && view.initiation === 'attached' && (!view.provider_status || view.provider_status === 'created' || view.provider_status === 'sent');
   const label = REVIEW_STATES.has(state) && state !== 'confirmed_unallocated'
     ? `Under review — not counted${said ? ` (Paynow reported: ${said})` : ''}`
-    : STATE_SENTENCE[state] ?? view.provider_status_label;
+    : closedQuietly ? CLOSED_SENTENCE : STATE_SENTENCE[state] ?? view.provider_status_label;
   const isCounted = Number(counted) > 0;
+  const noWord = CLOSED_STATES.has(state) || state === 'closed_live';
   return {
     ...view,
+    // only a request that can still be paid offers a way to pay it (PFR-H4, M5): a code, form or link on anything else invites money CarUp would not count
+    ...(CAN_STILL_PAY.has(state) ? {} : { checkout_url: null, authorization_code: null, needs_otp: false, otp_unavailable: false }),
     provider_status_label: label,
     facts: {
-      provider: view.provider_status ? REPORTED_WORDS[view.provider_status] : INITIATION_WORDS[view.initiation] ?? 'Not confirmed',
+      provider: view.provider_status ? REPORTED_WORDS[view.provider_status]
+        : noWord && view.initiation === 'attached' ? 'No status recorded' : INITIATION_WORDS[view.initiation] ?? 'Not confirmed',
       counted: isCounted,
       allocation: isCounted ? `Counted on this invoice${currency ? `: ${pay04Money(counted, currency)} ${currency}` : ''}` : 'Not counted on this invoice',
       review: REVIEW_WORDS[state] ?? null,
@@ -330,6 +366,9 @@ export function withCollectionState(view, state, { counted = 0, currency = null,
 }
 
 const REVIEW_STATES = new Set(['under_review', 'confirmed_unallocated']);
+const CLOSED_STATES = new Set(['stopped', 'cancelled']);
+/** The states whose request can still be paid while CarUp holds the amount for it (web: CONTINUABLE_STATES). */
+const CAN_STILL_PAY = new Set(['awaiting_provider', 'expired', 'stopping']);
 const STATUS_WORDS = Object.freeze({
   created: 'not paid yet', sent: 'waiting for approval on the phone', awaiting_delivery: 'paid into Paynow escrow',
   delivered: 'paid into Paynow escrow', paid: 'paid', cancelled: 'cancelled', failed: 'failed', disputed: 'disputed',
@@ -358,7 +397,8 @@ export async function paynowOnlineOption(db, env, invoice, money, account) {
   const permitted = await rpc(db, 'pay04_gateway_permitted', { p_gateway: PAY05_GATEWAY });
   if (permitted !== true) return { available: false, reason: 'provider_not_enabled' };
   if (Number(money.uncommitted_balance) <= 0) {
-    return { available: false, reason: Number(money.provider_reserved) > 0 ? 'payment_in_progress' : 'nothing_due' };
+    // a request may still hold room on an invoice other money has covered: nothing is due, whatever it holds (PFR-H4)
+    return { available: false, reason: Number(money.balance_amount) > 0 && Number(money.provider_reserved) > 0 ? 'payment_in_progress' : 'nothing_due' };
   }
   const earlier = await earlierPaynowRequests(db, invoice.id);
   if (earlier.some((e) => e.unresolved)) return { available: false, reason: 'earlier_request_unresolved' };
@@ -372,28 +412,40 @@ export async function paynowOnlineOption(db, env, invoice, money, account) {
 }
 
 /**
- * Requests on this invoice that no longer hold room but that Paynow still has: released by an operator or settled outside
- * CarUp. Paynow cannot cancel them, so the customer could still pay one. One with money held at Paynow, or an open review,
- * leaves the payment unresolved: no new request may start while it stands (R1 directive §4: no duplicate-payment prompts).
+ * Other Paynow requests on this invoice a new request must reckon with: those that hold no room but that Paynow still has (released,
+ * settled outside CarUp, or closed by CarUp and then found to exist), and those with a review open. Paynow cannot cancel them, so the
+ * customer could still pay one. A request holding its own room limits what may be asked for, and needs nothing more. One with
+ * money held at Paynow, or a review of money that holds no room, leaves the payment unresolved: no new request may start while it
+ * stands (R1 directive §4: no duplicate-payment prompts; PFR-H3).
  */
 async function earlierPaynowRequests(db, invoiceId) {
   const collections = list(await read(db.from('pay04_garage_collections').select('id, payment_reference').eq('invoice_id', invoiceId).eq('gateway', PAY05_GATEWAY)));
   if (!collections.length) return [];
   const ids = collections.map((c) => c.id);
-  const txs = list(await read(db.from('pay05_paynow_transactions').select('collection_id, provider_status, hold_released_at, settled_off_platform_at')
-    .in('collection_id', ids))).filter((t) => t.hold_released_at || t.settled_off_platform_at);
+  const txs = list(await read(db.from('pay05_paynow_transactions').select('collection_id, provider_status, hold_released_at, settled_off_platform_at, attached_after_close')
+    .in('collection_id', ids)));
   if (!txs.length) return [];
   const [payments, reviews] = await Promise.all([
     read(db.from('payment_transactions').select('reference, status').in('reference', collections.map((c) => c.payment_reference))),
-    read(db.from('pay04_garage_payment_discrepancies').select('collection_id, discrepancy_type').eq('status', 'open').in('collection_id', txs.map((t) => t.collection_id))),
+    read(db.from('pay04_garage_payment_discrepancies').select('collection_id, discrepancy_type').eq('status', 'open').in('collection_id', ids)),
   ]);
-  const closed = new Set(list(payments).filter((p) => ['cancelled', 'refunded'].includes(p.status)).map((p) => p.reference));
+  const statusOf = new Map(list(payments).map((p) => [p.reference, p.status]));
   const refOf = new Map(collections.map((c) => [c.id, c.payment_reference]));
-  return txs.filter((t) => !closed.has(refOf.get(t.collection_id))).map((t) => ({
-    collection_id: t.collection_id,
-    unresolved: list(reviews).some((r) => r.collection_id === t.collection_id && HOLDING_REVIEW(r))
-      || (!t.settled_off_platform_at && (ESCROW_WORDS.has(t.provider_status) || t.provider_status === 'disputed')),
-  }));
+  const out = [];
+  for (const t of txs) {
+    const status = statusOf.get(refOf.get(t.collection_id));
+    const settled = Boolean(t.settled_off_platform_at);
+    const rests = settled || Boolean(t.hold_released_at);
+    const closed = status === 'cancelled' || status === 'refunded';
+    // a refund to confirm is money already gone: the customer may pay what is still owed
+    const open = list(reviews).filter((r) => r.collection_id === t.collection_id && r.discrepancy_type !== 'provider_refund_unquantified');
+    const blocking = rests ? open : open.filter((r) => !ROOM_HOLDING_REVIEWS.has(r.discrepancy_type));
+    const stillAtPaynow = (rests && !closed) || (status === 'cancelled' && t.attached_after_close);
+    if (!blocking.length && !stillAtPaynow) continue;
+    out.push({ collection_id: t.collection_id, settled,
+      unresolved: blocking.length > 0 || (rests && !settled && !closed && (ESCROW_WORDS.has(t.provider_status) || t.provider_status === 'disputed')) });
+  }
+  return out;
 }
 
 async function checkoutResponse(db, collection, { replayed, money = null }) {
@@ -451,7 +503,8 @@ export async function prevalidatePaynowStart({ db = defaultDb, env = process.env
     try {
       await checkPaynowCollection({ db, env, transport, collection });
     } catch {
-      throw new Pay05Error('PAY05_EARLIER_REQUEST_UNRESOLVED', 409);
+      // an operator settled this one and answers for it: whatever Paynow says later is reviewed, never allocated (PFR-M1)
+      if (!earlier.settled) throw new Pay05Error('PAY05_EARLIER_REQUEST_UNRESOLVED', 409);
     }
   }
   if ((await earlierPaynowRequests(db, invoice.id)).some((e) => e.unresolved)) throw new Pay05Error('PAY05_EARLIER_REQUEST_UNRESOLVED', 409);
@@ -638,6 +691,12 @@ export function confirms(said, read) {
   return Boolean(rank) && (WORD_RANK[read] ?? 0) >= rank;
 }
 
+const sameAmount = (a, b) => (a === null || a === undefined ? b === null || b === undefined : Number(a) === Number(b));
+async function lastEvaluatedAmount(db, collectionId) {
+  return one(await read(db.from('pay05_paynow_observations').select('amount_minor').eq('collection_id', collectionId)
+    .in('outcome', ['applied', 'review']).order('seq', { ascending: false }).limit(1)))?.amount_minor ?? null;
+}
+
 /**
  * POST from Paynow to /api/pay05/paynow/webhook/:collectionId. Accepted only if its hash verifies with THIS
  * collection's own integration key and it names this collection's reference and poll URL. It is a trigger: the money
@@ -682,7 +741,9 @@ export async function processPaynowStatusUpdate({ db = defaultDb, env = process.
   // poll). Anything else takes a ticketed confirming poll: a status that differs from the one CarUp holds is never a duplicate
   // (ICR-M2), and variants of one signed message are one message (ICR-S1).
   const messageHash = messageHashFor(update.pairs);
-  if (tx.last_status_update_hash === messageHash && tx.provider_status === update.truth.providerStatus) {
+  // ...and the amount it said is the amount CarUp last read: after a read of another amount, the same message is news (PFR-L1)
+  if (tx.last_status_update_hash === messageHash && tx.provider_status === update.truth.providerStatus
+      && sameAmount(await lastEvaluatedAmount(db, collection.id), update.truth.amountMinor)) {
     return { duplicate_event: true, applied: false };
   }
   const eventId = eventIdFor(collection.id, messageHash, tx.status_update_generation ?? 0);
@@ -695,7 +756,7 @@ export async function processPaynowStatusUpdate({ db = defaultDb, env = process.
     tx = await transactionOf(db, collection.id);
   }
   // the reads status updates can trigger are budgeted per collection (ICR-S1): over budget Paynow is answered non-2xx
-  const readTicket = await rpc(db, 'pay05_begin_status_update_read', { p_collection_id: collection.id });
+  const readTicket = await rpc(db, 'pay05_begin_status_update_read', { p_collection_id: collection.id, p_message_hash: messageHash });
   let truth;
   try {
     truth = await adapter.getPaymentTruth({ pollUrl: tx.poll_url });
@@ -705,7 +766,12 @@ export async function processPaynowStatusUpdate({ db = defaultDb, env = process.
     throw new Pay05Error('PAY05_PROVIDER_READ_FAILED', 503);
   }
   const current = await loadCollection(db, collection.id);
-  const result = await applyTruth(db, current, truth, { via: 'status_update', eventId, messageHash, readTicket });
+  let result = await applyTruth(db, current, truth, { via: 'status_update', eventId, messageHash, readTicket });
+  // Another delivery of this message wrote first, from an older read. This read is still Paynow's word: it is evaluated as the
+  // read it is, so news is not lost with the duplicate (PFR-M2).
+  if (result?.duplicate_event && result.provider_status !== truth.providerStatus) {
+    result = await applyTruth(db, current, truth, { via: 'poll', readTicket });
+  }
   const notification = await notifyCollectionOutcome(db, current, result, deps);
   // The confirming read was not evaluated, or does not yet show what Paynow said: answer non-2xx, so Paynow resends and CarUp
   // reads again (ICR-M2). A 200 here would end Paynow's retries with its news unapplied.
@@ -719,7 +785,7 @@ export async function processPaynowStatusUpdate({ db = defaultDb, env = process.
 // ───────────────────────────── stops, closing, operators ─────────────────────────────
 
 /** A stop: recorded (who, why); the room stays held — Paynow cannot cancel — then one fresh read. */
-export async function cancelPaynowCollection({ db = defaultDb, env = process.env, transport = null, collection, actorUserId, reason }) {
+export async function cancelPaynowCollection({ db = defaultDb, env = process.env, transport = null, collection, actorUserId, reason, customer = false }) {
   requirePay05Enabled(env);
   await rpc(db, 'pay04_cancel_garage_collection', { p_collection_id: collection.id, p_actor_user_id: actorUserId, p_reason: reason });
   let out;
@@ -728,6 +794,8 @@ export async function cancelPaynowCollection({ db = defaultDb, env = process.env
   } catch {
     out = await collectionOutcome(db, collection, null, { attempted: 0, emitted: 0, failures: [] });
   }
+  // the customer's answer carries the customer's words and next step (PFR-L7)
+  if (customer) return { ...await customerPaynowOutcome(db, out, collection), notice: PAY05_LABELS.cannotCancel };
   return { ...out, paynow: paynowView(await transactionOf(db, collection.id)), notice: PAY05_LABELS.cannotCancel };
 }
 
@@ -743,12 +811,8 @@ export async function refreshPaynowCollection({ db = defaultDb, env = process.en
   const expired = Date.parse(collection.expires_at) <= Date.now();
   // None is read more than once a minute however often a customer looks (independent review S10).
   const windowMs = tx && (tx.hold_released_at || tx.settled_off_platform_at) ? RESTING_READ_MS : RECENT_READ_MS;
-  if (tx && recently(tx.last_trace_at, windowMs)) return;
-  if (tx) {
-    const last = one(await read(db.from('pay05_paynow_observations').select('observed_at').eq('collection_id', collection.id)
-      .order('seq', { ascending: false }).limit(1)));
-    if (recently(last?.observed_at, windowMs)) return;
-  }
+  // every attempt is timed, so reads that fail keep the same pace as reads that work (PFR-L13)
+  if (tx && (recently(tx.last_trace_at, windowMs) || recently(tx.last_read_attempt_at, windowMs))) return;
   if (!tx) {
     if (expired) await rpc(db, 'pay04_close_expired_unattached_collection', { p_collection_id: collection.id });
     return;
@@ -784,6 +848,19 @@ export async function releasePaynowHold({ db = defaultDb, env = process.env, tra
     paynow: paynowView(await transactionOf(db, collection.id)) };
 }
 
+/**
+ * An operator opens a review of a request nothing else can move: Paynow keeps it in escrow, or can no longer be read. It reads
+ * nothing and counts nothing; settling the review outside CarUp is what frees the room (PFR-M1).
+ */
+export async function openPaynowReview({ db = defaultDb, env = process.env, actor = {}, collectionId, body = {} }) {
+  requirePay05Enabled(env);
+  const collection = await loadCollection(db, collectionId);
+  if (collection.gateway !== PAY05_GATEWAY) throw new Pay05Error('PAY05_COLLECTION_NOT_FOUND', 404);
+  const opened = await rpc(db, 'pay05_open_paynow_review', { p_collection_id: collection.id, p_actor_id: actor.id,
+    p_actor_role: actor.platformRole || null, p_reason: String(body.reason ?? '') });
+  return { opened, money: await invoiceMoney(db, collection.invoice_id), paynow: paynowView(await transactionOf(db, collection.id)) };
+}
+
 export async function reconcilePaynowCollection({ db = defaultDb, env = process.env, transport = null, collection, deps = {} }) {
   return checkPaynowCollection({ db, env, transport, collection, deps });
 }
@@ -793,15 +870,18 @@ export async function reconcilePaynowCollection({ db = defaultDb, env = process.
  * cannot cancel them, so each is closed by Paynow, paid, or released after a fresh read), and those already released or settled,
  * which stay visible and re-readable (ICR-M3). `can_release` is what the database would allow (ICR-W6).
  */
-export async function listHeldPaynowCollections({ db = defaultDb, env = process.env } = {}) {
+export async function listHeldPaynowCollections({ db = defaultDb, env = process.env, limit = 200 } = {}) {
   requirePay05Enabled(env);
+  // the queue is chosen in the database: requests that finished cannot crowd out one that is stuck (PFR-H5)
+  const queue = list(await rpc(db, 'pay05_held_collection_ids', { p_limit: limit }));
+  const heldTotal = Number(queue[0]?.total ?? 0);
+  const place = new Map(queue.map((r, i) => [r.collection_id, i]));
   const [holding, resting] = await Promise.all([
-    read(db.from('pay05_paynow_transactions').select('*').is('hold_released_at', null)
-      .in('initiation_state', ['attached', 'sending', 'unknown']).order('created_at', { ascending: true }).limit(200)),
+    queue.length ? read(db.from('pay05_paynow_transactions').select('*').in('collection_id', queue.map((r) => r.collection_id))) : [],
     read(db.from('pay05_paynow_transactions').select('*').not('hold_released_at', 'is', null).order('hold_released_at', { ascending: false }).limit(50)),
   ]);
-  const txs = [...list(holding), ...list(resting)];
-  if (!txs.length) return { held: [] };
+  const txs = [...list(holding).sort((a, b) => place.get(a.collection_id) - place.get(b.collection_id)), ...list(resting)];
+  if (!txs.length) return { held: [], held_total: 0 };
   const collections = list(await read(db.from('pay04_garage_collections').select('*').in('id', txs.map((t) => t.collection_id))));
   const byId = new Map(collections.map((c) => [c.id, c]));
   const refs = collections.map((c) => c.payment_reference);
@@ -833,10 +913,11 @@ export async function listHeldPaynowCollections({ db = defaultDb, env = process.
         stopped_at: c.cancelled_at, state, state_label: PAYNOW_STATE_LABELS[state] ?? PAYNOW_STATE_LABELS.unknown,
         released: Boolean(tx.hold_released_at), settled: Boolean(tx.settled_off_platform_at),
         can_release: !block, release_blocked_reason: block,
+        can_open_review: paynowReviewOpenable({ tx, collection: c, paymentStatus: payments.get(c.payment_reference), reviews, now }),
         paynow: withCollectionState(view, state, { counted: countedOf(c.id), currency: c.currency }),
       };
     });
-  return { held };
+  return { held, held_total: heldTotal };
 }
 
 /**
@@ -847,6 +928,14 @@ export function paynowReleaseBlock({ tx, paymentStatus, reviews = [] }) {
   if (tx.hold_released_at) return 'Already released.';
   if (paymentStatus !== 'pending') return 'This payment is no longer waiting on Paynow.';
   if (reviews.length) return 'Close its review first.';
-  if (tx.provider_status && !['created', 'sent', 'cancelled', 'failed'].includes(tx.provider_status)) return 'Paynow reports money on this request.';
+  if (tx.provider_status && !['created', 'sent', 'cancelled', 'failed', 'unrecognized'].includes(tx.provider_status)) {
+    return 'Paynow reports money on this request. If that never changes, open a review.';
+  }
   return null;
+}
+
+/** Whether the database would let an operator open a review of this request: past CarUp's time, nothing settled or open (PFR-M1). */
+export function paynowReviewOpenable({ tx, collection, paymentStatus, reviews = [], now = Date.now() }) {
+  return !tx.settled_off_platform_at && paymentStatus === 'pending' && !reviews.length
+    && ['attached', 'sending', 'unknown'].includes(tx.initiation_state) && Date.parse(collection.expires_at) <= now;
 }

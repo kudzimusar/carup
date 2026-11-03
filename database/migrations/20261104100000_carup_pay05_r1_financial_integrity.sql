@@ -15,6 +15,8 @@
 --   * A currency binds only through its integration's own reviewed settlement currency. No conversion, ever: real merchant
 --     configuration and settlement reconciliation stay a separate Level 2 gate.
 --   * An integration ID is reserved only with its key proved at connect; refusals are generic; a rejected ID cools down.
+--   * An older read never overrides a newer closed or unrecognised word. A re-read refreshes the release check, and an operator
+--     can open a review of a request nothing else can move, so every hold has an exit. Room freed goes to money waiting for it.
 -- It rewrites no row. An integration verified before this migration holds no currency evidence and so fails closed.
 BEGIN;
 
@@ -25,7 +27,16 @@ ALTER TABLE public.pay05_paynow_transactions
   ADD COLUMN IF NOT EXISTS status_update_generation bigint NOT NULL DEFAULT 0 CHECK (status_update_generation >= 0),
   -- the per-collection budget for reads a status update can trigger
   ADD COLUMN IF NOT EXISTS status_update_reads_window_start timestamptz,
-  ADD COLUMN IF NOT EXISTS status_update_reads_in_window integer NOT NULL DEFAULT 0 CHECK (status_update_reads_in_window >= 0);
+  ADD COLUMN IF NOT EXISTS status_update_reads_in_window integer NOT NULL DEFAULT 0 CHECK (status_update_reads_in_window >= 0),
+  -- each message's own share of that budget: { message hash: { since, reads } }, the last ten minutes only
+  ADD COLUMN IF NOT EXISTS status_update_read_budgets jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- when Paynow was last read and showed what CarUp holds, or last asked, whether or not it answered
+  ADD COLUMN IF NOT EXISTS last_read_at timestamptz,
+  ADD COLUMN IF NOT EXISTS last_read_attempt_at timestamptz;
+
+-- which signed message a status-update observation came from: a replay is recognised by it
+ALTER TABLE public.pay05_paynow_observations
+  ADD COLUMN IF NOT EXISTS message_hash text;
 
 ALTER TABLE public.pay05_merchant_integrations
   -- this integration's own settlement currency as reviewed in the merchant's Paynow account; written once, at verification
@@ -37,6 +48,15 @@ ALTER TABLE public.pay05_merchant_integrations
 ALTER TABLE public.pay05_paynow_observations DROP CONSTRAINT IF EXISTS pay05_paynow_observations_outcome_check;
 ALTER TABLE public.pay05_paynow_observations ADD CONSTRAINT pay05_paynow_observations_outcome_check CHECK (
   outcome IN ('applied', 'review', 'superseded', 'stale_regression', 'after_settlement', 'after_close', 'after_review'));
+
+-- an operator opened a review because nothing else could move the request (PFR-M1)
+ALTER TABLE public.pay05_merchant_audit_events DROP CONSTRAINT IF EXISTS pay05_merchant_audit_events_event_type_check;
+ALTER TABLE public.pay05_merchant_audit_events ADD CONSTRAINT pay05_merchant_audit_events_event_type_check CHECK (event_type IN (
+  'merchant_registered', 'integration_registered', 'merchant_verified', 'integration_verified', 'merchant_rejected',
+  'integration_rejected', 'merchant_suspended', 'integration_suspended', 'availability_changed', 'hold_released', 'review_opened'));
+ALTER TABLE public.pay04_garage_payment_discrepancies DROP CONSTRAINT IF EXISTS pay04_garage_payment_discrepancies_detected_via_check;
+ALTER TABLE public.pay04_garage_payment_discrepancies ADD CONSTRAINT pay04_garage_payment_discrepancies_detected_via_check CHECK (
+  detected_via IN ('signed_webhook', 'provider_readback', 'reprojection', 'operator_review'));
 
 ALTER TABLE public.pay05_merchant_integrations DROP CONSTRAINT IF EXISTS pay05_integration_test_auth_email;
 ALTER TABLE public.pay05_merchant_integrations ADD CONSTRAINT pay05_integration_test_auth_email CHECK (
@@ -66,25 +86,100 @@ RETURNS boolean LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
                     AND i.currency_evidence->>'settlement_currency' = c.currency);
 $$;
 
--- A read ticket for a read a status update triggers: at most twelve per collection in ten minutes (Paynow resends a message at
--- most ten times). Over budget the caller answers non-2xx and Paynow resends later; ordinary reads are unaffected.
-CREATE OR REPLACE FUNCTION public.pay05_begin_status_update_read(p_collection_id uuid)
+-- A read ticket for a read a status update triggers. Each signed message has its own budget per collection, twelve in ten
+-- minutes (Paynow resends a message at most ten times), so replaying one message cannot use up another's (PFR-M3). Sixty across
+-- messages bounds the rest. Over budget the caller answers non-2xx and Paynow resends later; ordinary reads are unaffected.
+CREATE OR REPLACE FUNCTION public.pay05_begin_status_update_read(p_collection_id uuid, p_message_hash text)
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
-DECLARE v_tx public.pay05_paynow_transactions%ROWTYPE;
+DECLARE
+  v_tx public.pay05_paynow_transactions%ROWTYPE;
+  v_cutoff timestamptz := clock_timestamp() - interval '10 minutes';
+  v_budgets jsonb;
+  v_reads integer;
+  v_all integer;
 BEGIN
+  IF coalesce(p_message_hash, '') !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'PAY05_OBSERVATION_IDENTITY_INVALID'; END IF;
   SELECT * INTO v_tx FROM public.pay05_paynow_transactions WHERE collection_id = p_collection_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'PAY05_COLLECTION_NOT_FOUND'; END IF;
-  IF v_tx.status_update_reads_window_start IS NULL OR v_tx.status_update_reads_window_start < clock_timestamp() - interval '10 minutes' THEN
-    UPDATE public.pay05_paynow_transactions SET status_update_reads_window_start = clock_timestamp(), status_update_reads_in_window = 1
-     WHERE collection_id = p_collection_id;
-  ELSIF v_tx.status_update_reads_in_window >= 12 THEN
-    RAISE EXCEPTION 'PAY05_STATUS_UPDATE_READS_UNAVAILABLE';
-  ELSE
-    UPDATE public.pay05_paynow_transactions SET status_update_reads_in_window = status_update_reads_in_window + 1
-     WHERE collection_id = p_collection_id;
-  END IF;
+  SELECT coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) INTO v_budgets
+    FROM jsonb_each(v_tx.status_update_read_budgets) e WHERE (e.value->>'since')::timestamptz >= v_cutoff;
+  v_reads := coalesce((v_budgets->p_message_hash->>'reads')::integer, 0);
+  v_all := CASE WHEN v_tx.status_update_reads_window_start IS NULL OR v_tx.status_update_reads_window_start < v_cutoff THEN 0
+                ELSE v_tx.status_update_reads_in_window END;
+  IF v_reads >= 12 OR v_all >= 60 THEN RAISE EXCEPTION 'PAY05_STATUS_UPDATE_READS_UNAVAILABLE'; END IF;
+  UPDATE public.pay05_paynow_transactions SET
+    status_update_reads_window_start = CASE WHEN v_all = 0 THEN clock_timestamp() ELSE status_update_reads_window_start END,
+    status_update_reads_in_window = v_all + 1,
+    status_update_read_budgets = v_budgets || jsonb_build_object(p_message_hash, jsonb_build_object(
+      'since', coalesce(v_budgets->p_message_hash->>'since', clock_timestamp()::text), 'reads', v_reads + 1)),
+    last_read_attempt_at = clock_timestamp()
+   WHERE collection_id = p_collection_id;
   RETURN nextval('public.pay05_paynow_read_ticket_seq');
 END $$;
+
+-- A person who worked at this garage, though removed since: the workforce record outlives the membership.
+CREATE OR REPLACE FUNCTION public.pay05_worked_at_garage(p_tenant_id uuid, p_actor_id text)
+RETURNS boolean LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
+  SELECT EXISTS (SELECT 1 FROM public.garage_workforce_profiles WHERE tenant_id = p_tenant_id AND user_id = trim(p_actor_id));
+$$;
+
+-- An operator opens a review of a request that holds the invoice or that Paynow still has, past CarUp's time, when nothing else
+-- can move it: Paynow keeps it in escrow, or Paynow can no longer be read (PFR-M1). A review counts nothing, and settling it
+-- outside CarUp frees the room; later money is reviewed, never allocated.
+CREATE OR REPLACE FUNCTION public.pay05_open_paynow_review(p_collection_id uuid, p_actor_id text, p_actor_role text, p_reason text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_probe public.pay04_garage_collections%ROWTYPE;
+  v_c public.pay04_garage_collections%ROWTYPE;
+  v_p public.payment_transactions%ROWTYPE;
+  v_tx public.pay05_paynow_transactions%ROWTYPE;
+  v_disc jsonb;
+BEGIN
+  IF coalesce(p_actor_role, '') NOT IN ('admin', 'super_admin') OR NOT public.pay03b_is_platform_admin(p_actor_id) THEN
+    RAISE EXCEPTION 'PAY05_REVIEW_AUTHORITY_REFUSED';
+  END IF;
+  IF char_length(btrim(coalesce(p_reason, ''))) NOT BETWEEN 10 AND 300 THEN RAISE EXCEPTION 'PAY05_REASON_REQUIRED'; END IF;
+  SELECT * INTO v_probe FROM public.pay04_garage_collections WHERE id = p_collection_id;
+  IF NOT FOUND OR v_probe.gateway <> 'paynow_zimbabwe' THEN RAISE EXCEPTION 'PAY05_COLLECTION_NOT_FOUND'; END IF;
+  IF public.pay03b_payment_payer_conflict(v_probe.payment_reference, trim(p_actor_id)) OR public.pay05_worked_at_garage(v_probe.tenant_id, p_actor_id) THEN
+    RAISE EXCEPTION 'PAY05_REVIEW_SELF_DEALING_REFUSED';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('carup_pay04_inv:' || v_probe.invoice_id::text));
+  PERFORM pg_advisory_xact_lock(hashtext('carup_pay03a_ref:' || v_probe.payment_reference));
+  PERFORM 1 FROM public.garage_invoices WHERE id = v_probe.invoice_id FOR UPDATE;
+  SELECT * INTO v_c FROM public.pay04_garage_collections WHERE id = p_collection_id FOR UPDATE;
+  SELECT * INTO v_p FROM public.payment_transactions WHERE reference = v_c.payment_reference FOR UPDATE;
+  SELECT * INTO v_tx FROM public.pay05_paynow_transactions WHERE collection_id = v_c.id FOR UPDATE;
+  IF NOT FOUND OR v_tx.initiation_state NOT IN ('attached', 'sending', 'unknown') THEN
+    RAISE EXCEPTION 'PAY05_REVIEW_NOT_OPENABLE' USING DETAIL = 'not_attached';
+  END IF;
+  IF v_tx.settled_off_platform_at IS NOT NULL THEN RAISE EXCEPTION 'PAY05_REVIEW_NOT_OPENABLE' USING DETAIL = 'settled'; END IF;
+  IF v_p.status <> 'pending' THEN RAISE EXCEPTION 'PAY05_REVIEW_NOT_OPENABLE' USING DETAIL = v_p.status; END IF;
+  IF v_c.expires_at > clock_timestamp() THEN RAISE EXCEPTION 'PAY05_REVIEW_NOT_OPENABLE' USING DETAIL = 'not_expired'; END IF;
+  IF EXISTS (SELECT 1 FROM public.pay04_garage_payment_discrepancies WHERE collection_id = v_c.id AND status = 'open') THEN
+    RAISE EXCEPTION 'PAY05_REVIEW_NOT_OPENABLE' USING DETAIL = 'review_open';
+  END IF;
+  v_disc := public.pay04_record_discrepancy(v_c, 'provider_status_unrecognized', v_c.amount,
+    jsonb_build_object('reason', 'operator_opened', 'note', btrim(p_reason), 'opened_by', trim(p_actor_id),
+                       'last_provider_status', v_tx.provider_status, 'initiation_state', v_tx.initiation_state), 'operator_review', NULL);
+  PERFORM public.pay05_audit(v_c.tenant_id, v_c.merchant_account_id, v_tx.integration_row_id, 'review_opened', trim(p_actor_id), p_actor_role,
+    jsonb_build_object('collection_id', v_c.id, 'reason', btrim(p_reason), 'last_provider_status', v_tx.provider_status));
+  RETURN jsonb_build_object('discrepancy', v_disc, 'projection', public.pay04_reproject_garage_collection(v_c.id, 'provider_status_unrecognized', NULL));
+END $$;
+
+-- The operator's queue, chosen here: what still holds an invoice past CarUp's time or a stop, oldest first. Requests that finished
+-- cannot crowd one out, however many there are (PFR-H5). A settlement marks the hold released, so settled requests are not here.
+CREATE OR REPLACE FUNCTION public.pay05_held_collection_ids(p_limit integer)
+RETURNS TABLE (collection_id uuid, total bigint) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT t.collection_id, count(*) OVER ()
+    FROM public.pay05_paynow_transactions t
+    JOIN public.pay04_garage_collections c ON c.id = t.collection_id
+    JOIN public.payment_transactions p ON p.reference = c.payment_reference
+   WHERE t.hold_released_at IS NULL AND t.initiation_state IN ('attached', 'sending', 'unknown') AND p.status = 'pending'
+     AND (c.cancelled_at IS NOT NULL OR c.expires_at <= clock_timestamp())
+   ORDER BY t.created_at, t.collection_id
+   LIMIT greatest(least(coalesce(p_limit, 200), 500), 1);
+$$;
 
 -- ─────────────────────────── 3. PAY-05 functions, exact text + bounded R1 hunks ───────────────────────────
 
@@ -239,6 +334,7 @@ DECLARE
   v_receipt_out jsonb := NULL;
   v_discrepancy jsonb := NULL;
   v_actor text;
+  v_other uuid;
 BEGIN
   SELECT * INTO v_c FROM public.pay04_garage_collections WHERE id = p_collection_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'PAY04_COLLECTION_NOT_FOUND'; END IF;
@@ -355,6 +451,17 @@ BEGIN
     END IF;
   END IF;
   PERFORM set_config('carup.pay04_writer', '', true);
+  -- PAY-05-R1: room this just gave up may be what other Paynow money on the invoice is waiting for: it counts now, oldest first,
+  -- only into the room there is (PFR-M4). The invoice lock is held, so the shared lock order holds. Settled money stays capped.
+  IF v_delta < 0 AND v_c.gateway = 'paynow_zimbabwe' AND v_inv.status = 'issued' THEN
+    FOR v_other IN SELECT q.collection_id FROM public.pay04_garage_payment_discrepancies q
+                     JOIN public.pay04_garage_collections o ON o.id = q.collection_id
+                    WHERE o.invoice_id = v_inv.id AND o.id <> v_c.id AND o.gateway = 'paynow_zimbabwe'
+                      AND q.discrepancy_type = 'unallocated_provider_money' AND q.status = 'open'
+                    ORDER BY q.first_detected_at, q.collection_id LOOP
+      PERFORM public.pay04_reproject_garage_collection(v_other, 'room_freed', NULL);
+    END LOOP;
+  END IF;
   RETURN jsonb_build_object('counted_target', v_target, 'allocated', v_alloc, 'delta', v_delta, 'unallocated', v_unallocated,
     'receipt', v_receipt_out, 'discrepancy', v_discrepancy);
 END $$;
@@ -381,6 +488,10 @@ BEGIN
     RAISE EXCEPTION 'PAY04_RESOLUTION_SELF_DEALING_REFUSED';
   END IF;
   SELECT * INTO v_c FROM public.pay04_garage_collections WHERE id = v_d.collection_id;
+  -- PAY-05-R1: nor a person who worked at this garage, though removed since (PFR-L10)
+  IF v_c.gateway = 'paynow_zimbabwe' AND public.pay05_worked_at_garage(v_c.tenant_id, p_actor_id) THEN
+    RAISE EXCEPTION 'PAY04_RESOLUTION_SELF_DEALING_REFUSED';
+  END IF;
   SELECT * INTO v_p FROM public.payment_transactions WHERE reference = v_d.payment_reference;
   IF p_resolution = 'refunded_to_customer' THEN
     IF v_p.status <> 'refunded' THEN RAISE EXCEPTION 'PAY04_RESOLUTION_REQUIRES_PROVIDER_REFUND'; END IF;
@@ -685,8 +796,22 @@ BEGIN
   v_money_seen := EXISTS (SELECT 1 FROM public.pay05_paynow_observations
                            WHERE collection_id = v_c.id AND outcome IN ('applied', 'review')
                              AND provider_status IN ('paid', 'awaiting_delivery', 'delivered', 'disputed'));
+  -- PAY-05-R1: a status update CarUp already recorded, read again and showing nothing new, writes no row and starts no new
+  -- generation (PFR-M3). It is still a read: an older one in flight must not pass it, and its time is shown.
+  IF p_via = 'status_update' AND p_provider_status = v_tx.provider_status AND p_amount_minor IS NOT DISTINCT FROM v_last.amount_minor
+     AND EXISTS (SELECT 1 FROM public.pay05_paynow_observations WHERE collection_id = v_c.id AND message_hash = p_message_hash) THEN
+    UPDATE public.pay05_paynow_transactions SET last_read_at = clock_timestamp(), last_status_update_hash = p_message_hash,
+      last_read_ticket = CASE WHEN p_read_ticket IS NULL THEN last_read_ticket ELSE greatest(coalesce(last_read_ticket, p_read_ticket), p_read_ticket) END,
+      updated_at = clock_timestamp()
+     WHERE collection_id = v_c.id;
+    RETURN jsonb_build_object('applied', false, 'unchanged', true, 'provider_status', v_tx.provider_status, 'payment_status', v_p.status);
+  END IF;
   IF p_read_ticket IS NOT NULL AND v_tx.last_read_ticket IS NOT NULL AND p_read_ticket < v_tx.last_read_ticket
-     AND public.pay05_paynow_money_rank(p_provider_status) <= public.pay05_paynow_money_rank(v_tx.provider_status) THEN
+     AND (public.pay05_paynow_money_rank(p_provider_status) <= public.pay05_paynow_money_rank(v_tx.provider_status)
+          -- PAY-05-R1: an unrecognised word, or Cancelled or Failed after money, is the newer read's answer and has no place in the
+          -- order above: only a newer read moves past it. An older read's Paid never overrides it (PFR-H1).
+          OR (public.pay05_paynow_money_rank(v_tx.provider_status) = 0
+              AND (v_tx.provider_status = 'unrecognized' OR v_money_seen))) THEN
     v_ignored := 'superseded';
   ELSIF (p_provider_status IN ('created', 'sent')
          AND v_tx.provider_status IN ('awaiting_delivery', 'delivered', 'paid', 'disputed', 'refunded', 'cancelled', 'failed'))
@@ -695,7 +820,8 @@ BEGIN
   ELSIF v_settled AND (p_provider_status IN ('created', 'sent')
                        OR (p_provider_status = v_last.provider_status AND p_amount_minor IS NOT DISTINCT FROM v_last.amount_minor)) THEN
     v_ignored := 'after_settlement';
-  ELSIF v_p.status = 'cancelled' AND NOT v_money AND NOT (p_provider_status = 'refunded' AND v_money_seen) THEN
+  -- PAY-05-R1: a Refunded on a closed payment always tells the operator, whether or not CarUp saw the money (PFR-L2)
+  ELSIF v_p.status = 'cancelled' AND NOT v_money AND p_provider_status <> 'refunded' THEN
     v_ignored := 'after_close';
   -- PAY-05-R1: the same report again after an operator closed its review is recorded only: a re-read neither reopens the
   -- review nor takes the room back (ICR-M10); a different report is evaluated
@@ -740,9 +866,9 @@ BEGIN
   END IF;
 
   INSERT INTO public.pay05_paynow_observations (tenant_id, collection_id, event_id, via, provider_status, raw_status, amount_minor,
-    paynow_reference, read_ticket, outcome)
+    paynow_reference, read_ticket, outcome, message_hash)
   VALUES (v_c.tenant_id, v_c.id, p_event_id, p_via, p_provider_status, left(p_raw_status, 160), p_amount_minor, left(p_paynow_reference, 64),
-    p_read_ticket, coalesce(v_ignored, CASE WHEN v_branch = 'snapshot' THEN 'applied' ELSE 'review' END))
+    p_read_ticket, coalesce(v_ignored, CASE WHEN v_branch = 'snapshot' THEN 'applied' ELSE 'review' END), p_message_hash)
   ON CONFLICT (event_id) DO NOTHING
   RETURNING id INTO v_obs;
   IF v_obs IS NULL THEN
@@ -757,12 +883,21 @@ BEGIN
      WHERE collection_id = v_c.id RETURNING * INTO v_tx;
   END IF;
   IF v_ignored IS NOT NULL THEN
+    -- PAY-05-R1: a read that repeats what CarUp holds is still the newest read (PFR-H1) and the time Paynow was last read
+    -- (PFR-L5). An older or lagging read is neither.
+    IF v_ignored NOT IN ('superseded', 'stale_regression') THEN
+      UPDATE public.pay05_paynow_transactions SET last_read_at = clock_timestamp(),
+        last_read_ticket = CASE WHEN p_read_ticket IS NULL THEN last_read_ticket ELSE greatest(coalesce(last_read_ticket, p_read_ticket), p_read_ticket) END,
+        updated_at = clock_timestamp()
+       WHERE collection_id = v_c.id RETURNING * INTO v_tx;
+    END IF;
     RETURN jsonb_build_object('applied', false, 'ignored', v_ignored, 'observation_id', v_obs, 'provider_status', v_tx.provider_status,
       'payment_status', v_p.status);
   END IF;
   -- the latest Paynow status CarUp evaluated (never one it ignored), and the newest read it considered
   UPDATE public.pay05_paynow_transactions SET provider_status = p_provider_status, provider_status_at = clock_timestamp(),
     paynow_reference = coalesce(paynow_reference, left(p_paynow_reference, 64)),
+    last_read_at = clock_timestamp(),
     last_read_ticket = CASE WHEN p_read_ticket IS NULL THEN last_read_ticket ELSE greatest(coalesce(last_read_ticket, p_read_ticket), p_read_ticket) END,
     updated_at = clock_timestamp()
    WHERE collection_id = v_c.id RETURNING * INTO v_tx;
@@ -867,7 +1002,10 @@ BEGIN
   IF char_length(btrim(coalesce(p_reason, ''))) NOT BETWEEN 10 AND 300 THEN RAISE EXCEPTION 'PAY05_REASON_REQUIRED'; END IF;
   SELECT * INTO v_probe FROM public.pay04_garage_collections WHERE id = p_collection_id;
   IF NOT FOUND OR v_probe.gateway <> 'paynow_zimbabwe' THEN RAISE EXCEPTION 'PAY05_COLLECTION_NOT_FOUND'; END IF;
-  IF public.pay03b_payment_payer_conflict(v_probe.payment_reference, trim(p_actor_id)) THEN RAISE EXCEPTION 'PAY05_RELEASE_SELF_DEALING_REFUSED'; END IF;
+  -- PAY-05-R1: nor a person who worked at this garage, though removed since (PFR-L10)
+  IF public.pay03b_payment_payer_conflict(v_probe.payment_reference, trim(p_actor_id)) OR public.pay05_worked_at_garage(v_probe.tenant_id, p_actor_id) THEN
+    RAISE EXCEPTION 'PAY05_RELEASE_SELF_DEALING_REFUSED';
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtext('carup_pay04_inv:' || v_probe.invoice_id::text));
   PERFORM pg_advisory_xact_lock(hashtext('carup_pay03a_ref:' || v_probe.payment_reference));
   PERFORM 1 FROM public.garage_invoices WHERE id = v_probe.invoice_id FOR UPDATE;
@@ -890,9 +1028,10 @@ BEGIN
     END IF;
     v_last := 'unconfirmed:' || v_tx.initiation_state;
   ELSE
+    -- PAY-05-R1: the latest read of any kind, including one recorded only because it repeats a word whose review closed (PFR-H2)
     SELECT * INTO v_obs FROM public.pay05_paynow_observations
-     WHERE collection_id = v_c.id AND outcome IN ('applied', 'review') ORDER BY seq DESC LIMIT 1;
-    IF NOT FOUND OR v_obs.observed_at < clock_timestamp() - interval '15 minutes' OR v_obs.provider_status NOT IN ('created', 'sent', 'cancelled', 'failed') THEN
+     WHERE collection_id = v_c.id AND outcome IN ('applied', 'review', 'after_review') ORDER BY seq DESC LIMIT 1;
+    IF NOT FOUND OR v_obs.observed_at < clock_timestamp() - interval '15 minutes' OR v_obs.provider_status NOT IN ('created', 'sent', 'cancelled', 'failed', 'unrecognized') THEN
       RAISE EXCEPTION 'PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ';
     END IF;
     v_last := v_obs.provider_status;
@@ -908,12 +1047,47 @@ BEGIN
   RETURN jsonb_build_object('replayed', false, 'hold_released_at', v_tx.hold_released_at, 'money', to_jsonb(v_m));
 END $$;
 
+-- pay05_begin_paynow_read: PAY-05 text + the hunks marked "PAY-05-R1" (drift-tested)
+CREATE OR REPLACE FUNCTION public.pay05_begin_paynow_read(p_collection_id uuid)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.pay04_garage_collections WHERE id = p_collection_id AND gateway = 'paynow_zimbabwe') THEN
+    RAISE EXCEPTION 'PAY05_COLLECTION_NOT_FOUND';
+  END IF;
+  -- PAY-05-R1: every attempt is timed, so reads that fail keep their pace (PFR-L13)
+  UPDATE public.pay05_paynow_transactions SET last_read_attempt_at = clock_timestamp() WHERE collection_id = p_collection_id;
+  RETURN nextval('public.pay05_paynow_read_ticket_seq');
+END $$;
+
+-- pay04_guard_invoice_void: PAY-04 text + the hunks marked "PAY-05-R1" (drift-tested)
+CREATE OR REPLACE FUNCTION public.pay04_guard_invoice_void()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_m record;
+BEGIN
+  IF OLD.status = 'issued' AND NEW.status = 'voided' THEN
+    SELECT * INTO v_m FROM public.pay04_invoice_money(OLD.id);
+    IF v_m.provider_paid <> 0 OR EXISTS (
+         SELECT 1 FROM public.pay04_garage_collections c JOIN public.payment_transactions p ON p.reference = c.payment_reference
+          WHERE c.invoice_id = OLD.id AND p.status IN ('paid', 'partially_refunded')
+            -- PAY-05-R1: a Paynow row still reading paid that no longer counts holds nothing, once settled or once Paynow's latest
+            -- word is not Paid (PFR-L9). Open reviews stay reserved, and refuse below. Later money is never counted on a void invoice.
+            AND NOT (c.gateway = 'paynow_zimbabwe' AND public.pay04_collection_allocated(c.id) = 0
+                     AND (public.pay05_settled_off_platform(c.id) OR public.pay05_latest_provider_status(c.id) IS DISTINCT FROM 'paid'))) THEN
+      RAISE EXCEPTION 'PAY04_INVOICE_HAS_PROVIDER_PAYMENTS';
+    END IF;
+    IF v_m.provider_reserved <> 0 THEN RAISE EXCEPTION 'PAY04_INVOICE_HAS_PAYMENT_IN_PROGRESS'; END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
 -- ─────────────────────────── 4. least privilege ───────────────────────────
 
 REVOKE ALL ON FUNCTION public.pay05_settled_off_platform(uuid), public.pay05_paynow_money_rank(text),
-  public.pay05_collection_currency_bound(uuid) FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON FUNCTION public.pay05_begin_status_update_read(uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.pay05_begin_status_update_read(uuid) TO service_role;
+  public.pay05_collection_currency_bound(uuid), public.pay05_worked_at_garage(uuid, text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.pay05_begin_status_update_read(uuid, text), public.pay05_open_paynow_review(uuid, text, text, text),
+  public.pay05_held_collection_ids(integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.pay05_begin_status_update_read(uuid, text), public.pay05_open_paynow_review(uuid, text, text, text),
+  public.pay05_held_collection_ids(integer) TO service_role;
 -- the identity sequences of PAY-05's own tables: no API role writes those tables, so none needs them
 REVOKE ALL ON SEQUENCE public.pay05_merchant_audit_events_seq_seq, public.pay05_paynow_observations_seq_seq,
   public.pay05_provider_errors_seq_seq FROM PUBLIC, anon, authenticated, service_role;

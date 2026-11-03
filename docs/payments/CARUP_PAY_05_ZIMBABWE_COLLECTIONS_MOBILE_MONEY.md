@@ -312,7 +312,9 @@ The words follow from that:
 
 Accessibility is designed for WCAG 2.2 AA at 1440/768/390 px: labelled controls, errors tied to fields, live regions already on
 the page before they speak, focus moved to new content after each action, 44 px targets. It is verified with axe in headed
-Chromium, and by keyboard alone for the customer, the garage and the operator (see the certification).
+Chromium, and by keyboard alone for the customer, the garage and the operator (see the certification). On an invoice, the way to
+pay comes before the lists of payments and receipts: starting a payment adds rows to those lists, and that must not push its code
+or form off a phone's screen.
 
 ## 7. Security model
 
@@ -421,6 +423,6 @@ Activation needs:
 | Routes | `backend/routes/pay05ZimbabweCollectionRoutes.js` (limiters in `server.js`, one CSRF exemption) |
 | Simulator | `backend/services/payment/pay05PaynowSimulator.js`, `scripts/uat/pay05-paynow-simulator-server.mjs` |
 | Web | `web/src/lib/pay05Paynow.ts`, `components/owner/serviceJourney/{PaynowCheckout,PaynowPendingPanel}.tsx`, `components/garage/PaynowConnection.tsx`, `components/admin/PaynowOperatorPanel.tsx` |
-| Tests | `backend/tests/pay05-*.test.js`, `backend/tests/sql/pay05-paynow-collections-postgres-smoke.sql`, `web/src/**/*Paynow*.test.tsx` |
+| Tests | `backend/tests/pay05-*.test.js` (including `pay05-r1-services.test.js`, `pay05-r1-function-drift.test.js`), `backend/tests/sql/pay05-paynow-collections-postgres-smoke.sql`, `pay05-r1-financial-integrity-postgres-smoke.sql`, `pay05-r1-upgrade-{seed,check}.sql`, `backend/tests/o2-x4-biometric-interface.test.js` with `helpers/o2FingerprintGuard.mjs`, `web/src/**/*Paynow*.test.ts{,x}`, `web/src/lib/pay05PaynowTruth.test.ts` |
 | Certification | `scripts/ci/pay05-postgres-certification.sh`, `.github/workflows/pay05-zimbabwe-collections-ci.yml` |
-| UAT | `scripts/uat/pay05-*`, `web/e2e/pay05-zimbabwe-paynow.spec.ts` |
+| UAT | `scripts/uat/pay05-*`, `web/e2e/pay05-zimbabwe-paynow.spec.ts`, `web/e2e/pay05-r1-state-truth.spec.ts` |

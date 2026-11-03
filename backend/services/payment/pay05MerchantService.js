@@ -76,7 +76,9 @@ function forGarage(bundle) {
   if (!bundle) return bundle;
   return {
     ...bundle,
-    integrations: bundle.integrations.map((i) => ({ ...i, verified_by: null })),
+    // the operator's note on where it checked the settlement currency stays with operators (PFR-L11)
+    integrations: bundle.integrations.map((i) => ({ ...i, verified_by: null, currency_evidence: i.currency_evidence
+      ? { settlement_currency: i.currency_evidence.settlement_currency, reviewed_at: i.currency_evidence.reviewed_at } : null })),
     history: bundle.history.map((h) => (['admin', 'super_admin'].includes(h.actor_role)
       ? { ...h, actor: 'CarUp', detail: {} } : h)),
   };
@@ -210,8 +212,9 @@ export async function connectGaragePaynow({ db = defaultDb, env = process.env, t
   // the database re-checks authority; this refuses a person who may not connect before any key reaches Paynow
   await assertCanConnect(db, actor.tenantId, userId);
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const failures = list(await read(db.from('pay05_provider_errors').select('id').eq('tenant_id', actor.tenantId)
-    .eq('kind', 'credential_probe_failed').gte('created_at', since).limit(CONNECT_PROBE_FAILURES_ALLOWED + 1)));
+  // only this garage's own failed connections: an operator's verification probes failing is no reason to refuse its key (PFR-L12)
+  const failures = list(await read(db.from('pay05_provider_errors').select('id, detail').eq('tenant_id', actor.tenantId)
+    .eq('kind', 'credential_probe_failed').gte('created_at', since).limit(200))).filter((f) => f.detail?.stage === 'connect');
   if (failures.length >= CONNECT_PROBE_FAILURES_ALLOWED) throw notAccepted();
   const probes = [];
   for (const item of input.integrations) probes.push(await proveKeyAtConnect(db, env, transport, actor.tenantId, item, mode));

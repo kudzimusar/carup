@@ -10,6 +10,7 @@
 --   K  onboarding: an integration ID is reserved only with a proved key; generic refusal; cool-down; previous owner
 --   L  currency authority: only a reviewed merchant+currency configuration can bind USD or ZWG; fail closed
 --   N  status-update identity columns, read budget and least privilege
+--   R  the pre-final adversarial review: read order against closed words, holds with no exit, room freed, the operator's queue
 DO $$
 BEGIN
   IF current_database() <> 'pay01c_sandbox_ci' THEN
@@ -175,6 +176,23 @@ BEGIN
   UPDATE pay04_garage_collections SET initiated_at = clock_timestamp() - interval '2 hours', expires_at = clock_timestamp() - interval '1 minute' WHERE id = p_collection;
   SET LOCAL session_replication_role = origin;
 END $$;
+
+CREATE OR REPLACE FUNCTION pg_temp.age_reads(p_collection uuid, p_minutes int) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  SET LOCAL session_replication_role = replica;
+  UPDATE pay05_paynow_observations SET observed_at = observed_at - make_interval(mins => p_minutes) WHERE collection_id = p_collection;
+  SET LOCAL session_replication_role = origin;
+END $$;
+CREATE OR REPLACE FUNCTION pg_temp.release_sql(p_collection uuid, p_actor text DEFAULT 'r1-op') RETURNS text LANGUAGE sql AS $$
+  SELECT format($q$SELECT pay05_release_paynow_hold(%L, %L, 'admin', 'The operator reviewed this hold in the merchant records.')$q$, p_collection, p_actor);
+$$;
+CREATE OR REPLACE FUNCTION pg_temp.release(p_collection uuid) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT pay05_release_paynow_hold(p_collection, 'r1-op', 'admin', 'The operator reviewed this hold in the merchant records.');
+$$;
+CREATE OR REPLACE FUNCTION pg_temp.open_review_sql(p_collection uuid, p_actor text DEFAULT 'r1-op', p_role text DEFAULT 'admin', p_reason text DEFAULT 'Paynow cannot settle this; the operator opens a review.')
+RETURNS text LANGUAGE sql AS $$
+  SELECT format($q$SELECT pay05_open_paynow_review(%L, %L, %L, %L)$q$, p_collection, p_actor, p_role, p_reason);
+$$;
 
 DO $$
 BEGIN
@@ -687,7 +705,7 @@ BEGIN
   RAISE NOTICE 'PAY05_R1 F2b PASS';
 END $$;
 
--- F3: Refunded after CarUp closed a payment whose late money was seen tells the operator; without money it is just recorded.
+-- F3: Refunded after CarUp closed a payment tells the operator, whether or not CarUp saw the money (PFR-L2).
 DO $$
 DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; c2 uuid; v_res jsonb;
 BEGIN
@@ -702,7 +720,10 @@ BEGIN
   PERFORM pg_temp.send_attach(c2);
   PERFORM pg_temp.read(c2, 'cancelled');
   v_res := pg_temp.read(c, 'refunded');
-  PERFORM pg_temp.check(v_res->>'ignored' = 'after_close' AND NOT pg_temp.open_disc(c, 'provider_refund_unquantified'), 'F3 no money seen: recorded only');
+  PERFORM pg_temp.check(v_res->>'ignored' IS NULL AND pg_temp.open_disc(c, 'provider_refund_unquantified') AND pg_temp.status(c) = 'cancelled', 'F3 no money seen: the operator is still told');
+  PERFORM pg_temp.resolve(c, 'provider_refund_unquantified', 'acknowledged');
+  v_res := pg_temp.read(c, 'refunded');
+  PERFORM pg_temp.check(v_res->>'ignored' = 'after_review' AND NOT pg_temp.open_disc(c, 'provider_refund_unquantified'), 'F3 reviewed once: a re-read is recorded only');
   PERFORM pg_temp.read(c2, 'paid');
   PERFORM pg_temp.check(pg_temp.open_disc(c2, 'provider_paid_after_close'), 'F3 late money is a review');
   v_res := pg_temp.read(c2, 'refunded');
@@ -976,16 +997,16 @@ BEGIN
   PERFORM pg_temp.check(v_gen = 0, 'N1 starts at zero');
   SELECT payment_reference, provider_payment_id INTO v_ref, v_pid FROM pay04_garage_collections WHERE id = c;
   v_e := 'evt_pn_' || left(encode(sha256(convert_to('r1n1-a', 'UTF8')), 'hex'), 40);
-  v_res := pay05_apply_paynow_observation(c, 'status_update', v_e, 'paid', 'Paid', 1000, v_ref, '9510', v_pid, repeat('a', 64), pay05_begin_status_update_read(c));
+  v_res := pay05_apply_paynow_observation(c, 'status_update', v_e, 'paid', 'Paid', 1000, v_ref, '9510', v_pid, repeat('a', 64), pay05_begin_status_update_read(c, repeat('a', 64)));
   PERFORM pg_temp.check((SELECT status_update_generation FROM pay05_paynow_transactions WHERE collection_id = c) = 1, 'N1 advanced');
-  v_res := pay05_apply_paynow_observation(c, 'status_update', v_e, 'paid', 'Paid', 1000, v_ref, '9510', v_pid, repeat('a', 64), pay05_begin_status_update_read(c));
+  v_res := pay05_apply_paynow_observation(c, 'status_update', v_e, 'paid', 'Paid', 1000, v_ref, '9510', v_pid, repeat('a', 64), pay05_begin_status_update_read(c, repeat('a', 64)));
   PERFORM pg_temp.check((v_res->>'duplicate_event')::boolean AND (SELECT count(*) FROM pay05_paynow_observations WHERE event_id = v_e) = 1, 'N1 the same event is one row');
   PERFORM pg_temp.check((SELECT status_update_generation FROM pay05_paynow_transactions WHERE collection_id = c) = 1, 'N1 a duplicate does not advance');
   PERFORM pg_temp.expect(format($q$UPDATE pay05_paynow_transactions SET status_update_generation = 0 WHERE collection_id = %L$q$, c), 'PAY05_TRANSACTION_IMMUTABLE');
   RAISE NOTICE 'PAY05_R1 N1 PASS';
 END $$;
 
--- N2 (ICR-S1): a per-collection budget for reads a status update can trigger; one collection's budget is not another's.
+-- N2 (ICR-S1, PFR-M3): each message has its own budget of reads per collection, and one collection's budget is not another's.
 DO $$
 DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; c2 uuid; i int; v_t bigint;
 BEGIN
@@ -997,11 +1018,11 @@ BEGIN
   c2 := pg_temp.start(inv.id, 10.00, 'r1n2-key-0000002');
   PERFORM pg_temp.send_attach(c2);
   FOR i IN 1..12 LOOP
-    v_t := pay05_begin_status_update_read(c);
+    v_t := pay05_begin_status_update_read(c, repeat('a', 64));
     PERFORM pg_temp.check(v_t > 0, 'N2 within budget');
   END LOOP;
-  PERFORM pg_temp.expect(format($q$SELECT pay05_begin_status_update_read(%L)$q$, c), 'PAY05_STATUS_UPDATE_READS_UNAVAILABLE');
-  PERFORM pg_temp.check(pay05_begin_status_update_read(c2) > 0, 'N2 another collection is unaffected');
+  PERFORM pg_temp.expect(format($q$SELECT pay05_begin_status_update_read(%L, %L)$q$, c, repeat('a', 64)), 'PAY05_STATUS_UPDATE_READS_UNAVAILABLE');
+  PERFORM pg_temp.check(pay05_begin_status_update_read(c2, repeat('a', 64)) > 0, 'N2 another collection is unaffected');
   PERFORM pg_temp.check(pay05_begin_paynow_read(c) > 0, 'N2 an ordinary read still works');
   RAISE NOTICE 'PAY05_R1 N2 PASS';
 END $$;
@@ -1011,9 +1032,15 @@ DO $$
 DECLARE v_role text;
 BEGIN
   FOREACH v_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
-    PERFORM pg_temp.check(NOT has_function_privilege(v_role, 'public.pay05_begin_status_update_read(uuid)', 'EXECUTE'), v_role || ' cannot take a budgeted read');
+    PERFORM pg_temp.check(NOT has_function_privilege(v_role, 'public.pay05_begin_status_update_read(uuid,text)', 'EXECUTE'), v_role || ' cannot take a budgeted read');
+    PERFORM pg_temp.check(NOT has_function_privilege(v_role, 'public.pay05_open_paynow_review(uuid,text,text,text)', 'EXECUTE'), v_role || ' cannot open a review');
+    PERFORM pg_temp.check(NOT has_function_privilege(v_role, 'public.pay05_held_collection_ids(integer)', 'EXECUTE'), v_role || ' cannot read the queue');
   END LOOP;
-  PERFORM pg_temp.check(has_function_privilege('service_role', 'public.pay05_begin_status_update_read(uuid)', 'EXECUTE'), 'service_role calls it');
+  PERFORM pg_temp.check(has_function_privilege('service_role', 'public.pay05_begin_status_update_read(uuid,text)', 'EXECUTE'), 'service_role calls it');
+  PERFORM pg_temp.check(has_function_privilege('service_role', 'public.pay05_open_paynow_review(uuid,text,text,text)', 'EXECUTE')
+    AND has_function_privilege('service_role', 'public.pay05_held_collection_ids(integer)', 'EXECUTE'), 'service_role calls them');
+  PERFORM pg_temp.check(NOT has_function_privilege('service_role', 'public.pay05_worked_at_garage(uuid,text)', 'EXECUTE')
+    AND NOT has_function_privilege('anon', 'public.pay05_worked_at_garage(uuid,text)', 'EXECUTE'), 'helpers are not callable');
   PERFORM pg_temp.check(NOT has_function_privilege('service_role', 'public.pay05_paynow_money_rank(text)', 'EXECUTE')
     AND NOT has_function_privilege('anon', 'public.pay05_paynow_money_rank(text)', 'EXECUTE'), 'helpers are not callable');
   PERFORM pg_temp.check(NOT has_function_privilege('service_role', 'public.pay05_collection_currency_bound(uuid)', 'EXECUTE')
@@ -1023,6 +1050,432 @@ BEGIN
      WHERE n.nspname = 'public' AND c.relkind = 'S' AND c.relname LIKE 'pay05\_%'
        AND (has_sequence_privilege('anon', c.oid, 'USAGE') OR has_sequence_privilege('authenticated', c.oid, 'USAGE') OR has_sequence_privilege('service_role', c.oid, 'USAGE'))), 'no API role can use a PAY-05 sequence');
   RAISE NOTICE 'PAY05_R1 N3 PASS';
+END $$;
+
+-- ═══════════════════════════ R. the pre-final adversarial review ═══════════════════════════
+
+-- R1 (PFR-H1): once Paynow reported money, an older read's Paid never overrides a newer read's closed word, after the review
+-- closed or before; only a newer read moves past it.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_res jsonb; t1 bigint; t2 bigint;
+BEGIN
+  g := pg_temp.garage('r1r1');
+  PERFORM pg_temp.merchant(g, 'r1r1', '60001');
+  inv := pg_temp.invoice(g, 'r1r1', 43.00);
+  c := pg_temp.start(inv.id, 43.00, 'r1r1-key-0000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'delivered', NULL, pay05_begin_paynow_read(c));
+  t1 := pay05_begin_paynow_read(c);
+  t2 := pay05_begin_paynow_read(c);
+  PERFORM pg_temp.read(c, 'cancelled', NULL, t2);
+  PERFORM pg_temp.check(pg_temp.open_disc(c, 'provider_status_unrecognized'), 'R1 Cancelled after money is a review');
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'acknowledged');
+  v_res := pg_temp.read(c, 'paid', NULL, t1);
+  PERFORM pg_temp.check(v_res->>'ignored' = 'superseded' AND pg_temp.counted(c) = 0 AND pg_temp.live_receipts(c) = 0 AND pg_temp.status(c) = 'pending', 'R1 an older Paid changes nothing');
+  PERFORM pg_temp.check(pay05_latest_provider_status(c) = 'review:cancelled', 'R1 the newer word stays the latest');
+  PERFORM pg_temp.read(c, 'paid', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.check(pg_temp.counted(c) = 43 AND pg_temp.live_receipts(c) = 1, 'R1 Paynow''s own newer Paid counts');
+  RAISE NOTICE 'PAY05_R1 R1 PASS';
+END $$;
+
+-- R1b (PFR-H1): an unknown word with its review open: an older Paid is superseded, so no closure can count it.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_res jsonb; t1 bigint; t2 bigint;
+BEGIN
+  g := pg_temp.garage('r1r1b');
+  PERFORM pg_temp.merchant(g, 'r1r1b', '60002');
+  inv := pg_temp.invoice(g, 'r1r1b', 45.00);
+  c := pg_temp.start(inv.id, 45.00, 'r1r1b-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  t1 := pay05_begin_paynow_read(c);
+  t2 := pay05_begin_paynow_read(c);
+  PERFORM pg_temp.read(c, 'unrecognized', NULL, t2);
+  v_res := pg_temp.read(c, 'paid', NULL, t1);
+  PERFORM pg_temp.check(v_res->>'ignored' = 'superseded', 'R1b an older Paid does not override a newer unknown word');
+  PERFORM pg_temp.expect(pg_temp.resolve_sql(c, 'provider_status_unrecognized', 'provider_corrected'), 'PAY05_CORRECTION_NOT_CONFIRMED_BY_PROVIDER');
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'acknowledged');
+  PERFORM pg_temp.check(pg_temp.counted(c) = 0 AND pg_temp.live_receipts(c) = 0, 'R1b acknowledged counts nothing');
+  RAISE NOTICE 'PAY05_R1 R1b PASS';
+END $$;
+
+-- R1c (PFR-H1): counted money stays stopped when a newer unknown word is followed by an older Paid.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_res jsonb; t1 bigint; t2 bigint;
+BEGIN
+  g := pg_temp.garage('r1r1c');
+  PERFORM pg_temp.merchant(g, 'r1r1c', '60003');
+  inv := pg_temp.invoice(g, 'r1r1c', 44.00);
+  c := pg_temp.start(inv.id, 44.00, 'r1r1c-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'paid', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.check(pg_temp.counted(c) = 44, 'R1c counted');
+  t1 := pay05_begin_paynow_read(c);
+  t2 := pay05_begin_paynow_read(c);
+  PERFORM pg_temp.read(c, 'unrecognized', NULL, t2);
+  PERFORM pg_temp.check(pg_temp.counted(c) = 0 AND pg_temp.live_receipts(c) = 0, 'R1c stopped');
+  v_res := pg_temp.read(c, 'paid', NULL, t1);
+  PERFORM pg_temp.check(v_res->>'ignored' = 'superseded' AND pg_temp.counted(c) = 0, 'R1c still stopped');
+  RAISE NOTICE 'PAY05_R1 R1c PASS';
+END $$;
+
+-- R1d (PFR-H1): a newer read recorded only (the same word after its review closed) is still the newer read.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_res jsonb; t1 bigint; t2 bigint;
+BEGIN
+  g := pg_temp.garage('r1r1d');
+  PERFORM pg_temp.merchant(g, 'r1r1d', '60004');
+  inv := pg_temp.invoice(g, 'r1r1d', 46.00);
+  c := pg_temp.start(inv.id, 46.00, 'r1r1d-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'delivered', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.read(c, 'cancelled', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'acknowledged');
+  t1 := pay05_begin_paynow_read(c);
+  t2 := pay05_begin_paynow_read(c);
+  v_res := pg_temp.read(c, 'cancelled', NULL, t2);
+  PERFORM pg_temp.check(v_res->>'ignored' = 'after_review', 'R1d recorded only');
+  v_res := pg_temp.read(c, 'paid', NULL, t1);
+  PERFORM pg_temp.check(v_res->>'ignored' = 'superseded' AND pg_temp.counted(c) = 0 AND pg_temp.live_receipts(c) = 0, 'R1d an older Paid does not slip past a recorded read');
+  RAISE NOTICE 'PAY05_R1 R1d PASS';
+END $$;
+
+-- R1e (control): no money seen and the payment closed: an older Paid is late money for an operator, never lost.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_res jsonb; t1 bigint; t2 bigint;
+BEGIN
+  g := pg_temp.garage('r1r1e');
+  PERFORM pg_temp.merchant(g, 'r1r1e', '60005');
+  inv := pg_temp.invoice(g, 'r1r1e', 47.00);
+  c := pg_temp.start(inv.id, 47.00, 'r1r1e-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  t1 := pay05_begin_paynow_read(c);
+  t2 := pay05_begin_paynow_read(c);
+  PERFORM pg_temp.read(c, 'cancelled', NULL, t2);
+  PERFORM pg_temp.check(pg_temp.status(c) = 'cancelled', 'R1e closed');
+  v_res := pg_temp.read(c, 'paid', NULL, t1);
+  PERFORM pg_temp.check(v_res->>'ignored' IS NULL AND pg_temp.open_disc(c, 'provider_paid_after_close') AND pg_temp.counted(c) = 0, 'R1e reviewed, not counted');
+  RAISE NOTICE 'PAY05_R1 R1e PASS';
+END $$;
+
+-- R2 (PFR-H2): a reviewed Cancelled after money: a re-read refreshes the release check, so the room is not held forever.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_res jsonb; v_m record;
+BEGIN
+  g := pg_temp.garage('r1r2');
+  PERFORM pg_temp.merchant(g, 'r1r2', '60011');
+  inv := pg_temp.invoice(g, 'r1r2', 40.00);
+  c := pg_temp.start(inv.id, 40.00, 'r1r2-key-0000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'delivered');
+  PERFORM pg_temp.read(c, 'cancelled');
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'acknowledged');
+  PERFORM pg_temp.expired(c);
+  PERFORM pg_temp.age_reads(c, 20);
+  PERFORM pg_temp.expect(pg_temp.release_sql(c), 'PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ');
+  v_res := pg_temp.read(c, 'cancelled', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.check(v_res->>'ignored' = 'after_review', 'R2 the re-read is recorded only');
+  v_res := pg_temp.release(c);
+  PERFORM pg_temp.check((v_res->>'replayed')::boolean = false, 'R2 released');
+  SELECT * INTO v_m FROM pay04_invoice_money(inv.id);
+  PERFORM pg_temp.check(v_m.provider_reserved = 0 AND v_m.uncommitted_balance = 40, 'R2 the room is free');
+  PERFORM pg_temp.cash(g, inv.id, 40.00, 'r1r2');
+  RAISE NOTICE 'PAY05_R1 R2 PASS';
+END $$;
+
+-- R3 (PFR-H2): a reviewed unknown word has the same exit; an open review and a money word still refuse.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_res jsonb; v_m record;
+BEGIN
+  g := pg_temp.garage('r1r3');
+  PERFORM pg_temp.merchant(g, 'r1r3', '60012');
+  inv := pg_temp.invoice(g, 'r1r3', 41.00);
+  c := pg_temp.start(inv.id, 41.00, 'r1r3-key-0000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'unrecognized');
+  PERFORM pg_temp.expired(c);
+  PERFORM pg_temp.expect(pg_temp.release_sql(c), 'PAY05_HOLD_NOT_RELEASABLE');
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'acknowledged');
+  v_res := pg_temp.read(c, 'unrecognized', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.check(v_res->>'ignored' = 'after_review', 'R3 recorded only');
+  PERFORM pg_temp.release(c);
+  SELECT * INTO v_m FROM pay04_invoice_money(inv.id);
+  PERFORM pg_temp.check(v_m.provider_reserved = 0 AND v_m.uncommitted_balance = 41, 'R3 the room is free');
+  RAISE NOTICE 'PAY05_R1 R3 PASS';
+END $$;
+
+-- R4 (PFR-M1): money held at Paynow past CarUp's time, with no review: an operator can open one and settle it. Later money is
+-- reviewed, never allocated.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_m record; v_res jsonb;
+BEGIN
+  g := pg_temp.garage('r1r4');
+  PERFORM pg_temp.merchant(g, 'r1r4', '60021');
+  inv := pg_temp.invoice(g, 'r1r4', 42.00);
+  c := pg_temp.start(inv.id, 42.00, 'r1r4-key-0000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'delivered');
+  PERFORM pg_temp.expect(pg_temp.open_review_sql(c), 'PAY05_REVIEW_NOT_OPENABLE');
+  PERFORM pg_temp.expired(c);
+  PERFORM pg_temp.expect(pg_temp.release_sql(c), 'PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ');
+  PERFORM pg_temp.expect(pg_temp.open_review_sql(c, 'r1r4-admin', 'owner'), 'PAY05_REVIEW_AUTHORITY_REFUSED');
+  PERFORM pg_temp.expect(pg_temp.open_review_sql(c, 'r1-op', 'admin', 'short'), 'PAY05_REASON_REQUIRED');
+  PERFORM pay05_open_paynow_review(c, 'r1-op', 'admin', 'Paynow has held this money for days; the garage asked for a review.');
+  PERFORM pg_temp.check(pg_temp.open_disc(c, 'provider_status_unrecognized') AND pg_temp.counted(c) = 0 AND pg_temp.status(c) = 'pending', 'R4 a review, nothing counted');
+  PERFORM pg_temp.expect(pg_temp.open_review_sql(c), 'PAY05_REVIEW_NOT_OPENABLE');
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'settled_off_platform');
+  SELECT * INTO v_m FROM pay04_invoice_money(inv.id);
+  PERFORM pg_temp.check(v_m.provider_reserved = 0 AND v_m.uncommitted_balance = 42, 'R4 settled: the room is free');
+  PERFORM pg_temp.cash(g, inv.id, 42.00, 'r1r4');
+  v_res := pg_temp.read(c, 'paid', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.check(pg_temp.open_disc(c, 'provider_paid_after_close') AND pg_temp.counted(c) = 0 AND pg_temp.live_receipts(c) = 0, 'R4 later money is reviewed, never allocated');
+  RAISE NOTICE 'PAY05_R1 R4 PASS';
+END $$;
+
+-- R5 (PFR-M1): a request Paynow can no longer be read for has the same exit. Counted money and a request under its time do not.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; c2 uuid; v_m record;
+BEGIN
+  g := pg_temp.garage('r1r5');
+  PERFORM pg_temp.merchant(g, 'r1r5', '60022');
+  inv := pg_temp.invoice(g, 'r1r5', 30.00);
+  c := pg_temp.start(inv.id, 10.00, 'r1r5-key-0000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.expired(c);
+  PERFORM pg_temp.expect(pg_temp.release_sql(c), 'PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ');
+  PERFORM pay05_open_paynow_review(c, 'r1-op', 'admin', 'The merchant replaced its key, so Paynow cannot be read.');
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'settled_off_platform');
+  SELECT * INTO v_m FROM pay04_invoice_money(inv.id);
+  PERFORM pg_temp.check(v_m.provider_reserved = 0, 'R5 settled: the room is free');
+  PERFORM pg_temp.expect(pg_temp.open_review_sql(c), 'PAY05_REVIEW_NOT_OPENABLE');
+  c2 := pg_temp.start(inv.id, 20.00, 'r1r5-key-0000002');
+  PERFORM pg_temp.send_attach(c2);
+  PERFORM pg_temp.read(c2, 'paid');
+  PERFORM pg_temp.expired(c2);
+  PERFORM pg_temp.expect(pg_temp.open_review_sql(c2), 'PAY05_REVIEW_NOT_OPENABLE');
+  PERFORM pg_temp.check(pg_temp.counted(c2) = 20, 'R5 counted money is untouched');
+  RAISE NOTICE 'PAY05_R1 R5 PASS';
+END $$;
+
+-- R6 (PFR-M4): room a refund frees goes to Paynow money waiting for it, at once, with its receipt.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; a uuid; b uuid; v_m record;
+BEGIN
+  g := pg_temp.garage('r1r6');
+  PERFORM pg_temp.merchant(g, 'r1r6', '60031');
+  inv := pg_temp.invoice(g, 'r1r6', 100.00);
+  a := pg_temp.start(inv.id, 100.00, 'r1r6-key-0000001');
+  PERFORM pg_temp.send_attach(a);
+  PERFORM pg_temp.expired(a);
+  PERFORM pg_temp.read(a, 'sent');
+  PERFORM pg_temp.release(a);
+  b := pg_temp.start(inv.id, 100.00, 'r1r6-key-0000002');
+  PERFORM pg_temp.send_attach(b);
+  PERFORM pg_temp.read(b, 'paid');
+  PERFORM pg_temp.read(a, 'paid');
+  PERFORM pg_temp.check(pg_temp.counted(b) = 100 AND pg_temp.counted(a) = 0 AND pg_temp.open_disc(a, 'unallocated_provider_money'), 'R6 no room: unallocated');
+  PERFORM pg_temp.read(b, 'refunded');
+  PERFORM pg_temp.check(pg_temp.counted(b) = 0 AND pg_temp.counted(a) = 100 AND pg_temp.live_receipts(a) = 1 AND pg_temp.live_receipts(b) = 0, 'R6 the freed room counts the waiting money');
+  PERFORM pg_temp.check(NOT pg_temp.open_disc(a, 'unallocated_provider_money'), 'R6 its flag closes');
+  SELECT * INTO v_m FROM pay04_invoice_money(inv.id);
+  PERFORM pg_temp.check(v_m.provider_paid = 100 AND v_m.balance_amount = 0, 'R6 the invoice agrees');
+  RAISE NOTICE 'PAY05_R1 R6 PASS';
+END $$;
+
+-- R6b (PFR-M4): settled money stays capped when room appears; two waiting payments take only the room there is, oldest first.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; a uuid; b uuid; d uuid; e uuid; f uuid; v_m record; inv2 garage_invoices%ROWTYPE;
+BEGIN
+  g := pg_temp.garage('r1r6b');
+  PERFORM pg_temp.merchant(g, 'r1r6b', '60032');
+  inv := pg_temp.invoice(g, 'r1r6b', 50.00);
+  a := pg_temp.start(inv.id, 50.00, 'r1r6b-key-000001');
+  PERFORM pg_temp.send_attach(a);
+  PERFORM pg_temp.expired(a);
+  PERFORM pg_temp.read(a, 'sent');
+  PERFORM pg_temp.release(a);
+  b := pg_temp.start(inv.id, 50.00, 'r1r6b-key-000002');
+  PERFORM pg_temp.send_attach(b);
+  PERFORM pg_temp.read(b, 'paid');
+  PERFORM pg_temp.read(a, 'paid');
+  PERFORM pg_temp.resolve(a, 'unallocated_provider_money', 'settled_off_platform');
+  PERFORM pg_temp.read(b, 'refunded');
+  PERFORM pg_temp.check(pg_temp.counted(a) = 0 AND pg_temp.counted(b) = 0, 'R6b settled money never starts counting');
+
+  inv2 := pg_temp.invoice(g, 'r1r6b', 100.00);
+  d := pg_temp.start(inv2.id, 60.00, 'r1r6b-key-000003');
+  PERFORM pg_temp.send_attach(d);
+  PERFORM pg_temp.expired(d);
+  PERFORM pg_temp.read(d, 'sent');
+  PERFORM pg_temp.release(d);
+  e := pg_temp.start(inv2.id, 60.00, 'r1r6b-key-000004');
+  PERFORM pg_temp.send_attach(e);
+  PERFORM pg_temp.expired(e);
+  PERFORM pg_temp.read(e, 'sent');
+  PERFORM pg_temp.release(e);
+  f := pg_temp.start(inv2.id, 100.00, 'r1r6b-key-000005');
+  PERFORM pg_temp.send_attach(f);
+  PERFORM pg_temp.read(f, 'paid');
+  PERFORM pg_temp.read(d, 'paid');
+  PERFORM pg_temp.read(e, 'paid');
+  PERFORM pg_temp.read(f, 'refunded');
+  PERFORM pg_temp.check(pg_temp.counted(d) = 60 AND pg_temp.counted(e) = 40 AND pg_temp.open_disc(e, 'unallocated_provider_money') AND NOT pg_temp.open_disc(d, 'unallocated_provider_money'), 'R6b only the room there is');
+  SELECT * INTO v_m FROM pay04_invoice_money(inv2.id);
+  PERFORM pg_temp.check(v_m.provider_paid = 100, 'R6b never more than the total');
+  RAISE NOTICE 'PAY05_R1 R6b PASS';
+END $$;
+
+-- R7 (PFR-M3): a replayed message cannot use up another message's reads, and a read that shows nothing new writes no row.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; i int; v_res jsonb; v_ref text; v_pid text; v_n bigint; v_gen bigint; v_t bigint; v_at timestamptz;
+BEGIN
+  g := pg_temp.garage('r1r7');
+  PERFORM pg_temp.merchant(g, 'r1r7', '60041');
+  inv := pg_temp.invoice(g, 'r1r7', 10.00);
+  c := pg_temp.start(inv.id, 10.00, 'r1r7-key-0000001');
+  PERFORM pg_temp.send_attach(c);
+  SELECT payment_reference, provider_payment_id INTO v_ref, v_pid FROM pay04_garage_collections WHERE id = c;
+  FOR i IN 1..12 LOOP PERFORM pay05_begin_status_update_read(c, repeat('a', 64)); END LOOP;
+  PERFORM pg_temp.expect(format($q$SELECT pay05_begin_status_update_read(%L, %L)$q$, c, repeat('a', 64)), 'PAY05_STATUS_UPDATE_READS_UNAVAILABLE');
+  PERFORM pg_temp.check(pay05_begin_status_update_read(c, repeat('b', 64)) > 0, 'R7 another message has its own reads');
+  -- first sight of a message records it; the same message showing nothing new records nothing
+  v_res := pay05_apply_paynow_observation(c, 'status_update', 'evt_pn_' || left(encode(sha256(convert_to('r1r7-1', 'UTF8')), 'hex'), 40), 'paid', 'Paid', 1000, v_ref, '9510', v_pid, repeat('c', 64), pay05_begin_status_update_read(c, repeat('c', 64)));
+  PERFORM pg_temp.check((v_res->>'applied')::boolean AND pg_temp.counted(c) = 10, 'R7 applied');
+  SELECT count(*) INTO v_n FROM pay05_paynow_observations WHERE collection_id = c;
+  SELECT status_update_generation, last_read_at INTO v_gen, v_at FROM pay05_paynow_transactions WHERE collection_id = c;
+  v_t := pay05_begin_status_update_read(c, repeat('c', 64));
+  v_res := pay05_apply_paynow_observation(c, 'status_update', 'evt_pn_' || left(encode(sha256(convert_to('r1r7-2', 'UTF8')), 'hex'), 40), 'paid', 'Paid', 1000, v_ref, '9510', v_pid, repeat('c', 64), v_t);
+  PERFORM pg_temp.check((v_res->>'unchanged')::boolean AND (SELECT count(*) FROM pay05_paynow_observations WHERE collection_id = c) = v_n, 'R7 no row');
+  PERFORM pg_temp.check((SELECT status_update_generation = v_gen AND last_read_ticket = v_t AND last_read_at > v_at FROM pay05_paynow_transactions WHERE collection_id = c), 'R7 still a read: the ticket and time move, the generation does not');
+  -- another message, or another amount, is news
+  v_res := pay05_apply_paynow_observation(c, 'status_update', 'evt_pn_' || left(encode(sha256(convert_to('r1r7-3', 'UTF8')), 'hex'), 40), 'paid', 'Paid', 1000, v_ref, '9510', v_pid, repeat('d', 64), pay05_begin_status_update_read(c, repeat('d', 64)));
+  PERFORM pg_temp.check(v_res->>'unchanged' IS NULL AND (SELECT count(*) FROM pay05_paynow_observations WHERE collection_id = c) = v_n + 1, 'R7 first sight of a message records it');
+  v_res := pay05_apply_paynow_observation(c, 'status_update', 'evt_pn_' || left(encode(sha256(convert_to('r1r7-4', 'UTF8')), 'hex'), 40), 'paid', 'Paid', 900, v_ref, '9510', v_pid, repeat('c', 64), pay05_begin_status_update_read(c, repeat('c', 64)));
+  PERFORM pg_temp.check(v_res->>'unchanged' IS NULL AND pg_temp.open_disc(c, 'amount_mismatch') AND pg_temp.counted(c) = 0, 'R7 another amount is news');
+  RAISE NOTICE 'PAY05_R1 R7 PASS';
+END $$;
+
+-- R7b (PFR-M3): reads are also bounded across messages, as a second line.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; i int;
+BEGIN
+  g := pg_temp.garage('r1r7b');
+  PERFORM pg_temp.merchant(g, 'r1r7b', '60042');
+  inv := pg_temp.invoice(g, 'r1r7b', 10.00);
+  c := pg_temp.start(inv.id, 10.00, 'r1r7b-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  FOR i IN 1..60 LOOP PERFORM pay05_begin_status_update_read(c, lpad(i::text, 64, '0')); END LOOP;
+  PERFORM pg_temp.expect(format($q$SELECT pay05_begin_status_update_read(%L, %L)$q$, c, lpad('61', 64, '0')), 'PAY05_STATUS_UPDATE_READS_UNAVAILABLE');
+  PERFORM pg_temp.check(pay05_begin_paynow_read(c) > 0, 'R7b an ordinary read still works');
+  RAISE NOTICE 'PAY05_R1 R7b PASS';
+END $$;
+
+-- R9 (PFR-L5, L13): the time of the last read follows every read that repeats what CarUp holds, not the ignored ones; every
+-- attempt is timed, so a failing read keeps its pace.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v1 timestamptz; v2 timestamptz; t1 bigint; t2 bigint;
+BEGIN
+  g := pg_temp.garage('r1r9');
+  PERFORM pg_temp.merchant(g, 'r1r9', '60051');
+  inv := pg_temp.invoice(g, 'r1r9', 12.00);
+  c := pg_temp.start(inv.id, 12.00, 'r1r9-key-0000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.check((SELECT last_read_attempt_at IS NULL FROM pay05_paynow_transactions WHERE collection_id = c), 'R9 no attempt yet');
+  t1 := pay05_begin_paynow_read(c);
+  PERFORM pg_temp.check((SELECT last_read_attempt_at IS NOT NULL FROM pay05_paynow_transactions WHERE collection_id = c), 'R9 the attempt is timed before anything is read');
+  t2 := pay05_begin_paynow_read(c);
+  PERFORM pg_temp.read(c, 'delivered', NULL, t2);
+  PERFORM pg_temp.read(c, 'cancelled', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'acknowledged');
+  SELECT last_read_at INTO v1 FROM pay05_paynow_transactions WHERE collection_id = c;
+  PERFORM pg_temp.read(c, 'cancelled', NULL, pay05_begin_paynow_read(c));
+  SELECT last_read_at INTO v2 FROM pay05_paynow_transactions WHERE collection_id = c;
+  PERFORM pg_temp.check(v2 > v1, 'R9 a recorded-only read of the same word moves the time');
+  PERFORM pg_temp.read(c, 'sent', NULL, t1);
+  PERFORM pg_temp.check((SELECT last_read_at = v2 FROM pay05_paynow_transactions WHERE collection_id = c), 'R9 an ignored read does not');
+  RAISE NOTICE 'PAY05_R1 R9 PASS';
+END $$;
+
+-- R10 (PFR-L10): a person with a workforce record at the garage, though no longer a member, cannot close its reviews, release its
+-- holds or open a review on them.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_id uuid;
+BEGIN
+  g := pg_temp.garage('r1r10');
+  PERFORM pg_temp.merchant(g, 'r1r10', '60061');
+  INSERT INTO users (id, name, email, role, join_date) VALUES ('r1r10-op', 'r1r10-op', 'r1r10-op@example.invalid', 'admin', '2026-01-01');
+  INSERT INTO tenant_users (tenant_id, user_id, role) VALUES (g, 'r1r10-op', 'admin');
+  INSERT INTO garage_workforce_profiles (tenant_id, user_id, staff_code, employment_classification, employment_status, start_date, created_by_user_id)
+    VALUES (g, 'r1r10-op', 'R1R10-O', 'employee', 'active', '2026-10-01', 'r1r10-admin');
+  DELETE FROM tenant_users WHERE tenant_id = g AND user_id = 'r1r10-op';
+  inv := pg_temp.invoice(g, 'r1r10', 14.00);
+  c := pg_temp.start(inv.id, 14.00, 'r1r10-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.expired(c);
+  PERFORM pg_temp.read(c, 'sent');
+  PERFORM pg_temp.expect(pg_temp.release_sql(c, 'r1r10-op'), 'PAY05_RELEASE_SELF_DEALING_REFUSED');
+  PERFORM pg_temp.expect(pg_temp.open_review_sql(c, 'r1r10-op'), 'PAY05_REVIEW_SELF_DEALING_REFUSED');
+  PERFORM pg_temp.read(c, 'unrecognized');
+  SELECT id INTO v_id FROM pay04_garage_payment_discrepancies WHERE collection_id = c AND status = 'open';
+  PERFORM pg_temp.expect(format($q$SELECT pay04_resolve_garage_payment_discrepancy(%L, 'acknowledged', 'r1r10-op', 'admin', 'I used to work at this garage myself.')$q$, v_id), 'PAY04_RESOLUTION_SELF_DEALING_REFUSED');
+  PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'acknowledged');
+  RAISE NOTICE 'PAY05_R1 R10 PASS';
+END $$;
+
+-- R11 (PFR-L9): a canonical paid row that no longer counts and no review holds does not block a void; counted money does.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; inv2 garage_invoices%ROWTYPE; c uuid; c2 uuid; v_res jsonb;
+BEGIN
+  g := pg_temp.garage('r1r11');
+  PERFORM pg_temp.merchant(g, 'r1r11', '60071');
+  inv := pg_temp.invoice(g, 'r1r11', 15.00);
+  c := pg_temp.start(inv.id, 15.00, 'r1r11-key-000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'paid');
+  PERFORM pg_temp.read(c, 'disputed');
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r11-admin')$q$, g, inv.id), 'PAY04_INVOICE_HAS_P');
+  PERFORM pg_temp.resolve(c, 'provider_disputed', 'settled_off_platform');
+  PERFORM pg_temp.check(pg_temp.status(c) = 'paid' AND pg_temp.counted(c) = 0, 'R11 canonical paid, nothing counted');
+  PERFORM garage_ops07_void_invoice(g, inv.id, 'the customer changed their mind', 'r1r11-admin');
+  PERFORM pg_temp.check((SELECT status = 'voided' FROM garage_invoices WHERE id = inv.id), 'R11 voided');
+  v_res := pg_temp.read(c, 'paid', NULL, pay05_begin_paynow_read(c));
+  PERFORM pg_temp.check(pg_temp.counted(c) = 0 AND pg_temp.live_receipts(c) = 0, 'R11 later money never counts on a voided invoice');
+  inv2 := pg_temp.invoice(g, 'r1r11', 16.00);
+  c2 := pg_temp.start(inv2.id, 16.00, 'r1r11-key-000002');
+  PERFORM pg_temp.send_attach(c2);
+  PERFORM pg_temp.read(c2, 'paid');
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r11-admin')$q$, g, inv2.id), 'INVOICE_HAS_P');
+  RAISE NOTICE 'PAY05_R1 R11 PASS';
+END $$;
+
+-- R12 (PFR-H5): the operator's queue is chosen in the database: finished requests cannot crowd out a stuck one.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; stuck uuid; done uuid; released uuid; settled uuid; v_ids uuid[]; v_total bigint;
+BEGIN
+  g := pg_temp.garage('r1r12');
+  PERFORM pg_temp.merchant(g, 'r1r12', '60081');
+  inv := pg_temp.invoice(g, 'r1r12', 40.00);
+  done := pg_temp.start(inv.id, 10.00, 'r1r12-key-000001');
+  PERFORM pg_temp.send_attach(done);
+  PERFORM pg_temp.read(done, 'paid');
+  PERFORM pg_temp.expired(done);
+  released := pg_temp.start(inv.id, 10.00, 'r1r12-key-000002');
+  PERFORM pg_temp.send_attach(released);
+  PERFORM pg_temp.expired(released);
+  PERFORM pg_temp.read(released, 'sent');
+  PERFORM pg_temp.release(released);
+  settled := pg_temp.start(inv.id, 10.00, 'r1r12-key-000003');
+  PERFORM pg_temp.send_attach(settled);
+  PERFORM pg_temp.read(settled, 'unrecognized');
+  PERFORM pg_temp.expired(settled);
+  PERFORM pg_temp.resolve(settled, 'provider_status_unrecognized', 'settled_off_platform');
+  stuck := pg_temp.start(inv.id, 10.00, 'r1r12-key-000004');
+  PERFORM pg_temp.send_attach(stuck);
+  PERFORM pg_temp.expired(stuck);
+  SELECT array_agg(collection_id), max(total) INTO v_ids, v_total FROM pay05_held_collection_ids(500);
+  PERFORM pg_temp.check(stuck = ANY (v_ids) AND NOT (done = ANY (v_ids)) AND NOT (released = ANY (v_ids)) AND NOT (settled = ANY (v_ids)), 'R12 what is held, and only that');
+  PERFORM pg_temp.check(v_total = array_length(v_ids, 1), 'R12 the total is reported');
+  PERFORM pg_temp.check((SELECT collection_id FROM pay05_held_collection_ids(1)) = v_ids[1] AND (SELECT total FROM pay05_held_collection_ids(1)) = v_total, 'R12 the limit keeps the oldest and the total stays true');
+  RAISE NOTICE 'PAY05_R1 R12 PASS';
 END $$;
 
 DO $$

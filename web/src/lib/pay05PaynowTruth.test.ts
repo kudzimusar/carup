@@ -18,7 +18,7 @@ const outcome = (state: string, over: Partial<PaynowView>): PaynowOutcome => ({
 })
 const MONEY_WORDS = ['awaiting_delivery', 'delivered', 'paid', 'disputed'] as const
 const NOT_COUNTED_STATES = ['awaiting_provider', 'at_paynow', 'stopping', 'expired', 'released', 'settled_outside', 'not_counted', 'closed_not_counted',
-  'stopped', 'cancelled', 'under_review', 'confirmed_unallocated', 'refunded']
+  'stopped', 'cancelled', 'under_review', 'confirmed_unallocated', 'refunded', 'reviewed_held', 'no_longer_needed', 'closed_live', 'confirmed_partial']
 
 describe('ICR-W3: "Paid" is said only when the money counts', () => {
   for (const state of NOT_COUNTED_STATES) {
@@ -33,6 +33,64 @@ describe('ICR-W3: "Paid" is said only when the money counts', () => {
   it('counted money says so', () => {
     expect(paynowOutcomeMessage(outcome('confirmed', { provider_status: 'paid' }), false)).toEqual({ tone: 'ok', text: expect.stringMatching(/counts on the invoice/) })
     expect(paynowStateBadge('confirmed', 'paid').label).toBe('Paid — counted on the invoice')
+  })
+})
+
+describe('The pre-final review: each state says what is true, and a closed review is not an open one', () => {
+  it('PFR-L4: a word from a review that has closed does not say "until the review ends"', () => {
+    for (const state of ['reviewed_held', 'not_counted', 'settled_outside', 'closed_not_counted']) {
+      for (const status of ['disputed', 'unrecognized', 'cancelled'] as const) {
+        expect(paynowOutcomeMessage(outcome(state, { provider_status: status }), false).text, `${state}/${status}`).not.toMatch(/until the review ends/)
+      }
+    }
+  })
+  it('PFR-L4: "nothing was charged" is said only of a closed request Paynow took no money on', () => {
+    for (const state of ['refunded', 'reviewed_held', 'not_counted', 'closed_not_counted', 'closed_live', 'no_longer_needed', 'under_review', 'settled_outside']) {
+      expect(paynowOutcomeMessage(outcome(state, { provider_status: 'cancelled' }), false).text, state).not.toMatch(/nothing was charged/i)
+      expect(paynowStatusLine(state, view({ provider_status: 'cancelled', provider_status_label: 'From the server' }), 'garage'), state).not.toMatch(/nothing was charged/i)
+    }
+    expect(paynowOutcomeMessage(outcome('stopped', { provider_status: 'cancelled' }), false).text).toMatch(/nothing was charged/i)
+    expect(paynowOutcomeMessage(outcome('refunded', { provider_status: 'cancelled' }), false).text).toMatch(/refunded/i)
+  })
+  it('PFR-H2: reviewed and held: not counted, reserved, and no invitation to complete it', () => {
+    const m = paynowOutcomeMessage(outcome('reviewed_held', { provider_status: 'cancelled' }), false)
+    expect(m.tone).toBe('warn')
+    expect(m.text).toMatch(/does not count it/)
+    expect(m.text).toMatch(/stays reserved/)
+    expect(paynowStateBadge('reviewed_held', 'cancelled').label).toBe('Reviewed — not counted')
+    expect(paynowStatusLine('reviewed_held', view({ provider_status: 'cancelled' }), 'garage')).toMatch(/does not count it/)
+    expect(paynowContinuable('reviewed_held', view({ provider_status: 'sent' }))).toBe(false)
+  })
+  it('PFR-H4: a request the invoice no longer needs is not one to complete', () => {
+    const m = paynowOutcomeMessage(outcome('no_longer_needed', { provider_status: 'sent' }), false)
+    expect(m.text).toMatch(/do not complete/i)
+    expect(paynowStateBadge('no_longer_needed', 'sent').label).toBe('No longer needed')
+    expect(paynowStatusLine('no_longer_needed', view({ provider_status: 'sent' }), 'garage')).not.toMatch(/waiting/i)
+    expect(paynowContinuable('no_longer_needed', view({ provider_status: 'sent', needs_otp: true }))).toBe(false)
+  })
+  it('PFR-M5: a closed request never reads as waiting, for anyone', () => {
+    for (const state of ['stopped', 'cancelled', 'closed_live']) {
+      for (const status of [null, 'created', 'sent'] as const) {
+        const line = paynowStatusLine(state, view({ provider_status: status, provider_status_label: 'From the server' }), 'garage')
+        expect(line, `${state}/${status}`).not.toMatch(/waiting/i)
+        expect(paynowContinuable(state, view({ provider_status: status, needs_otp: true })), `${state}/${status}`).toBe(false)
+      }
+    }
+    expect(paynowOutcomeMessage(outcome('closed_live', { provider_status: null }), false).text).toMatch(/do not approve/i)
+    expect(paynowStateBadge('closed_live', null).label).toBe('Closed — Paynow may still have it')
+  })
+  it('PFR-L3: part counted says part', () => {
+    const m = paynowOutcomeMessage(outcome('confirmed_partial', { provider_status: 'paid' }), false)
+    expect(m.tone).toBe('warn')
+    expect(m.text).toMatch(/part of it counts/i)
+    expect(paynowStateBadge('confirmed_partial', 'paid').label).toBe('Part counted — the rest under review')
+    expect(paynowStatusLine('confirmed_partial', view({ provider_status: 'paid' }), 'garage')).toMatch(/part of it counts/i)
+  })
+  it('every state has a tone', () => {
+    for (const state of ['reviewed_held', 'no_longer_needed', 'closed_live', 'confirmed_partial'] as ProviderPaymentState[]) expect(PROVIDER_STATE_TONE[state]).toBeTruthy()
+  })
+  it('the operator\'s review refusals have words', () => {
+    for (const code of ['PAY05_REVIEW_NOT_OPENABLE', 'PAY05_REVIEW_AUTHORITY_REFUSED', 'PAY05_REVIEW_SELF_DEALING_REFUSED']) expect(pay05ErrorText(code)).not.toMatch(/did not go through/)
   })
 })
 

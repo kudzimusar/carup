@@ -12,7 +12,7 @@ import { fixedHeightClasses } from '@/test/controlFit'
 const api = {
   fetchPaynowMerchants: vi.fn(), verifyPaynowMerchant: vi.fn(), rejectPaynowMerchant: vi.fn(), suspendPaynowMerchant: vi.fn(),
   setPaynowAvailability: vi.fn(), fetchPaynowProviderErrors: vi.fn(), fetchPaynowHeldCollections: vi.fn(), releasePaynowHold: vi.fn(),
-  reconcilePaynowCollection: vi.fn(),
+  reconcilePaynowCollection: vi.fn(), openPaynowReview: vi.fn(),
 }
 vi.mock('@/hooks/useCarUpApi', () => ({ useCarUpApi: () => api }))
 const { default: PaynowOperatorPanel } = await import('./PaynowOperatorPanel')
@@ -203,6 +203,51 @@ describe('Paynow operator panel', () => {
     expect(await screen.findByTestId('paynow-op-errors')).toHaveTextContent('failed Paynow’s signature check')
     expect(screen.getByTestId('paynow-op-availability-toggle')).toBeDisabled()
     expect(screen.getByTestId('paynow-op-availability')).toHaveTextContent('Real Paynow: off')
+  })
+})
+
+describe('PFR-M1: a request nothing else can move has an exit', () => {
+  it('opens a review with a reason; the result is said; the button is there only when the database would allow it', async () => {
+    api.fetchPaynowHeldCollections.mockResolvedValue({ held: [{ ...held, state: 'at_paynow', can_release: false, can_open_review: true,
+      release_blocked_reason: 'Paynow reports money on this request. If that never changes, open a review.' }] })
+    api.openPaynowReview.mockResolvedValue({ opened: {} })
+    render(<PaynowOperatorPanel />)
+    const row = await screen.findByTestId('paynow-op-held')
+    expect(within(row).queryByTestId('paynow-op-release')).toBeNull()
+    const open = within(row).getByTestId('paynow-op-open-review')
+    expect(open).toBeDisabled()
+    fireEvent.change(within(row).getByLabelText(/reason to open a review/i), { target: { value: 'Paynow has held this money for days.' } })
+    expect(open).toBeEnabled()
+    fireEvent.click(open)
+    await waitFor(() => expect(api.openPaynowReview).toHaveBeenCalledWith('c1', 'Paynow has held this money for days.'))
+    expect(await screen.findByText(/review opened/i)).toBeInTheDocument()
+  })
+  it('a release that may work stays the first action; the review is offered beside it', async () => {
+    api.fetchPaynowHeldCollections.mockResolvedValue({ held: [{ ...held, can_open_review: true }] })
+    render(<PaynowOperatorPanel />)
+    const row = await screen.findByTestId('paynow-op-held')
+    expect(within(row).getByTestId('paynow-op-release')).toBeInTheDocument()
+    expect(within(row).getByTestId('paynow-op-open-review')).toBeInTheDocument()
+  })
+  it('no review is offered when the database would refuse it', async () => {
+    api.fetchPaynowHeldCollections.mockResolvedValue({ held: [{ ...held, can_open_review: false }] })
+    render(<PaynowOperatorPanel />)
+    const row = await screen.findByTestId('paynow-op-held')
+    expect(within(row).queryByTestId('paynow-op-open-review')).toBeNull()
+  })
+})
+
+describe('PFR-H5: the queue says when it shows only part', () => {
+  it('names how many there are when more are held than shown', async () => {
+    api.fetchPaynowHeldCollections.mockResolvedValue({ held: [held], held_total: 240 })
+    render(<PaynowOperatorPanel />)
+    expect(await screen.findByTestId('paynow-op-held-more')).toHaveTextContent('240')
+  })
+  it('says nothing extra when everything is shown', async () => {
+    api.fetchPaynowHeldCollections.mockResolvedValue({ held: [held], held_total: 1 })
+    render(<PaynowOperatorPanel />)
+    await screen.findByTestId('paynow-op-held')
+    expect(screen.queryByTestId('paynow-op-held-more')).toBeNull()
   })
 })
 

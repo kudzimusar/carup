@@ -157,6 +157,11 @@ export async function loadProviderParts(db, invoiceIds, { payerUserId = null, in
   const paynowIds = rows.filter((c) => c.gateway === PAY05_GATEWAY).map((c) => c.id);
   const paynowModule = paynowIds.length ? await paynowService() : null;
   const paynow = paynowModule ? await paynowModule.paynowDetails(db, paynowIds, { customer: Boolean(payerUserId) }) : new Map();
+  // PAY-05: what an invoice still owes decides whether a request holding room is still one to complete (PAY-05-R1, PFR-H4)
+  const owedByInvoice = new Map();
+  for (const invoiceId of new Set(rows.filter((c) => c.gateway === PAY05_GATEWAY && paymentByRef.get(c.payment_reference)?.status === 'pending').map((c) => c.invoice_id))) {
+    owedByInvoice.set(invoiceId, (await invoiceMoney(db, invoiceId))?.balance_amount ?? null);
+  }
   const openByCollection = new Map();
   for (const d of list(discrepancies).filter((x) => x.status === 'open')) {
     openByCollection.set(d.collection_id, [...(openByCollection.get(d.collection_id) || []), d]);
@@ -169,7 +174,7 @@ export async function loadProviderParts(db, invoiceIds, { payerUserId = null, in
     // PAY-05: Paynow cannot cancel or expire a request, and what counts is what was counted (PAY-05-R1, ICR-W1, W3)
     const isPaynow = c.gateway === PAY05_GATEWAY;
     const counted = list(receipts).find((r) => r.collection_id === c.id && r.status === 'issued')?.amount ?? 0;
-    const state = isPaynow ? paynowModule.paynowCollectionState(c, payment, paynow.get(c.id) ?? null, { openDiscrepancies: open, counted })
+    const state = isPaynow ? paynowModule.paynowCollectionState(c, payment, paynow.get(c.id) ?? null, { openDiscrepancies: open, counted, owed: owedByInvoice.get(c.invoice_id) ?? null })
       : collectionState(c, payment, { openDiscrepancies: open });
     const stateLabel = isPaynow ? paynowModule.PAYNOW_STATE_LABELS[state] : STATE_LABELS[state];
     const view = {
@@ -441,7 +446,7 @@ export async function cancelCustomerCollection({ db = defaultDb, env = process.e
   const collection = await loadCollection(db, collectionId);
   if (collection.payer_user_id !== userId) throw new Pay04Error('PAY04_COLLECTION_NOT_FOUND', 404);
   return forCustomer(await cancelCollection(db, env, provider, collection, userId,
-    pay04Reason(body.reason ?? 'Stopped by the customer', { min: 3 })));
+    pay04Reason(body.reason ?? 'Stopped by the customer', { min: 3 }), { customer: true }));
 }
 
 /**
@@ -450,10 +455,10 @@ export async function cancelCustomerCollection({ db = defaultDb, env = process.e
  * stopped it and why, and the fresh provider read (closed, unpaid) releases the room. A collection that never reached the
  * provider closes at once in the database.
  */
-async function cancelCollection(db, env, provider, collection, actorUserId, reason) {
+async function cancelCollection(db, env, provider, collection, actorUserId, reason, { customer = false } = {}) {
   if (collection.gateway === PAY05_GATEWAY) {
     // PAY-05: Paynow cannot cancel a request — the stop is recorded and the room stays held until Paynow says it closed
-    return (await paynowService()).cancelPaynowCollection({ db, env, collection, actorUserId, reason });
+    return (await paynowService()).cancelPaynowCollection({ db, env, collection, actorUserId, reason, customer });
   }
   const record = () => rpc(db, 'pay04_cancel_garage_collection', { p_collection_id: collection.id, p_actor_user_id: actorUserId, p_reason: reason });
   let result = null;

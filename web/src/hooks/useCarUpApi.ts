@@ -3038,8 +3038,10 @@ export function useCarUpApi() {
     request<PaynowAvailability>('/pay05/admin/availability', { method: 'PUT', body: JSON.stringify({ available, note }) }), [request])
   const fetchPaynowProviderErrors = useCallback(async (): Promise<{ errors: PaynowProviderError[] }> =>
     request<{ errors: PaynowProviderError[] }>('/pay05/admin/provider-errors', { method: 'GET' }), [request])
-  const fetchPaynowHeldCollections = useCallback(async (): Promise<{ held: PaynowHeldCollection[] }> =>
-    request<{ held: PaynowHeldCollection[] }>('/pay05/admin/held-collections', { method: 'GET' }), [request])
+  const fetchPaynowHeldCollections = useCallback(async (): Promise<{ held: PaynowHeldCollection[]; held_total?: number }> =>
+    request<{ held: PaynowHeldCollection[]; held_total?: number }>('/pay05/admin/held-collections', { method: 'GET' }), [request])
+  const openPaynowReview = useCallback(async (collectionId: string, reason: string) =>
+    request<Record<string, unknown>>(`/pay05/admin/collections/${encodeURIComponent(collectionId)}/open-review`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
   const releasePaynowHold = useCallback(async (collectionId: string, reason: string) =>
     request<Record<string, unknown>>(`/pay05/admin/collections/${encodeURIComponent(collectionId)}/release-hold`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
   const reconcilePaynowCollection = useCallback(async (collectionId: string): Promise<PaynowOutcome> =>
@@ -4072,6 +4074,7 @@ export function useCarUpApi() {
     fetchPaynowProviderErrors,
     fetchPaynowHeldCollections,
     releasePaynowHold,
+    openPaynowReview,
     reconcilePaynowCollection,
     verifyGarageInvoicePayment,
     cancelGarageInvoicePayment,
