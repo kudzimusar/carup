@@ -212,6 +212,7 @@ export default function DealerDashboard(){
                 ['Manage real business, buyer and warranty terms','/dealers/operating-details'],
                 ['Plan and billing readiness','/dealers/billing'],
                 ['Staff membership and invitations','/dealers/staff'],
+                ['Actual tenant vehicle inventory','/dealers/stock'],
                 ['Manage canonical inventory','/dealer/inventory'],['Buyer inquiries','/dealer/leads'],
                 ['Dealer intelligence','/dealer/analytics'],['Document review','/dealer/evidence'],
               ].map(([label,url])=><Link key={url} className="flex items-center gap-2 text-blue-700 font-medium text-sm hover:underline" to={url}>
