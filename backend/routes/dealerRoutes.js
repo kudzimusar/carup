@@ -28,6 +28,10 @@ import {listMyOperationalDeclarations,recordMyOperationalDeclaration}
   from '../services/dealer/dealerOperationalDeclarationsService.js';
 import {getDealerCommercialReadiness}
   from '../services/dealer/dealerCommercialReadinessService.js';
+import {
+  listCanonicalDealerStaff,inviteDealerStaff,listOwnDealerStaffInvitations,
+  acceptDealerStaffInvitation,revokeDealerStaffInvitation,
+} from '../services/dealer/dealerStaffMembershipService.js';
 import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   createOrUpdateProfile,
@@ -193,6 +197,59 @@ router.get('/api/dealer/commercial-readiness',authorizeSessionRole([]),async(req
   try{
     const readiness=await getDealerCommercialReadiness(req.userContext);
     res.set('Cache-Control','no-store').json({readiness});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+
+// C16: Existing CarUp account required; no phantom user, provider email,
+// owner/admin promotion, global role change or branch permissions from an invite.
+router.get('/api/dealer/operational-staff',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const staff=await listCanonicalDealerStaff(req.userContext);
+    res.set('Cache-Control','no-store').json({staff});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+router.post('/api/dealer/staff-invitations',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const receipt=await inviteDealerStaff(req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(202).json({receipt});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+router.get('/api/dealer/staff-invitations/mine',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const invitations=await listOwnDealerStaffInvitations(req.userContext);
+    res.set('Cache-Control','no-store').json({invitations});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+router.post('/api/dealer/staff-invitations/:id/accept',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const receipt=await acceptDealerStaffInvitation(req.userContext,req.params.id);
+    res.set('Cache-Control','no-store').status(201).json({receipt});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+router.post('/api/dealer/staff-invitations/:id/revoke',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const receipt=await revokeDealerStaffInvitation(req.userContext,req.params.id);
+    res.set('Cache-Control','no-store').status(200).json({receipt});
   }catch(error){
     if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
       return res.status(error.statusCode).json({error:error.message});
