@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import ExcelJS from 'exceljs';
 import {
   parseResearchWorkbook, assertLocalDatabase, SOURCE_TABS,
-  DEV_TABS, ORIGINAL_HEADERS, commitCandidatesLocal,
+  DEV_TABS, ORIGINAL_HEADERS, commitCandidatesLocal, analyzeResearchIdentitySignals,
 } from '../scripts/dealership/importResearchSeed.mjs';
 
 function stubRow(number, values = []) {
@@ -63,6 +63,45 @@ test('S01 synthetic: exactly 104 source-qualified rows never create legal/public
   assert.equal(records.at(-1).seed_dealer_id, 'ZW-DEAL-0104');
   assert.equal(records.every(r => r.public_profile_state === 'NOT_PUBLISHED'), true);
   assert.equal(records.every(r => r.publication_eligibility === 'PENDING_HUMAN_SOURCE_ELIGIBILITY'), true);
+});
+
+test('S03/04 exact name/address conflicts and parent hints are review signals, never legal merges',()=>{
+  const fixture = (id,name,address,parent) => ({
+    seed_dealer_id:id,
+    source_snapshot:{
+      'Dealer / Company Name':name,'Physical Address':address,
+      'City / Town':'Harare',
+      'Ownership / Parent Company / Key Principal':parent,
+      'Phone / WhatsApp':'RESTRICTED',
+      'Email':'staff@example.invalid',
+    },
+  });
+  const rows=[
+    fixture('ZW-DEAL-0001','Synthetic Alpha Dealer','Test Street 10','Private Parent A'),
+    fixture('ZW-DEAL-0002',' synthetic alpha  dealer ','TEST STREET 10','Private Parent A'),
+    fixture('ZW-DEAL-0003','Synthetic Subsidiary','Other Street','Private Parent A'),
+    fixture('ZW-DEAL-0004','Unrelated Dealer','Third Street','Private'),
+  ];
+  const review=analyzeResearchIdentitySignals(rows);
+  assert.equal(review.potential_duplicate_pairs,1);
+  assert.deepEqual(review.duplicate_signals[0].signals,
+    ['EXACT_ADDRESS_CITY','EXACT_NAME_CITY']);
+  assert.deepEqual(review.duplicate_signals[0].seed_ids,['ZW-DEAL-0001','ZW-DEAL-0002']);
+  assert.equal(review.repeated_parent_branch_hint_groups,1);
+  assert.equal(review.largest_unverified_hint_group,3);
+  assert.equal(review.auto_merged_legal_entities,0);
+  assert.equal(review.automatic_publication_decisions,0);
+  assert.equal(review.source_parent_personal_details_returned,false);
+  assert.equal(JSON.stringify(review).includes('Private Parent A'),false);
+  assert.equal(JSON.stringify(review).includes('staff@example.invalid'),false);
+});
+test('S03 source row parser preserves all 104 pending and emits only non-authoritative grouping observations',()=>{
+  const {records,summary}=parseResearchWorkbook(mockWorkbook(),'a'.repeat(64));
+  assert.equal(records.length,104);
+  assert.equal(summary.identity_review_signals.requires_independent_review,true);
+  assert.equal(summary.identity_review_signals.auto_merged_legal_entities,0);
+  assert.equal(summary.identity_review_signals.automatic_publication_decisions,0);
+  assert.equal(summary.public_eligibility_reviewed,0);
 });
 
 test('S05 counterfeit source-category cannot be silently promoted to OEM badge', () => {
