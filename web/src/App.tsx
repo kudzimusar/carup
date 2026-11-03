@@ -23,6 +23,7 @@ import VehicleDetail from './pages/VehicleDetail'
 import VehicleSearch from './pages/VehicleSearch'
 import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
+import DealerResearchProfile from './pages/DealerResearchProfile'
 import GarageDirectory from './pages/GarageDirectory'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
@@ -256,6 +257,8 @@ export default function App() {
           <Route path="/search" element={<VehicleSearch />} />
           <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
+          <Route path="/dealers/:seedId" element={<DealerResearchProfile />} />
+          <Route path="/dealers/:seedId/claim" element={<DealerResearchProfile claimMode />} />
           <Route path="/garages" element={<GarageDirectory />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
