@@ -60,6 +60,74 @@ export function textCell(row, index) {
   return String(value).trim();
 }
 
+/**
+ * D0/D4: collision signals from private source candidates, not legal matching.
+ * Never use these hints to auto-merge organizations, publish a profile, prove
+ * parent/branch authority or expose raw private owner/contact fields.
+ */
+export function analyzeResearchIdentitySignals(records) {
+  if (!Array.isArray(records)) throw new Error('Research candidates required');
+  const comparisonSets = new Map();
+  const parentHints = new Map();
+  const norm = value => String(value ?? '')
+    .normalize('NFKC').trim().toLocaleLowerCase('en')
+    .replace(/\s+/g,' ');
+  const add = (key,id) => {
+    const group=comparisonSets.get(key)||[];
+    group.push(id);comparisonSets.set(key,group);
+  };
+  for (const record of records) {
+    if (!/^ZW-DEAL-\d{4}$/.test(record?.seed_dealer_id))
+      throw new Error('Invalid seed identity in source grouping analysis');
+    const source=record.source_snapshot||{};
+    const city=norm(source['City / Town']);
+    const name=norm(source['Dealer / Company Name']);
+    const address=norm(source['Physical Address']);
+    const parent=norm(source['Ownership / Parent Company / Key Principal']);
+    if (name&&city)add('EXACT_NAME_CITY|'+name+'|'+city,record.seed_dealer_id);
+    if (address&&city)add('EXACT_ADDRESS_CITY|'+address+'|'+city,record.seed_dealer_id);
+    // "Private" alone is not a group and a self-declared parent is never a
+    // legally confirmed entity. Keep hints as counts, not raw principal PII.
+    if (parent&&parent!=='private'){
+      const members=parentHints.get(parent)||new Set();
+      members.add(record.seed_dealer_id);
+      parentHints.set(parent,members);
+    }
+  }
+  const evidence=new Map();
+  for (const [key,ids] of comparisonSets) {
+    if (ids.length<2)continue;
+    const signal=key.startsWith('EXACT_NAME_CITY|')?
+      'EXACT_NAME_CITY':'EXACT_ADDRESS_CITY';
+    for (let i=0;i<ids.length;i++){
+      for (let j=i+1;j<ids.length;j++){
+        const pair=[ids[i],ids[j]].sort();
+        const token=pair.join(':');
+        const signals=evidence.get(token)||new Set();
+        signals.add(signal);
+        evidence.set(token,signals);
+      }
+    }
+  }
+  const duplicateSignals=[...evidence.entries()].map(([pair,signals])=>({
+    seed_ids:pair.split(':'),signals:[...signals].sort(),
+    review_state:'NEEDS_INDEPENDENT_IDENTITY_REVIEW',
+    legal_duplicate_verified:false,
+  })).sort((a,b)=>a.seed_ids.join(':').localeCompare(b.seed_ids.join(':')));
+  const multiMemberHints=[...parentHints.values()]
+    .filter(members=>members.size>1).map(members=>members.size);
+  return Object.freeze({
+    potential_duplicate_pairs:duplicateSignals.length,
+    duplicate_signals:duplicateSignals,
+    repeated_parent_branch_hint_groups:multiMemberHints.length,
+    largest_unverified_hint_group:Math.max(0,...multiMemberHints),
+    auto_merged_legal_entities:0,
+    automatic_publication_decisions:0,
+    requires_independent_review:true,
+    source_parent_personal_details_returned:false,
+  });
+}
+
 export function parseResearchWorkbook(workbook, workbookSha256) {
   const expectedTabs = [...SOURCE_TABS, ...DEV_TABS];
   const names = workbook.worksheets.map(sheet => sheet.name);
@@ -134,6 +202,7 @@ export function parseResearchWorkbook(workbook, workbookSha256) {
   }
   if (textCell(source.getRow(112), 11)) fail('unexpected 105th source ID after row 111');
   if (textCell(dev8.getRow(106), 1)) fail('unexpected 105th DEV 8 seed ID');
+  const groupingSignals=analyzeResearchIdentitySignals(records);
   return { records, summary: {
     workbook_sha256: workbookSha256, source_range: 'Car Dealers Database!A8:K111',
     seed_catalogue_range: 'DEV 8 - Seed Catalogue!A2:U105',
@@ -141,6 +210,7 @@ export function parseResearchWorkbook(workbook, workbookSha256) {
     public_eligibility_reviewed: 0, published_prelistings: 0,
     category_counts: Object.fromEntries(categoryCounts), cities: Object.fromEntries(cities),
     contacts_publicly_authorized: false, groupings_verified: false,
+    identity_review_signals: groupingSignals,
   }};
 }
 
