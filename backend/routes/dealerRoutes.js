@@ -27,6 +27,7 @@ import {
   getProfile,
   listProfiles,
   addBranch,
+  listBranches,
   listRequirements,
   uploadDocument,
   recordDecision,
@@ -68,6 +69,15 @@ router.get('/api/dealer/profile', authorizeRole(DEALER_ROLES), async (req, res, 
   } catch (err) {
     next(err);
   }
+});
+
+router.get('/api/dealer/branches', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
+  try {
+    const profile = await ownProfileOr404(req, res);
+    if (!profile) return;
+    const branches = await listBranches(profile.id);
+    res.set('Cache-Control', 'no-store').json({ branches });
+  } catch (error) { next(error); }
 });
 
 router.post('/api/dealer/branches', authorizeRole(DEALER_ROLES), async (req, res, next) => {
