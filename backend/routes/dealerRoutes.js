@@ -21,7 +21,7 @@
  */
 import express from 'express';
 import dealerResearchRouter from './dealerResearchRoutes.js';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   createOrUpdateProfile,
   getProfile,
@@ -106,7 +106,7 @@ router.post('/api/dealer/documents', authorizeRole(DEALER_ROLES), async (req, re
 
 // ── admin oversight ─────────────────────────────────────────────────────────────────
 
-router.get('/api/admin/dealers', authorizeRole(ADMIN_ROLES), async (req, res, next) => {
+router.get('/api/admin/dealers', authorizeSessionRole(ADMIN_ROLES), async (req, res, next) => {
   try {
     // Tenant scoping: a tenant-scoped admin only sees dealers in their tenant.
     const dealers = await listProfiles({ tenantId: req.userContext?.tenantId || undefined });
@@ -116,7 +116,7 @@ router.get('/api/admin/dealers', authorizeRole(ADMIN_ROLES), async (req, res, ne
   }
 });
 
-router.get('/api/admin/dealers/:id', authorizeRole(ADMIN_ROLES), async (req, res, next) => {
+router.get('/api/admin/dealers/:id', authorizeSessionRole(ADMIN_ROLES), async (req, res, next) => {
   try {
     const profile = await getProfile(req.params.id);
     if (!profile) return res.status(404).json({ error: `Dealer not found: ${req.params.id}` });
@@ -127,8 +127,11 @@ router.get('/api/admin/dealers/:id', authorizeRole(ADMIN_ROLES), async (req, res
   }
 });
 
-router.patch('/api/admin/dealers/:id/decision', authorizeRole(ADMIN_ROLES), async (req, res, next) => {
+router.patch('/api/admin/dealers/:id/decision', authorizeSessionRole(ADMIN_ROLES), async (req, res, next) => {
   try {
+    if (!req.userContext?.isVerified) {
+      return res.status(403).json({ error: 'Independent verified reviewer session is required' });
+    }
     const result = await recordDecision(
       req.params.id,
       {
