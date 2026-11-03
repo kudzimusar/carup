@@ -1,23 +1,35 @@
+import { createHash } from 'node:crypto';
+
 /**
- * The O2-X4 fingerprint guard's one schema exception (PAY-05-R1; Moderator directive on issue #255).
+ * The O2-X4 fingerprint guard (PAY-05-R1; Moderator directive on issue #255).
  *
- * A word-level exclusion cannot tell a permitted credential digest from a prohibited column of the same name in the same file.
- * The exception is therefore one schema node (this table, this exact column declaration, this file) and, in the two files that may
- * touch that column, a closed list of reviewed lines. Nothing rests on parsing SQL: a line that names a fingerprint and is not on
- * that list is a violation, however it is spelled. Only a whole-line comment is exempt. The declaration scanner below only
- * names the common cases more precisely, and catches Trust's name being declared.
+ * "Fingerprint" appears in a few SQL files with meanings that have nothing to do with biometrics. A word-level exclusion cannot tell
+ * those from a prohibited column of the same name, and neither can a rule about single lines: the independent O2 reviews moved reviewed
+ * lines to build a real column, and hid SQL behind a line that only looks like a comment. So nothing here parses SQL, and no spelling,
+ * comment or name is exempt. A file that names a fingerprint anywhere is allowed only if it is on this closed list, byte for byte.
  *
- * This guards biometric storage. It does not describe biometric architecture, which it leaves alone.
+ * Adding or changing an entry is a deliberate review: read every mention, and say what it means. This guards biometric storage.
+ * It does not describe biometric architecture, which it leaves alone.
  */
+export const REVIEWED_FINGERPRINT_FILES = Object.freeze({
+  'database/migrations/002_multi_tenant_and_auth_schema.sql': Object.freeze({ sha256: '6de3590a9a97396f4975ccad2abf2f907752fe77c82075e2745ae75351710dc4', meaning: 'A trusted device identifier, not a body measurement.' }),
+  'database/migrations/20260817090000_issue164_phase0_flagged_table_containment.sql': Object.freeze({ sha256: 'b30adeeda3add2d5886fb362e57acda761b3bd7d1e0d1ec9fbdb106010b9de4b', meaning: 'Comments naming that device identifier.' }),
+  'database/migrations/20260826120000_email_1_0_hardening.sql': Object.freeze({ sha256: 'bf8c1cbfbec807cc2839720416521e584964457c1264bfd9ae9fa20d4ff680e0', meaning: "Trust's presentation hash, used to announce a change once." }),
+  'database/migrations/20260828120000_intelligence_recommendations.sql': Object.freeze({ sha256: 'a6c8dc2acc029b8bf0ed75c4fa40d6e8774d36904380b99598a2dbb174c5ce13', meaning: 'A hash of the evidence behind a recommendation.' }),
+  'database/migrations/20261004180600_service_network_o4_event_dedupe.sql': Object.freeze({ sha256: '1a63283d48d0dc972cee4a54ab02e4b9c794d9e0aba35fd92407a321f650e962', meaning: "Reads Trust's presentation hash to deduplicate events." }),
+  'database/migrations/20261024140000_garage_communications_events_and_template.sql': Object.freeze({ sha256: '13110aa284a62e281e2f4e20e4069738e501c58030e359a8a93d4a18f2430847', meaning: "Reads Trust's presentation hash to deduplicate events." }),
+  'database/migrations/20261102110000_carup_pay04_garage_provider_payments.sql': Object.freeze({ sha256: '95b9ae12bd7c5da17bfdcc72807c607b29b9ca2e16689857885c655a132b2848', meaning: 'One comment: a function body certified by comparison.' }),
+  'database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql': Object.freeze({ sha256: '75b16ae8097e6ddfc1a0b113b1ad8b68ba5336952b63f62137c45836576389a4', meaning: 'The approved node below: a 16-hex digest of a Paynow key.' }),
+  'database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql': Object.freeze({ sha256: '06c9ae227a2b41b6f3a643dbf7383f99a5770eacb89c5e4a7b0396820a07cc9d', meaning: 'Only reads and copies that digest.' }),
+});
+
+/** The one approved schema node: the reviewed files hold exactly this declaration of a fingerprint for a Paynow key, on this table, once. */
 export const APPROVED_KEY_DIGEST = Object.freeze({
-  file: '20261103100000_carup_pay05_zimbabwe_paynow_collections.sql',
+  file: 'database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql',
   table: 'public.pay05_merchant_integrations',
   declaration: "credential_fingerprint text NOT NULL CHECK (credential_fingerprint ~ '^[0-9a-f]{16}$')",
 });
-/**
- * Exactly the lines, whitespace-normalized, that may name the column in each reviewed file: no fewer, no more, each as often as
- * listed. Changing one is a deliberate review, here. Every one only reads or copies the 16-hex digest, a hash of a Paynow key.
- */
+/** What the two files touching that column say about it, so that a re-pin of either cannot quietly add to it. */
 export const KEY_DIGEST_REVIEWED_LINES = Object.freeze({
   [APPROVED_KEY_DIGEST.file]: Object.freeze([
     `${APPROVED_KEY_DIGEST.declaration},`,
@@ -28,7 +40,7 @@ export const KEY_DIGEST_REVIEWED_LINES = Object.freeze({
     "'methods', to_jsonb(v_int.methods), 'credential_fingerprint', v_int.credential_fingerprint));",
     "OR coalesce(p_evidence->'credential_probes'->v_int.id::text->>'credential_fingerprint', '') <> v_int.credential_fingerprint THEN",
   ]),
-  '20261104100000_carup_pay05_r1_financial_integrity.sql': Object.freeze([
+  'database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql': Object.freeze([
     'OR NEW.credential_fingerprint IS DISTINCT FROM OLD.credential_fingerprint',
     "OR coalesce(v_item->'probe'->>'credential_fingerprint', '') <> coalesce(v_item->>'fingerprint', '')",
     'credential_tag, credential_key_version, credential_fingerprint, status, registered_by, registered_role, test_auth_email)',
@@ -38,114 +50,20 @@ export const KEY_DIGEST_REVIEWED_LINES = Object.freeze({
   ]),
 });
 
-const stripSqlComments = (sql) => sql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-const normalize = (text) => text.replace(/\s+/g, ' ').trim();
+/** The two biometric patterns, run on every SQL file whether or not it is reviewed. */
+export const BIOMETRIC_FINGERPRINT = /fingerprint[^\n]{0,40}(enroll|capture|template|biometric|scan)|biometric[^\n]{0,40}fingerprint|fingerprint_template/i;
+export const BIOMETRIC_TEMPLATE_STORE = /face_embedding|facial_embedding|biometric_template|face_vector|face_encoding/i;
 
-/** The offset of the parenthesis closing the one at `open`, ignoring parentheses inside string literals. */
-function closingParen(sql, open) {
-  let depth = 0;
-  let inString = false;
-  for (let i = open; i < sql.length; i += 1) {
-    const ch = sql[i];
-    if (inString) {
-      if (ch === "'") inString = false;
-    } else if (ch === "'") inString = true;
-    else if (ch === '(') depth += 1;
-    else if (ch === ')') {
-      depth -= 1;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
+const normalize = (line) => line.replace(/\s+/g, ' ').trim();
 
-/** Top-level comma-separated elements of a table body. */
-function tableElements(body) {
-  const out = [];
-  let depth = 0;
-  let inString = false;
-  let current = '';
-  for (const ch of body) {
-    if (inString) {
-      if (ch === "'") inString = false;
-    } else if (ch === "'") inString = true;
-    else if (ch === '(') depth += 1;
-    else if (ch === ')') depth -= 1;
-    if (ch === ',' && depth === 0 && !inString) { out.push(current); current = ''; } else current += ch;
-  }
-  if (current.trim()) out.push(current);
-  return out;
-}
+/** Every line naming a fingerprint, whatever surrounds it, whitespace-normalized. */
+export const fingerprintMentions = (sql) => String(sql).split('\n').filter((line) => /fingerprint/i.test(line)).map(normalize);
 
-const TABLE_CONSTRAINT = /^(constraint|primary|foreign|unique|check|exclude|like)\b/i;
-
-/**
- * Every place a schema gets something named *fingerprint*: { table, kind, text }. Scans the whole text, so a declaration inside
- * a function body or a DO block counts too.
- */
-export function fingerprintDeclarations(rawSql) {
-  const sql = stripSqlComments(rawSql);
-  const found = [];
-  for (const m of sql.matchAll(/create\s+(?:(?:global|local|temporary|temp|unlogged)\s+)*table\s+(?:if\s+not\s+exists\s+)?("?[\w.]+"?(?:\."?\w+"?)?)\s*(\(|as\b)/gi)) {
-    const table = m[1].replace(/"/g, '');
-    if (m[2].toLowerCase() === 'as') {
-      const end = sql.indexOf(';', m.index);
-      const text = sql.slice(m.index, end < 0 ? undefined : end);
-      if (/fingerprint/i.test(text)) found.push({ table, kind: 'table_from_query', text: normalize(text) });
-      continue;
-    }
-    const open = m.index + m[0].length - 1;
-    const close = closingParen(sql, open);
-    if (close < 0) { found.push({ table, kind: 'unparsed_table', text: normalize(sql.slice(m.index, m.index + 200)) }); continue; }
-    for (const element of tableElements(sql.slice(open + 1, close))) {
-      const text = normalize(element);
-      if (TABLE_CONSTRAINT.test(text)) continue;
-      const name = /^"?([\w$]+)"?/.exec(text)?.[1] ?? '';
-      if (/fingerprint/i.test(name)) found.push({ table, kind: 'column', text });
-    }
-  }
-  for (const m of sql.matchAll(/alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?("?[\w.]+"?(?:\."?\w+"?)?)([^;]*);/gi)) {
-    const table = m[1].replace(/"/g, '');
-    for (const add of m[2].matchAll(/add\s+(?:column\s+)?(?:if\s+not\s+exists\s+)?"?([\w$]*fingerprint[\w$]*)"?[^,;]*/gi)) {
-      found.push({ table, kind: 'added_column', text: normalize(add[0]) });
-    }
-    for (const rename of m[2].matchAll(/rename\s+(?:column\s+)?"?[\w$]+"?\s+to\s+"?([\w$]*fingerprint[\w$]*)"?/gi)) {
-      found.push({ table, kind: 'renamed_column', text: normalize(rename[0]) });
-    }
-  }
-  for (const m of sql.matchAll(/create\s+(?:or\s+replace\s+)?(?:temporary\s+|temp\s+)?(?:materialized\s+)?view\s+[^;]*?;/gi)) {
-    if (/fingerprint/i.test(m[0])) found.push({ table: null, kind: 'view', text: normalize(m[0]).slice(0, 200) });
-  }
-  return found;
-}
-
-const isApproved = (decl, fileName) => fileName === APPROVED_KEY_DIGEST.file && decl.kind === 'column'
-  && decl.table === APPROVED_KEY_DIGEST.table && decl.text === APPROVED_KEY_DIGEST.declaration;
-
-/**
- * Why this SQL breaks the rule, or an empty list. Line by line and fail closed: a line naming a fingerprint is allowed only if it is a
- * whole-line comment, a reviewed line of this file, or reads Trust's presentation fingerprint, the older non-biometric meaning.
- */
-export function fingerprintViolations(rawSql, fileName) {
-  const violations = [];
-  let approved = 0;
-  for (const decl of fingerprintDeclarations(rawSql)) {
-    if (isApproved(decl, fileName)) { approved += 1; continue; }
-    violations.push(`${decl.kind} on ${decl.table ?? '(view)'}: ${decl.text}`);
-  }
-  if (approved > 1) violations.push('the approved declaration appears more than once');
-  if (fileName === APPROVED_KEY_DIGEST.file && approved === 0) violations.push('the approved declaration is not on its approved table');
-  const reviewed = KEY_DIGEST_REVIEWED_LINES[fileName] ?? null;
-  const unused = reviewed ? [...reviewed] : [];
-  // PostgreSQL ends a line comment at a carriage return as well as at a newline
-  for (const line of rawSql.split(/[\r\n]+/)) {
-    const text = normalize(line);
-    if (text.startsWith('--') || !/fingerprint/i.test(text)) continue;
-    const at = unused.indexOf(text);
-    if (at >= 0) { unused.splice(at, 1); continue; }
-    if (!/fingerprint/i.test(text.replace(/\bpresentation_fingerprint\b/g, '').replace(/\bv_fingerprint\b/g, ''))) continue;
-    violations.push(`a mention of fingerprint outside the reviewed lines: ${text.slice(0, 160)}`);
-  }
-  for (const line of unused) violations.push(`a reviewed line is missing, so this file changed without review: ${line.slice(0, 160)}`);
+/** Why this file breaks the rule, or an empty list. `repoPath` is its path from the repository root; `contents` is a string or Buffer. */
+export function fingerprintViolations(contents, repoPath) {
+  const reviewed = Object.hasOwn(REVIEWED_FINGERPRINT_FILES, repoPath) ? REVIEWED_FINGERPRINT_FILES[repoPath] : null;
+  if (reviewed && createHash('sha256').update(contents).digest('hex') === reviewed.sha256) return [];
+  const violations = reviewed ? ['this reviewed file changed: review every mention again, then pin it'] : [];
+  for (const line of fingerprintMentions(contents)) violations.push(`a mention of fingerprint outside the reviewed files: ${line.slice(0, 160)}`);
   return violations;
 }
