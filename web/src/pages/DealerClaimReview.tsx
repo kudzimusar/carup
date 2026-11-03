@@ -112,6 +112,7 @@ export default function DealerClaimReview() {
     <div className="max-w-6xl mx-auto py-10">
       <Link to="/admin" className="text-blue-700 underline text-sm">Admin dashboard</Link>
       <h1 className="font-bold text-3xl mt-5">Independent dealership claim review</h1>
+      <Link to="/admin/dealer-research-review" className="text-sm text-blue-700 underline inline-block mt-3">Review the 104 private dealership research candidates</Link>
       <p className="mt-2 text-gray-600 max-w-4xl">
         Business authority is approved separately from legal compliance, operational membership,
         vehicle listings and subscription entitlements. Reviewer actions require password step-up.
