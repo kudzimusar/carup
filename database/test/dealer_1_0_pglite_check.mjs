@@ -17,6 +17,7 @@ const names=[
   '20261103123000_dealer_claim_review_and_intake_drafts.sql',
   '20261103124000_dealer_atomic_compliance_governance.sql',
   '20261103125000_dealer_profile_self_grant_hardening.sql',
+  '20261103130000_dealer_document_candidate_ocr_events.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -108,7 +109,7 @@ try{
     "SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed"
   )).rows[0].allowed,false);
 
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,13);
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,14);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -198,6 +199,32 @@ try{
     '${uuid(2)}','${outsider}','CLAIM_APPROVED',
     'Claimant falsely declares they approved their own appeal with their own original document',
     '${uuid(100)}','Company Registry','BRANCH')`,'INDEPENDENT_REVIEWER_REQUIRED');
+  // D5: OCR is candidate-only and immutable; original-custody mismatch refuses.
+  await fails(`SELECT dealer_record_candidate_document_extraction(
+    '${uuid(1)}','${uuid(100)}','${outsider}','${sha}',
+    'CANDIDATE_REVIEW','{}'::jsonb,1,'{}'::text[],'LOCAL_TESSERACT_V1')`,
+    'CANDIDATE_CLAIM_OWNERSHIP_REQUIRED');
+  const observed=await query(
+    'SELECT dealer_record_candidate_document_extraction($1,$2,$3,$4,$5,$6::jsonb,$7,$8::text[],$9) AS receipt',
+    [uuid(1),uuid(100),claimant,sha,'CANDIDATE_REVIEW',
+      JSON.stringify({legal_name:{value:'Observed Fixture Legal Co',
+        page:1,confidence:null,source:'OBSERVED_LOCAL_OCR'}}),
+      1,[], 'LOCAL_TESSERACT_V1']);
+  assert.equal(observed.rows[0].receipt.candidate_only,true);
+  assert.equal(observed.rows[0].receipt.verified,false);
+  assert.equal(observed.rows[0].receipt.legal_approval,false);
+  assert.equal(observed.rows[0].receipt.tenant_activated,false);
+  await fails("UPDATE dealer_claim_document_ocr_events SET extraction_state='UNREADABLE'",
+    'APPEND_ONLY_LEDGER');
+  await fails(`SELECT dealer_record_candidate_document_extraction(
+    '${uuid(1)}','${uuid(100)}','${claimant}','${sha}',
+    'PROVIDER_UNAVAILABLE',
+    '{"registration_number":{"value":"FAKE","page":1,"confidence":null,"source":"OBSERVED_LOCAL_OCR"}}'::jsonb,
+     1,'{}'::text[],'LOCAL_TESSERACT_V1')`,
+    'UNAVAILABLE_OCR_CANNOT_HAVE_FIELDS');
+  await exec('SET ROLE anon');
+  await fails('SELECT * FROM dealer_claim_document_ocr_events','permission denied');
+  await exec('RESET ROLE');
   // D2/C10: existing dealer compliance decisions commit ledger and effect
   // atomically, with independent verified reviewer and no applicant self-review.
   const dealerId=uuid(301);
@@ -252,7 +279,7 @@ try{
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 6 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 7 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;
