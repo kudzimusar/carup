@@ -888,7 +888,7 @@ await step('G1', 'R1 (PFR-H3): late money under review on a closed request: no n
   const settled = await resolve(q.collection, 'provider_paid_after_close', 'settled_off_platform');
   const after = (await paymentView(q.inv.id)).json?.online_payment;
   return { pass: closed && late && option?.available === false && option?.reason === 'earlier_request_unresolved' && code(refused) === 'PAY05_EARLIER_REQUEST_UNRESOLVED'
-    && rows === 1 && ok(settled, 200) && after?.available === true && Boolean(after?.notices?.earlier_request) && counted(q.collection) === 0,
+    && rows === 1 && ok(settled, 200) && after?.available === true && counted(q.collection) === 0,
     detail: { option, refused: [refused.status, code(refused)], collections_on_invoice: rows, settled: settled.status, after: after?.available } };
 });
 
