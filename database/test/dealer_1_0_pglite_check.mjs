@@ -20,6 +20,7 @@ const names=[
   '20261103130000_dealer_document_candidate_ocr_events.sql',
   '20261103131000_dealer_compliance_submission_review.sql',
   '20261103132000_dealer_canonical_activation_and_legal_gate.sql',
+  '20261103133000_dealer_research_grouping_and_public_contact.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -144,7 +145,7 @@ try{
     "SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed"
   )).rows[0].allowed,false);
 
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,20);
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,22);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -162,6 +163,43 @@ try{
   assert.equal(publicRow.public_slug,'zw-deal-0001');
   assert.match(publicRow.public_research_category,/research category/);
   await fails(`UPDATE dealer_research_publication_events SET decision='WITHHELD'`,'APPEND_ONLY_LEDGER');
+
+  // Source contact rights are separate from publication. A human reviewer
+  // chooses explicit fields, original website must be safe HTTPS, and prior
+  // version approval cannot survive a later withhold/republish decision.
+  await fails(`SELECT dealer_record_research_contact_review(
+    'ZW-DEAL-0001','${claimant}',
+    'Unverified claimant attempted to display private contacts without any independent source review approval.',
+    true,true,true,false)`,
+    'INDEPENDENT_PUBLIC_CONTACT_REVIEWER_REQUIRED');
+  await fails(`SELECT dealer_record_research_contact_review(
+    'ZW-DEAL-0001','${reviewer}',
+    'Independent reviewer requests source fields before actual business contact evidence exists in source records.',
+    true,true,true,false)`,
+    'SOURCE_ADDRESS_UNAVAILABLE_FOR_PUBLIC_REVIEW');
+  const firstContact=await query(
+    'SELECT dealer_record_research_contact_review($1,$2,$3,$4,$5,$6,$7) AS result',
+    ['ZW-DEAL-0001',reviewer,
+    'Independent reviewer checked source provenance and deliberately permits none of the source contacts for public use.',
+    false,false,false,false]);
+  assert.equal(firstContact.rows[0].result.business_verified,false);
+  const group=await query(
+    'SELECT dealer_record_research_grouping_review($1,$2,$3,$4,$5) AS result',
+    ['ZW-DEAL-0001','ZW-DEAL-0002',reviewer,'POTENTIAL_SAME_PARENT',
+    'Two research observations may be affiliated by source wording; legal parents and entity rights remain unverified.']);
+  assert.equal(group.rows[0].result.legal_parent_verified,false);
+  await fails(`SELECT dealer_record_research_grouping_review(
+    'ZW-DEAL-0001','ZW-DEAL-0001','${reviewer}',
+    'POTENTIAL_SAME_PARENT',
+    'Self-referencing a researched dealership would corrupt identity relationships and must be rejected.')`,
+    'SELF_GROUPING_REFUSED');
+  await fails('DELETE FROM dealer_research_grouping_review_events','APPEND_ONLY_LEDGER');
+  await fails('UPDATE dealer_research_public_contact_events SET public_contact_state=\'RETRACTED\'',
+    'APPEND_ONLY_LEDGER');
+  const noContact=await query('SELECT public_address,public_business_phone,public_website FROM dealer_research_public_contact_events');
+  assert.equal(noContact.rows[0].public_address,null);
+  assert.equal(noContact.rows[0].public_business_phone,null);
+
   // Research review does not change company compliance or create roles.
   assert.equal((await query("SELECT count(*)::int AS n FROM dealer_research_claim_requests")).rows[0].n,0);
   await exec(`
@@ -509,7 +547,7 @@ try{
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 9 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 10 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;
