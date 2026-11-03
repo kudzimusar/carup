@@ -64,6 +64,45 @@ export async function listFullStorefrontReviewQueue(actor){
     can_publish_without_independent_review:false,
   }));
 }
+export async function previewFullStorefrontCandidate(seed,actor,password){
+  const id=seedId(seed);
+  requireIndependentReviewer(actor,'');
+  const {data:link,error:linkError}=await supabase.from('dealer_approved_seed_links')
+    .select('link_id,claimant_user_id,dealer_profile_id,tenant_id,operating_status')
+    .eq('seed_dealer_id',id).maybeSingle();
+  if(linkError)throw deny('FULL_STOREFRONT_CANDIDATE_LOOKUP_UNAVAILABLE',503);
+  if(!link)throw deny('APPROVED_DEALER_NOT_FOUND',404);
+  requireIndependentReviewer(actor,link.claimant_user_id);
+  await requireReviewerPassword(actor,{claimant_user_id:link.claimant_user_id},password);
+  const [branchesResult,declaredResult]=await Promise.all([
+    supabase.from('dealer_branches').select('id,name,address')
+      .eq('dealer_id',link.dealer_profile_id).limit(100),
+    supabase.from('dealer_operational_declaration_events')
+      .select('section,section_version,declared_values,created_at')
+      .eq('dealer_profile_id',link.dealer_profile_id)
+      .eq('tenant_id',link.tenant_id)
+      .order('section_version',{ascending:false}).limit(100),
+  ]);
+  if(branchesResult.error||declaredResult.error)
+    throw deny('PRIVATE_PUBLICATION_PREVIEW_UNAVAILABLE',503);
+  const latest={};
+  for(const item of declaredResult.data||[]){
+    if(!sections.has(item.section)||latest[item.section])continue;
+    latest[item.section]={version:item.section_version,
+      proposed_values:item.declared_values,source:'DEALER_PRIVATE_DECLARATION_NOT_VERIFIED'};
+  }
+  return {
+    seed_dealer_id:id,operating_status:link.operating_status,
+    branches:(branchesResult.data||[]).map(b=>({
+      branch_id:b.id,proposed_name:b.name,proposed_address:b.address,
+      public_approved:false,
+    })),
+    proposed_sections:latest,
+    company_and_branch_claims_require_independent_display_review:true,
+    can_publish_without_legal_and_country_policy:false,
+  };
+}
+
 export async function recordFullStorefrontPublication(seed,actor,payload={}){
   const id=seedId(seed);
   requireIndependentReviewer(actor,'');
