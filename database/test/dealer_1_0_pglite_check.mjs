@@ -15,6 +15,7 @@ const names=[
   '20261103121000_dealer_research_review_and_claim_intake.sql',
   '20261103122000_dealer_research_correction_requests.sql',
   '20261103123000_dealer_claim_review_and_intake_drafts.sql',
+  '20261103124000_dealer_atomic_compliance_governance.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -48,12 +49,38 @@ try{
     CREATE OR REPLACE FUNCTION governance_block_mutation()
     RETURNS TRIGGER LANGUAGE plpgsql SET search_path=public,pg_temp
     AS $$ BEGIN RAISE EXCEPTION 'APPEND_ONLY_LEDGER'; END; $$;
+    CREATE TABLE dealer_profiles(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id TEXT NOT NULL REFERENCES users(id),
+      identity_status TEXT NOT NULL DEFAULT 'unverified',
+      compliance_review_state TEXT NOT NULL DEFAULT 'not_started',
+      investigation_state TEXT NOT NULL DEFAULT 'none',
+      restriction_state TEXT NOT NULL DEFAULT 'none',
+      suspension_state TEXT NOT NULL DEFAULT 'none',
+      active_state TEXT NOT NULL DEFAULT 'inactive',
+      expiry_date TIMESTAMPTZ,updated_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE dealer_compliance_requirements(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      dealer_id UUID NOT NULL REFERENCES dealer_profiles(id),
+      requirement_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+      is_blocking BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT now(),updated_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE dealer_compliance_decisions(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      dealer_id UUID NOT NULL REFERENCES dealer_profiles(id),
+      decision TEXT NOT NULL,requirement_key TEXT,actor_id TEXT REFERENCES users(id),
+      actor_role TEXT, reason TEXT,payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TRIGGER dealer_compliance_decisions_no_update BEFORE UPDATE ON dealer_compliance_decisions
+      FOR EACH ROW EXECUTE FUNCTION governance_block_mutation();
     INSERT INTO users(id,role,is_verified)
       VALUES ('reviewer1','admin',true),('claimant1','member',false),
         ('claimant2','member',false),('notreviewer','member',true);
   `);
   for(const name of names){await exec(read(name).up);console.log('APPLIED',name)}
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,10);
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,13);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -143,6 +170,47 @@ try{
     '${uuid(2)}','${outsider}','CLAIM_APPROVED',
     'Claimant falsely declares they approved their own appeal with their own original document',
     '${uuid(100)}','Company Registry','BRANCH')`,'INDEPENDENT_REVIEWER_REQUIRED');
+  // D2/C10: existing dealer compliance decisions commit ledger and effect
+  // atomically, with independent verified reviewer and no applicant self-review.
+  const dealerId=uuid(301);
+  await exec(`INSERT INTO dealer_profiles(id,user_id,identity_status,
+   compliance_review_state,investigation_state,active_state)
+   VALUES ('${dealerId}','${claimant}','verified','passed','none','inactive')`);
+  await fails(`SELECT dealer_record_atomic_compliance_decision(
+    '${dealerId}','${claimant}','suspend',NULL,
+    'An applicant tried to certify their own legal compliance status','{}'::jsonb)`,
+    'INDEPENDENT_COMPLIANCE_REVIEWER_REQUIRED');
+  await fails(`SELECT dealer_record_atomic_compliance_decision(
+    '${dealerId}','${reviewer}','approve_requirement','company_registration',
+    'Reviewer attempted verification before a requirement existed','{}'::jsonb)`,
+    'REQUIREMENT_NOT_REGISTERED');
+  assert.equal((await query('SELECT count(*)::int AS n FROM dealer_compliance_decisions')).rows[0].n,0);
+  await exec(`INSERT INTO dealer_compliance_requirements(dealer_id,requirement_key,status,is_blocking)
+    VALUES ('${dealerId}','company_registration','pending',true)`);
+  await fails(`SELECT dealer_record_atomic_compliance_decision(
+    '${dealerId}','notreviewer','approve_requirement','company_registration',
+    'An unrelated user attempted an unverified compliance approval','{}'::jsonb)`,
+    'INDEPENDENT_COMPLIANCE_REVIEWER_REQUIRED');
+  await fails(`SELECT dealer_record_atomic_compliance_decision(
+    '${dealerId}','${reviewer}','reinstate',NULL,
+    'Reviewer attempted activation before satisfying a blocking compliance requirement','{}'::jsonb)`,
+    'REINSTATEMENT_COMPLIANCE_GATE_FAILED');
+  const reviewed=await query(
+    'SELECT dealer_record_atomic_compliance_decision($1,$2,$3,$4,$5,$6::jsonb) AS receipt',
+    [dealerId,reviewer,'approve_requirement','company_registration',
+     'Independent review of original company registration evidence with all requirements inspected.',
+     '{}']);
+  assert.equal(reviewed.rows[0].receipt.audit_atomic,true);
+  assert.equal((await query(`SELECT status FROM dealer_compliance_requirements
+    WHERE dealer_id='${dealerId}'`)).rows[0].status,'verified');
+  assert.equal((await query('SELECT count(*)::int AS n FROM dealer_compliance_decisions')).rows[0].n,1);
+  const reinstated=await query(
+    'SELECT dealer_record_atomic_compliance_decision($1,$2,$3,$4,$5,$6::jsonb) AS receipt',
+    [dealerId,reviewer,'reinstate',null,
+     'Independent reviewer confirmed full legal business compliance before reactivation.','{}']);
+  assert.equal(reinstated.rows[0].receipt.profile.active_state,'active');
+  await fails('UPDATE dealer_compliance_decisions SET reason=\'tampered\'','APPEND_ONLY_LEDGER');
+  assert.equal((await query('SELECT count(*)::int AS n FROM dealer_compliance_decisions')).rows[0].n,2);
   // Direct anonymous read must not bypass service-role projection.
   await exec('SET ROLE anon');
   await fails('SELECT * FROM dealer_research_seed_records','permission denied');
@@ -150,7 +218,7 @@ try{
   await exec('RESET ROLE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 4 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 5 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error.message);
   process.exitCode=1;
