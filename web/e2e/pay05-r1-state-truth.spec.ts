@@ -589,7 +589,8 @@ test('keyboard, operator: a review closes by keyboard and the result takes the f
   await page.keyboard.press('Enter')
   await expectFocus(page, 'operator-resolution')
   // the first closure is Paynow's; the exit for a dispute Paynow never speaks of again is the second
-  await page.keyboard.press('ArrowDown')
+  // on macOS an arrow key opens a closed select instead of moving it; typing an option's first letters works everywhere
+  await page.keyboard.type('Set')
   await expect(page.getByTestId('operator-resolution')).toHaveValue('settled_off_platform')
   await tabTo(page, (f) => f.id === 'operator-resolution-note', 4)
   await page.keyboard.type('The garage settled this dispute with the customer (keyboard QA).')
