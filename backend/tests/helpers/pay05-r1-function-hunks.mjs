@@ -475,7 +475,7 @@ export const R1_PAY04_HUNKS = {
      `          WHERE c.invoice_id = OLD.id AND p.status IN ('paid', 'partially_refunded')
             -- PAY-05-R1: a Paynow row still reading paid that no longer counts holds nothing, once settled or once Paynow's latest
             -- word is not Paid (PFR-L9). Open reviews stay reserved, and refuse below. Later money is never counted on a void invoice.
-            AND NOT (c.gateway = 'paynow_zimbabwe' AND public.pay04_collection_allocated(c.id) = 0
+            AND NOT (c.gateway = 'paynow_zimbabwe'
                      AND (public.pay05_settled_off_platform(c.id) OR public.pay05_latest_provider_status(c.id) IS DISTINCT FROM 'paid'))) THEN
 `],
   ],

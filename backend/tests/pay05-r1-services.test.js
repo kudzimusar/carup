@@ -832,6 +832,23 @@ test('PFR-M5: a page left open cannot pay a request that can no longer be paid, 
   assert.equal(replay.checkout_url, null);
 });
 
+test('PFR-H4: a replay of a request the invoice no longer needs offers no way to pay it', { skip }, async () => {
+  const inv = await invoice(100);
+  const a = await start(inv, { method: 'ecocash', phone: '0779000328' }, `r1-pfr-h4b-1-${run}`);
+  await S.verifyCustomerCollection({ db, env, actor: customer(), collectionId: a.collection_id, deps });
+  await pastItsTime(a.collection_id);
+  await release(a.collection_id);
+  const key = `r1-pfr-h4b-2-${run}`;
+  const b = await start(inv, { method: 'omari', phone: '0779000328' }, key);
+  assert.equal(b.paynow.needs_otp, true, 'at first: the form');
+  await sim.simulator.setStatus(await guidOf(a.collection_id), 'Paid');
+  assert.equal(Number((await money(inv.id)).provider_paid), 100);
+  const replay = await start(inv, { method: 'omari', phone: '0779000328' }, key);
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.paynow.needs_otp, false);
+  await rejectsWith(P.submitPaynowOtp({ db, env, actor: customer(), collectionId: b.collection_id, body: { otp: '123456' } }), 'PAY05_OTP_NOT_EXPECTED');
+});
+
 test('PFR-L1: Paid, then a read of another amount, then Paid again: a resend reads again, so the operator can close it on Paynow\'s word', { skip }, async () => {
   const inv = await invoice(50);
   const s = await start(inv, { method: 'ecocash', phone: '0779000322' }, `r1-pfr-l1-${run}`);

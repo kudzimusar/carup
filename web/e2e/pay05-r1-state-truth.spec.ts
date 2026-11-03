@@ -240,7 +240,7 @@ const EXPECT: Record<string, { state: string; provider: RegExp; counted: boolean
   settled: { state: 'settled_outside', provider: /Paid/, counted: false, review: /settled outside CarUp/, next: /tell the garage/ },
   disputed: { state: 'under_review', provider: /Disputed/, counted: false, review: /reviewing/, next: /Do not pay again/ },
   lateOpen: { state: 'under_review', provider: /Paid/, counted: false, review: /reviewing/, next: /Do not pay again/ },
-  lateClosed: { state: 'closed_not_counted', provider: /Paid/, counted: false, review: /does not count/, next: /how it was settled/ },
+  lateClosed: { state: 'closed_not_counted', provider: /Cancelled/, counted: false, review: /does not count/, next: /how it was settled/ },
   reversed: { state: 'not_counted', provider: /A status CarUp does not recognise/, counted: false, review: /only if Paynow reports it paid/, next: /Ask the garage/ },
   counted: { state: 'confirmed', provider: /Paid/, counted: true, review: null, next: /./ },
   // the pre-final review's states. A row with nothing left owed has no way to pay, so it is read in the invoice's own list.
@@ -288,7 +288,10 @@ test('fixtures: a real row in each state', async () => {
   rows.lateClosed = await request()
   await setStatus(rows.lateClosed, 'Cancelled')
   await setStatus(rows.lateClosed, 'Paid')
+  // a review closes as "reviewed" only once Paynow's latest word reports no money
+  await setStatus(rows.lateClosed, 'Cancelled')
   await resolve(rows.lateClosed, 'provider_paid_after_close', 'acknowledged')
+  await resolve(rows.lateClosed, 'provider_status_unrecognized', 'acknowledged')
 
   rows.reversed = await request()
   await setStatus(rows.reversed, 'Paid')
