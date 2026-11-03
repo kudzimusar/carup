@@ -35,6 +35,8 @@ export default function DealerDashboard(){
   const [profileStatus,setProfileStatus]=useState<'loading'|'ready'|'missing'|'error'>('loading')
   const [inventory,setInventory]=useState<Vehicle[]>([])
   const [inventoryStatus,setInventoryStatus]=useState<'loading'|'ready'|'error'>('loading')
+  const [membershipCount,setMembershipCount]=useState<number|null>(null)
+  const [membershipState,setMembershipState]=useState<'loading'|'ready'|'unavailable'>('loading')
   useEffect(()=>{
     let active=true
     if(!user||!token){setProfileStatus('missing');return}
@@ -70,6 +72,28 @@ export default function DealerDashboard(){
     })
     return()=>{active=false}
   },[fetchDealerInventory])
+  useEffect(()=>{
+    let active=true
+    if(!user||!token||profileStatus!=='ready'||!profile?.tenant_id){
+      setMembershipCount(null);setMembershipState('unavailable')
+      return()=>{active=false}
+    }
+    setMembershipState('loading')
+    apiRequest<{summary:{recorded_tenant_member_count:number;state:string}}>({
+      baseUrl:API,path:'/dealer/operations/membership-summary',
+      authHeaders:authHeaders(user.id,token),
+    }).then(result=>{
+      if(!active)return
+      const n=result.summary?.recorded_tenant_member_count
+      if(result.summary?.state==='CANONICAL_MEMBERSHIP_OBSERVED'&&
+        Number.isInteger(n)&&n>=1){
+        setMembershipCount(n);setMembershipState('ready')
+      }else{setMembershipCount(null);setMembershipState('unavailable')}
+    }).catch(()=>{
+      if(active){setMembershipCount(null);setMembershipState('unavailable')}
+    })
+    return()=>{active=false}
+  },[user,token,profileStatus,profile?.tenant_id])
   const allowedToOperate=Boolean(profile?.tenant_id&&profile.active_state==='active'&&
     profile.identity_status==='verified'&&profile.compliance_review_state==='passed'&&
     profile.restriction_state!=='restricted'&&profile.suspension_state!=='suspended'&&
@@ -133,9 +157,13 @@ export default function DealerDashboard(){
         </CardContent></Card>
         <Card><CardContent className="p-5">
           <Users className="w-5 h-5 text-slate-700 mb-2" aria-hidden="true"/>
-          <p className="text-sm text-gray-600">Completed sales, revenue, staff</p>
-          <strong className="text-lg">Not measured</strong>
-          <p className="text-xs text-gray-500 mt-2">No genuine canonical read model has been established here.</p>
+          <p className="text-sm text-gray-600">Canonical recorded tenant members</p>
+          <strong className="text-lg">{membershipState==='ready' && membershipCount!==null
+            ?membershipCount:'Not available'}</strong>
+          <p className="text-xs text-gray-500 mt-2">
+            Only existing tenant membership rows are counted. Active staff headcount,
+            sales and revenue are not measured.
+          </p>
         </CardContent></Card>
       </div>
       <div className="grid gap-6 lg:grid-cols-3">
