@@ -25,7 +25,7 @@ const DECISIONS = 'dealer_compliance_decisions';
 
 const PROFILE_FIELDS = [
   'legal_name', 'trading_name', 'registration_number', 'tax_id',
-  'physical_address', 'responsible_person', 'operating_country', 'tenant_id',
+  'physical_address', 'responsible_person', 'operating_country',
 ];
 
 const DECISIONS_ALLOWED = [
@@ -48,6 +48,18 @@ export async function createOrUpdateProfile(userId, data = {}) {
   }
 
   if (existing) {
+    // The applicant must never silently rewrite an identity previously independently verified.
+    // Corrections must go through governance, and only the canonical activation authority
+    // may assign tenant_id (never user-supplied profile data).
+    if (existing.identity_status === 'verified' || existing.compliance_review_state === 'passed') {
+      for (const immutableFact of ['legal_name','registration_number','tax_id','operating_country']) {
+        if (patch[immutableFact] !== undefined && patch[immutableFact] !== existing[immutableFact]) {
+          const error = new Error('Verified legal identity change requires independent correction review');
+          error.statusCode = 409;
+          throw error;
+        }
+      }
+    }
     patch.updated_at = new Date().toISOString();
     const { data: row, error } = await supabase
       .from(PROFILES).update(patch).eq('id', existing.id).select().single();
@@ -157,15 +169,17 @@ export async function listRequirements(dealerId) {
 
 // ── documents (metadata only) ──────────────────────────────────────────────────────
 
-/** Record compliance document metadata. The binary lives elsewhere; we keep only file_ref. */
-export async function uploadDocument(dealerId, { doc_type, status, file_ref, expiry_date } = {}) {
+/** Record unverified document-intake metadata only; a claimant cannot set verified or select arbitrary private storage refs. */
+export async function uploadDocument(dealerId, { doc_type, expiry_date } = {}) {
   await requireProfile(dealerId);
   if (!doc_type) throw new Error('uploadDocument requires a doc_type');
   const row = {
     dealer_id: dealerId,
     doc_type,
-    status: status || 'present',
-    file_ref: file_ref || null,
+    // The existing metadata route is NOT a governed Document Intelligence upload.
+    // Until an owned private document is bound through that authority, no binary ref exists.
+    status: 'pending',
+    file_ref: null,
     expiry_date: expiry_date || null,
   };
   const { data, error } = await supabase.from(DOCUMENTS).insert(row).select().single();
