@@ -234,7 +234,7 @@ const pastCarUpsTime = (row: Row) => sql(`set session_replication_role = replica
 const FALSE_NOTHING = /nothing (was|is) (paid|charged)/i
 const FALSE_PAID = /confirmed by paynow|^paid —/i
 const WAITING = /waiting for you|still counts/i
-const EXPECT: Record<string, { state: string; provider: RegExp; counted: boolean; review: RegExp | null; next: RegExp }> = {
+const EXPECT: Record<string, { state: string; provider: RegExp; counted: boolean; review: RegExp | null; next: RegExp; list?: 'invoice' }> = {
   escrow: { state: 'at_paynow', provider: /Paid into Paynow/, counted: false, review: null, next: /Do not pay again/ },
   released: { state: 'released', provider: /Waiting for approval/, counted: false, review: null, next: /Do not approve the old request/ },
   settled: { state: 'settled_outside', provider: /Paid/, counted: false, review: /settled outside CarUp/, next: /tell the garage/ },
@@ -243,6 +243,11 @@ const EXPECT: Record<string, { state: string; provider: RegExp; counted: boolean
   lateClosed: { state: 'closed_not_counted', provider: /Paid/, counted: false, review: /does not count/, next: /how it was settled/ },
   reversed: { state: 'not_counted', provider: /A status CarUp does not recognise/, counted: false, review: /only if Paynow reports it paid/, next: /Ask the garage/ },
   counted: { state: 'confirmed', provider: /Paid/, counted: true, review: null, next: /./ },
+  // the pre-final review's states. A row with nothing left owed has no way to pay, so it is read in the invoice's own list.
+  reviewedHeld: { state: 'reviewed_held', provider: /Cancelled/, counted: false, review: /only if Paynow reports it paid/, next: /Do not pay again yet/ },
+  notNeeded: { state: 'no_longer_needed', provider: /Waiting for/, counted: false, review: null, next: /Do not complete this request/ },
+  closedLive: { state: 'closed_live', provider: /No status recorded/, counted: false, review: null, next: /Do not approve this request/ },
+  partial: { state: 'confirmed_partial', provider: /Paid/, counted: true, review: /reviewing the money that is not counted/, next: /Do not pay again/, list: 'invoice' },
 }
 
 test('runtime provenance: the candidate is serving, on the local simulator, with garage C verified', async ({ request: http, baseURL }) => {
@@ -254,6 +259,7 @@ test('runtime provenance: the candidate is serving, on the local simulator, with
 })
 
 test('fixtures: a real row in each state', async () => {
+  test.setTimeout(1_500_000)
   rows.escrow = await request()
   await setStatus(rows.escrow, 'Delivered')
   await check(rows.escrow)
@@ -296,6 +302,47 @@ test('fixtures: a real row in each state', async () => {
   rows.waiting = await request()
   rows.waitingPast = await request()
   pastCarUpsTime(rows.waitingPast)
+
+  await pause(61_000)
+  rows.reviewedHeld = await request()
+  await setStatus(rows.reviewedHeld, 'Delivered')
+  await setStatus(rows.reviewedHeld, 'Cancelled')
+  await resolve(rows.reviewedHeld, 'provider_status_unrecognized', 'acknowledged')
+
+  // a small released request is paid late; a second request for the whole invoice now asks for more than is owed
+  await freshGlobalWindow(95)
+  const inv = await invoiceAtGarageC('20.00', '5.00')
+  phone += 1
+  const small = await api('customer', 'POST', `/api/pay04/garage-invoices/${inv.invoiceId}/payments`, { method: 'ecocash', phone: `0779000${phone}`, amount: '10.00' },
+    { 'Idempotency-Key': `r1br-${randomUUID()}` })
+  const smallRow: Row = { invoiceId: inv.invoiceId, number: inv.number, caseId: inv.caseId, collection: String(small.collection_id), guid: String((await simTxFor(String(small.collection_id)))!.guid) }
+  await check(smallRow)
+  pastCarUpsTime(smallRow)
+  await api('ops', 'POST', `/api/pay05/admin/collections/${smallRow.collection}/release-hold`, { reason: 'Customer abandoned the EcoCash prompt (R1 browser QA).' })
+  phone += 1
+  const whole = await api('customer', 'POST', `/api/pay04/garage-invoices/${inv.invoiceId}/payments`, { method: 'ecocash', phone: `0779000${phone}` }, { 'Idempotency-Key': `r1br-${randomUUID()}` })
+  rows.notNeeded = { ...smallRow, collection: String(whole.collection_id), guid: String((await simTxFor(String(whole.collection_id)))!.guid) }
+  await setStatus(smallRow, 'Paid')
+
+  // Paynow refuses, CarUp closes, then Paynow's own signed word shows the request exists
+  await freshGlobalWindow(95)
+  const refused = await invoiceAtGarageC('20.00', '5.00')
+  await sim('POST', '/faults', { kind: 'initiate', fault: { kind: 'error', message: 'Temporary refusal (R1 browser QA)' } })
+  phone += 1
+  await api('customer', 'POST', `/api/pay04/garage-invoices/${refused.invoiceId}/payments`, { method: 'omari', phone: `0779000${phone}` }, { 'Idempotency-Key': `r1br-${randomUUID()}` }).catch(() => null)
+  const closedId = sql(`select id from pay04_garage_collections where invoice_id = ${lit(refused.invoiceId)}`)
+  const closedGuid = String((await simTxFor(closedId))!.guid)
+  await sim('POST', `/transactions/${closedGuid}/resend`)
+  rows.closedLive = { invoiceId: refused.invoiceId, number: refused.number, caseId: refused.caseId, collection: closedId, guid: closedGuid }
+
+  // garage cash took part of the room, so Paynow's Paid counts in part
+  await pause(61_000)
+  rows.partial = await request()
+  await check(rows.partial)
+  pastCarUpsTime(rows.partial)
+  await api('ops', 'POST', `/api/pay05/admin/collections/${rows.partial.collection}/release-hold`, { reason: 'Customer abandoned the EcoCash prompt (R1 browser QA).' })
+  await api('adminC', 'POST', `/api/garage/invoices/${rows.partial.invoiceId}/payments`, { amount: '10.00', method: 'cash', reference: 'Counter (R1 browser QA)', idempotency_key: `r1br-cash-${randomUUID()}` })
+  await setStatus(rows.partial, 'Paid')
   note('fixtures', Object.fromEntries(Object.entries(rows).map(([k, r]) => [k, { invoice: r.number, status: sql(`select p.status from pay04_garage_collections c join payment_transactions p on p.reference = c.payment_reference where c.id = ${lit(r.collection)}`) }])))
 })
 
@@ -309,12 +356,23 @@ const readRow = async (row: Locator) => ({
 
 for (const vp of VIEWPORTS) {
   test(`customer at ${vp.name}: each state reads truthfully, in its separate parts`, async ({ page }) => {
+    test.setTimeout(2_400_000)
     await page.setViewportSize({ width: vp.width, height: vp.height })
     await login(page, 'customer')
     for (const [name, expected] of Object.entries(EXPECT)) {
       await freshGlobalWindow(40)
-      const card = await openHowToPay(page, rows[name].number, { checkout: false })
-      const row = card.getByTestId('my-provider-payment').filter({ has: page.getByTestId('paynow-facts') }).first()
+      let card: Locator
+      let row: Locator
+      if (expected.list === 'invoice') {
+        await page.goto('/dashboard/service-requests')
+        card = invoiceCard(page, rows[name].number)
+        await expect(card).toBeVisible({ timeout: 30_000 })
+        await expect(card.getByTestId('invoice-how-to-pay'), name).toHaveCount(0)
+        row = card.getByTestId('invoice-provider-payment').first()
+      } else {
+        card = await openHowToPay(page, rows[name].number, { checkout: false })
+        row = card.getByTestId('my-provider-payment').filter({ has: page.getByTestId('paynow-facts') }).first()
+      }
       await expect(row).toHaveAttribute('data-state', expected.state, { timeout: 30_000 })
       const said = await readRow(row)
       expect(said.provider, name).toMatch(expected.provider)
@@ -324,7 +382,7 @@ for (const vp of VIEWPORTS) {
       expect(said.next, name).toMatch(expected.next)
       expect(said.text, name).not.toMatch(FALSE_NOTHING)
       expect(said.text, name).not.toMatch(WAITING)
-      if (!expected.counted) expect(await row.getByTestId('my-provider-payment-paynow').innerText(), name).not.toMatch(FALSE_PAID)
+      if (!expected.counted && !expected.list) expect(await row.getByTestId('my-provider-payment-paynow').innerText(), name).not.toMatch(FALSE_PAID)
       if (name !== 'waiting') {
         await expect(row.getByTestId('paynow-continue-link'), name).toHaveCount(0)
         await expect(row.getByTestId('paynow-otp'), name).toHaveCount(0)
@@ -338,10 +396,11 @@ for (const vp of VIEWPORTS) {
   })
 
   test(`garage at ${vp.name}: the same rows, in the garage's words, with no action the money does not allow`, async ({ page }) => {
+    test.setTimeout(1_800_000)
     await page.setViewportSize({ width: vp.width, height: vp.height })
     await login(page, 'adminC')
     await actForGarageC(page)
-    for (const name of ['escrow', 'released', 'settled', 'disputed', 'lateClosed', 'reversed', 'counted']) {
+    for (const name of ['escrow', 'released', 'settled', 'disputed', 'lateClosed', 'reversed', 'counted', 'reviewedHeld', 'notNeeded', 'closedLive', 'partial']) {
       await freshGlobalWindow(40)
       await page.goto(`/garage/cases/${rows[name].caseId}`)
       const panel = page.getByTestId('provider-payments')
@@ -352,7 +411,7 @@ for (const vp of VIEWPORTS) {
       expect(said.allocation, name).toMatch(EXPECT[name].counted ? /^Counted on this invoice/ : /^Not counted on this invoice/)
       expect(said.text, name).not.toMatch(FALSE_NOTHING)
       expect(said.text, name).not.toMatch(/Waiting for the customer|still counts/)
-      if (EXPECT[name].state !== 'confirmed') await expect(row.getByTestId('provider-payment-paynow-refund-guidance'), name).toHaveCount(0)
+      if (!EXPECT[name].counted) await expect(row.getByTestId('provider-payment-paynow-refund-guidance'), name).toHaveCount(0)
       await expect(row.getByTestId('provider-payment-refund'), name).toHaveCount(0)
       await noHorizontalOverflow(page)
       await noClippedControls(page, '[data-testid="provider-payments"]')
@@ -378,9 +437,11 @@ for (const vp of VIEWPORTS) {
       await expect(rowFor(name).getByTestId('paynow-op-release'), name).toHaveCount(0)
       await expect(rowFor(name).getByTestId('paynow-op-release-blocked'), name).toBeVisible()
     }
-    // money at Paynow past CarUp's time: visible, readable, never releasable
+    // money at Paynow past CarUp's time: visible, readable, never releasable, and a review is its exit
     await expect(rowFor('escrow').getByTestId('paynow-op-release')).toHaveCount(0)
     await expect(rowFor('escrow').getByTestId('paynow-op-release-blocked')).toContainText('money')
+    await expect(rowFor('escrow').getByTestId('paynow-op-open-review')).toBeDisabled()
+    await expect(rowFor('released').getByTestId('paynow-op-open-review')).toHaveCount(1)
     // an unpaid request past its time keeps the release
     await expect(rowFor('waitingPast').getByTestId('paynow-op-release')).toHaveCount(1)
     await noHorizontalOverflow(page)
@@ -535,6 +596,14 @@ test('keyboard, operator: a review closes by keyboard and the result takes the f
   await page.keyboard.press('Enter')
   await expectFocus(page, 'paynow-op-message')
   await expect(page.getByTestId('paynow-op-message')).toContainText('Released after a fresh check', { timeout: 60_000 })
+  // nothing else can move it: a review is opened by keyboard, says so, and appears as a review to close
+  const stuck = panel.getByTestId('paynow-op-held').filter({ hasText: new RegExp(`PAY05 QA Garage C.* · invoice ${rows.escrow.number} · `) })
+  await tabToMarked(page, stuck.getByTestId(`paynow-op-reason-review-${rows.escrow.collection}`))
+  await page.keyboard.type('Paynow keeps this money in escrow (keyboard QA).')
+  await tabTo(page, (f) => f.id === 'paynow-op-open-review', 6)
+  await page.keyboard.press('Enter')
+  await expectFocus(page, 'paynow-op-message')
+  await expect(page.getByTestId('paynow-op-message')).toContainText('Review opened', { timeout: 60_000 })
   note('keyboard-operator', { no_focus_ring_stops: noFocusRing.length })
 })
 

@@ -258,6 +258,16 @@ describe('The way to pay comes first in a request (390 px rehearsal)', () => {
   })
 })
 
+describe('PFR-L3: the garage reads a part-counted payment with its refund guidance', () => {
+  it('a part that counted can be refunded in the Paynow dashboard, as a whole one can', () => {
+    const part = row({ provider_status: 'paid', facts: facts({ provider: 'Paid', counted: true, allocation: 'Counted on this invoice: 30.00 USD', review: 'CarUp is reviewing the money that is not counted.' }) },
+      { state: 'confirmed_partial', state_label: 'Paid at Paynow — part counted on this invoice, the rest under review', payment_status: 'paid', open_discrepancies: [] })
+    const inv = { id: 'inv-9', currency: 'USD', status: 'issued', provider_payments_supported: true, provider_receipts: [], provider_source_label: 'x', provider_payments: [part], provider_history: [] }
+    render(<ProviderPaymentsPanel invoice={inv as never} canAct busy={false} run={vi.fn() as never} />)
+    expect(screen.getByTestId('provider-payment-paynow-refund-guidance')).toBeInTheDocument()
+  })
+})
+
 describe('ICR-W7: no dead ends while the money stays reserved', () => {
   it('the InnBucks code stays on screen past CarUp’s time; the stop warning says the amount stays reserved', async () => {
     api.fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([

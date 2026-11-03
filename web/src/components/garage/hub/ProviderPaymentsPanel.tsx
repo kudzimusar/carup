@@ -142,7 +142,7 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
             )}
           </div>
         )}
-        {paynow && payment.state === 'confirmed' && (
+        {paynow && (payment.state === 'confirmed' || payment.state === 'confirmed_partial') && (
           <p className="w-full text-xs text-gray-700" data-testid="provider-payment-paynow-refund-guidance">
             To refund, use your Paynow dashboard — Paynow does not let CarUp refund. CarUp shows the refund when Paynow reports it.
           </p>
