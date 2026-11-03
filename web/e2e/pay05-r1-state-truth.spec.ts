@@ -202,7 +202,9 @@ async function openHowToPay(page: Page, number: string, { checkout = true } = {}
 // Every actor here shares 127.0.0.1 and one per-IP limiter: pace the journey and start each test in a fresh window.
 async function freshGlobalWindow(minRemaining = 85) {
   for (let i = 0; i < 3; i += 1) {
-    const r = await fetch(`${API}/api/security/csrf-token`)
+    // a stalled request must not spend the test's whole budget in this hook
+    const r = await fetch(`${API}/api/security/csrf-token`, { signal: AbortSignal.timeout(30_000) }).catch(() => null)
+    if (!r) continue
     const remaining = Number(r.headers.get('ratelimit-remaining'))
     const reset = Number(r.headers.get('ratelimit-reset'))
     if (!Number.isFinite(remaining) || remaining >= minRemaining) return

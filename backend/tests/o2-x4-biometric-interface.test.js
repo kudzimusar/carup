@@ -193,7 +193,9 @@ test('X4: no biometric fingerprint store and no template/embedding store anywher
 
 // PAY-05-R1 (Moderator, issue #255): the exception is the exact schema declaration, never every same-named occurrence in a file.
 const KEY_FILE = APPROVED_KEY_DIGEST.file;
+const R1_FILE = '20261104100000_carup_pay05_r1_financial_integrity.sql';
 const keyFileSql = () => readFileSync(path.join(repo, 'database/migrations', KEY_FILE), 'utf8');
+const r1FileSql = () => readFileSync(path.join(repo, 'database/migrations', R1_FILE), 'utf8');
 
 test('O2 guard: the Moderator\'s two-table fixture: a permitted digest beside a prohibited column of the same name is caught', () => {
   const fixture = `CREATE TABLE allowed (credential_fingerprint text CHECK (credential_fingerprint ~ '^[0-9a-f]{16}$'));
@@ -205,17 +207,19 @@ CREATE TABLE prohibited (credential_fingerprint bytea);`;
 });
 
 test('O2 guard: the approved declaration passes only as itself: this table, this text, this file, once', () => {
-  const approved = `CREATE TABLE IF NOT EXISTS public.pay05_merchant_integrations (
-  id uuid PRIMARY KEY,
-  ${APPROVED_KEY_DIGEST.declaration},
-  status text NOT NULL
-);`;
-  assert.deepEqual(fingerprintViolations(approved, KEY_FILE), []);
-  assert.notDeepEqual(fingerprintViolations(approved, 'some_other_file.sql'), [], 'not from another file');
-  assert.notDeepEqual(fingerprintViolations(approved.replace('{16}', '{64}'), KEY_FILE), [], 'not a wider digest');
-  assert.notDeepEqual(fingerprintViolations(approved.replace(" CHECK (credential_fingerprint ~ '^[0-9a-f]{16}$')", ''), KEY_FILE), [], 'not without its pin');
-  assert.notDeepEqual(fingerprintViolations(approved.replace('text NOT NULL CHECK', 'bytea NOT NULL CHECK'), KEY_FILE), [], 'not another type');
-  assert.notDeepEqual(fingerprintViolations(approved + approved, KEY_FILE), [], 'not twice');
+  const base = keyFileSql();
+  const decl = APPROVED_KEY_DIGEST.declaration;
+  assert.deepEqual(fingerprintViolations(base, KEY_FILE), []);
+  assert.notDeepEqual(fingerprintViolations(base, 'some_other_file.sql'), [], 'not from another file');
+  assert.notDeepEqual(fingerprintViolations(base, R1_FILE), [], 'not from the file that may only read it');
+  assert.notDeepEqual(fingerprintViolations(base.replace(decl, decl.replace('{16}', '{64}')), KEY_FILE), [], 'not a wider digest');
+  assert.notDeepEqual(fingerprintViolations(base.replace(" CHECK (credential_fingerprint ~ '^[0-9a-f]{16}$')", ''), KEY_FILE), [], 'not without its pin');
+  assert.notDeepEqual(fingerprintViolations(base.replace('credential_fingerprint text NOT NULL CHECK', 'credential_fingerprint bytea NOT NULL CHECK'), KEY_FILE), [], 'not another type');
+  assert.notDeepEqual(fingerprintViolations(`${base}\nCREATE TABLE copied (\n  ${decl}\n);`, KEY_FILE), [], 'not twice, on another table');
+  assert.notDeepEqual(fingerprintViolations(base.replace(`  ${decl},\n`, ''), KEY_FILE), [], 'the approved file holds exactly its reviewed lines: none may go');
+  // the exact text on another table, alone: the table is checked, not only the words
+  assert.ok(fingerprintViolations(`CREATE TABLE copy (\n  ${decl}\n);`, KEY_FILE).some((v) => v.startsWith('column on copy')), 'the table is part of the exception');
+  assert.ok(fingerprintViolations(`CREATE TABLE ${APPROVED_KEY_DIGEST.table} (\n  ${decl}\n);`, R1_FILE).some((v) => v.startsWith('column on public.pay05_merchant_integrations')), 'the file is part of the exception');
 });
 
 test('O2 guard: every other way of storing it is caught, in the approved file itself', () => {
@@ -237,15 +241,60 @@ test('O2 guard: every other way of storing it is caught, in the approved file it
 });
 
 test('O2 guard: reference-only files may read the approved column and nothing else', () => {
-  const r1 = '20261104100000_carup_pay05_r1_financial_integrity.sql';
-  assert.deepEqual(fingerprintViolations(readFileSync(path.join(repo, 'database/migrations', r1), 'utf8'), r1), [], 'the R1 migration only reads it');
-  assert.deepEqual(fingerprintViolations("SELECT NEW.credential_fingerprint, v_item->>'fingerprint';", r1), []);
-  assert.notDeepEqual(fingerprintViolations('CREATE TABLE r (credential_fingerprint text);', r1), [], 'a reference file cannot declare it');
+  assert.deepEqual(fingerprintViolations(r1FileSql(), R1_FILE), [], 'the R1 migration only reads it, in exactly its reviewed lines');
+  assert.notDeepEqual(fingerprintViolations("SELECT NEW.credential_fingerprint, v_item->>'fingerprint';", R1_FILE), [], 'a read that was not reviewed is a violation too');
+  assert.notDeepEqual(fingerprintViolations('CREATE TABLE r (credential_fingerprint text);', R1_FILE), [], 'a reference file cannot declare it');
   assert.notDeepEqual(fingerprintViolations("SELECT NEW.credential_fingerprint;", 'an_unreviewed_file.sql'), [], 'an unreviewed file cannot mention it');
 });
 
+// The independent O2 review, 2026-11-03: each of these got through the earlier guard in the two privileged files, because it removed
+// the word file-wide and trusted a declaration scanner that cannot read every spelling.
+test('O2 guard: nothing rests on parsing: spellings the scanner cannot read are still caught in the privileged files', () => {
+  const t = APPROVED_KEY_DIGEST.table;
+  for (const [what, addition] of Object.entries({
+    'undoing the pin: ALTER COLUMN TYPE': `ALTER TABLE ${t} ALTER COLUMN credential_fingerprint TYPE bytea USING credential_fingerprint::bytea;`,
+    'renaming the approved column away': `ALTER TABLE ${t} RENAME COLUMN credential_fingerprint TO key_digest;`,
+    'a quoted table name with a space': 'CREATE TABLE "my table" (credential_fingerprint bytea);',
+    'a table name with spaces around the dot': 'CREATE TABLE public . prohibited (credential_fingerprint bytea);',
+    'a comment between the keyword and the name': 'CREATE TABLE/**/prohibited (credential_fingerprint bytea);',
+    'a dollar-quoted default that desynchronises the column scan': "CREATE TABLE d (a text DEFAULT $x$'$x$, credential_fingerprint bytea);",
+    'a function exposing it': 'CREATE FUNCTION leak() RETURNS TABLE (credential_fingerprint text) LANGUAGE sql SECURITY DEFINER AS $$ SELECT 1 $$;',
+    'a column grant': 'GRANT SELECT (credential_fingerprint) ON pay05_merchant_integrations TO anon;',
+    'a composite type': 'CREATE TYPE c AS (credential_fingerprint bytea);',
+    'SELECT INTO': 'SELECT credential_fingerprint INTO copied FROM pay05_merchant_integrations;',
+    'dynamic SQL': "DO $$ BEGIN EXECUTE format('CREATE TABLE %I (credential_fingerprint bytea)', 'x'); END $$;",
+    'a mention moved into a block comment beside real SQL': '/* credential_fingerprint */ SELECT 1;',
+  })) {
+    assert.notDeepEqual(fingerprintViolations(`${keyFileSql()}\n${addition}`, KEY_FILE), [], `${what}: approved file`);
+    assert.notDeepEqual(fingerprintViolations(`${r1FileSql()}\n${addition}`, R1_FILE), [], `${what}: R1 file`);
+    assert.notDeepEqual(fingerprintViolations(addition, 'an_unreviewed_file.sql'), [], `${what}: any other file`);
+  }
+  // the approved text moved to a table the scanner cannot read: the lines still add up, the approved node is gone
+  const moved = keyFileSql().replace(`  ${APPROVED_KEY_DIGEST.declaration},\n`, '');
+  assert.notDeepEqual(fingerprintViolations(`${moved}\nCREATE TABLE "my table" (\n  ${APPROVED_KEY_DIGEST.declaration},\n  x text\n);`, KEY_FILE), [], 'the approved text, on a table the scanner cannot read');
+  // a reviewed line used once more than reviewed is not reviewed
+  const line = '     OR NEW.credential_fingerprint IS DISTINCT FROM OLD.credential_fingerprint';
+  assert.notDeepEqual(fingerprintViolations(`${r1FileSql()}\n${line}`, R1_FILE), [], 'a reviewed line, repeated');
+});
+
+test('O2 guard: comments cannot hide a mention: only a whole-line comment is exempt, and strings cannot open one', () => {
+  for (const [what, sql] of Object.entries({
+    'a string that looks like a block comment': "CREATE TABLE s (a text DEFAULT '/*', fingerprint bytea, b text DEFAULT '*/');",
+    'the same around dynamic SQL': "DO $$ DECLARE a text := '/*'; BEGIN EXECUTE 'CREATE TABLE x (fingerprint bytea)'; a := '*/'; END $$;",
+    'a string that looks like a line comment': "CREATE TABLE s (a text DEFAULT '--', fingerprint bytea);",
+    'a block comment that swallows its own close': 'CREATE TABLE s (/* -- */ fingerprint bytea);',
+    'a trailing comment': 'SELECT 1; -- fingerprint',
+    // PostgreSQL ends a line comment at a carriage return as well as at a newline
+    'SQL after a carriage return inside a line comment': '-- harmless\rCREATE TABLE x (fingerprint bytea);',
+  })) {
+    assert.notDeepEqual(fingerprintViolations(sql, 'an_unreviewed_file.sql'), [], what);
+    assert.notDeepEqual(fingerprintViolations(`${keyFileSql()}\n${sql}`, KEY_FILE), [], `${what}: approved file`);
+  }
+  assert.deepEqual(fingerprintViolations('-- a fingerprint, in a whole-line comment\nSELECT 1;', 'a_file.sql'), [], 'documentation may name it');
+});
+
 test('O2 guard: Trust\'s fingerprint stays allowed; biometric patterns stay refused', () => {
-  assert.deepEqual(fingerprintViolations('SELECT v_fingerprint, presentation_fingerprint FROM t; -- a fingerprint in a comment', 'a_trust_file.sql'), []);
+  assert.deepEqual(fingerprintViolations('-- a fingerprint in a comment\nSELECT v_fingerprint, presentation_fingerprint FROM t;', 'a_trust_file.sql'), []);
   assert.notDeepEqual(fingerprintViolations('CREATE TABLE identity_biometrics (fingerprint BYTEA);', 'a_file.sql'), [], 'a fingerprint column is caught');
   assert.notDeepEqual(fingerprintViolations('ALTER TABLE t ADD COLUMN presentation_fingerprint bytea;', 'a_file.sql'), [], 'Trust\'s NAME does not excuse declaring it');
 });
