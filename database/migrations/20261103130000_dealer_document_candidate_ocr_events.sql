@@ -77,6 +77,9 @@ BEGIN
   IF p_state<>'CANDIDATE_REVIEW' AND p_fields<>'{}'::jsonb THEN
     RAISE EXCEPTION 'UNAVAILABLE_OCR_CANNOT_HAVE_FIELDS';
   END IF;
+  IF p_state='CANDIDATE_REVIEW' AND (p_fields='{}'::jsonb OR p_pages=0) THEN
+    RAISE EXCEPTION 'CANDIDATE_REQUIRES_OBSERVED_PAGE_FIELDS';
+  END IF;
   IF (SELECT count(*) FROM jsonb_object_keys(p_fields))>7 THEN
     RAISE EXCEPTION 'UNQUALIFIED_OCR_FIELDS';
   END IF;
@@ -85,6 +88,8 @@ BEGIN
     IF k NOT IN ('legal_name','registration_number','registration_issuer',
        'tax_reference','physical_address','issued_at','expires_at') OR
        jsonb_typeof(v)<>'object' OR
+       NOT (v ? 'value') OR NOT (v ? 'page') OR
+       NOT (v ? 'source') OR NOT (v ? 'confidence') OR
        v->>'source'<>'OBSERVED_LOCAL_OCR' OR
        v->'confidence'<>'null'::jsonb OR
        jsonb_typeof(v->'value')<>'string' OR
