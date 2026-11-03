@@ -32,6 +32,8 @@ import {
   listCanonicalDealerStaff,inviteDealerStaff,listOwnDealerStaffInvitations,
   acceptDealerStaffInvitation,revokeDealerStaffInvitation,
 } from '../services/dealer/dealerStaffMembershipService.js';
+import {getMyCanonicalDealerInventory}
+  from '../services/dealer/dealerTenantInventoryReadService.js';
 import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   createOrUpdateProfile,
@@ -250,6 +252,19 @@ router.post('/api/dealer/staff-invitations/:id/revoke',authorizeSessionRole([]),
   try{
     const receipt=await revokeDealerStaffInvitation(req.userContext,req.params.id);
     res.set('Cache-Control','no-store').status(200).json({receipt});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+
+// C17: read actual vehicles strictly scoped to an active verified dealership
+// tenant. VIN publication decisions remain in the existing seller domain.
+router.get('/api/dealer/operational-inventory',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const inventory=await getMyCanonicalDealerInventory(req.userContext);
+    res.set('Cache-Control','no-store').json({inventory});
   }catch(error){
     if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
       return res.status(error.statusCode).json({error:error.message});
