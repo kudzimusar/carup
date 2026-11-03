@@ -86,6 +86,13 @@ describe('The pre-final review: each state says what is true, and a closed revie
     expect(paynowStateBadge('confirmed_partial', 'paid').label).toBe('Part counted — the rest under review')
     expect(paynowStatusLine('confirmed_partial', view({ provider_status: 'paid' }), 'garage')).toMatch(/part of it counts/i)
   })
+  it('PFR-L3: a part-counted request CarUp had released never says it is not counted', () => {
+    for (const audience of ['customer', 'garage'] as const) {
+      const line = paynowStatusLine('confirmed_partial', view({ provider_status: 'paid', hold_released: true }), audience)
+      expect(line, audience).toMatch(/part of it counts/i)
+      expect(line, audience).not.toMatch(/it is not counted|released this request/i)
+    }
+  })
   it('every state has a tone', () => {
     for (const state of ['reviewed_held', 'no_longer_needed', 'closed_live', 'confirmed_partial'] as ProviderPaymentState[]) expect(PROVIDER_STATE_TONE[state]).toBeTruthy()
   })

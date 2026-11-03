@@ -209,6 +209,8 @@ export function paynowStatusLine(state: string | null | undefined, view: PaynowV
   const reported = status ? ` ${PAYNOW_REPORTED[status]}.` : ''
   if (state && REVIEW_STATES.has(state)) return `Under review — not counted.${reported}`
   if (state === 'confirmed') return 'Paid — counted on the invoice.'
+  // part of it counts, whatever CarUp had done with the request before Paynow reported it paid
+  if (state === 'confirmed_partial') return PAYNOW_STATE_LINE.confirmed_partial
   // a request no longer waited on is never said to be waiting, by any word of Paynow's it last read
   const stillWaiting = status === 'created' || status === 'sent'
   if (view.settled_outside) return `${PAYNOW_STATE_LINE.settled_outside}${stillWaiting ? '' : reported}`

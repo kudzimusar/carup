@@ -172,6 +172,9 @@ async function axeClean(page: Page, include: string) {
 /** Element screenshots only (full-page captures of long pages repeat the top); sticky chrome hidden during capture only. */
 async function shot(page: Page, target: string | Locator, name: string) {
   const locator = typeof target === 'string' ? page.locator(target).first() : target
+  // the capture only: a smooth scroll in progress would photograph the wrong part of a long page
+  await page.addStyleTag({ content: 'html { scroll-behavior: auto !important; }' })
+  await locator.scrollIntoViewIfNeeded()
   await locator.screenshot({ path: `${SCREENS}/${name}.png`,
     style: '.sticky.top-0, .fixed.bottom-0 { opacity: 0 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }' })
 }
@@ -187,7 +190,8 @@ async function openHowToPay(page: Page, number: string, { checkout = true } = {}
   const card = invoiceCard(page, number)
   await expect(card).toBeVisible({ timeout: 30_000 })
   const toggle = card.getByTestId('how-to-pay-toggle')
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  // a control that is not there fails here, not at the end of the test's whole budget
+  if ((await toggle.getAttribute('aria-expanded', { timeout: 30_000 })) !== 'true') await toggle.click()
   // a payment in progress for the whole balance offers "continue this payment", not a second checkout
   if (checkout) await expect(card.getByTestId('paynow-checkout')).toBeVisible({ timeout: 30_000 })
   else await expect(card.getByTestId('my-provider-payments')).toBeVisible({ timeout: 30_000 })
@@ -242,7 +246,7 @@ const EXPECT: Record<string, { state: string; provider: RegExp; counted: boolean
   lateOpen: { state: 'under_review', provider: /Paid/, counted: false, review: /reviewing/, next: /Do not pay again/ },
   lateClosed: { state: 'closed_not_counted', provider: /Cancelled/, counted: false, review: /does not count/, next: /how it was settled/ },
   reversed: { state: 'not_counted', provider: /A status CarUp does not recognise/, counted: false, review: /only if Paynow reports it paid/, next: /Ask the garage/ },
-  counted: { state: 'confirmed', provider: /Paid/, counted: true, review: null, next: /./ },
+  counted: { state: 'confirmed', provider: /Paid/, counted: true, review: null, next: /^$/, list: 'invoice' },
   // the pre-final review's states. A row with nothing left owed has no way to pay, so it is read in the invoice's own list.
   reviewedHeld: { state: 'reviewed_held', provider: /Cancelled/, counted: false, review: /only if Paynow reports it paid/, next: /Do not pay again yet/ },
   notNeeded: { state: 'no_longer_needed', provider: /Waiting for/, counted: false, review: null, next: /Do not complete this request/ },
@@ -414,6 +418,7 @@ for (const vp of VIEWPORTS) {
       expect(said.allocation, name).toMatch(EXPECT[name].counted ? /^Counted on this invoice/ : /^Not counted on this invoice/)
       expect(said.text, name).not.toMatch(FALSE_NOTHING)
       expect(said.text, name).not.toMatch(/Waiting for the customer|still counts/)
+      if (EXPECT[name].counted) expect(said.text, name).not.toMatch(/and it is not counted/)
       if (!EXPECT[name].counted) await expect(row.getByTestId('provider-payment-paynow-refund-guidance'), name).toHaveCount(0)
       await expect(row.getByTestId('provider-payment-refund'), name).toHaveCount(0)
       await noHorizontalOverflow(page)

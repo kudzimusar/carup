@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL ||= 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-key';
+const { PAY05_LABELS } = await import('../services/payment/pay05Contract.js');
 const {
   PAYNOW_STATE_LABELS, confirms, paynowAuthEmailFor, paynowCollectionState, paynowReleaseBlock, paynowReviewOpenable, paynowView, publicResultUrl, withCollectionState,
 } = await import('../services/payment/pay05PaynowCollectionService.js');
@@ -262,6 +263,15 @@ test('PFR-L3: a payment counted in part says the part, and the review of the res
 test('PFR-L5: "last read" prefers the time of the last read to the time the word changed', () => {
   assert.equal(paynowView(tx('ecocash', 'sent', { provider_status_at: 'old', last_read_at: 'new' })).last_read_at, 'new');
   assert.equal(paynowView(tx('ecocash', 'sent', { provider_status_at: 'old' })).last_read_at, 'old');
+});
+
+test('the notice shown at a stop promises nothing about money the customer may already have paid', () => {
+  assert.doesNotMatch(PAY05_LABELS.cannotCancel, /nothing (is|was) (charged|paid)/i);
+  assert.match(PAY05_LABELS.cannotCancel, /cannot cancel/);
+});
+
+test('a settled request says it is settled, not released', () => {
+  assert.match(paynowReleaseBlock({ tx: { hold_released_at: 'x', settled_off_platform_at: 'x' }, paymentStatus: 'pending' }), /settled/i);
 });
 
 test('PFR-L6: the sentence about a stopped request does not say who stopped it', () => {

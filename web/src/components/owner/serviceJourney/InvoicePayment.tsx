@@ -272,7 +272,7 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                           <div id={`${uid}-ask-${p.id}`} tabIndex={-1} className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-amber-900" role="group"
                             aria-label="Stop this checkout?" data-testid="my-provider-payment-stop-ask">
                             <p>{paynow
-                              ? 'Stop waiting for this Paynow payment? Paynow cannot cancel a payment request, so the amount stays reserved on this invoice until Paynow closes it or CarUp releases it. If you do not complete it, nothing is charged. A payment you complete while it is reserved counts on the invoice.'
+                              ? 'Stop waiting for this Paynow payment? Paynow cannot cancel a payment request, so the amount stays reserved on this invoice until Paynow closes it or CarUp releases it. A payment you complete while it is reserved counts on the invoice.'
                               : 'Stop this checkout? If you already paid at the provider, that payment still counts.'}</p>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <Button className={`min-h-11 ${MONEY_ACTION_BUTTON_CLASS}`} disabled={busy} onClick={() => void stop(p.id)} data-testid="my-provider-payment-stop-confirm">Yes, stop it</Button>

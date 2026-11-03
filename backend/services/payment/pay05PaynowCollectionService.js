@@ -944,6 +944,7 @@ export async function listHeldPaynowCollections({ db = defaultDb, env = process.
  * CarUp's own time has passed (the panel shows that time and opens the action itself when it passes) (ICR-W6).
  */
 export function paynowReleaseBlock({ tx, paymentStatus, reviews = [] }) {
+  if (tx.settled_off_platform_at) return 'Already settled outside CarUp.';
   if (tx.hold_released_at) return 'Already released.';
   if (paymentStatus !== 'pending') return 'This payment is no longer waiting on Paynow.';
   if (reviews.length) return 'Close its review first.';

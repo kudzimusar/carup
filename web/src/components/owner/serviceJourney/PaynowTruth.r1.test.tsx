@@ -289,6 +289,15 @@ describe('PFR-M1: a review an operator opened says so', () => {
   })
 })
 
+describe('A stop promises nothing about money the customer may already have paid', () => {
+  it('the question before a stop does not say nothing is charged', async () => {
+    api.fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([row()]))
+    await openHowToPay()
+    fireEvent.click(await screen.findByTestId('my-provider-payment-stop'))
+    expect(await screen.findByTestId('my-provider-payment-stop-ask')).not.toHaveTextContent(/nothing (is|was) (charged|paid)/i)
+  })
+})
+
 describe('ICR-W7: no dead ends while the money stays reserved', () => {
   it('the InnBucks code stays on screen past CarUp’s time; the stop warning says the amount stays reserved', async () => {
     api.fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([
