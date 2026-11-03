@@ -17,6 +17,7 @@ import {
   getPublicResearch,
   listPublicResearch,
   reviewResearchSeed,
+  listResearchReviewQueue,
   submitResearchClaim,
   listOwnResearchClaims,
   requestResearchCorrection,
@@ -210,6 +211,17 @@ router.post('/api/admin/dealership/claims/:claimId/review',
     const review=await reviewDealerClaim(req.params.claimId,req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({review});
   } catch(error){errorResponse(res,next,error)}
+});
+
+// Each private research candidate requires an individual source/public-interest
+// decision; this queue never leaks contact-rich research and has no bulk publish.
+router.get('/api/admin/dealership/research/queue',reviewer,async(req,res,next)=>{
+  try{
+    const queue=await listResearchReviewQueue(req.userContext,{
+      page:req.query.page,limit:req.query.limit,
+    });
+    res.set('Cache-Control','no-store').json(queue);
+  }catch(error){errorResponse(res,next,error)}
 });
 
 // Research source eligibility must be independently reviewed with a valid session,
