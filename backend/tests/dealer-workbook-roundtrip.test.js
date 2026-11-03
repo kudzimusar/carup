@@ -44,6 +44,7 @@ test('D3 approved claim generates unique private research candidates and honest 
   const branch=wb.getWorksheet('BRANCHES');
   assert.equal(branch.getRow(2).getCell(1).value,'BR-ZW-DEAL-0001');
   assert.equal(branch.getRow(2).getCell(7).value,'Harare');
+  assert.equal(branch.getRow(2).getCell(17).value,'+263 FIXTURE','source phone is not corrupted by a CSV-style apostrophe');
   const values=wb.getWorksheet('README - Instructions').getColumn(2).values;
   assert.ok(values.includes(PREFILL_CONTRACT_VERSION));
   assert.ok(values.includes(source.source_row_sha256));
@@ -71,6 +72,7 @@ test('D3 full workbook roundtrip preserves researched city, branch and applicant
   assert.equal(document.tab_rows.BUSINESS[0].legal_name,'Test Legal Business Ltd');
   assert.equal(document.tab_rows.BUSINESS[0].research_display_name,'TEST FIXTURE Car Sales');
   assert.equal(document.tab_rows.BRANCHES[0].city,'Harare');
+  assert.equal(document.tab_rows.BRANCHES[0].business_contact_phone,'+263 FIXTURE','no retyping or apostrophe pollution');
   assert.equal(document.tab_rows.BRANCHES[0].source_confirmation,'UNKNOWN');
   assert.equal(record_counts.BRANCHES,1);
   assert.equal(has_authority_writes,false);
