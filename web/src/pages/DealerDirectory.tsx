@@ -14,8 +14,11 @@ type ResearchProfile = {
   source_attribution: string
   reviewed_at: string
   label: string
-  claimed: false
-  business_verified: false
+  claimed: boolean
+  business_verified: boolean
+  tier?:'PRELISTED_UNCLAIMED'|'FULL_DEALER_APPROVED'
+  approved_branches?:Array<{branch_id:string;name:string;address:string}>
+  dealer_declared_sections?:Record<string,Record<string,string>>
 }
 type DirectoryEnvelope = { entries: ResearchProfile[]; total: number | null; page: number; limit: number }
 const API = resolveApiBaseUrl(import.meta.env.VITE_API_URL,
@@ -31,6 +34,8 @@ function initials(name: string) {
  */
 export default function DealerDirectory() {
   const [search, setSearch] = useState('')
+  const [city,setCity]=useState('')
+  const [page,setPage]=useState(1)
   const [directory, setDirectory] = useState<DirectoryEnvelope | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
 
@@ -39,7 +44,8 @@ export default function DealerDirectory() {
     const timer = window.setTimeout(() => {
       setState('loading')
       apiRequest<DirectoryEnvelope>({
-        baseUrl: API, path: '/dealership/research?q=' + encodeURIComponent(search.trim()),
+        baseUrl: API, path: '/dealership/research?q='+encodeURIComponent(search.trim())+
+          '&city='+encodeURIComponent(city.trim())+'&page='+page,
       }).then(result => {
         if (!active) return
         setDirectory(result)
@@ -51,7 +57,7 @@ export default function DealerDirectory() {
       })
     }, 300)
     return () => { active = false; window.clearTimeout(timer) }
-  }, [search])
+  }, [search,city,page])
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -65,11 +71,17 @@ export default function DealerDirectory() {
           <p className="text-sm text-gray-500 mb-6">
             Profiles become visible only after CarUp independently reviews their public research information.
           </p>
+          <label htmlFor="dealer-city-filter" className="block font-medium text-sm mb-2 mt-4">
+            Filter by researched or independently reviewed city
+          </label>
+          <Input id="dealer-city-filter" placeholder="e.g. Harare" value={city}
+            className="max-w-lg"
+            onChange={e=>{setCity(e.target.value);setPage(1)}} maxLength={80}/>
           <label htmlFor="dealer-search" className="block font-medium text-sm mb-2">Search published dealership profiles</label>
           <div className="relative max-w-lg">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" aria-hidden="true" />
             <Input id="dealer-search" placeholder="Business name..." value={search}
-              onChange={e => setSearch(e.target.value)} className="pl-10" maxLength={80} />
+              onChange={e => {setSearch(e.target.value);setPage(1)}} className="pl-10" maxLength={80} />
           </div>
         </div>
       </div>
@@ -101,7 +113,7 @@ export default function DealerDirectory() {
           <>
             <p className="mb-5 text-sm text-gray-600" aria-live="polite">
               {directory.total == null ? 'Reviewed public results' : `${directory.total} reviewed public results`}
-              {' · '}Research listings are unclaimed and not independently business-verified.
+              {' · '}Research entries are labelled unclaimed; independently approved businesses are clearly distinguished.
             </p>
             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {directory.entries.map(dealer => (
@@ -113,13 +125,18 @@ export default function DealerDirectory() {
                       <div className="min-w-0">
                         <h2 className="font-semibold text-lg leading-snug break-words">{dealer.name}</h2>
                         <span className="text-xs text-gray-500">{dealer.category}</span>
+                        {dealer.business_verified&&<span className="block mt-2 text-xs font-semibold text-blue-800">
+                          Independently reviewed business and current operating authorization
+                        </span>}
                       </div>
                     </div>
                     <div className="flex gap-2 text-gray-700 text-sm mt-4 items-center">
                       <MapPin className="w-4 h-4 shrink-0" aria-hidden="true" />
-                      <span>{dealer.city}, Zimbabwe — researched location, not independently confirmed</span>
+                      <span>{dealer.city}, Zimbabwe — {dealer.business_verified?'public branch review completed':'research city, not independently confirmed'}</span>
                     </div>
-                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 p-3 rounded-lg mt-4">
+                    <p className={'text-sm border p-3 rounded-lg mt-4 '+
+                      (dealer.business_verified?'text-blue-900 bg-blue-50 border-blue-200':
+                        'text-amber-800 bg-amber-50 border-amber-200')}>
                       {dealer.label}
                     </p>
                     <p className="text-xs text-gray-500 mt-3">Source: {dealer.source_attribution}. Information may be outdated.</p>
@@ -127,14 +144,30 @@ export default function DealerDirectory() {
                       <Link className="text-blue-700 underline underline-offset-4" to={`/dealers/${dealer.slug}`}>
                         View researched profile
                       </Link>
-                      <Link className="text-blue-700 underline underline-offset-4" to={`/dealers/${dealer.slug}/claim`}>
+                      {!dealer.business_verified&&<Link className="text-blue-700 underline underline-offset-4"
+                        to={`/dealers/${dealer.slug}/claim`}>
                         Claim this dealership
-                      </Link>
+                      </Link>}
                     </div>
                   </CardContent>
                 </Card>
               ))}
             </div>
+            {directory.total!==null&&directory.total>directory.limit&&
+              <nav aria-label="Dealership directory pages"
+                className="flex justify-between items-center mt-8 max-w-md">
+                <button type="button" className="text-sm underline text-blue-700 disabled:text-gray-500"
+                  disabled={page<=1} onClick={()=>setPage(current=>Math.max(1,current-1))}>
+                  Previous page
+                </button>
+                <span className="text-sm text-gray-600">
+                  Page {directory.page} of {Math.ceil(directory.total/directory.limit)}
+                </span>
+                <button type="button" className="text-sm underline text-blue-700 disabled:text-gray-500"
+                  disabled={page>=Math.ceil(directory.total/directory.limit)}
+                  onClick={()=>setPage(current=>current+1)}>Next page
+                </button>
+              </nav>}
           </>
         )}
       </div>
