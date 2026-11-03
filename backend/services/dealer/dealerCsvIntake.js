@@ -113,7 +113,10 @@ export function inspectDealerCsvImport(bytes,tab){
   const map=proposed(tab,csv.headers);
   return {schema:'CARUP_DEALER_CSV_PREVIEW_1',target_tab:tab,
     csv_sha256:csv.sha256,input_rows:csv.rows.length,input_headers:csv.headers,
-    ...map,confirmed:false,legal_identity_verified:false,tenant_activated:false};
+    ...map,
+    allowed_targets:getTab(tab).fields.filter(f=>f.applicant_editable)
+      .map(f=>({key:f.key,label:f.label,data_type:f.data_type,required:f.required})),
+    confirmed:false,legal_identity_verified:false,tenant_activated:false};
 }
 export async function stageConfirmedDealerCsv({bytes,tab,approvedMapping,
   acknowledged,expectedSha,claim,source,previousDocument=null}){
