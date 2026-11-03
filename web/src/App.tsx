@@ -25,6 +25,8 @@ import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
 import DealerResearchProfile from './pages/DealerResearchProfile'
 import DealerResearchCorrection from './pages/DealerResearchCorrection'
+import DealerClaimWorkspace from './pages/DealerClaimWorkspace'
+import DealerClaimReview from './pages/DealerClaimReview'
 import GarageDirectory from './pages/GarageDirectory'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
@@ -261,6 +263,7 @@ export default function App() {
           <Route path="/dealers/:seedId" element={<DealerResearchProfile />} />
           <Route path="/dealers/:seedId/claim" element={<DealerResearchProfile claimMode />} />
           <Route path="/dealers/:seedId/correction" element={<DealerResearchCorrection />} />
+          <Route path="/dealers/claims" element={<DealerClaimWorkspace />} />
           <Route path="/garages" element={<GarageDirectory />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
@@ -420,6 +423,7 @@ export default function App() {
           <Route path="/admin/vehicles/:vin/review" element={<VehicleOperationsReview />} />
           <Route path="/admin/fraud-queue" element={<FraudQueue />} />
           <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
+          <Route path="/admin/dealer-claims" element={<DealerClaimReview />} />
           <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />
