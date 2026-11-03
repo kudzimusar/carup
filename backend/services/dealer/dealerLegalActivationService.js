@@ -21,7 +21,7 @@ async function readLegalCase(submissionId,actor){
   const {data,error}=await supabase.from('dealer_claim_compliance_submissions')
     .select('submission_id,claim_id,claimant_user_id,intake_version,submitted_at')
     .eq('submission_id',submissionId).maybeSingle();
-  if(error)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
+  if(caseError)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
   if(!data)throw deny('LEGAL_APPLICATION_NOT_FOUND',404);
   requireIndependentReviewer(actor,data.claimant_user_id);
   return data;
@@ -63,7 +63,7 @@ export async function listPendingLegalDealershipCases(actor){
   if(eventError)throw deny('LEGAL_REVIEW_QUEUE_UNAVAILABLE',503);
   if(!(events||[]).length)return [];
   const ids=events.map(x=>x.submission_id);
-  const {data:cases,error}=await supabase.from('dealer_claim_compliance_submissions')
+  const {data:cases,error:caseError}=await supabase.from('dealer_claim_compliance_submissions')
     .select('submission_id,claim_id,claimant_user_id,intake_version,submitted_at')
     .in('submission_id',ids).limit(100);
   if(error)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
