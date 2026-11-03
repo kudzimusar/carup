@@ -10,8 +10,11 @@
 - Source original: `Car Dealers Database!A8:K111` (104 source entries).
 - DEV-8 crosswalk: `DEV 8 - Seed Catalogue!A2:U105` (104 entries).
 - Exact exported XLSX SHA-256: `93ff168fd186debf3f5caa0bac00f2d739bcc4188d3ff4f6170d8d2d269e8ab0`.
-- Historical attached workbook SHA-256 recorded in prior ledger: `a9a6ac6f68bed5266c6870958520105fc1c69f75dd80f7020839e8d5fdd4b137`. **Different binary provenance:** the original attached file and native re-export cannot be treated as an identical approved binary without explicit revision reconciliation.
+- **New Owner-uploaded original workbook** `Zimbabwe Car Dealers & Automotive Companies Database(1).xlsx` has SHA-256 `a9a6ac6f68bed5266c6870958520105fc1c69f75dd80f7020839e8d5fdd4b137`, exactly matching the historical canonical attached-source fingerprint; the native Google Sheets re-export is SHA-256 `93ff168fd186debf3f5caa0bac00f2d739bcc4188d3ff4f6170d8d2d269e8ab0`. These remain different binary versions: **do not treat one hash as authorizing import of the other**.
 - Source workbook was NEVER committed to a GitHub repo. Contact-rich source/cell values remain privately held.
+- **Sheet-by-sheet reconciliation:** 20 worksheet names match. Original source `Car Dealers Database!A8:K111` and 104 `DEV 8 - Seed Catalogue!A2:U105` entries match exactly between uploaded original and native re-export. 18 sheets have no cell-value differences.
+- **Eight incidental metadata-cell differences:** `START HERE!E22:E27` (6 cells) and `Data Quality!B24:B25` (2 cells) read `166` in uploaded original vs `136` in native export. These are NOT source IDs/businesses/categories/contacts or verification decisions, and are not evidence of 166 or 136 dealers. Source count stays **104**. Preserve both SHA values in custody.
+- For a locally authorized future importer commit, use the exact Owner-attached original hash; refuse the other binary unless an explicit SHA-specific approval and source reconciliation is recorded. This reconciliation did not contact a PostgreSQL server or grant publication eligibility.
 
 ## Actual source import exercise
 
