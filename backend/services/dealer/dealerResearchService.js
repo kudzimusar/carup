@@ -169,3 +169,49 @@ export async function listOwnResearchClaims(actor) {
   if (error) throw domainError(error,'my claims');
   return data || [];
 }
+
+const CORRECTION_TYPES = new Set(['CORRECTION','REMOVAL','BUSINESS_CLOSED','IDENTITY_DISPUTE']);
+
+/**
+ * Guest and business correction/removal request intake. A complaint never auto-suppresses
+ * an entity; it is queued for independent reviewer disposition, with private contact.
+ */
+export async function requestResearchCorrection(seedId, payload = {}) {
+  const id = normalizeSeedId(seedId);
+  const kind = payload.request_type;
+  const reason = trim(payload.request_summary,2000,30);
+  const email = payload.contact_email == null || payload.contact_email === ''
+    ? null : trim(payload.contact_email,200);
+  if (!CORRECTION_TYPES.has(kind) || !reason) {
+    throw inputError('Correction requests require a valid request type and a factual explanation');
+  }
+  if (email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+    throw inputError('Invalid correction contact email');
+  }
+  if (payload.contact_email && !email) throw inputError('Invalid correction contact email');
+  // Do not leak a withheld/disputed source's existence through this endpoint.
+  if (!await getPublicResearch(id)) {
+    const error = new Error('Research listing unavailable');
+    error.statusCode = 404;
+    throw error;
+  }
+  const { data, error } = await supabase.from('dealer_research_correction_requests')
+    .insert({ seed_dealer_id:id, request_type:kind, request_summary:reason, contact_email:email })
+    .select('request_id,seed_dealer_id,request_type,status,created_at').single();
+  if (error) throw domainError(error,'correction intake');
+  return data;
+}
+
+export async function listResearchCorrectionsForReviewer(actor) {
+  if (!actor?.userId || actor.authenticationMethod !== 'session' || !actor.isVerified
+      || !['admin','reviewer','platform_admin','super_admin'].includes(actor.platformRole)) {
+    const error = new Error('Independent session-verified reviewer required');
+    error.statusCode = 403;
+    throw error;
+  }
+  const { data, error } = await supabase.from('dealer_research_correction_requests')
+    .select('request_id,seed_dealer_id,request_type,request_summary,contact_email,status,created_at')
+    .order('created_at',{ ascending:false }).limit(100);
+  if (error) throw domainError(error,'correction queue');
+  return data || [];
+}
