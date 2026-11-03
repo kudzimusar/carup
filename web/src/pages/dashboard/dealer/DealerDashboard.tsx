@@ -28,7 +28,7 @@ type RecordedVehicle={
   public_listing_approved_by_this_read:false;
 }
 type Inventory={
-  entries:RecordedVehicle[];returned_count:number;actual_total:null;
+  owner_tenant_id:string;entries:RecordedVehicle[];returned_count:number;actual_total:null;
   count_scope:'FIRST_100_CANONICAL_TENANT_VEHICLES_ONLY';
   seller_publish_action_enabled:false;
 }
@@ -83,6 +83,7 @@ export default function DealerDashboard(){
         if(!live)return
         // Prevent accidental mixing of a prior tenant's data if access changes.
         if(response.inventory&&Array.isArray(response.inventory.entries)&&
+          response.inventory.owner_tenant_id===result.workspace.tenant_id&&
           response.inventory.actual_total===null){
           setInventory(response.inventory);setStockStatus('ready')
         }else{
