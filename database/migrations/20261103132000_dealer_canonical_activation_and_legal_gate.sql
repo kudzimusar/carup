@@ -248,9 +248,19 @@ BEGIN
  -- Do NOT seize an organization by matching its trading name, email or website.
  IF EXISTS(SELECT 1 FROM organizations WHERE id=v_organization) THEN
    RAISE EXCEPTION 'PREEXISTING_ORGANIZATION_NEEDS_MANUAL_LEGAL_RECONCILIATION'; END IF;
- IF EXISTS(SELECT 1 FROM dealer_profiles WHERE user_id=c.claimant_user_id
-    AND (tenant_id IS NOT NULL OR identity_status='verified')) THEN
-   RAISE EXCEPTION 'CLAIMANT_ALREADY_HAS_AN_OPERATIONAL_DEALER_PROFILE'; END IF;
+ IF (SELECT count(*) FROM dealer_profiles WHERE user_id=c.claimant_user_id)>1 THEN
+   RAISE EXCEPTION 'AMBIGUOUS_PREEXISTING_DEALER_PROFILES'; END IF;
+ SELECT * INTO v_prev FROM dealer_profiles
+   WHERE user_id=c.claimant_user_id FOR UPDATE;
+ IF FOUND AND (v_prev.tenant_id IS NOT NULL OR
+   v_prev.identity_status<>'unverified' OR
+   v_prev.compliance_review_state NOT IN ('not_started','in_review') OR
+   v_prev.active_state<>'inactive' OR
+   v_prev.restriction_state<>'none' OR
+   v_prev.suspension_state<>'none' OR
+   v_prev.investigation_state<>'none') THEN
+   RAISE EXCEPTION 'PREEXISTING_DEALER_REQUIRES_INDEPENDENT_RECONCILIATION';
+ END IF;
  INSERT INTO tenants(name,type,status) VALUES(v_name,'dealership','active')
    RETURNING id INTO v_tenant;
  INSERT INTO organizations(id,name,type,created_at,status,tenant_id)
@@ -264,16 +274,28 @@ BEGIN
    VALUES(v_tenant,c.claimant_user_id,'dealer');
  -- Keep the applicant's canonical user.role unchanged. Verified tenant membership
  -- and server-computed permissions, not a self-assigned global role, are the grant.
- INSERT INTO dealer_profiles(
-  user_id,tenant_id,legal_name,trading_name,operating_country,
-  registration_number,identity_status,business_evidence_status,
-  compliance_review_state,active_state,restriction_state,suspension_state,
-  investigation_state,listing_limit,expiry_date)
- VALUES(c.claimant_user_id,v_tenant::text,v_name,
-  nullif(btrim(s.application_snapshot->'tab_rows'->'BUSINESS'->0->>'trading_name'),''),
-  l.country_code,l.reviewed_registration_number,'verified','complete','passed',
-  'active','none','none','none',0,l.legal_expires_at)
- RETURNING id INTO v_profile;
+ IF v_prev.id IS NOT NULL THEN
+   UPDATE dealer_profiles SET tenant_id=v_tenant::text,legal_name=v_name,
+    trading_name=nullif(btrim(s.application_snapshot->'tab_rows'->'BUSINESS'->0->>'trading_name'),''),
+    operating_country=l.country_code,
+    registration_number=l.reviewed_registration_number,identity_status='verified',
+    business_evidence_status='complete',compliance_review_state='passed',
+    active_state='active',restriction_state='none',suspension_state='none',
+    investigation_state='none',listing_limit=0,expiry_date=l.legal_expires_at,
+    updated_at=now()
+    WHERE id=v_prev.id RETURNING id INTO v_profile;
+ ELSE
+   INSERT INTO dealer_profiles(
+    user_id,tenant_id,legal_name,trading_name,operating_country,
+    registration_number,identity_status,business_evidence_status,
+    compliance_review_state,active_state,restriction_state,suspension_state,
+    investigation_state,listing_limit,expiry_date)
+   VALUES(c.claimant_user_id,v_tenant::text,v_name,
+    nullif(btrim(s.application_snapshot->'tab_rows'->'BUSINESS'->0->>'trading_name'),''),
+    l.country_code,l.reviewed_registration_number,'verified','complete','passed',
+    'active','none','none','none',0,l.legal_expires_at)
+   RETURNING id INTO v_profile;
+ END IF;
  INSERT INTO dealer_branches(dealer_id,name,address) VALUES(v_profile,
    nullif(btrim(v_branch->>'branch_name'),''),
    nullif(btrim(v_branch->>'physical_address'),'')) RETURNING id INTO v_branch_id;
