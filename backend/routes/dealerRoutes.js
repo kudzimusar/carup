@@ -22,6 +22,8 @@
 import express from 'express';
 import dealerResearchRouter from './dealerResearchRoutes.js';
 import {getMyDealerMembershipSummary} from '../services/dealer/dealerOperationsReadService.js';
+import {getMyVerifiedDealerWorkspace,addDeclaredDealerBranch}
+  from '../services/dealer/dealerVerifiedWorkspaceService.js';
 import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   createOrUpdateProfile,
@@ -52,6 +54,34 @@ async function ownProfileOr404(req, res) {
 }
 
 // ── dealer self-service ────────────────────────────────────────────────────────────
+
+// Claim-approved canonical tenant owner may have a global member user.role.
+// This requires actual active legal claim, approved country policy, tenant and
+// organization membership independently of any legacy global dealer role.
+router.get('/api/dealer/operational-workspace',
+  authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const workspace=await getMyVerifiedDealerWorkspace(req.userContext);
+    res.set('Cache-Control','no-store').json({workspace});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+router.post('/api/dealer/operational-branches',
+  authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const branch=await addDeclaredDealerBranch(req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({branch});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+
+
 
 router.post('/api/dealer/profile', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
   try {
