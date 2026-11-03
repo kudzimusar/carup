@@ -1,0 +1,171 @@
+import {useCallback,useEffect,useState} from 'react'
+import {Link} from 'react-router-dom'
+import {Card,CardContent} from '@/components/ui/card'
+import {Button} from '@/components/ui/button'
+import {useAuth} from '@/context/AuthContext'
+import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+
+type Section='BUSINESS_OVERVIEW'|'BUYER_ASSURANCE'|'FINANCE_TERMS'|
+  'SOURCING'|'WARRANTY_AFTERSALES'|'SERVICE_CAPABILITIES'
+type Versioned={version:number;values:Record<string,string>;recorded_at:string;
+  private_declaration_only:true;public_approved:false}
+type ReadModel={sections:Section[];latest:Partial<Record<Section,Versioned>>;
+  owner_scope:string;publication_approval:false;verified_complaint_count:null;
+  measured_sales_revenue:null}
+const sections:Record<Section,{heading:string;help:string;fields:Array<[string,string]>}>={
+  BUSINESS_OVERVIEW:{heading:'Business overview',help:'These are private operator statements, not approved published corporate facts.',fields:[
+    ['public_description','Proposed business description'],
+    ['trading_name','Declared trading name'],
+    ['declared_contact_email','Proposed business contact email'],
+    ['opening_hours_note','Operating hours and availability'],
+  ]},
+  BUYER_ASSURANCE:{heading:'Buyer assurance',help:'Record actual written terms; CarUp does not certify their legal adequacy.',fields:[
+    ['inspection_rights','Pre-purchase inspection rights'],
+    ['cancellation_policy','Cancellation terms'],
+    ['refund_policy','Refund terms'],
+    ['dispute_resolution','Buyer complaints and dispute resolution'],
+  ]},
+  FINANCE_TERMS:{heading:'Finance and payment disclosures',help:'No merchant activation, lender approval, financing offer or payment is created here.',fields:[
+    ['deposit_terms','Deposit and outstanding balance terms'],
+    ['accepted_payment_methods','Dealer-declared payment methods, without live claims'],
+    ['finance_partner_disclosure','Disclose actual third-party finance relationship'],
+    ['currency_disclosure','Actual currencies and applicable charges'],
+  ]},
+  SOURCING:{heading:'Vehicle sourcing and import processes',help:'Declared sourcing does not verify individual VIN, duty or customs status.',fields:[
+    ['sourcing_channels','Sourcing channels and origins'],
+    ['import_duty_disclosure','How duty status is disclosed for each vehicle'],
+    ['customs_handling','Customs handling and customer obligations'],
+  ]},
+  WARRANTY_AFTERSALES:{heading:'Warranty and after-sales',help:'Only genuine supported coverage; every warranty is a private proposal until reviewed.',fields:[
+    ['warranty_scope','Covered vehicles/components and warranty term'],
+    ['warranty_exclusions','Written exclusions and limits'],
+    ['repair_support','Repair and after-sales assistance'],
+    ['spare_parts_support','Parts availability and supplier arrangements'],
+  ]},
+  SERVICE_CAPABILITIES:{heading:'Additional services',help:'List actual capabilities and locations, not assumed company credentials.',fields:[
+    ['workshop_services','Workshop and maintenance services'],
+    ['inspection_services','Inspection, diagnostics and technical capability'],
+    ['buyer_support_hours','Buyer assistance days and hours'],
+  ]},
+}
+const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
+  typeof window==='undefined'?undefined:window.location.hostname)
+const header=(userId:string,token:string):AuthHeaders=>({
+  'x-session-token':token,'x-user-id':userId,
+})
+export default function DealerOperatingDetails(){
+  const {user,token}=useAuth()
+  const [read,setRead]=useState<ReadModel|null>(null)
+  const [selected,setSelected]=useState<Section>('BUSINESS_OVERVIEW')
+  const [draft,setDraft]=useState<Record<string,string>>({})
+  const [status,setStatus]=useState<'loading'|'ready'|'denied'>('loading')
+  const [busy,setBusy]=useState(false)
+  const [notice,setNotice]=useState('')
+  const [error,setError]=useState('')
+  const reload=useCallback(async()=>{
+    if(!user||!token){setStatus('denied');return}
+    try{
+      const result=await apiRequest<{declarations:ReadModel}>({
+        baseUrl:API,path:'/dealer/operational-declarations',authHeaders:header(user.id,token),
+      })
+      setRead(result.declarations);setStatus('ready')
+      setError('')
+    }catch(problem){
+      setRead(null);setStatus('denied')
+      setError(problem instanceof Error?problem.message:'Dealer authority not active')
+    }
+  },[user,token])
+  useEffect(()=>{void reload()},[reload])
+  useEffect(()=>{
+    setDraft(read?.latest?.[selected]?.values||{})
+  },[selected,read])
+  async function save(){
+    if(!user||!token||busy||!read||status!=='ready')return
+    setBusy(true);setError('');setNotice('')
+    try{
+      const values=Object.fromEntries(Object.entries(draft).
+        filter(([,value])=>value.trim().length>0).
+        map(([key,value])=>[key,value.trim()]))
+      const result=await apiRequest<{receipt:{version:number;idempotent:boolean}}>({
+        baseUrl:API,path:'/dealer/operational-declarations/'+selected,
+        options:{method:'POST',body:JSON.stringify({
+          expected_version:read.latest[selected]?.version||0,values,
+        })},authHeaders:header(user.id,token),
+      })
+      setNotice('Saved private '+sections[selected].heading.toLowerCase()+
+        ' version '+result.receipt.version+'. No legal, public, payment or vehicle authorization was granted.')
+      await reload()
+    }catch(problem){
+      setError(problem instanceof Error?problem.message:'Could not persist dealership declaration')
+    }finally{setBusy(false)}
+  }
+  return <main className="min-h-screen bg-slate-50 py-10 px-4">
+    <div className="max-w-6xl mx-auto">
+      <div className="flex flex-wrap items-center gap-4 mb-6">
+        <Link to="/dealers/claims" className="text-blue-700 text-sm underline">
+          Dealership applications
+        </Link>
+        <Link to="/dealer/dashboard" className="text-blue-700 text-sm underline">
+          Dealer dashboard
+        </Link>
+      </div>
+      <h1 className="text-3xl font-bold text-slate-900">Operate your verified dealership</h1>
+      <p className="mt-2 max-w-3xl text-slate-600">
+        Record your real business information and customer policies in CarUp. Every saved
+        section has a persistent version and audit history. Editing these declarations
+        does not independently verify a fact or automatically publish it to buyers.
+      </p>
+      {status==='loading'&&<p role="status" className="mt-6">
+        Checking canonical organization, legal authority and tenant membership…
+      </p>}
+      {status==='denied'&&<p role="alert" className="mt-6 p-5 border border-amber-300 bg-amber-50 rounded-xl">
+        No active, independently approved dealership organization and tenant access
+        is available. A source listing or approved ownership claim alone is insufficient.
+      </p>}
+      {status==='ready'&&read&&<div className="grid lg:grid-cols-[260px_minmax(0,1fr)] gap-6 mt-8">
+        <nav aria-label="Dealer operating sections" className="space-y-2">
+          {(Object.keys(sections) as Section[]).map(key=><button
+            key={key} type="button" onClick={()=>{setSelected(key);setNotice('');setError('')}}
+            className={'block w-full text-left rounded-xl border px-4 py-3 text-sm '+
+              (key===selected?'bg-blue-50 border-blue-600 text-blue-900 font-semibold':
+                'bg-white border-slate-200 hover:border-slate-400')}>
+            {sections[key].heading}
+            <span className="block text-xs mt-1 text-slate-500">
+              {read.latest[key]?'Version '+read.latest[key]?.version:'Not recorded'}
+            </span>
+          </button>)}
+        </nav>
+        <Card><CardContent className="p-6 space-y-5">
+          <header>
+            <h2 className="text-xl font-bold text-slate-900">{sections[selected].heading}</h2>
+            <p className="text-sm text-slate-600 mt-2">{sections[selected].help}</p>
+            <p className="text-xs text-slate-500 mt-2">
+              Current recorded version: {read.latest[selected]?.version||0}.
+              Saved material stays private, unverified and unpublished.
+            </p>
+          </header>
+          {sections[selected].fields.map(([field,label])=><div key={field}>
+            <label htmlFor={'dealer-'+field} className="font-medium text-sm block mb-2">{label}</label>
+            <textarea id={'dealer-'+field} maxLength={750}
+              value={draft[field]||''} onChange={event=>setDraft(previous=>({
+                ...previous,[field]:event.target.value,
+              }))} className="w-full border border-slate-300 rounded-lg p-3 min-h-24
+                focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter an accurate declaration, or leave blank if not applicable."/>
+          </div>)}
+          <div className="flex gap-3 flex-wrap items-center">
+            <Button onClick={()=>{void save()}} disabled={busy||
+              !Object.values(draft).some(v=>v.trim())}>
+              Save this section to CarUp
+            </Button>
+            <p className="text-xs text-slate-500">
+              Version conflict protection · No unverified public claims
+            </p>
+          </div>
+        </CardContent></Card>
+      </div>}
+      {notice&&<p role="status" className="max-w-3xl mt-5 p-4 rounded-lg bg-blue-50 text-blue-900">{notice}</p>}
+      {error&&<p role="alert" className="max-w-3xl mt-5 p-4 rounded-lg bg-red-50 text-red-800">{error}</p>}
+    </div>
+  </main>
+}
