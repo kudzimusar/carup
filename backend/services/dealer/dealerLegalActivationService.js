@@ -76,6 +76,26 @@ export async function listPendingLegalDealershipCases(actor){
     compliance_approved:false,tenant_activated:false,
   }));
 }
+/**
+ * Separate activation approver queue; no original documents, claimant tax,
+ * bank data or private source snapshot are exposed here.
+ */
+export async function listPendingLegalDealerActivations(actor){
+  requireIndependentReviewer(actor,'');
+  const {data:rows,error}=await supabase.from('dealer_legal_application_reviews')
+    .select('legal_review_id,submission_id,claimant_user_id,reviewer_user_id,country_code,policy_version,legal_expires_at,created_at')
+    .eq('verdict','COMPLIANCE_APPROVED')
+    .order('created_at',{ascending:false}).limit(100);
+  if(error)throw deny('LEGAL_ACTIVATION_QUEUE_UNAVAILABLE',503);
+  return (rows||[]).map(row=>({
+    legal_review_id:row.legal_review_id,
+    submission_id:row.submission_id,
+    country_code:row.country_code,policy_version:row.policy_version,
+    legal_expires_at:row.legal_expires_at,created_at:row.created_at,
+    independent_activator_required:actor.userId!==row.claimant_user_id&&
+      actor.userId!==row.reviewer_user_id,
+  }));
+}
 export async function certifyLegalDealerCase(submissionId,actor,payload={}){
   const meta=await readLegalCase(submissionId,actor);
   await requireReviewerPassword(actor,{claimant_user_id:meta.claimant_user_id},
