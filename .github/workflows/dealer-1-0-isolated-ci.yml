@@ -78,7 +78,12 @@ jobs:
             backend/tests/dealer-claim-application.test.js \
             backend/tests/differentiator-journey.test.js
       - name: Isolated PostgreSQL migration and claim authority proof (PGlite)
-        run: node database/test/dealer_1_0_pglite_check.mjs
+        run: |
+          set -o pipefail
+          node database/test/dealer_1_0_pglite_check.mjs | tee "${RUNNER_TEMP}/dealer-pglite-result.log"
+          # The job must fail if an internal harness error gets swallowed or
+          # only prints FAIL; success status alone is not sufficient evidence.
+          grep -q '^DEALER_PGLITE_RESULT PASS:' "${RUNNER_TEMP}/dealer-pglite-result.log"
       - name: Web TypeScript validation
         run: npx tsc --noEmit --project web/tsconfig.app.json
       - name: Web production build (artifact not deployed)
