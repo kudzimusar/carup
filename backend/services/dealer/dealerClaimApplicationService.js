@@ -12,6 +12,7 @@ import {
 } from './dealerWorkbookRoundtrip.js';
 
 import {buildManualDealerWorkbook} from './dealerManualIntake.js';
+import {inspectDealerCsvImport,stageConfirmedDealerCsv} from './dealerCsvIntake.js';
 
 const DOCS=new Set(['COMPANY_REGISTRATION','DIRECTOR_AUTHORITY','SIGNATORY_MANDATE',
   'BRANCH_AUTHORITY','PARENT_COMPANY_AUTHORITY']);
@@ -256,6 +257,53 @@ export async function saveManualClaimDraft(claimId,actor,patch,expectedVersion=0
   const workbook=await buildManualDealerWorkbook(claim,source,patch,previous?.content||null);
   return importClaimWorkbook(claimId,actor,Buffer.from(await workbook.xlsx.writeBuffer()),expectedVersion);
 }
+/**
+ * C03: legacy CSV preview and committed mapping are claim-scoped. No guessing,
+ * no unrelated-source rows, no direct staff, role or VIN write.
+ */
+export async function previewMyClaimCsv(claimId,actor,csvBytes,tab){
+  requireClaimantSession(actor);
+  const claim=await loadClaim(claimId);
+  assertClaimOwner(claim,actor);
+  if(claim.claim_status!=='CLAIM_APPROVED')
+    throw deny('CLAIM_APPROVAL_REQUIRED',403);
+  return inspectDealerCsvImport(csvBytes,tab);
+}
+export async function importMyClaimCsv(claimId,actor,csvBytes,{
+  target_tab,approved_mapping,acknowledge_mapping,csv_sha256,expected_version
+}={}){
+  requireClaimantSession(actor);
+  const claim=await loadClaim(claimId);
+  assertClaimOwner(claim,actor);
+  if(claim.claim_status!=='CLAIM_APPROVED')
+    throw deny('CLAIM_APPROVAL_REQUIRED',403);
+  if(!Number.isInteger(expected_version)||expected_version<0)
+    throw deny('INVALID_EXPECTED_VERSION',400);
+  const source=await loadSource(claim.seed_dealer_id);
+  const {data:existing,error:dbError}=await supabase.from('dealer_claim_intake_drafts')
+    .select('content,submission_version').eq('claim_id',claim.claim_id)
+    .eq('claimant_user_id',actor.userId).maybeSingle();
+  if(dbError)throw deny('PRIVATE_DRAFT_UNAVAILABLE',503);
+  if((existing?.submission_version||0)!==expected_version)
+    throw deny('STALE_INTAKE_VERSION',409);
+  const parsed=await stageConfirmedDealerCsv({
+    bytes:csvBytes,tab:target_tab,approvedMapping:approved_mapping,
+    acknowledged:acknowledge_mapping===true,expectedSha:csv_sha256,
+    claim,source,previousDocument:existing?.content||null,
+  });
+  const {data,error}=await supabase.rpc('dealer_save_claim_intake_draft',{
+    p_claim_id:claim.claim_id,p_claimant_id:actor.userId,
+    p_schema_version:parsed.document.schema,p_source_sha:source.source_row_sha256,
+    p_workbook_sha:parsed.sha256,p_content:parsed.document,
+    p_summary:parsed.record_counts,p_expected_version:expected_version,
+  });
+  if(error)throw deny('ATOMIC_CSV_DRAFT_IMPORT_REFUSED',409);
+  return {receipt:data,csv_sha256:parsed.csv_sha256,
+    mapped_fields:Object.keys(parsed.source_header_mapping).length,
+    mapping_confirmed:true,record_counts:parsed.record_counts,
+    legal_or_tenant_activation:false,verified:false};
+}
+
 export async function readMyClaimIntakeDraft(claimId,actor){
   requireClaimantSession(actor);
   const claim=await loadClaim(claimId);
