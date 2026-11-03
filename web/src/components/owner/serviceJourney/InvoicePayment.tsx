@@ -50,6 +50,9 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
   const [lostStart, setLostStart] = useState<string | null>(null)
   // a result that is not a Paynow read: said in the row's live region, which is already on the page
   const [notice, setNotice] = useState<{ id: string; text: string } | null>(null)
+  const loaded = useRef(false)
+  const reads = useRef(0)
+
   // after each action the focus moves to the new content, once React has drawn it (ICR-W5)
   const [focusId, setFocusId] = useState<string | null>(null)
   useEffect(() => {
@@ -57,13 +60,11 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
     const target = document.getElementById(focusId)
     if (!target) return
     target.focus()
-    // the request is spent once focus has moved; until its target is drawn every render tries again
+    // the request is spent once focus has moved
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setFocusId(null)
-  })
-  const loaded = useRef(false)
-  const reads = useRef(0)
-
+    // what it points at may be drawn by a later read or answer: each of those tries again
+  }, [focusId, data, stopAsk, stopError, notice, lostStart, checked])
   /**
    * The first read shows "Loading"; every later read refreshes IN PLACE: what is on screen stays rendered (a separate
    * `refreshing` flag), because unmounting it would drop the payment the customer is in the middle of. A refresh that

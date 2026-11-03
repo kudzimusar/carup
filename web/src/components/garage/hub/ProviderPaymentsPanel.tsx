@@ -58,7 +58,6 @@ function ReasonAction({ testId, label, hint, submitLabel, minLength, busy, onSub
     <div className="mt-2 space-y-2 rounded-lg bg-gray-50 p-3" data-testid={testId}>
       <label htmlFor={fieldId} className="block text-sm font-medium">{label}</label>
       {/* the form takes the focus when it opens (ICR-W5) */}
-      {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
       <input id={fieldId} autoFocus value={reason} className={INPUT_CLASS} data-testid={`${testId}-reason`} onChange={(e) => setReason(e.target.value)} />
       <p className="text-xs text-gray-600">{hint}</p>
       <FormError message={problem} testId={`${testId}-error`} />

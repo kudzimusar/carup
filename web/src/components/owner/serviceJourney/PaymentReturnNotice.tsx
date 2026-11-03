@@ -33,9 +33,12 @@ export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => v
   const outcomeRef = useRef<HTMLParagraphElement>(null)
   const [answered, setAnswered] = useState(0)
   useEffect(() => { if (answered) outcomeRef.current?.focus() }, [answered])
+  // while a person's re-check runs its button stays: taking it away would drop their focus (ICR-W5)
+  const [rechecking, setRechecking] = useState(false)
 
   const check = async (asked = false) => {
     setPhase('checking')
+    setRechecking(asked)
     setFailed(false)
     try {
       setOutcome(await verifyGarageInvoicePayment(collectionId))
@@ -78,8 +81,7 @@ export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => v
         <PaynowPendingPanel collectionId={collectionId} paynow={view} state={state}
           onOtpOutcome={(answer) => { setOutcome(answer); setFailed(false); setAnswered((n) => n + 1); onSettled?.() }} />
       )}
-      {/* it stays while a person's re-check runs: taking it away would drop their focus (ICR-W5) */}
-      {((message && message.tone !== 'ok') || (phase === 'checking' && started.current && (outcome || failed))) && (
+      {((message && message.tone !== 'ok') || (phase === 'checking' && rechecking)) && (
         <Button variant="outline" className="min-h-11 bg-white" disabled={phase === 'checking'} onClick={() => void check(true)} data-testid="payment-return-recheck">
           Check payment status
         </Button>

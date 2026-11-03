@@ -97,10 +97,11 @@ export default function GaragePaymentsOperator() {
     const target = document.getElementById(focusId)
     if (!target) return
     target.focus()
-    // the request is spent once focus has moved; until its target is drawn every render tries again
+    // the request is spent once focus has moved
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setFocusId(null)
-  })
+    // what it points at may be drawn by the form opening or closing: each of those tries again
+  }, [focusId, resolving, message])
   const [form, setForm] = useState({ tenant_id: '', merchant_reference: '', display_name: '', currencies: 'USD', authority_note: '' })
 
   const applyExceptions = useCallback((res: GaragePaymentExceptions | null | undefined) => {
