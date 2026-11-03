@@ -21,6 +21,7 @@
  */
 import express from 'express';
 import dealerResearchRouter from './dealerResearchRoutes.js';
+import {getMyDealerMembershipSummary} from '../services/dealer/dealerOperationsReadService.js';
 import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   createOrUpdateProfile,
@@ -111,6 +112,19 @@ router.post('/api/dealer/documents', authorizeSessionRole(DEALER_ROLES), async (
   } catch (err) {
     if (/requires a doc_type/.test(err.message)) return res.status(400).json({ error: err.message });
     next(err);
+  }
+});
+
+// Source of truth: existing canonical tenant_users; no parallel staff authority.
+router.get('/api/dealer/operations/membership-summary',
+  authorizeSessionRole(DEALER_ROLES),async(req,res,next)=>{
+  try{
+    const summary=await getMyDealerMembershipSummary(req.userContext);
+    res.set('Cache-Control','no-store').json({summary});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
   }
 });
 
