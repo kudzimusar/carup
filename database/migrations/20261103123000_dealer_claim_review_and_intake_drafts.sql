@@ -257,7 +257,7 @@ GRANT EXECUTE ON FUNCTION dealer_save_claim_intake_draft(UUID,TEXT,TEXT,TEXT,TEX
 -- A rollback to the historical single pending-only claim status must fail closed
 -- while any reviewed/appealed/revoked claim remains in custody. Operators must
 -- migrate the legal records deliberately; never silently rewrite claim truth.
-DO $
+DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM dealer_research_claim_requests
@@ -266,7 +266,7 @@ BEGIN
     RAISE EXCEPTION 'CANNOT_ROLLBACK_WITH_REVIEWED_CLAIMS';
   END IF;
 END;
-$;
+$$;
 DROP FUNCTION IF EXISTS dealer_request_claim_appeal(UUID,TEXT,TEXT);
 DROP FUNCTION IF EXISTS dealer_save_claim_intake_draft(UUID,TEXT,TEXT,TEXT,TEXT,JSONB,JSONB,INTEGER);
 DROP FUNCTION IF EXISTS dealer_record_independent_claim_review(UUID,TEXT,TEXT,TEXT,UUID,TEXT,TEXT);
