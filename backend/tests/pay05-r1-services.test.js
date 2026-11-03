@@ -312,6 +312,38 @@ test('concurrency: a settlement racing a Paynow Paid never leaves money counted 
   }
 });
 
+test('concurrency, reordered reads: Paid and Disputed racing on tickets leave the count and the latest word in agreement', { skip }, async () => {
+  for (let i = 0; i < 6; i += 1) {
+    const inv = await invoice(34);
+    const s = await start(inv, { method: 'ecocash', phone: `07790004${String(i).padStart(2, '0')}` }, `r1-order-${run}-${i}`);
+    const c = await one('SELECT * FROM pay04_garage_collections WHERE id = $1', [s.collection_id]);
+    const read = (word, ticket) => q("SELECT pay05_apply_paynow_observation($1,'poll',NULL,$2,$3,$4,$5,'9510',$6,NULL,$7)", [c.id, word, word, c.amount_minor, c.payment_reference, c.provider_payment_id, ticket]);
+    const [t1, t2] = [(await one('SELECT pay05_begin_paynow_read($1) AS t', [c.id])).t, (await one('SELECT pay05_begin_paynow_read($1) AS t', [c.id])).t];
+    // tickets in one order, arrivals in whichever order the connections reach the lock
+    const racers = i % 2 ? [read('paid', t1), read('disputed', t2)] : [read('disputed', t2), read('paid', t1)];
+    await Promise.all(racers);
+    const row = await one('SELECT pay04_collection_allocated($1) AS counted, pay05_latest_provider_status($1) AS latest', [c.id]);
+    assert.ok(Number(row.counted) === 0 || row.latest === 'paid', `counted ${row.counted} while the latest word is ${row.latest}`);
+    assert.equal(await liveReceipts(c.id), Number(row.counted) > 0 ? 1 : 0, 'a receipt only for money that counts');
+    assert.equal(await openReview(c.id, 'provider_disputed'), 1, 'the dispute is never lost, whichever read arrived first');
+    assert.equal(Number(row.counted), 0, 'and it holds the money');
+  }
+});
+
+test('concurrency, transaction replay: the same closure sent five times at once closes once and counts nothing', { skip }, async () => {
+  const inv = await invoice(35);
+  const s = await start(inv, { method: 'ecocash', phone: '0779000217' }, `r1-replay-${run}`);
+  const guid = await guidOf(s.collection_id);
+  await sim.simulator.setStatus(guid, 'Paid');
+  await sim.simulator.setStatus(guid, 'Reversed');
+  const disc = (await one("SELECT id FROM pay04_garage_payment_discrepancies WHERE collection_id = $1 AND status = 'open'", [s.collection_id])).id;
+  const results = await Promise.allSettled(Array.from({ length: 5 }, () => q("SELECT pay04_resolve_garage_payment_discrepancy($1,'settled_off_platform',$2,'admin','Settled with the customer outside CarUp.')", [disc, ids.op])));
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1, 'one closes it');
+  assert.equal(await allocations(s.collection_id), 2, 'the allocation and its one reversal');
+  assert.equal(await count('pay04_garage_provider_receipts WHERE collection_id = $1', [s.collection_id]), 1, 'no second receipt');
+  assert.equal(await liveReceipts(s.collection_id), 0);
+});
+
 // ────────────────────────────── settled and released stay visible and re-readable (ICR-M3) ──────────────────────────────
 
 test('ICR-M3: settled and released requests stay on the operator list and are re-read, at a slow pace', { skip }, async () => {
@@ -333,7 +365,10 @@ test('ICR-M3: settled and released requests stay on the operator list and are re
   await P.refreshPaynowCollection({ db, env, collection: c });
   assert.equal(await openReview(s.collection_id, 'provider_paid_after_close'), 1, 'the re-read found new money: a review');
   assert.equal(Number((await one('SELECT pay04_collection_allocated($1) AS n', [s.collection_id])).n), 0, 'never allocated');
-  // and not on every view
+  // and not on every view: five minutes after a read, a request still waiting would be read again, a settled one is not
+  await q("SET session_replication_role = replica");
+  await q("UPDATE pay05_paynow_observations SET observed_at = clock_timestamp() - interval '5 minutes' WHERE collection_id = $1", [s.collection_id]);
+  await q("SET session_replication_role = origin");
   const t = counting();
   await P.refreshPaynowCollection({ db, env, transport: t, collection: c });
   assert.equal(t.calls.length, 0, 'no read within the slow window');

@@ -336,6 +336,30 @@ BEGIN
   RAISE NOTICE 'PAY05_R1 A8 PASS';
 END $$;
 
+-- A9: the cap is its own line of defence. Even a row made by hand, settled and with an applied Paid as its latest word (a row no
+-- writer can produce now, and one an older build could leave), never starts counting when it is reprojected.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid; v_ref text;
+BEGIN
+  g := pg_temp.garage('r1a9');
+  PERFORM pg_temp.merchant(g, 'r1a9', '51009');
+  inv := pg_temp.invoice(g, 'r1a9', 18.00);
+  c := pg_temp.start(inv.id, 18.00, 'r1a9-key-0000001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'paid', 1799);
+  PERFORM pg_temp.resolve(c, 'amount_mismatch', 'settled_off_platform');
+  SELECT payment_reference INTO v_ref FROM pay04_garage_collections WHERE id = c;
+  SET LOCAL session_replication_role = replica;
+  UPDATE payment_transactions SET status = 'paid' WHERE reference = v_ref;
+  INSERT INTO pay05_paynow_observations (tenant_id, collection_id, via, provider_status, raw_status, amount_minor, outcome)
+    VALUES (g, c, 'poll', 'paid', 'Paid', 1800, 'applied');
+  SET LOCAL session_replication_role = origin;
+  PERFORM pg_temp.check(pay05_latest_provider_status(c) = 'paid', 'A9 the latest word is an applied Paid');
+  PERFORM pay04_reproject_garage_collection(c, 'replay', NULL);
+  PERFORM pg_temp.check(pg_temp.counted(c) = 0 AND pg_temp.all_receipts(c) = 0, 'A9 settled money never starts counting');
+  RAISE NOTICE 'PAY05_R1 A9 PASS';
+END $$;
+
 -- ═══════════════════════════ B. after a settlement ═══════════════════════════
 
 -- B1 (ICR-M3 4A): new money after a settlement is never dropped and never allocated: it opens a review.
@@ -841,6 +865,8 @@ BEGIN
   -- the ZWG integration actually settles in USD
   PERFORM pg_temp.expect(format($q$SELECT pay05_verify_paynow_merchant(%L, 'r1-op', 'admin', %L, 'Reviewed the merchant.')$q$, v_acct,
     jsonb_set(v_ev, ARRAY['currency_evidence', v_id::text, 'settlement_currency'], '"USD"')), 'PAY05_CURRENCY_EVIDENCE_MISMATCH');
+  -- a reference but no currency
+  PERFORM pg_temp.expect(format($q$SELECT pay05_verify_paynow_merchant(%L, 'r1-op', 'admin', %L, 'Reviewed the merchant.')$q$, v_acct, v_ev #- ARRAY['currency_evidence', v_id::text, 'settlement_currency']), 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE');
   -- no reference to where it was checked
   PERFORM pg_temp.expect(format($q$SELECT pay05_verify_paynow_merchant(%L, 'r1-op', 'admin', %L, 'Reviewed the merchant.')$q$, v_acct,
     jsonb_set(v_ev, ARRAY['currency_evidence', v_id::text, 'reference'], '"short"')), 'PAY05_VERIFICATION_EVIDENCE_INCOMPLETE');
