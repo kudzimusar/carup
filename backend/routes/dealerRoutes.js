@@ -52,7 +52,7 @@ async function ownProfileOr404(req, res) {
 
 // ── dealer self-service ────────────────────────────────────────────────────────────
 
-router.post('/api/dealer/profile', authorizeRole(DEALER_ROLES), async (req, res, next) => {
+router.post('/api/dealer/profile', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
   try {
     const profile = await createOrUpdateProfile(req.userContext?.userId, req.body || {});
     res.status(201).json({ profile });
@@ -61,7 +61,7 @@ router.post('/api/dealer/profile', authorizeRole(DEALER_ROLES), async (req, res,
   }
 });
 
-router.get('/api/dealer/profile', authorizeRole(DEALER_ROLES), async (req, res, next) => {
+router.get('/api/dealer/profile', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
   try {
     const profile = await ownProfileOr404(req, res);
     if (!profile) return;
@@ -80,7 +80,7 @@ router.get('/api/dealer/branches', authorizeSessionRole(DEALER_ROLES), async (re
   } catch (error) { next(error); }
 });
 
-router.post('/api/dealer/branches', authorizeRole(DEALER_ROLES), async (req, res, next) => {
+router.post('/api/dealer/branches', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
   try {
     const profile = await ownProfileOr404(req, res);
     if (!profile) return;
@@ -91,7 +91,7 @@ router.post('/api/dealer/branches', authorizeRole(DEALER_ROLES), async (req, res
   }
 });
 
-router.get('/api/dealer/requirements', authorizeRole(DEALER_ROLES), async (req, res, next) => {
+router.get('/api/dealer/requirements', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
   try {
     const profile = await ownProfileOr404(req, res);
     if (!profile) return;
@@ -102,7 +102,7 @@ router.get('/api/dealer/requirements', authorizeRole(DEALER_ROLES), async (req, 
   }
 });
 
-router.post('/api/dealer/documents', authorizeRole(DEALER_ROLES), async (req, res, next) => {
+router.post('/api/dealer/documents', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
   try {
     const profile = await ownProfileOr404(req, res);
     if (!profile) return;
