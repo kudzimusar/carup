@@ -1,0 +1,210 @@
+import {useCallback,useEffect,useState} from 'react'
+import {Link} from 'react-router-dom'
+import {Card,CardContent} from '@/components/ui/card'
+import {Button} from '@/components/ui/button'
+import {Input} from '@/components/ui/input'
+import {useAuth} from '@/context/AuthContext'
+import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+
+type QueueItem={seed_dealer_id:string;operating_status:string;
+  independent_reviewer_required:boolean}
+type Candidate={
+ seed_dealer_id:string;operating_status:string;
+ branches:Array<{branch_id:string;proposed_name:string;proposed_address:string;
+   public_approved:false}>;
+ proposed_sections:Record<string,{version:number;
+   proposed_values:Record<string,string>;source:string}>;
+}
+const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
+  typeof window==='undefined'?undefined:window.location.hostname)
+function headers(id:string,token:string):AuthHeaders{
+ return {'x-session-token':token,'x-user-id':id}
+}
+/** Human maker-checker publication; empty records are NOT a valid approval. */
+export default function DealerFullStorefrontReview(){
+ const {user,token}=useAuth()
+ const reviewer=Boolean(user&&token&&
+  ['admin','reviewer','platform_admin','super_admin'].includes(String(user.role)))
+ const [queue,setQueue]=useState<QueueItem[]>([])
+ const [seed,setSeed]=useState('')
+ const [candidate,setCandidate]=useState<Candidate|null>(null)
+ const [password,setPassword]=useState('')
+ const [reason,setReason]=useState('')
+ const [approvedBranches,setApprovedBranches]=useState<string[]>([])
+ const [approvedSections,setApprovedSections]=useState<string[]>([])
+ const [disposition,setDisposition]=useState<'PUBLISHED_FULL'|'RETRACTED'>('PUBLISHED_FULL')
+ const [busy,setBusy]=useState(false)
+ const [status,setStatus]=useState('')
+ const [error,setError]=useState('')
+ const reload=useCallback(async()=>{
+  if(!reviewer||!user||!token)return
+  try{
+   const result=await apiRequest<{cases:QueueItem[]}>({
+    baseUrl:API,path:'/admin/dealership/full-storefronts/queue',
+    authHeaders:headers(user.id,token),
+   })
+   setQueue(result.cases||[])
+   setSeed(previous=>result.cases.some(x=>x.seed_dealer_id===previous)
+    ?previous:result.cases[0]?.seed_dealer_id||'')
+  }catch(problem){
+   setQueue([])
+   setError(problem instanceof Error?problem.message:'Could not load independent publication queue')
+  }
+ },[reviewer,user,token])
+ useEffect(()=>{void reload()},[reload])
+ useEffect(()=>{
+  setCandidate(null);setApprovedBranches([]);setApprovedSections([]);setReason('')
+ },[seed])
+ async function inspect(){
+  if(!user||!token||busy||!seed||password.length<8)return
+  setBusy(true);setError('');setStatus('')
+  try{
+   const result=await apiRequest<{candidate:Candidate}>({
+    baseUrl:API,path:'/admin/dealership/full-storefronts/'+encodeURIComponent(seed)+'/preview',
+    options:{method:'POST',body:JSON.stringify({reviewer_password:password})},
+    authHeaders:headers(user.id,token),
+   })
+   setCandidate(result.candidate)
+   setStatus('Private applicant content opened. Verify each branch and declared section independently before selecting it.')
+  }catch(problem){
+   setError(problem instanceof Error?problem.message:'Independent review password not accepted')
+  }finally{setPassword('');setBusy(false)}
+ }
+ async function record(){
+  if(!user||!token||busy||!seed||reason.trim().length<80||password.length<8)return
+  if(disposition==='PUBLISHED_FULL'&&(!candidate||!approvedBranches.length))return
+  setBusy(true);setStatus('');setError('')
+  try{
+   const result=await apiRequest<{review:{disposition:string;public_full_approved:boolean}}>({
+    baseUrl:API,path:'/admin/dealership/full-storefronts/'+encodeURIComponent(seed)+'/review',
+    options:{method:'POST',body:JSON.stringify({
+      disposition,reason:reason.trim(),reviewer_password:password,
+      approved_branch_ids:disposition==='RETRACTED'?[]:approvedBranches,
+      approved_sections:disposition==='RETRACTED'?[]:approvedSections,
+    })},authHeaders:headers(user.id,token),
+   })
+   setStatus(result.review.disposition==='PUBLISHED_FULL'?
+    'Independent full storefront publication event recorded. Current tenant, claim and country policy must remain valid for public display.':
+    'Independent full storefront retraction recorded. The previous approved display is no longer current.')
+   setCandidate(null);setApprovedBranches([]);setApprovedSections([]);setReason('')
+   await reload()
+  }catch(problem){
+   setError(problem instanceof Error?problem.message:'Publication decision refused')
+  }finally{setBusy(false);setPassword('')}
+ }
+ const item=queue.find(x=>x.seed_dealer_id===seed)
+ return <main className="min-h-screen bg-slate-50 px-4 py-10">
+  <div className="mx-auto max-w-6xl">
+   <Link to="/admin/dealer-claims" className="text-sm text-blue-700 underline">
+     Independent claim review
+   </Link>
+   <h1 className="font-bold text-3xl mt-5">Full dealership publication</h1>
+   <p className="max-w-4xl text-slate-600 mt-2">
+    This is distinct from prelisting research and legal company activation.
+    Reviewed branch data and versioned dealer-declared policies are copied into an
+    immutable buyer-safe display snapshot. No unlicensed logo, VIN verification,
+    OEM franchise, finance-provider approval or subscription is granted.
+   </p>
+   {!reviewer?<p className="mt-6" role="alert">
+    Sign in as a verified independent CarUp reviewer. The API enforces this separately.
+   </p>:<div className="grid lg:grid-cols-[290px_minmax(0,1fr)] gap-6 mt-8">
+    <Card><CardContent className="p-5 space-y-3">
+     <h2 className="font-semibold">Operational approval candidates</h2>
+     <Button variant="outline" size="sm" onClick={()=>{void reload()}}>Refresh queue</Button>
+     {queue.length===0&&<p className="text-sm text-slate-500">
+      No legal dealer activation candidates. Research-only listings do not qualify.
+     </p>}
+     {queue.map(x=><button key={x.seed_dealer_id} type="button"
+       onClick={()=>{setSeed(x.seed_dealer_id);setError('');setStatus('')}}
+       className={'text-left w-full rounded-lg border p-3 '+
+        (seed===x.seed_dealer_id?'bg-blue-50 border-blue-700':'bg-white')}>
+       <strong className="text-sm block">{x.seed_dealer_id}</strong>
+       <span className="text-xs text-slate-500">{x.operating_status}</span>
+       {!x.independent_reviewer_required&&<span className="block text-xs text-red-700">
+        Self-review not permitted</span>}
+     </button>)}
+    </CardContent></Card>
+    <Card><CardContent className="p-5 space-y-5">
+     <h2 className="font-semibold text-xl">Verify selected business</h2>
+     {!item?<p>No business candidate selected.</p>:<>
+      <p className="text-sm">Research identity: <strong>{seed}</strong>.
+       This queue contains no original private evidence, banking or identity document.</p>
+      <div className="space-y-2">
+       <label htmlFor="storefront-password" className="block text-sm font-medium">
+        Reviewer password (required before preview and independently before decision)
+       </label>
+       <Input id="storefront-password" type="password"
+        autoComplete="current-password" value={password}
+        onChange={e=>setPassword(e.target.value)}/>
+       <Button variant="outline" disabled={busy||password.length<8||
+         !item.independent_reviewer_required} onClick={()=>{void inspect()}}>
+        Inspect review candidate</Button>
+      </div>
+      {candidate&&<>
+       <div className="border-t pt-4">
+        <h3 className="font-semibold">Approve only verified branch display facts</h3>
+        {candidate.branches.map(b=><label key={b.branch_id}
+          className="flex gap-3 text-sm border rounded-lg p-3 my-2">
+         <input type="checkbox" checked={approvedBranches.includes(b.branch_id)}
+          onChange={e=>setApprovedBranches(prev=>e.target.checked?
+            [...prev,b.branch_id]:prev.filter(v=>v!==b.branch_id))}/>
+         <span><strong>{b.proposed_name}</strong>
+          <span className="block text-slate-600">{b.proposed_address}</span>
+          <span className="block text-xs text-slate-500">Dealer-declared; verify actual site before selecting</span>
+         </span>
+        </label>)}
+       </div>
+       <div className="border-t pt-4">
+        <h3 className="font-semibold">Independently review dealer-declared sections</h3>
+        {Object.entries(candidate.proposed_sections).map(([key,value])=>
+         <label key={key} className="block border rounded-lg p-3 mt-2 text-sm">
+          <span className="flex gap-2 items-center font-semibold">
+           <input type="checkbox" checked={approvedSections.includes(key)}
+            onChange={e=>setApprovedSections(prev=>e.target.checked?
+              [...prev,key]:prev.filter(x=>x!==key))}/>
+           {key.replaceAll('_',' ')} · version {value.version}
+          </span>
+          <dl className="mt-3 space-y-1">
+           {Object.entries(value.proposed_values).map(([field,text])=>
+            <div key={field} className="break-words">
+             <dt className="font-medium text-slate-600">{field.replaceAll('_',' ')}</dt>
+             <dd>{text}</dd>
+            </div>)}
+          </dl>
+          <span className="text-xs text-slate-500">
+           Explicit display approval is not a guarantee, legal opinion or payment authorization.
+          </span>
+         </label>)}
+       </div>
+      </>}
+      <fieldset className="border-t pt-4 space-y-3">
+       <legend className="font-semibold">Independent publication decision</legend>
+       <label htmlFor="storefront-decision" className="block text-sm">Disposition</label>
+       <select id="storefront-decision" value={disposition}
+        onChange={e=>setDisposition(e.target.value as 'PUBLISHED_FULL'|'RETRACTED')}
+        className="w-full rounded-lg border p-3">
+        <option value="PUBLISHED_FULL">Publish independently approved full storefront</option>
+        <option value="RETRACTED">Retract existing full storefront</option>
+       </select>
+       <label htmlFor="storefront-reason" className="block text-sm font-medium">
+        Source, branch, legal and policy review rationale (80+ characters)
+       </label>
+       <textarea id="storefront-reason" value={reason} maxLength={3000}
+        onChange={e=>setReason(e.target.value)}
+        className="w-full rounded-lg border p-3 min-h-28"/>
+       <p className="text-xs text-slate-600">
+        Reenter the reviewer password above before recording. A full publication requires
+        at least one independently checked, selected branch.
+       </p>
+       <Button disabled={busy||password.length<8||reason.trim().length<80||
+        (disposition==='PUBLISHED_FULL'&&(!candidate||approvedBranches.length===0))}
+         onClick={()=>{void record()}}>Record immutable publication decision</Button>
+      </fieldset>
+     </>}
+    </CardContent></Card>
+   </div>}
+   {status&&<p role="status" className="bg-blue-50 p-4 rounded-lg mt-5">{status}</p>}
+   {error&&<p role="alert" className="bg-red-50 text-red-800 p-4 rounded-lg mt-5">{error}</p>}
+  </div>
+ </main>
+}
