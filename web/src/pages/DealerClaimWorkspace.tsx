@@ -45,6 +45,11 @@ export default function DealerClaimWorkspace() {
   const [workbookFile,setWorkbookFile]=useState<File|null>(null)
   const [draft,setDraft]=useState<Draft|null>(null)
   const [appealReason,setAppealReason]=useState('')
+  const [manualLegalName,setManualLegalName]=useState('')
+  const [manualTradingName,setManualTradingName]=useState('')
+  const [manualCity,setManualCity]=useState('')
+  const [manualCountry,setManualCountry]=useState('ZW')
+  const [manualBranchName,setManualBranchName]=useState('')
 
   const reload=useCallback(async()=>{
     if(!user||!token){setLoading(false);return}
@@ -143,6 +148,36 @@ export default function DealerClaimWorkspace() {
     }catch(problem){setError(problem instanceof Error?problem.message:'Workbook import rejected')}
     finally{setBusy(false)}
   }
+  async function saveManual(){
+    if(!selected||!token||!user||busy)return
+    setBusy(true);setError('');setNotice('')
+    try{
+      if(!manualLegalName.trim())throw new Error('Enter the registered legal company name')
+      const fields={
+        BUSINESS:{
+          legal_name:manualLegalName.trim(),
+          trading_name:manualTradingName.trim(),
+          operating_country:manualCountry.trim().toUpperCase(),
+        },
+        BRANCHES:{
+          ...(manualCity.trim()?{city:manualCity.trim()}:{}),
+          ...(manualBranchName.trim()?{branch_name:manualBranchName.trim()}:{}),
+        },
+      }
+      const result=await apiRequest<{receipt:{version:number}}>({
+        baseUrl:API,
+        path:'/dealership/claims/'+encodeURIComponent(selected)+'/manual-draft',
+        options:{method:'POST',body:JSON.stringify({
+          fields,expected_version:draft?.submission_version||0,
+        })},
+        authHeaders:authHeaders(token,user.id),
+      })
+      setNotice(`Manual application version ${result.receipt.version} saved for independent compliance review. No operational rights were granted.`)
+      await loadDetails()
+    }catch(problem){setError(problem instanceof Error?problem.message:'Manual draft rejected')}
+    finally{setBusy(false)}
+  }
+
   async function appeal(){
     if(!selected||!token||!user||busy)return
     setBusy(true);setError('');setNotice('')
@@ -244,6 +279,32 @@ export default function DealerClaimWorkspace() {
                       <Button disabled={busy||!workbookFile} onClick={()=>{void uploadWorkbook()}}>
                         Upload completed workbook and populate application
                       </Button>
+                      <section className="border-t pt-5 space-y-3" aria-labelledby="manual-dealer-title">
+                        <h3 id="manual-dealer-title" className="font-semibold text-lg">Or enter your application manually</h3>
+                        <p className="text-xs text-gray-600">
+                          This alternative uses the same versioned 12-tab field registry and
+                          import validation. Any researched branch/city values not changed here
+                          are preserved as unverified candidates, not asserted approvals.
+                        </p>
+                        <label htmlFor="manual-legal-name" className="block text-sm font-medium">Registered legal company name</label>
+                        <Input id="manual-legal-name" required maxLength={180} value={manualLegalName}
+                          onChange={e=>setManualLegalName(e.target.value)}
+                          placeholder={draft?.content.tab_rows.BUSINESS?.[0]?.legal_name || 'Legal name shown on incorporation evidence'}/>
+                        <label htmlFor="manual-trading-name" className="block text-sm font-medium">Trading name (if different)</label>
+                        <Input id="manual-trading-name" value={manualTradingName} maxLength={180}
+                          onChange={e=>setManualTradingName(e.target.value)}/>
+                        <label htmlFor="manual-country" className="block text-sm font-medium">Operating country (ISO two-letter code)</label>
+                        <Input id="manual-country" value={manualCountry} maxLength={2}
+                          onChange={e=>setManualCountry(e.target.value)}/>
+                        <label htmlFor="manual-city" className="block text-sm font-medium">Correct city (leave blank to preserve researched candidate)</label>
+                        <Input id="manual-city" value={manualCity} maxLength={180}
+                          onChange={e=>setManualCity(e.target.value)}/>
+                        <label htmlFor="manual-branch" className="block text-sm font-medium">Branch name (optional)</label>
+                        <Input id="manual-branch" value={manualBranchName} maxLength={180}
+                          onChange={e=>setManualBranchName(e.target.value)}/>
+                        <Button variant="outline" disabled={busy||manualLegalName.trim().length<2}
+                          onClick={()=>{void saveManual()}}>Save manual application into CarUp</Button>
+                      </section>
                       {draft && (
                         <section className="border-t pt-3 text-sm">
                           <h3 className="font-semibold">Saved application version {draft.submission_version}</h3>
