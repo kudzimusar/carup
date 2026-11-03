@@ -45,17 +45,17 @@ Every phase must reread controlling plan and workbook. `NONE` and `NOT_IMPLEMENT
 | Phase | Plan section | Workbook exact worksheet/range | Existing code/canonical owner | Source change | Tests/evidence | Disposition |
 |---|---|---|---|---|---|---|
 | D0 | §0–§5.5 | Car Dealers Database!A8:K111; DEV1, DEV2, DEV5, DEV8; all original 10 | backend/routes/dealerRoutes.js; backend/services/dealer/dealerComplianceService.js; database/migrations/20260626150000_dealer_compliance.sql | backend/scripts/dealership/importResearchSeed.mjs | S01/S02/T33/T36 | SOURCE_ANALYSIS_COMPLETE; LOCAL_DB_NOT_RUN |
-| D1 | §4 | DEV2!A1:L141; DEV3!A1:I13; DEV8, DEV9 | dealer_profiles, dealer_branches, Corporate/AUTH entities; existing tenancy | database/migrations/20261103120000_dealer_research_seed_candidates.sql | SQL migration negative/RLS | PARTIAL; MIGRATION_NOT_APPLIED |
-| D2 | §4.4, §8.2 | DEV5!A1:H23; DEV9; DEV10 S05–S14 | backend/services/dealer/dealerComplianceService.js | backend/services/dealer/dealerComplianceService.js; backend/tests/dealer-compliance.test.js | D2 state cases + S05,S06,S12 | PARTIAL; TESTS_NOT_EXECUTED |
-| D3 | §5.2–§5.6 | DEV3!A1:I13; Dealer Profile Intake!A1:AN105; DEV2 | O2/One CarUp workbook lineage (unmerged) | NONE | T01–T15; S15–S17 | NOT_IMPLEMENTED |
-| D4 | §5.5–§6 | Car Dealers Database!A8:K111; DEV8!A2:U105; DEV9; DEV10 | Supabase PostgreSQL; no existing canonical research authority on frozen main found | backend/scripts/dealership/importResearchSeed.mjs; backend/tests/dealer-research-seed-contract.test.js | S01–S10, T36–T42 | PARTIAL; REAL DB IMPORT/PUBLICATIONS_NOT_DONE |
+| D1 | §4 | DEV2!A1:L141; DEV3!A1:I13; DEV8, DEV9 | dealer_profiles, dealer_branches, Corporate/AUTH entities; existing tenancy | database/migrations/20261103120000_dealer_research_seed_candidates.sql | SQL migration negative/RLS | PARTIAL_PRIVATE_SOURCE_PUBLIC_CLAIM_CONTRACTS; MIGRATIONS_NOT_APPLIED |
+| D2 | §4.4, §8.2 | DEV5!A1:H23; DEV9; DEV10 S05–S14 | backend/services/dealer/dealerComplianceService.js | backend/services/dealer/dealerComplianceService.js; backend/tests/dealer-compliance.test.js | D2 state cases + S05,S06,S12 | PARTIAL; REVISED TESTS IN ISOLATED CI; HUMAN_REVIEW_NOT_RUN |
+| D3 | §5.2–§5.6 | DEV3!A1:I13; Dealer Profile Intake!A1:AN105; DEV2 | O2/One CarUp workbook lineage (unmerged) | backend/services/dealer/dealerIntakeWorkbook.js; backend/tests/dealer-intake-workbook.test.js; GET /api/dealership/intake/template | T01–T15; S15–S17 | PARTIAL_BLANK_12_SHEET_SCHEMA_ONLY; CLAIM_BOUND_PREFILL/UPLOAD_NOT_DONE |
+| D4 | §5.5–§6 | Car Dealers Database!A8:K111; DEV8!A2:U105; DEV9; DEV10 | Supabase PostgreSQL; no existing canonical research authority on frozen main found | backend/scripts/dealership/importResearchSeed.mjs; backend/tests/dealer-research-seed-contract.test.js | S01–S10, T36–T42 | PARTIAL; READ_ONLY_SOURCE_PARSER_AND_REVIEW_API; REAL_DB_IMPORT/ELIGIBILITY_REVIEWS_NOT_DONE |
 | D5 | §7 | Evidence Register!A1:P1; DEV2; DEV5 | Document Intelligence and OCR existing separate lineages | NONE | OCR real document and fallback | NOT_IMPLEMENTED |
 | D6 | §8.3 | Verification Tracker!A1:S105; DEV9 S05–S18 | Dealer Compliance; Corporate/AUTH identities | NONE | S11–S19; disputed claim + tenant negative | NOT_IMPLEMENTED |
 | D7 | §9.1 | Dealer Profile Intake!A1:AN105; Buyer Assurance!A1:Z105; DEV4 | Dealer dashboard and canonical Seller/Marketplace lineages | NONE | C13–C17 | NOT_IMPLEMENTED |
-| D8 | §9.2–§9.5 | DEV8; DEV9; Buyer Feedback Log!A1:Q1 | Public dealers projection not implemented on frozen main | NONE | S08,S09,S19–S21; responsive 390/768/1280/1920 | NOT_IMPLEMENTED |
+| D8 | §9.2–§9.5 | DEV8; DEV9; Buyer Feedback Log!A1:Q1 | Public dealer projection missing on frozen main | web/src/pages/DealerDirectory.tsx; DealerResearchProfile.tsx; DealerResearchCorrection.tsx; web/src/App.tsx; backend/routes/dealerResearchRoutes.js | S08,S09,S19–S21; responsive 390/768/1280/1920 | PARTIAL_SOURCE_PUBLIC_DIRECTORY_UI; NO_FULL_APPROVED_PROFILE; NO_BROWSER_UAT |
 | D9 | §10 | DEV6!A1:H6; DEV5 | PAY-03B PR251; PAY-05 PR254 unmerged | NONE | T25–T30; S22 | NOT_IMPLEMENTED; EXTERNAL_COMMERCIAL_BLOCKS |
 | D10 | §8.1, §11 | DEV2; DEV4; DEV5 | Jurisdiction and existing country policies | NONE | T31/S24 | NOT_IMPLEMENTED |
-| D11 | §12–§16 | DEV7 T01–T42; DEV10 S01–S25 | CI, local PostgreSQL, physical Chromium | NONE | 67 baseline cases + integration pilot | NOT_EXECUTED |
+| D11 | §12–§16 | DEV7 T01–T42; DEV10 S01–S25 | CI, local PostgreSQL, physical Chromium | .github/workflows/dealer-1-0-isolated-ci.yml | 67 baseline cases + integration pilot | PARTIAL_GITHUB_SYNTHETIC_CI; T01–T42/S01–S25/PHYSICAL_E2E_NOT_COMPLETE |
 
 ## Core D0 authority and known contradictions
 
@@ -176,6 +176,60 @@ Every phase must reread controlling plan and workbook. `NONE` and `NOT_IMPLEMENT
 | ZW-DEAL-0102 | 109 | Beitbridge | Importer / bonded / clearing claim | PENDING_REVIEW | UNREVIEWED_GROUPING | NOT_PUBLISHED |
 | ZW-DEAL-0103 | 110 | Beitbridge | Importer / bonded / clearing claim | PENDING_REVIEW | UNREVIEWED_GROUPING | NOT_PUBLISHED |
 | ZW-DEAL-0104 | 111 | Beitbridge | Importer / bonded / clearing claim | PENDING_REVIEW | UNREVIEWED_GROUPING | NOT_PUBLISHED |
+
+
+## Additional implementation commits — bounded current source
+
+- Research/public review security: `database/migrations/20261103121000_dealer_research_review_and_claim_intake.sql`;
+  `backend/services/dealer/dealerResearchService.js`;
+  `backend/routes/dealerResearchRoutes.js` mounted under the **existing** `backend/routes/dealerRoutes.js`.
+- Source-safety correction/removal queue: `database/migrations/20261103122000_dealer_research_correction_requests.sql`;
+  `web/src/pages/DealerResearchCorrection.tsx`.
+- Public UI: `web/src/pages/DealerDirectory.tsx` uses only human-reviewed safe research projection;
+  `web/src/pages/DealerResearchProfile.tsx` preserves unclaimed status and the correction and claim actions.
+  The source review function is DB-atomic and appends an immutable decision event.
+- Claim intake is **AWAITING_DOCUMENTARY_EVIDENCE ONLY**, with no path to APPROVED;
+  no new role, tenant, organization or private workbook entitlement is created.
+- Blank new-business customer XLSX generator `backend/services/dealer/dealerIntakeWorkbook.js`;
+  12 customer-facing tabs from DEV3, explicit dispositions for the 40 original Dealer Profile Intake fields,
+  and private-source/authority denial. **It is not dealer-specific prefilled export and there is no upload parser.**
+- The GitHub repository is **PUBLIC**. To prevent source-contact/privacy disclosure,
+  **the 104 raw names, ownership/principal, phone, email and website fields were NOT committed**.
+  The importer reads the original attached XLSX at execution time; no private data is put in Git history.
+- Dedicated CI is offline/synthetic, with npm CI, dealership tests, TypeScript and web build.
+  Latest exact-head success must be checked on GitHub before any certification claim.
+
+### C01–C25 capability truth at this checkpoint
+
+| Capability | Status | Verified scope |
+|---|---|---|
+| C01 Seed discovery/claim | PARTIAL | Research source identity, unclaimed public read and pending-evidence claim, **no claim approval** |
+| C02 Prefilled claim-bound workbook | BLOCKED | Blank 12-sheet registry/template only, **no approved-claim prefill/roundtrip** |
+| C03 Existing-data migration | NOT IMPLEMENTED | Source research parser is not general XLSX/CSV migration |
+| C04 AI field mapping | NOT IMPLEMENTED | No authoritative AI mapping or human mapping gate |
+| C05 Governed OCR | NOT IMPLEMENTED | Existing Document Intelligence remains; no dealer reconnection |
+| C06 Intelligent validation | PARTIAL | Source structural validation and field registry only |
+| C07 Save/resume | NOT IMPLEMENTED | Claim interest persisted only; no full intake draft |
+| C08 Legal verification | NOT IMPLEMENTED | No independently checked company |
+| C09 Conditional regulation | NOT IMPLEMENTED | Legal jurisdiction/issuer review not integrated |
+| C10 Independent approval | PARTIAL | Research-only reviewer function; not legal ownership/compliance |
+| C11 Organization/tenant activation | NOT IMPLEMENTED | No activation authority added |
+| C12 Compliance lifecycle | PARTIAL | Existing service P0 publication/complaints gates corrected, but full event integration lacking |
+| C13 Full operating profile | NOT IMPLEMENTED | Workbook schema only |
+| C14 Multi-branch | NOT IMPLEMENTED | Branch workbook schema only, no reviewed parent/branch graph |
+| C15 Dealer dashboard | NOT IMPLEMENTED | Existing dashboard not upgraded/certified |
+| C16 Staff permissions | NOT IMPLEMENTED | Existing Corporate/AUTH untouched |
+| C17 VIN inventory | NOT IMPLEMENTED | No new dealer/vehicle integration |
+| C18 Public directory | PARTIAL | Governed unclaimed research projection + UI; no approved dealer combined results |
+| C19 Upgradeable public page | PARTIAL | Stable seed URL and unclaimed starter page; full upgrade missing |
+| C20 Buyer assurance | NOT IMPLEMENTED | Workbook candidate policy fields only |
+| C21 Finance disclosures | NOT IMPLEMENTED | Workbook candidate policy fields only |
+| C22 Warranty/after-sales | NOT IMPLEMENTED | Workbook candidate policy fields only |
+| C23 Genuine reviews/complaints | PARTIAL | Removes fabricated zero; no measured complaint data |
+| C24 Commercial subscriptions/Paynow | BLOCKED | PAY-03B and PAY-05 unchanged; unpriced/unapproved, no live charges |
+| C25 International jurisdiction | NOT IMPLEMENTED | Workbook country candidate only, no jurisdiction policy engine |
+
+**Release/merge/prices/real provider/independent certification: BLOCKED.**
 
 ## Acceptance blockers
 
