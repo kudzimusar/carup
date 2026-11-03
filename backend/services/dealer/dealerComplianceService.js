@@ -16,6 +16,7 @@
  *     never returns private documents, contacts, internal reasons, or raw decision payloads.
  */
 import { supabase } from '../../db/supabase.js';
+import { verifyPassword } from '../../utils/passwordAuth.js';
 
 const PROFILES = 'dealer_profiles';
 const BRANCHES = 'dealer_branches';
@@ -223,56 +224,59 @@ export function applyDecisionToProfile(decision, payload = {}) {
  * @returns { decision, profile } the ledger row and the resulting profile.
  */
 export async function recordDecision(dealerId, { decision, requirement_key, reason, payload } = {}, actor = {}) {
-  const profile = await requireProfile(dealerId);
+  // This legacy route is now a fail-closed façade over a single DB transaction.
+  // Actor identity, role and step-up come from the authenticated server-side session
+  // and password hash, never the client-provided governance payload.
   if (!DECISIONS_ALLOWED.includes(decision)) {
     throw new Error(`decision must be one of ${DECISIONS_ALLOWED.join('|')}`);
   }
-  if (!actor || !actor.id) throw new Error('a decision requires an authenticated actor');
-
-  const requirementDecisions = {
-    approve_requirement: 'verified',
-    reject_requirement: 'rejected',
-    request_more_info: 'pending',
-  };
-  if (decision in requirementDecisions) {
-    if (!requirement_key) throw new Error(`${decision} requires a requirement_key`);
+  if (!actor?.id) throw new Error('a decision requires an authenticated actor');
+  if (typeof reason !== 'string' || reason.trim().length < 40 || reason.length > 3000) {
+    const error = new Error('A documented 40–3000 character independent decision reason is required');
+    error.statusCode = 400;
+    throw error;
   }
-
-  // 1. Write the immutable ledger row first (the durable record of intent).
-  const ledgerRow = {
-    dealer_id: dealerId,
-    decision,
-    requirement_key: requirement_key || null,
-    actor_id: actor.id,
-    actor_role: actor.role || null,
-    reason: reason || null,
-    payload: payload || {},
-  };
-  const { data: ledger, error: ledgerErr } = await supabase
-    .from(DECISIONS).insert(ledgerRow).select().single();
-  if (ledgerErr) throw new Error(`failed to record decision: ${ledgerErr.message}`);
-
-  // 2. Apply the effect.
-  if (decision in requirementDecisions) {
-    await upsertRequirement(dealerId, { requirement_key, status: requirementDecisions[decision] });
+  if (['approve_requirement','reject_requirement','request_more_info'].includes(decision) &&
+      (!requirement_key || typeof requirement_key !== 'string')) {
+    throw new Error(`${decision} requires a requirement_key`);
   }
-
-  const patch = applyDecisionToProfile(decision, payload || {});
-  let updatedProfile = profile;
-  if (Object.keys(patch).length > 0) {
-    patch.updated_at = new Date().toISOString();
-    const { data: row, error } = await supabase
-      .from(PROFILES).update(patch).eq('id', dealerId).select().single();
-    if (error) throw new Error(`failed to apply decision effect: ${error.message}`);
-    updatedProfile = row;
-  } else {
-    // re-read so callers always see current statuses (e.g. after a requirement change)
-    updatedProfile = await getProfileById(dealerId);
+  if (actor.authenticationMethod !== 'session' || actor.isVerified !== true ||
+      !['admin','reviewer','platform_admin','super_admin'].includes(actor.role)) {
+    const error = new Error('Independent verified reviewer session is required');
+    error.statusCode = 403;
+    throw error;
   }
-
-  return { decision: ledger, profile: updatedProfile };
+  if (typeof actor.reviewer_password !== 'string' || actor.reviewer_password.length < 8) {
+    const error = new Error('Independent reviewer password reauthentication is required');
+    error.statusCode = 403;
+    throw error;
+  }
+  const [profile, { data: reviewer, error: reviewerErr }] = await Promise.all([
+    requireProfile(dealerId),
+    supabase.from('users').select('id,role,is_verified,password_hash')
+      .eq('id',actor.id).maybeSingle(),
+  ]);
+  if (profile.user_id === actor.id || reviewerErr || !reviewer?.password_hash ||
+      !reviewer.is_verified || !['admin','reviewer','platform_admin','super_admin'].includes(reviewer.role) ||
+      !await verifyPassword(actor.reviewer_password,reviewer.password_hash)) {
+    const error = new Error('Independent reviewer reauthentication failed');
+    error.statusCode = 403;
+    throw error;
+  }
+  // Do not permit a partial ledger write followed by a failed profile/requirement
+  // update. Postgres executes all effects in one transaction, or none of them.
+  const { data, error } = await supabase.rpc('dealer_record_atomic_compliance_decision', {
+    p_dealer_id: dealerId, p_reviewer_id: actor.id, p_decision: decision,
+    p_requirement_key: requirement_key || null, p_reason: reason.trim(),
+    p_payload: payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {},
+  });
+  if (error || !data?.audit_atomic || !data?.decision || !data?.profile) {
+    const refused = new Error('Atomic dealer governance decision rejected; no state change confirmed');
+    refused.statusCode = 409;
+    throw refused;
+  }
+  return { decision: data.decision, profile: data.profile };
 }
-
 /** Full, immutable decision history for a dealer (admin/owner surface). */
 export async function listDecisions(dealerId) {
   const { data, error } = await supabase
