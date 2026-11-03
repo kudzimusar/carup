@@ -96,8 +96,8 @@ BEGIN
  v_consents:=d.content->'tab_rows'->'CONSENTS_DECLARATIONS';
  IF jsonb_typeof(v_business)<>'array' OR jsonb_array_length(v_business)<>1
     OR nullif(btrim(v_business->0->>'legal_name'),'') IS NULL
-    OR v_business->0->>'operating_country'<>'ZW'
-    OR v_business->0->>'research_confirmation' NOT IN ('YES','CORRECT')
+    OR coalesce(v_business->0->>'operating_country','')<>'ZW'
+    OR coalesce(v_business->0->>'research_confirmation','') NOT IN ('YES','CORRECT')
     OR jsonb_typeof(v_branches)<>'array'
     OR jsonb_array_length(v_branches)<1
     OR jsonb_typeof(v_consents)<>'array'
@@ -107,7 +107,7 @@ BEGIN
  v_declaration:=v_consents->0;
  IF nullif(btrim(v_declaration->>'signer_name'),'') IS NULL
     OR nullif(btrim(v_declaration->>'signer_role'),'') IS NULL
-    OR v_declaration->>'privacy_acknowledgment'<>'YES' THEN
+    OR coalesce(v_declaration->>'privacy_acknowledgment','')<>'YES' THEN
    RAISE EXCEPTION 'APPLICANT_SIGNER_AND_PRIVACY_DECLARATION_REQUIRED'; END IF;
  IF NOT EXISTS (SELECT 1 FROM dealer_claim_private_evidence e
    WHERE e.claim_id=p_claim_id AND e.uploader_user_id=p_claimant_id
