@@ -11,6 +11,8 @@ import {
   reviewResearchSeed,
   submitResearchClaim,
   listOwnResearchClaims,
+  requestResearchCorrection,
+  listResearchCorrectionsForReviewer,
 } from '../services/dealer/dealerResearchService.js';
 
 const router = express.Router();
@@ -43,6 +45,23 @@ router.get('/api/dealership/research/:seedId', publicReadLimit, async (req,res,n
     const profile = await getPublicResearch(req.params.seedId);
     if (!profile) return res.status(404).json({ error:'Research listing not published' });
     res.set('Cache-Control','no-store').json({ profile });
+  } catch (error) { errorResponse(res,next,error); }
+});
+
+// Correction or removal concerns are queued privately; no unreviewed request can
+// hide, reassign or alter another dealership's public listing.
+router.post('/api/dealership/research/:seedId/corrections', claimWriteLimit, async (req,res,next) => {
+  try {
+    const request = await requestResearchCorrection(req.params.seedId,req.body || {});
+    res.set('Cache-Control','no-store').status(202).json({ request });
+  } catch (error) { errorResponse(res,next,error); }
+});
+
+router.get('/api/admin/dealership/research/corrections', reviewer, async (req,res,next) => {
+  try {
+    res.set('Cache-Control','no-store').json({
+      requests: await listResearchCorrectionsForReviewer(req.userContext),
+    });
   } catch (error) { errorResponse(res,next,error); }
 });
 
