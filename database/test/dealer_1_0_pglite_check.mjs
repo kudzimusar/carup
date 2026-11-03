@@ -544,6 +544,12 @@ try{
   // AFTER certifying that safety condition, so migration up/down/reapply is tested.
   await fails(read('20261103123000_dealer_claim_review_and_intake_drafts.sql').down,
     'CANNOT_ROLLBACK_WITH_REVIEWED_CLAIMS');
+  await fails(read('20261103133000_dealer_research_grouping_and_public_contact.sql').down,
+    'CANNOT_ROLLBACK_WITH_SOURCE_PUBLICATION_CUSTODY');
+  // Only the deliberately disposable isolated PGlite fixture is wiped here.
+  // Real source contact and grouping review receipts are append-only and their
+  // rollback must refuse to destroy them.
+  await exec('TRUNCATE dealer_research_grouping_review_events, dealer_research_public_contact_events');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
