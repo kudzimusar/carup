@@ -11,6 +11,11 @@ import {
 } from '../services/dealer/dealerClaimApplicationService.js';
 import { createClaimDocumentCandidate,listMyClaimDocumentCandidates } from '../services/dealer/dealerDocumentCandidateService.js';
 import {readMyClaimJurisdictionPreview} from '../services/dealer/dealerJurisdictionPreview.js';
+import {
+  submitDealerApplication,listMyDealerApplicationSubmissions,
+  listDealerComplianceReviewQueue,previewDealerComplianceCase,
+  recordDealerPreliminaryReview,
+} from '../services/dealer/dealerComplianceApplicationService.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { rateLimiter } from '../middleware/securityMiddleware.js';
 import {
@@ -143,6 +148,48 @@ router.get('/api/dealership/claims/:claimId/jurisdiction-preview',
   try{
     const preview=await readMyClaimJurisdictionPreview(req.params.claimId,req.userContext);
     res.set('Cache-Control','no-store').json({preview});
+  }catch(error){errorResponse(res,next,error)}
+});
+
+// D6: applicant signs an explicit declaration and freezes the CURRENT 12-tab
+// submission version for independent preliminary review, not legal activation.
+router.post('/api/dealership/claims/:claimId/compliance-submissions',
+ claimWriteLimit,session,async(req,res,next)=>{
+  try{
+    const receipt=await submitDealerApplication(req.params.claimId,req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(202).json({receipt});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.get('/api/dealership/claims/:claimId/compliance-submissions',
+ session,async(req,res,next)=>{
+  try{
+    const submissions=await listMyDealerApplicationSubmissions(req.params.claimId,req.userContext);
+    res.set('Cache-Control','no-store').json({submissions});
+  }catch(error){errorResponse(res,next,error)}
+});
+// No applicant can preview another business' frozen legal workbook or review findings.
+router.get('/api/admin/dealership/compliance-submissions/queue',
+ reviewer,async(req,res,next)=>{
+  try{
+    const submissions=await listDealerComplianceReviewQueue(req.userContext);
+    res.set('Cache-Control','no-store').json({submissions});
+  }catch(error){errorResponse(res,next,error)}
+});
+// Original private applicant declarations require independent reviewer password step-up.
+router.post('/api/admin/dealership/compliance-submissions/:submissionId/preview',
+ reviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const preview=await previewDealerComplianceCase(
+      req.params.submissionId,req.userContext,req.body?.reviewer_password);
+    res.set('Cache-Control','no-store').json({preview});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/admin/dealership/compliance-submissions/:submissionId/review',
+ reviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const review=await recordDealerPreliminaryReview(
+      req.params.submissionId,req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({review});
   }catch(error){errorResponse(res,next,error)}
 });
 
