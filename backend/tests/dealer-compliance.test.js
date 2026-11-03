@@ -15,6 +15,10 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 
 const { supabase } = await import('../db/supabase.js');
 const svc = await import('../services/dealer/dealerComplianceService.js');
+const {hashPassword}=await import('../utils/passwordAuth.js');
+const REVIEW_PASSWORD='DealerGovernanceReviewPassword39!';
+const REVIEW_HASH=await hashPassword(REVIEW_PASSWORD);
+const VERIFIED_REVIEWER={id:'admin-1',role:'admin',authenticationMethod:'session',isVerified:true,reviewer_password:REVIEW_PASSWORD};
 
 // ── in-memory supabase mock (append-only ledger enforced for decisions) ────────────
 let db;
@@ -23,7 +27,7 @@ function resetDb() {
     users: [
       { id: 'dealer-1', role: 'dealer', is_verified: true },
       { id: 'dealer-2', role: 'dealer', is_verified: true },
-      { id: 'admin-1', role: 'admin', is_verified: true },
+      { id: 'admin-1', role: 'admin', is_verified: true, password_hash:REVIEW_HASH },
     ],
     dealer_profiles: [],
     dealer_branches: [],
@@ -79,7 +83,37 @@ function run(st) {
   if (st.single) return out[0] ? ok(out[0]) : { data: null, error: { message: 'not found' } };
   return ok(out);
 }
-function installMock() { resetDb(); supabase.from = (t) => builder(t); }
+function atomicComplianceMock(name,args) {
+  assert.equal(name,'dealer_record_atomic_compliance_decision');
+  const profile=db.dealer_profiles.find(p=>p.id===args.p_dealer_id);
+  const reviewer=db.users.find(u=>u.id===args.p_reviewer_id);
+  const invalid=(message)=>({data:null,error:{message}});
+  if(!profile||!reviewer||!reviewer.is_verified||reviewer.role!=='admin'||profile.user_id===reviewer.id)
+    return Promise.resolve(invalid('INDEPENDENT_COMPLIANCE_REVIEWER_REQUIRED'));
+  if(args.p_reason.length<40)return Promise.resolve(invalid('INVALID_COMPLIANCE_GOVERNANCE_DECISION'));
+  const requirementDecision=['approve_requirement','reject_requirement','request_more_info'].includes(args.p_decision);
+  const requirement=db.dealer_compliance_requirements.find(r=>
+    r.dealer_id===profile.id&&r.requirement_key===args.p_requirement_key);
+  if(requirementDecision&&!requirement)return Promise.resolve(invalid('REQUIREMENT_NOT_REGISTERED'));
+  if(args.p_decision==='reinstate' &&
+    (profile.identity_status!=='verified'||profile.compliance_review_state!=='passed'||
+     profile.investigation_state!=='none'||db.dealer_compliance_requirements.some(r=>
+       r.dealer_id===profile.id&&r.is_blocking&&!['verified','not_applicable'].includes(r.status))))
+    return Promise.resolve(invalid('REINSTATEMENT_COMPLIANCE_GATE_FAILED'));
+  const ledger={id:'compliance-event-'+(++seq),dealer_id:profile.id,
+    decision:args.p_decision,requirement_key:args.p_requirement_key,
+    actor_id:reviewer.id,actor_role:reviewer.role,reason:args.p_reason};
+  db.dealer_compliance_decisions.push(ledger);
+  if(requirementDecision) requirement.status={
+    approve_requirement:'verified',reject_requirement:'rejected',request_more_info:'pending',
+  }[args.p_decision];
+  else Object.assign(profile,svc.applyDecisionToProfile(args.p_decision,args.p_payload));
+  return Promise.resolve({data:{audit_atomic:true,decision:ledger,profile},error:null});
+}
+function installMock() {
+  resetDb();supabase.from=(t)=>builder(t);
+  supabase.rpc=atomicComplianceMock;
+}
 
 // Helper: onboard a dealer with a profile.
 async function onboard(userId = 'dealer-1', data = {}) {
@@ -150,8 +184,8 @@ test('approve requirement: decision marks the requirement verified and writes a 
   await svc.upsertRequirement(p.id, { requirement_key: 'business_license', status: 'pending', is_blocking: true });
   const { decision } = await svc.recordDecision(
     p.id,
-    { decision: 'approve_requirement', requirement_key: 'business_license', reason: 'Reviewed license' },
-    { id: 'admin-1', role: 'admin' },
+    { decision: 'approve_requirement', requirement_key: 'business_license', reason: 'Independent review of the company business licence supplied in original custody' },
+    VERIFIED_REVIEWER,
   );
   assert.equal(decision.decision, 'approve_requirement');
   const reqs = await svc.listRequirements(p.id);
@@ -165,7 +199,7 @@ test('set_expiry: decision sets expiry_date and a past date makes the dealer exp
   const p = await onboard();
   const past = '2020-01-01T00:00:00.000Z';
   const { profile } = await svc.recordDecision(
-    p.id, { decision: 'set_expiry', payload: { expiry_date: past } }, { id: 'admin-1', role: 'admin' },
+    p.id, { decision: 'set_expiry', payload: { expiry_date: past } }, VERIFIED_REVIEWER,
   );
   assert.equal(profile.expiry_date, past);
   assert.equal(svc.deriveExpiryState(profile), 'expired');
@@ -176,7 +210,7 @@ test('restrict: decision sets restriction_state=restricted and blocks publicatio
   installMock();
   const p = await onboard();
   Object.assign(db.dealer_profiles[0], { identity_status: 'verified', compliance_review_state: 'passed', active_state: 'active' });
-  const { profile } = await svc.recordDecision(p.id, { decision: 'restrict', reason: 'open complaint' }, { id: 'admin-1', role: 'admin' });
+  const { profile } = await svc.recordDecision(p.id, { decision: 'restrict', reason: 'Independent compliance restriction due to an unresolved serious buyer complaint' }, VERIFIED_REVIEWER);
   assert.equal(profile.restriction_state, 'restricted');
   assert.equal(svc.deriveCanPublish(profile, []), false);
 });
@@ -186,7 +220,7 @@ test('suspend: decision sets suspension_state=suspended and active_state=inactiv
   installMock();
   const p = await onboard();
   Object.assign(db.dealer_profiles[0], { identity_status: 'verified', compliance_review_state: 'passed', active_state: 'active' });
-  const { profile } = await svc.recordDecision(p.id, { decision: 'suspend', reason: 'fraud investigation' }, { id: 'admin-1', role: 'admin' });
+  const { profile } = await svc.recordDecision(p.id, { decision: 'suspend', reason: 'Independent decision to suspend because fraud investigation remains active' }, VERIFIED_REVIEWER);
   assert.equal(profile.suspension_state, 'suspended');
   assert.equal(profile.active_state, 'inactive');
   const evalr = await svc.evaluateCompliance(p.id);
@@ -197,8 +231,8 @@ test('suspend: decision sets suspension_state=suspended and active_state=inactiv
 test('reinstate: decision clears suspension/restriction and reactivates', async () => {
   installMock();
   const p = await onboard();
-  Object.assign(db.dealer_profiles[0], { suspension_state: 'suspended', restriction_state: 'restricted', active_state: 'inactive' });
-  const { profile } = await svc.recordDecision(p.id, { decision: 'reinstate', reason: 'cleared' }, { id: 'admin-1', role: 'admin' });
+  Object.assign(db.dealer_profiles[0], { suspension_state: 'suspended', restriction_state: 'restricted', active_state: 'inactive', identity_status:'verified', compliance_review_state:'passed', investigation_state:'none' });
+  const { profile } = await svc.recordDecision(p.id, { decision: 'reinstate', reason: 'Independent evidence review confirms resolution of restrictions and compliance' }, VERIFIED_REVIEWER);
   assert.equal(profile.suspension_state, 'none');
   assert.equal(profile.restriction_state, 'none');
   assert.equal(profile.active_state, 'active');
@@ -288,11 +322,11 @@ test('admin listing is tenant-scoped: a t1 admin does not see a t2 dealer', asyn
 test('append-only: a decision writes an immutable row; the DB rejects UPDATE/DELETE of it', async () => {
   installMock();
   const p = await onboard();
-  await svc.recordDecision(p.id, { decision: 'restrict', reason: 'r1' }, { id: 'admin-1', role: 'admin' });
+  await svc.recordDecision(p.id, { decision: 'restrict', reason: 'Independent review recorded the first restriction event for this business' }, VERIFIED_REVIEWER);
   assert.equal(db.dealer_compliance_decisions.length, 1);
 
   // A reversal is a NEW row, never an edit.
-  await svc.recordDecision(p.id, { decision: 'reinstate', reason: 'r2' }, { id: 'admin-1', role: 'admin' });
+  await svc.recordDecision(p.id, { decision: 'reinstate', reason: 'Independent review recorded sufficient compliance evidence to reinstate status' }, VERIFIED_REVIEWER);
   const history = await svc.listDecisions(p.id);
   assert.equal(history.length, 2);
 
