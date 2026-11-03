@@ -35,6 +35,18 @@ type ComplianceSubmission = {
   correction_reason:string|null;reviewed_at:string|null;
   legal_compliance_approved:false;tenant_activated:false;
 }
+type CsvPreview = {
+  schema:'CARUP_DEALER_CSV_PREVIEW_1';target_tab:string;csv_sha256:string;
+  input_headers:string[];input_rows:number;
+  suggestions:Record<string,string>;unmapped:string[];conflicts:string[];
+  allowed_targets:Array<{key:string;label:string;data_type:string;required:boolean}>;
+  confirmed:false;legal_identity_verified:false;tenant_activated:false
+}
+type OperationalAuthority = {
+  state:string;operational:boolean;tenant_member_role?:string;
+  organization_id?:string;public_storefront_approved?:boolean;
+  vehicle_listing_authority_granted?:boolean
+}
 const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
   typeof window==='undefined' ? undefined : window.location.hostname)
 
@@ -62,6 +74,13 @@ export default function DealerClaimWorkspace() {
   const [documentClass,setDocumentClass]=useState('COMPANY_REGISTRATION')
   const [documentFile,setDocumentFile]=useState<File|null>(null)
   const [workbookFile,setWorkbookFile]=useState<File|null>(null)
+  const [csvFile,setCsvFile]=useState<File|null>(null)
+  const [csvTab,setCsvTab]=useState('BUSINESS')
+  const [csvPreview,setCsvPreview]=useState<CsvPreview|null>(null)
+  const [csvMapping,setCsvMapping]=useState<Record<string,string|null>>({})
+  const [csvAcknowledged,setCsvAcknowledged]=useState(false)
+  const [operationalAuthority,setOperationalAuthority]=useState<OperationalAuthority|null>(null)
+
   const [draft,setDraft]=useState<Draft|null>(null)
   const [complianceSubmissions,setComplianceSubmissions]=useState<ComplianceSubmission[]>([])
   const [submitAcknowledged,setSubmitAcknowledged]=useState(false)
@@ -120,13 +139,18 @@ export default function DealerClaimWorkspace() {
           baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/compliance-submissions',
           authHeaders:auth,
         }),
+        apiRequest<{authority:OperationalAuthority}>({
+          baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/operational-authority',
+          authHeaders:auth,
+        }),
       ])
       setEvidence(results[0].status==='fulfilled'?results[0].value.evidence||[]:[])
       setDraft(results[1].status==='fulfilled'?results[1].value.intake:null)
       setOcrCandidates(results[2].status==='fulfilled'?results[2].value.candidates||[]:[])
       setJurisdiction(results[3].status==='fulfilled'?results[3].value.preview:null)
       setComplianceSubmissions(results[4].status==='fulfilled'?results[4].value.submissions||[]:[])
-    }catch{setEvidence([]);setDraft(null);setOcrCandidates([]);setJurisdiction(null);setComplianceSubmissions([])}
+      setOperationalAuthority(results[5].status==='fulfilled'?results[5].value.authority:null)
+    }catch{setEvidence([]);setDraft(null);setOcrCandidates([]);setJurisdiction(null);setComplianceSubmissions([]);setOperationalAuthority(null)}
   },[selected,user,token])
   useEffect(()=>{void loadDetails()},[loadDetails])
 
@@ -208,6 +232,56 @@ export default function DealerClaimWorkspace() {
     }catch(problem){setError(problem instanceof Error?problem.message:'Workbook import rejected')}
     finally{setBusy(false)}
   }
+
+  async function previewLegacyCsv(){
+    if(!selected||!token||!user||busy||!csvFile)return
+    setBusy(true);setError('');setNotice('');setCsvPreview(null)
+    try{
+      if(!csvFile.name.toLowerCase().endsWith('.csv')||csvFile.size>2*1024*1024)
+        throw new Error('Choose an UTF-8 CSV smaller than 2 MB')
+      const base64=(await asDataUri(csvFile)).split(',')[1]
+      const result=await apiRequest<{preview:CsvPreview}>({
+        baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/csv-preview',
+        options:{method:'POST',body:JSON.stringify({csv_base64:base64,target_tab:csvTab})},
+        authHeaders:authHeaders(token,user.id),
+      })
+      setCsvPreview(result.preview)
+      setCsvMapping(Object.fromEntries(result.preview.input_headers.map(header=>[
+        header,result.preview.suggestions[header]||null,
+      ])))
+      setCsvAcknowledged(false)
+      setNotice('Import preview ready. Review and confirm every column. No candidate data or privileges have been saved.')
+    }catch(problem){setError(problem instanceof Error?problem.message:'CSV preview rejected')}
+    finally{setBusy(false)}
+  }
+  async function importMappedCsv(){
+    if(!selected||!token||!user||busy||!csvFile||!csvPreview||!csvAcknowledged)return
+    setBusy(true);setError('');setNotice('')
+    try{
+      const dest=Object.values(csvMapping).filter((x):x is string=>typeof x==='string')
+      if(dest.length===0||new Set(dest).size!==dest.length)
+        throw new Error('Choose at least one valid, nonduplicated destination field')
+      if(csvPreview.input_headers.some(x=>!Object.hasOwn(csvMapping,x)))
+        throw new Error('Every CSV header requires an explicit mapping decision')
+      const base64=(await asDataUri(csvFile)).split(',')[1]
+      const result=await apiRequest<{receipt:{version:number;duplicate:boolean}}>({
+        baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/csv-import',
+        options:{method:'POST',body:JSON.stringify({
+          csv_base64:base64,target_tab:csvPreview.target_tab,
+          csv_sha256:csvPreview.csv_sha256,
+          approved_mapping:csvMapping,acknowledge_mapping:true,
+          expected_version:draft?.submission_version||0,
+        })},
+        authHeaders:authHeaders(token,user.id),
+      })
+      setNotice('CSV mapping imported into canonical 12-tab private draft version '+
+        result.receipt.version+'. No legal approval or tenant privileges granted.')
+      setCsvPreview(null);setCsvAcknowledged(false);setCsvFile(null)
+      await loadDetails()
+    }catch(problem){setError(problem instanceof Error?problem.message:'CSV import rejected')}
+    finally{setBusy(false)}
+  }
+
   async function saveManual(){
     if(!selected||!token||!user||busy)return
     setBusy(true);setError('');setNotice('')
@@ -406,6 +480,81 @@ export default function DealerClaimWorkspace() {
                       <Button disabled={busy||!workbookFile} onClick={()=>{void uploadWorkbook()}}>
                         Upload completed workbook and populate application
                       </Button>
+                      <section className="border-t pt-5 space-y-3" aria-labelledby="csv-dealer-title">
+                        <h3 id="csv-dealer-title" className="font-semibold text-lg">
+                          Import an existing CSV with confirmed field mapping
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Import one business or child-record section at a time. CarUp suggests
+                          recognized column mappings but never guesses legal identity, tenant
+                          permissions, approvals, or verification. Unmapped columns must be
+                          deliberately ignored or assigned by you.
+                        </p>
+                        <label htmlFor="claim-csv-target" className="block text-sm font-medium">
+                          Destination application section
+                        </label>
+                        <select id="claim-csv-target" value={csvTab}
+                          onChange={e=>{
+                            setCsvTab(e.target.value);setCsvPreview(null);
+                            setCsvAcknowledged(false)
+                          }} className="w-full border rounded-lg p-2">
+                          {['BUSINESS','BRANCHES','LICENCES_AUTHORIZATIONS',
+                            'BRANDS_FRANCHISES','OPERATIONS_SOURCING','FINANCE_PAYMENTS',
+                            'WORKSHOP_WARRANTY','BUYER_PROTECTION','DIGITAL_MEDIA',
+                            'VEHICLE_INVENTORY_REFERENCE','CONSENTS_DECLARATIONS'].
+                            map(tab=><option key={tab} value={tab}>{tab.replaceAll('_',' ')}</option>)}
+                        </select>
+                        <label htmlFor="claim-csv-file" className="block text-sm font-medium">
+                          Existing UTF-8 CSV file (2MB max)
+                        </label>
+                        <Input id="claim-csv-file" type="file" accept=".csv,text/csv"
+                          onChange={e=>{setCsvFile(e.target.files?.[0]||null);
+                            setCsvPreview(null);setCsvAcknowledged(false)}}/>
+                        <Button variant="outline" disabled={busy||!csvFile}
+                          onClick={()=>{void previewLegacyCsv()}}>Preview CSV mappings without saving</Button>
+                        {csvPreview && <div className="space-y-3 border rounded-xl p-4">
+                          <p className="text-sm font-semibold">
+                            {csvPreview.input_rows} candidate record(s) ·
+                            {' '}{csvPreview.input_headers.length} source column(s)
+                          </p>
+                          <p className="text-xs text-gray-600 break-all">
+                            Source SHA-256: {csvPreview.csv_sha256}. A changed
+                            file must be previewed again. No automatic mapping is approved.
+                          </p>
+                          {csvPreview.conflicts.length>0 && <p role="alert" className="text-sm text-amber-800">
+                            Mapping conflicts: {csvPreview.conflicts.join('; ')}
+                          </p>}
+                          {csvPreview.input_headers.map(header=><div key={header}>
+                            <label className="block text-sm font-medium"
+                              htmlFor={'csv-map-'+csvPreview.input_headers.indexOf(header)}>
+                              CSV column: {header}
+                            </label>
+                            <select id={'csv-map-'+csvPreview.input_headers.indexOf(header)}
+                              value={csvMapping[header]??''}
+                              onChange={e=>{
+                                setCsvMapping(old=>({...old,[header]:e.target.value||null}));
+                                setCsvAcknowledged(false)
+                              }} className="w-full rounded-lg border p-2">
+                              <option value="">Ignore this source column</option>
+                              {csvPreview.allowed_targets.map(field=><option
+                                key={field.key} value={field.key}>
+                                {field.label} ({field.key})
+                              </option>)}
+                            </select>
+                          </div>)}
+                          <label className="flex items-start gap-2 text-sm">
+                            <input type="checkbox" checked={csvAcknowledged}
+                              onChange={e=>setCsvAcknowledged(e.target.checked)}/>
+                            I reviewed every source column, confirm the mapping and understand
+                            these imported values are unverified candidate declarations
+                            requiring independent review.
+                          </label>
+                          <Button disabled={busy||!csvAcknowledged}
+                            onClick={()=>{void importMappedCsv()}}>
+                            Confirm mapped CSV and save the private application draft
+                          </Button>
+                        </div>}
+                      </section>
                       <section className="border-t pt-5 space-y-3" aria-labelledby="manual-dealer-title">
                         <h3 id="manual-dealer-title" className="font-semibold text-lg">Or enter your application manually</h3>
                         <p className="text-xs text-gray-600">
@@ -459,6 +608,21 @@ export default function DealerClaimWorkspace() {
                         <Button variant="outline" disabled={busy||manualLegalName.trim().length<2}
                           onClick={()=>{void saveManual()}}>Save manual application into CarUp</Button>
                       </section>
+                      {operationalAuthority && <section className="border-t pt-4 space-y-2 text-sm">
+                        <h3 className="font-semibold">Operational dealership authority</h3>
+                        <p className={operationalAuthority.operational?'text-green-800':'text-amber-800'}>
+                          {operationalAuthority.state.replaceAll('_',' ')}
+                        </p>
+                        <p className="text-gray-600">
+                          Claim approval alone never grants stock listing, finance entitlement or
+                          a public verified badge. Every operation requires canonical tenant
+                          membership and live country-compliance policy.
+                        </p>
+                        {operationalAuthority.operational&&<Link to="/dealer/dashboard"
+                          className="inline-block text-blue-700 underline">
+                          Open my authorized dealer workspace
+                        </Link>}
+                      </section>}
                       {jurisdiction && (
                         <section className="border-t pt-5 space-y-3" aria-labelledby="jurisdiction-preview-title">
                           <h3 id="jurisdiction-preview-title" className="font-semibold text-lg">
