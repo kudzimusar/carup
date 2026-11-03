@@ -12,6 +12,19 @@ type ClaimItem = {
   claim_id:string;seed_dealer_id:string;claimed_scope:string;claim_status:ClaimState;created_at:string
 }
 type EvidenceItem = {evidence_id:string;document_class:string;created_at:string}
+type OcrCandidate = {
+  event_id:string;evidence_id:string;document_class:string;extraction_state:string;
+  pages_processed:number;review_flags:string[];created_at:string;
+  extracted_fields:Record<string,{value:string;page:number;confidence:null}>
+}
+type JurisdictionPreview = {
+  state:string;country?:string|null;policy_version?:string|null;
+  policy_status?:string;can_activate:boolean;can_publish:boolean;
+  legal_review_complete:boolean;unresolved?:string[];
+  requirements:Array<{requirement_key:string;label:string;reason:string;
+    applicability:string;evidence_status:string;legal_source_verified:boolean}>
+}
+
 type Draft = {
   schema_version:string;submission_version:number;state:string;updated_at:string
   content:{tab_rows:Record<string,Array<Record<string,string>>>}
@@ -44,6 +57,8 @@ export default function DealerClaimWorkspace() {
   const [documentFile,setDocumentFile]=useState<File|null>(null)
   const [workbookFile,setWorkbookFile]=useState<File|null>(null)
   const [draft,setDraft]=useState<Draft|null>(null)
+  const [ocrCandidates,setOcrCandidates]=useState<OcrCandidate[]>([])
+  const [jurisdiction,setJurisdiction]=useState<JurisdictionPreview|null>(null)
   const [appealReason,setAppealReason]=useState('')
   const [manualLegalName,setManualLegalName]=useState('')
   const [manualTradingName,setManualTradingName]=useState('')
@@ -81,10 +96,20 @@ export default function DealerClaimWorkspace() {
           baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/intake',
           authHeaders:auth,
         }),
+        apiRequest<{candidates:OcrCandidate[]}>({
+          baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/ocr-candidates',
+          authHeaders:auth,
+        }),
+        apiRequest<{preview:JurisdictionPreview}>({
+          baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/jurisdiction-preview',
+          authHeaders:auth,
+        }),
       ])
       setEvidence(results[0].status==='fulfilled'?results[0].value.evidence||[]:[])
       setDraft(results[1].status==='fulfilled'?results[1].value.intake:null)
-    }catch{setEvidence([]);setDraft(null)}
+      setOcrCandidates(results[2].status==='fulfilled'?results[2].value.candidates||[]:[])
+      setJurisdiction(results[3].status==='fulfilled'?results[3].value.preview:null)
+    }catch{setEvidence([]);setDraft(null);setOcrCandidates([]);setJurisdiction(null)}
   },[selected,user,token])
   useEffect(()=>{void loadDetails()},[loadDetails])
 
@@ -108,6 +133,24 @@ export default function DealerClaimWorkspace() {
     }catch(problem){setError(problem instanceof Error?problem.message:'Document upload failed')}
     finally{setBusy(false)}
   }
+  async function extractEvidenceCandidates(evidenceId:string){
+    if(!user||!token||!selected||busy)return
+    setBusy(true);setError('');setNotice('')
+    try{
+      const result=await apiRequest<{receipt:{state:string;candidate_only:boolean}}>({
+        baseUrl:API,
+        path:'/dealership/claims/'+encodeURIComponent(selected)
+          +'/evidence/'+encodeURIComponent(evidenceId)+'/extract',
+        options:{method:'POST',body:JSON.stringify({})},
+        authHeaders:authHeaders(token,user.id),
+      })
+      setNotice('Document extraction: '+result.receipt.state.replaceAll('_',' ')
+        +'. Any observed fields are only candidates for manual review; no company verification or licence was granted.')
+      await loadDetails()
+    }catch(problem){setError(problem instanceof Error?problem.message:'Candidate extraction failed')}
+    finally{setBusy(false)}
+  }
+
   async function downloadPrefilled(){
     if(!user||!token||!selected||busy)return
     setError('');setNotice('');setBusy(true)
@@ -264,6 +307,46 @@ export default function DealerClaimWorkspace() {
                       )}
                     </CardContent></Card>
                   )}
+                  {evidence.length>0 && (
+                    <Card><CardContent className="p-5 space-y-4">
+                      <h2 className="font-semibold text-lg">Document intelligence — candidate observations</h2>
+                      <p className="text-sm text-gray-600">
+                        Uses a separately authorized local OCR provider only when qualified.
+                        Missing tools or unreadable pages require manual review, never automatic
+                        business approval. Results and originals stay private to your claim.
+                      </p>
+                      {evidence.map(item=><div key={item.evidence_id}
+                        className="border rounded-lg p-3 flex flex-wrap gap-3 items-center justify-between">
+                        <div className="text-sm">
+                          <strong>{item.document_class.replaceAll('_',' ')}</strong>
+                          <p className="text-xs text-gray-500">Original evidence recorded</p>
+                        </div>
+                        <Button size="sm" variant="outline" disabled={busy}
+                          onClick={()=>{void extractEvidenceCandidates(item.evidence_id)}}>
+                          Extract candidate fields
+                        </Button>
+                      </div>)}
+                      {ocrCandidates.length===0 && <p className="text-sm text-gray-500">
+                        No OCR attempts recorded. The original document still needs independent human review.
+                      </p>}
+                      {ocrCandidates.map(candidate=><section key={candidate.event_id}
+                        className="rounded-lg border p-3 text-sm" aria-label="Unverified document candidate">
+                        <strong>{candidate.document_class.replaceAll('_',' ')} ·
+                          {' '}{candidate.extraction_state.replaceAll('_',' ')}</strong>
+                        <p className="text-xs text-gray-600 mt-1">
+                          {candidate.pages_processed} page(s) processed · Confidence unknown · Not verified
+                        </p>
+                        {Object.entries(candidate.extracted_fields).map(([name,field])=><p
+                          className="mt-2 break-words" key={name}>
+                          <span className="font-medium">{name.replaceAll('_',' ')}:</span> {field.value}
+                          <span className="text-gray-500"> (page {field.page}, unconfirmed)</span>
+                        </p>)}
+                        {candidate.review_flags?.length>0 && <p className="text-amber-800 mt-2">
+                          Review needed: {candidate.review_flags.join(', ').replaceAll('_',' ')}
+                        </p>}
+                      </section>)}
+                    </CardContent></Card>
+                  )}
                   {chosen.claim_status==='CLAIM_APPROVED' && (
                     <Card><CardContent className="p-5 space-y-4">
                       <h2 className="font-semibold text-lg">Prefilled Excel and application</h2>
@@ -305,6 +388,31 @@ export default function DealerClaimWorkspace() {
                         <Button variant="outline" disabled={busy||manualLegalName.trim().length<2}
                           onClick={()=>{void saveManual()}}>Save manual application into CarUp</Button>
                       </section>
+                      {jurisdiction && (
+                        <section className="border-t pt-5 space-y-3" aria-labelledby="jurisdiction-preview-title">
+                          <h3 id="jurisdiction-preview-title" className="font-semibold text-lg">
+                            Jurisdiction and compliance applicability
+                          </h3>
+                          <p className="text-sm text-gray-700">
+                            {jurisdiction.state.replaceAll('_',' ')} ·
+                            {' '}{jurisdiction.country||'Country not declared'} ·
+                            {' '}No legal approval or operating rights have been granted.
+                          </p>
+                          {jurisdiction.policy_status && <p className="text-xs text-amber-800">
+                            {jurisdiction.policy_status.replaceAll('_',' ')}
+                          </p>}
+                          {jurisdiction.requirements.map(item=><div key={item.requirement_key}
+                            className="rounded-lg border p-3 text-sm">
+                            <strong>{item.label}</strong>
+                            <p className="text-gray-600 mt-1">{item.reason}</p>
+                            <p className="text-xs text-amber-800 mt-1">
+                              Applicability requires human determination · Evidence not verified
+                            </p>
+                          </div>)}
+                          {jurisdiction.unresolved?.map(item=><p key={item}
+                            className="text-xs text-gray-600">{item}</p>)}
+                        </section>
+                      )}
                       {draft && (
                         <section className="border-t pt-3 text-sm">
                           <h3 className="font-semibold">Saved application version {draft.submission_version}</h3>
