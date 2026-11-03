@@ -137,7 +137,7 @@ router.get('/api/admin/dealers/:id', authorizeSessionRole(ADMIN_ROLES), async (r
   }
 });
 
-router.patch('/api/admin/dealers/:id/decision', authorizeSessionRole(ADMIN_ROLES), async (req, res, next) => {
+router.patch('/api/admin/dealers/:id/decision', authorizeSessionRole(['admin','reviewer']), async (req, res, next) => {
   try {
     if (!req.userContext?.isVerified) {
       return res.status(403).json({ error: 'Independent verified reviewer session is required' });
@@ -150,13 +150,19 @@ router.patch('/api/admin/dealers/:id/decision', authorizeSessionRole(ADMIN_ROLES
         reason: req.body?.reason,
         payload: req.body?.payload,
       },
-      { id: req.userContext?.userId, role: req.userContext?.role },
+      { id: req.userContext?.userId, role: req.userContext?.platformRole || req.userContext?.role,
+        authenticationMethod: req.userContext?.authenticationMethod,
+        isVerified: req.userContext?.isVerified,
+        reviewer_password: req.body?.reviewer_password },
     );
     res.status(201).json(result);
   } catch (err) {
     if (/Dealer not found/.test(err.message)) return res.status(404).json({ error: err.message });
     if (/decision must be|requires a requirement_key|authenticated actor/.test(err.message)) {
       return res.status(400).json({ error: err.message });
+    }
+    if (err.statusCode && err.statusCode >= 400 && err.statusCode < 500) {
+      return res.status(err.statusCode).json({ error:err.message });
     }
     next(err);
   }
