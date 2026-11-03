@@ -12,8 +12,8 @@ import {
 } from '../services/dealer/dealerClaimApplicationService.js';
 import { createClaimDocumentCandidate,listMyClaimDocumentCandidates } from '../services/dealer/dealerDocumentCandidateService.js';
 import {readMyClaimJurisdictionPreview} from '../services/dealer/dealerJurisdictionPreview.js';
-import {listFullStorefrontReviewQueue,recordFullStorefrontPublication}
-  from '../services/dealer/dealerFullStorefrontService.js';
+import {listFullStorefrontReviewQueue,recordFullStorefrontPublication,
+  previewFullStorefrontCandidate} from '../services/dealer/dealerFullStorefrontService.js';
 import {
   listLegalCountryPolicyReadiness,listPendingLegalDealershipCases,listPendingLegalDealerActivations,
   certifyLegalDealerCase,activateLegallyApprovedDealer,
@@ -362,6 +362,14 @@ router.get('/api/admin/dealership/full-storefronts/queue',
   try{
     const cases=await listFullStorefrontReviewQueue(req.userContext);
     res.set('Cache-Control','no-store').json({cases});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/admin/dealership/full-storefronts/:seedId/preview',
+ reviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const candidate=await previewFullStorefrontCandidate(
+      req.params.seedId,req.userContext,req.body?.reviewer_password);
+    res.set('Cache-Control','no-store').json({candidate});
   }catch(error){errorResponse(res,next,error)}
 });
 router.post('/api/admin/dealership/full-storefronts/:seedId/review',
