@@ -65,7 +65,7 @@ export async function requireReviewerPassword(actor,claim,password){
     throw deny('REAUTHENTICATION_FAILED');
 }
 export function decodeClaimDocument(base64,mimeType){
-  if(typeof base64!=='string'||!DOCS||typeof mimeType!=='string' ||
+  if(typeof base64!=='string'||typeof mimeType!=='string' ||
     !['image/jpeg','image/png','application/pdf'].includes(mimeType))
     throw deny('INVALID_CLAIM_DOCUMENT',400);
   const match=/^data:(image\/jpeg|image\/png|application\/pdf);base64,([A-Za-z0-9+/]+={0,2})$/.exec(base64);
@@ -158,10 +158,10 @@ export async function reviewerEvidencePreview(claimId,evidenceId,actor,password)
   const claim=await loadClaim(claimId);
   await requireReviewerPassword(actor,claim,password);
   validateId(evidenceId);
-  const {data,effectiveError,error}=await supabase.from('dealer_claim_private_evidence')
+  const {data,error}=await supabase.from('dealer_claim_private_evidence')
     .select('evidence_id,claim_id,storage_bucket,storage_path,document_class,content_sha256')
     .eq('evidence_id',evidenceId).eq('claim_id',claim.claim_id).maybeSingle();
-  if(error||effectiveError||!data)throw deny('REVIEW_EVIDENCE_NOT_FOUND',404);
+  if(error||!data)throw deny('REVIEW_EVIDENCE_NOT_FOUND',404);
   const {data:link,error:urlError}=await supabase.storage.from('ocr-documents')
     .createSignedUrl(data.storage_path,60);
   if(urlError||!link?.signedUrl)throw deny('REVIEW_EVIDENCE_UNAVAILABLE',503);
@@ -194,11 +194,10 @@ export async function submitClaimAppeal(claimId,actor,reason){
     throw deny('APPEAL_NOT_ELIGIBLE',409);
   if(typeof reason!=='string'||reason.trim().length<40||reason.length>3000)
     throw deny('APPEAL_REASON_REQUIRED',400);
-  const {data,error}=await supabase.from('dealer_claim_appeals')
-    .insert({claim_id:claim.claim_id,appellant_user_id:actor.userId,appeal_reason:reason.trim()})
-    .select('appeal_id,claim_id,status,created_at').single();
-  if(error?.code==='23505')throw deny('DUPLICATE_APPEAL',409);
-  if(error)throw deny('APPEAL_STORAGE_UNAVAILABLE',503);
+  const {data,error}=await supabase.rpc('dealer_request_claim_appeal',{
+    p_claim_id:claim.claim_id,p_appellant_id:actor.userId,p_reason:reason.trim(),
+  });
+  if(error)throw deny('APPEAL_CONFLICT_OR_UNAVAILABLE',409);
   return data;
 }
 export async function exportClaimPrefilledWorkbook(claimId,actor){
