@@ -13,7 +13,7 @@ import {
 import { createClaimDocumentCandidate,listMyClaimDocumentCandidates } from '../services/dealer/dealerDocumentCandidateService.js';
 import {readMyClaimJurisdictionPreview} from '../services/dealer/dealerJurisdictionPreview.js';
 import {
-  listLegalCountryPolicyReadiness,listPendingLegalDealershipCases,
+  listLegalCountryPolicyReadiness,listPendingLegalDealershipCases,listPendingLegalDealerActivations,
   certifyLegalDealerCase,activateLegallyApprovedDealer,
   readMyOperationalDealerAuthority
 } from '../services/dealer/dealerLegalActivationService.js';
@@ -80,6 +80,13 @@ router.post('/api/admin/dealership/legal-cases/:submissionId/review',
     const review=await certifyLegalDealerCase(
       req.params.submissionId,req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({review});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.get('/api/admin/dealership/legal-approvals/queue',
+  reviewer,async(req,res,next)=>{
+  try{
+    const cases=await listPendingLegalDealerActivations(req.userContext);
+    res.set('Cache-Control','no-store').json({cases});
   }catch(error){errorResponse(res,next,error)}
 });
 router.post('/api/admin/dealership/legal-approvals/:legalReviewId/activate',
