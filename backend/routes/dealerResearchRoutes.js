@@ -12,6 +12,8 @@ import {
 } from '../services/dealer/dealerClaimApplicationService.js';
 import { createClaimDocumentCandidate,listMyClaimDocumentCandidates } from '../services/dealer/dealerDocumentCandidateService.js';
 import {readMyClaimJurisdictionPreview} from '../services/dealer/dealerJurisdictionPreview.js';
+import {listFullStorefrontReviewQueue,recordFullStorefrontPublication}
+  from '../services/dealer/dealerFullStorefrontService.js';
 import {
   listLegalCountryPolicyReadiness,listPendingLegalDealershipCases,listPendingLegalDealerActivations,
   certifyLegalDealerCase,activateLegallyApprovedDealer,
@@ -351,6 +353,24 @@ router.post('/api/admin/dealership/claims/:claimId/review',
     const review=await reviewDealerClaim(req.params.claimId,req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({review});
   } catch(error){errorResponse(res,next,error)}
+});
+
+// Independently reviewed full dealer storefront is strictly SEPARATE from
+// research publication, claim approval and legal/operating tenant activation.
+router.get('/api/admin/dealership/full-storefronts/queue',
+ reviewer,async(req,res,next)=>{
+  try{
+    const cases=await listFullStorefrontReviewQueue(req.userContext);
+    res.set('Cache-Control','no-store').json({cases});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/admin/dealership/full-storefronts/:seedId/review',
+ reviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const review=await recordFullStorefrontPublication(
+      req.params.seedId,req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({review});
+  }catch(error){errorResponse(res,next,error)}
 });
 
 // Each private research candidate requires an individual source/public-interest
