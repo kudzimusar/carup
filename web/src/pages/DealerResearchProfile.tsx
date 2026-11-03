@@ -205,7 +205,7 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                   to={`/dealers/${profile.slug}/claim`}>
                   Claim this dealership
                 </Link>
-                <Link className="text-blue-700 font-semibold underline underline-offset-4" to="/contact">
+                <Link className="text-blue-700 font-semibold underline underline-offset-4" to={`/dealers/${profile.slug}/correction`}>
                   Report inaccurate information or request correction/removal
                 </Link>
               </div>
