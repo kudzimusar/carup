@@ -27,6 +27,7 @@ const read=(name)=>{
   };
 };
 const db=new PGlite();
+let fatalError=null;
 async function exec(sql){return db.exec(sql)}
 async function query(sql,args=[]){return db.query(sql,args)}
 async function fails(sql,phrase){
@@ -243,10 +244,18 @@ try{
   await fails('SELECT * FROM dealer_research_seed_records','permission denied');
   await fails('SELECT * FROM dealer_claim_private_evidence','permission denied');
   await exec('RESET ROLE');
+  // The real claim rollback must refuse if approved/appealed business authority
+  // records still exist. This throwaway PGlite fixture can be explicitly wiped
+  // AFTER certifying that safety condition, so migration up/down/reapply is tested.
+  await fails(read('20261103123000_dealer_claim_review_and_intake_drafts.sql').down,
+    'CANNOT_ROLLBACK_WITH_REVIEWED_CLAIMS');
+  await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
   console.log('DEALER_PGLITE_RESULT PASS: 6 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
-  console.error('DEALER_PGLITE_RESULT FAIL',error.message);
-  process.exitCode=1;
+  console.error('DEALER_PGLITE_RESULT FAIL',error);
+  fatalError=error;
 }finally{await db.close()}
+// A caught migration error MUST terminate GitHub CI as a failing step.
+if(fatalError)throw fatalError;
