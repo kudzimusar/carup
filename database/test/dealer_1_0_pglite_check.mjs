@@ -16,6 +16,7 @@ const names=[
   '20261103122000_dealer_research_correction_requests.sql',
   '20261103123000_dealer_claim_review_and_intake_drafts.sql',
   '20261103124000_dealer_atomic_compliance_governance.sql',
+  '20261103125000_dealer_profile_self_grant_hardening.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -42,6 +43,8 @@ try{
     DO $$ BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     DO $$ BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     DO $$ BEGIN CREATE ROLE service_role; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    CREATE SCHEMA auth;
+    CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE SQL STABLE AS $ SELECT NULL::UUID $;
     CREATE TABLE users(
       id TEXT PRIMARY KEY,role TEXT NOT NULL DEFAULT 'member',
       is_verified BOOLEAN NOT NULL DEFAULT false
@@ -51,6 +54,9 @@ try{
     AS $$ BEGIN RAISE EXCEPTION 'APPEND_ONLY_LEDGER'; END; $$;
     CREATE TABLE dealer_profiles(
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id TEXT NOT NULL REFERENCES users(id),
+      tenant_id TEXT, legal_name TEXT, trading_name TEXT,
+      registration_number TEXT,tax_id TEXT,physical_address TEXT,
+      responsible_person TEXT,operating_country TEXT,
       identity_status TEXT NOT NULL DEFAULT 'unverified',
       compliance_review_state TEXT NOT NULL DEFAULT 'not_started',
       investigation_state TEXT NOT NULL DEFAULT 'none',
@@ -59,6 +65,8 @@ try{
       active_state TEXT NOT NULL DEFAULT 'inactive',
       expiry_date TIMESTAMPTZ,updated_at TIMESTAMPTZ DEFAULT now()
     );
+    ALTER TABLE dealer_profiles ENABLE ROW LEVEL SECURITY;
+    GRANT SELECT,INSERT,UPDATE ON dealer_profiles TO authenticated;
     CREATE TABLE dealer_compliance_requirements(
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       dealer_id UUID NOT NULL REFERENCES dealer_profiles(id),
@@ -80,6 +88,25 @@ try{
         ('claimant2','member',false),('notreviewer','member',true);
   `);
   for(const name of names){await exec(read(name).up);console.log('APPLIED',name)}
+  // Direct authenticated/PostgREST clients cannot mint their own tenant, identity,
+  // compliance, activation or listing authority even if they own a dealer row.
+  const authorityColumns=['tenant_id','identity_status','compliance_review_state',
+    'active_state','restriction_state','suspension_state','investigation_state'];
+  for(const column of authorityColumns) {
+    const result=await query('SELECT has_column_privilege($1,$2,$3,$4) AS allowed',[
+      'authenticated','dealer_profiles',column,'UPDATE']);
+    assert.equal(result.rows[0].allowed,false,'unsafe direct UPDATE for '+column);
+    const inserted=await query('SELECT has_column_privilege($1,$2,$3,$4) AS allowed',[
+      'authenticated','dealer_profiles',column,'INSERT']);
+    assert.equal(inserted.rows[0].allowed,false,'unsafe direct INSERT for '+column);
+  }
+  assert.equal((await query(
+    "SELECT has_column_privilege('authenticated','dealer_profiles','legal_name','UPDATE') AS allowed"
+  )).rows[0].allowed,true);
+  assert.equal((await query(
+    "SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed"
+  )).rows[0].allowed,false);
+
   assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,13);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
@@ -218,7 +245,7 @@ try{
   await exec('RESET ROLE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 5 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 6 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error.message);
   process.exitCode=1;
