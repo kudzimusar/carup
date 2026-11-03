@@ -274,7 +274,8 @@ export async function listDecisions(dealerId) {
  * PURE: given a profile and its blocking requirement statuses, decide whether the dealer
  * may publish listings. No I/O. A dealer can publish ONLY when:
  *   - not suspended, AND
- *   - not restriction-blocked, AND
+ *   - not restriction-blocked or under investigation, AND
+ *   - active_state === 'active', AND
  *   - compliance_review_state === 'passed', AND
  *   - identity_status === 'verified', AND
  *   - no blocking requirement is still unsatisfied, AND
@@ -284,6 +285,8 @@ export function deriveCanPublish(profile = {}, blockingRequirements = []) {
   if (!profile) return false;
   if (profile.suspension_state === 'suspended') return false;
   if (profile.restriction_state === 'restricted') return false;
+  if (profile.investigation_state === 'under_investigation') return false;
+  if (profile.active_state !== 'active') return false;
   if (profile.compliance_review_state !== 'passed') return false;
   if (profile.identity_status !== 'verified') return false;
   if (deriveExpiryState(profile) === 'expired') return false;
@@ -353,7 +356,7 @@ export function deriveEvidenceBand(profile = {}, requirements = []) {
 
 /**
  * Buyer-safe summary. Returns ONLY a coarse status, the compliance review date, an evidence
- * completeness band, and a count of unresolved serious complaints. NEVER returns private
+ * completeness band, and a nullable unresolved-serious-complaints measurement. NEVER returns private
  * documents, contacts, internal notes, reasons, or raw decision payloads.
  */
 export async function getBuyerSafeSummary(dealerId) {
@@ -371,7 +374,9 @@ export async function getBuyerSafeSummary(dealerId) {
     status: deriveBuyerStatus(profile),
     compliance_review_date: compliance_review_date || null,
     evidence_completeness_band: deriveEvidenceBand(profile, requirements),
-    unresolved_serious_complaints: 0,
+    // No authoritative complaints counter is joined in this lineage. Unknown is NOT zero.
+    // Wire only transaction-backed, correctly scoped complaint evidence in a separately reviewed change.
+    unresolved_serious_complaints: null,
   };
 }
 
