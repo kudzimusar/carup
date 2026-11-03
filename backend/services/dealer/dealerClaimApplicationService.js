@@ -11,6 +11,8 @@ import {
   exportPrefilledDealerWorkbook,parseCompletedDealerWorkbook,
 } from './dealerWorkbookRoundtrip.js';
 
+import {buildManualDealerWorkbook} from './dealerManualIntake.js';
+
 const DOCS=new Set(['COMPANY_REGISTRATION','DIRECTOR_AUTHORITY','SIGNATORY_MANDATE',
   'BRANCH_AUTHORITY','PARENT_COMPANY_AUTHORITY']);
 const CAN_REVIEW=new Set(['admin','reviewer','platform_admin','super_admin']);
@@ -236,6 +238,23 @@ export async function importClaimWorkbook(claimId,actor,buffer,expectedVersion=0
   if(error)throw deny('ATOMIC_DRAFT_IMPORT_REFUSED',409);
   return {receipt:data,record_counts:parsed.record_counts,
     legal_or_tenant_activation:false,verification_state:'NOT_VERIFIED'};
+}
+export async function saveManualClaimDraft(claimId,actor,patch,expectedVersion=0){
+  requireClaimantSession(actor);
+  const claim=await loadClaim(claimId);
+  assertClaimOwner(claim,actor);
+  if(claim.claim_status!=='CLAIM_APPROVED')throw deny('CLAIM_APPROVAL_REQUIRED',403);
+  const source=await loadSource(claim.seed_dealer_id);
+  if(!Number.isInteger(expectedVersion)||expectedVersion<0)
+    throw deny('INVALID_EXPECTED_VERSION',400);
+  const {data:previous,error:previousError}=await supabase.from('dealer_claim_intake_drafts')
+    .select('content,submission_version')
+    .eq('claim_id',claim.claim_id).eq('claimant_user_id',actor.userId).maybeSingle();
+  if(previousError)throw deny('INTAKE_LOOKUP_UNAVAILABLE',503);
+  if((previous?.submission_version||0)!==expectedVersion)
+    throw deny('STALE_INTAKE_VERSION',409);
+  const workbook=await buildManualDealerWorkbook(claim,source,patch,previous?.content||null);
+  return importClaimWorkbook(claimId,actor,Buffer.from(await workbook.xlsx.writeBuffer()),expectedVersion);
 }
 export async function readMyClaimIntakeDraft(claimId,actor){
   requireClaimantSession(actor);
