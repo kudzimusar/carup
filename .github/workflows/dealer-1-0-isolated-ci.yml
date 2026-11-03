@@ -71,6 +71,7 @@ jobs:
             backend/tests/dealer-research-seed-contract.test.js \
             backend/tests/dealer-research-service.test.js \
             backend/tests/dealer-intake-workbook.test.js \
+            backend/tests/dealer-workbook-roundtrip.test.js \
             backend/tests/differentiator-journey.test.js
       - name: Web TypeScript validation
         run: npx tsc --noEmit --project web/tsconfig.app.json
