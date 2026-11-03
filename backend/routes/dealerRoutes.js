@@ -26,6 +26,8 @@ import {getMyVerifiedDealerWorkspace,addDeclaredDealerBranch}
   from '../services/dealer/dealerVerifiedWorkspaceService.js';
 import {listMyOperationalDeclarations,recordMyOperationalDeclaration}
   from '../services/dealer/dealerOperationalDeclarationsService.js';
+import {getDealerCommercialReadiness}
+  from '../services/dealer/dealerCommercialReadinessService.js';
 import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   createOrUpdateProfile,
@@ -178,6 +180,19 @@ router.get('/api/dealer/operations/membership-summary',
   try{
     const summary=await getMyDealerMembershipSummary(req.userContext);
     res.set('Cache-Control','no-store').json({summary});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+
+// Strictly read-only commercial interface — no PAY-05 garage merchant can
+// collect CarUp dealer fees or operate a dealership's own funds here.
+router.get('/api/dealer/commercial-readiness',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const readiness=await getDealerCommercialReadiness(req.userContext);
+    res.set('Cache-Control','no-store').json({readiness});
   }catch(error){
     if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
       return res.status(error.statusCode).json({error:error.message});
