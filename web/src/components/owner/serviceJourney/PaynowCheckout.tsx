@@ -9,7 +9,6 @@ import {
   phoneProblem,
   type PaynowMethod, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment, type PaynowStartResult, type PaynowView,
 } from '@/lib/pay05Paynow'
-import PaynowFacts from '@/components/garage/PaynowFacts'
 import PaynowPendingPanel from './PaynowPendingPanel'
 
 const TONE = { ok: 'bg-green-50 text-green-900', wait: 'bg-amber-50 text-amber-900', warn: 'bg-amber-50 text-amber-900', error: 'bg-red-50 text-red-900' } as const
@@ -220,9 +219,8 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
             <Badge variant="outline" className={`whitespace-normal ${badge?.tone ?? ''}`} data-testid="paynow-status-badge">{badge?.label}</Badge>
           </p>
           <LiveText testId="paynow-status" text={statusText} />
-          {/* what the customer must use comes first: the facts arrive with the first read, and must not push it off a phone's screen */}
+          {/* the means of payment stays together on a phone's screen: this request's separate facts are in the list of payments below */}
           {view && <PaynowPendingPanel collectionId={pending.collectionId} paynow={view} state={pending.state} busy={busy} onOtpOutcome={otpAnswered} />}
-          {view?.facts && <PaynowFacts facts={view.facts} />}
           <Button variant="outline" className="min-h-11 bg-white" disabled={busy} onClick={() => void check()} data-testid="paynow-check">
             Check payment status
           </Button>

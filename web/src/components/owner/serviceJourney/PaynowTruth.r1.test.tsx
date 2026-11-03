@@ -231,7 +231,7 @@ describe('The payment a person is in the middle of stays where they are', () => 
 })
 
 describe('The way to pay comes first in a request (390 px rehearsal)', () => {
-  it('a started request shows its code before its separate facts, and takes the focus without leaving it off screen', async () => {
+  it('a started request keeps its code together, leaves the separate facts to the list below it, and takes the focus without leaving it off screen', async () => {
     const scrolled = vi.fn()
     const original = Element.prototype.scrollIntoView
     Element.prototype.scrollIntoView = scrolled
@@ -243,9 +243,8 @@ describe('The way to pay comes first in a request (390 px rehearsal)', () => {
     fireEvent.click(screen.getByTestId('paynow-start'))
     await screen.findByTestId('paynow-pending')
     rerender(<PaynowCheckout invoiceId="inv-9" option={paynowOption(['innbucks']) as never} latest={row(started) as never} />)
-    const code = await screen.findByTestId('paynow-innbucks-code')
-    const facts = await screen.findByTestId('paynow-facts')
-    expect(code.compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(await screen.findByTestId('paynow-innbucks-code')).toBeInTheDocument()
+    expect(within(screen.getByTestId('paynow-pending')).queryByTestId('paynow-facts')).toBeNull()
     await waitFor(() => expect(screen.getByTestId('paynow-pending-heading')).toHaveFocus())
     expect(scrolled).toHaveBeenCalledWith({ block: 'start' })
     Element.prototype.scrollIntoView = original
