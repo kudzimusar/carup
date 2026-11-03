@@ -1,7 +1,7 @@
 name: CarUp Dealership 1.0 — isolated source/contract CI
 
 # This workflow deliberately has no repository secrets, no deployment,
-# no database connection, no migrations and no payment provider calls.
+# no external database connection, no deployed migrations and no payment provider calls.
 on:
   push:
     branches:
@@ -10,11 +10,11 @@ on:
       - 'backend/services/dealer/**'
       - 'backend/scripts/dealership/**'
       - 'backend/tests/dealer-*.test.js'
+      - 'backend/routes/dealerRoutes.js'
       - 'backend/routes/dealerResearchRoutes.js'
       - 'backend/server.js'
-      - 'web/src/pages/DealerDirectory.tsx'
-      - 'web/src/pages/DealerResearchProfile.tsx'
-      - 'web/src/pages/DealerResearchCorrection.tsx'
+      - 'web/src/pages/Dealer*.tsx'
+      - 'web/src/pages/dashboard/dealer/**'
       - 'web/src/App.tsx'
       - 'backend/tests/differentiator-journey.test.js'
       - 'database/migrations/*dealer*.sql'
@@ -28,6 +28,11 @@ on:
       - 'backend/scripts/dealership/**'
       - 'backend/tests/dealer-*.test.js'
       - 'backend/tests/differentiator-journey.test.js'
+      - 'backend/routes/dealerRoutes.js'
+      - 'backend/routes/dealerResearchRoutes.js'
+      - 'web/src/pages/Dealer*.tsx'
+      - 'web/src/pages/dashboard/dealer/**'
+      - 'web/src/App.tsx'
       - 'database/migrations/*dealer*.sql'
       - 'database/test/dealer_1_0_pglite_check.mjs'
       - 'docs/dealership/**'
@@ -80,6 +85,7 @@ jobs:
             backend/tests/dealer-jurisdiction-preview.test.js \
             backend/tests/dealer-12-synthetic-scenarios.test.js \
             backend/tests/dealer-operations-membership.test.js \
+            backend/tests/dealer-research-review-queue.test.js \
             backend/tests/differentiator-journey.test.js
       - name: Isolated PostgreSQL migration and claim authority proof (PGlite)
         run: |
