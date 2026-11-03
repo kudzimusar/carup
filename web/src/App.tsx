@@ -32,6 +32,7 @@ import DealerComplianceApplicationReview from './pages/DealerComplianceApplicati
 import DealerLegalActivationReview from './pages/DealerLegalActivationReview'
 import DealerFullStorefrontReview from './pages/DealerFullStorefrontReview'
 import DealerOperatingDetails from './pages/DealerOperatingDetails'
+import DealerBillingReadiness from './pages/DealerBillingReadiness'
 import GarageDirectory from './pages/GarageDirectory'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
@@ -270,6 +271,7 @@ export default function App() {
           <Route path="/dealers/:seedId/correction" element={<DealerResearchCorrection />} />
           <Route path="/dealers/claims" element={<DealerClaimWorkspace />} />
           <Route path="/dealers/operating-details" element={<DealerOperatingDetails />} />
+          <Route path="/dealers/billing" element={<DealerBillingReadiness />} />
           <Route path="/garages" element={<GarageDirectory />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
