@@ -486,7 +486,10 @@ export const MERCHANT_EVENT_LABEL: Record<string, string> = {
   integration_suspended: 'An integration was suspended',
   availability_changed: 'Paynow payments were switched on or off',
   hold_released: 'An operator released a held payment request',
+  review_opened: 'An operator opened a review of a request',
 }
+/** Never a code, even for an event newer than this page. */
+export const merchantEventText = (event: string) => MERCHANT_EVENT_LABEL[event] ?? 'A change was recorded'
 /** Who acted, by role (never a guessed name). */
 export const ACTOR_ROLE_LABEL: Record<string, string> = {
   garage_admin: 'garage administrator', owner: 'garage user', admin: 'CarUp administrator', platform_admin: 'CarUp administrator', system: 'CarUp',

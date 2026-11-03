@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CURRENCY_NAME, PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_START_UNREACHABLE, PAYNOW_STATUS_SHORT, PROVIDER_ERROR_LABEL, needsPhone, pay05ErrorText,
+  merchantEventText, CURRENCY_NAME, PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, PAYNOW_START_UNREACHABLE, PAYNOW_STATUS_SHORT, PROVIDER_ERROR_LABEL, needsPhone, pay05ErrorText,
   PAYNOW_STATUS_ABOUT_CUSTOMER, paynowOutcomeMessage, paynowStartFailure, paynowStateBadge, paynowStatusLine, phoneProblem, probeResultText,
   type PaynowStatus,
   type PaynowOutcome, type PaynowView,
@@ -139,5 +139,17 @@ describe('Words for the garage and CarUp operators (W10)', () => {
     expect(paynowStatusLine('awaiting_provider', view(), 'garage')).toBe('Waiting for the customer to approve on their phone')
     expect(paynowStatusLine('awaiting_provider', view({ provider_status: null, initiation: 'unknown' }), 'garage')).not.toMatch(/\byou(r)?\b/i)
     expect(paynowStatusLine('awaiting_provider', view(), 'customer')).toBe('Waiting for you to approve the payment on your phone')
+  })
+})
+
+describe('merchant history words', () => {
+  it('every event the database can record reads as a sentence, never as a code', () => {
+    // pay05_merchant_audit_events_event_type_check, as extended by 20261104100000
+    for (const event of ['merchant_registered', 'integration_registered', 'merchant_verified', 'integration_verified', 'merchant_rejected',
+      'integration_rejected', 'merchant_suspended', 'integration_suspended', 'availability_changed', 'hold_released', 'review_opened']) {
+      expect(merchantEventText(event), event).toMatch(/ /)
+    }
+    expect(merchantEventText('review_opened')).toMatch(/opened a review/)
+    expect(merchantEventText('something_new')).toBe('A change was recorded')
   })
 })

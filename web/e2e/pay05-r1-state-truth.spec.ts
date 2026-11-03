@@ -615,6 +615,9 @@ test('keyboard, operator: a review closes by keyboard and the result takes the f
   await page.keyboard.press('Enter')
   await expectFocus(page, 'paynow-op-message')
   await expect(page.getByTestId('paynow-op-message')).toContainText('Review opened', { timeout: 60_000 })
+  // the history says so in words: this code once reached the screen, and only reading a screenshot found it
+  await expect(panel).toContainText('An operator opened a review of a request', { timeout: 30_000 })
+  await expect(panel).not.toContainText('review_opened')
   note('keyboard-operator', { no_focus_ring_stops: noFocusRing.length })
 })
 

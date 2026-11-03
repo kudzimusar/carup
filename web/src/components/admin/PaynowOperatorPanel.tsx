@@ -7,7 +7,7 @@ import { dateTimeLabel } from '@/lib/garageWorkspace'
 import { MONEY_ACTION_BUTTON_CLASS, pay04ErrorText } from '@/lib/pay04GaragePayments'
 import PaynowFacts from '@/components/garage/PaynowFacts'
 import {
-  ACTOR_ROLE_LABEL, CURRENCY_NAME, MERCHANT_EVENT_LABEL, MERCHANT_STATUS_LABEL, PAY05_NOT_OFFERED, PAYNOW_METHOD_LABEL, PROVIDER_ERROR_LABEL, isPay05Disabled,
+  ACTOR_ROLE_LABEL, CURRENCY_NAME, merchantEventText, MERCHANT_STATUS_LABEL, PAY05_NOT_OFFERED, PAYNOW_METHOD_LABEL, PROVIDER_ERROR_LABEL, isPay05Disabled,
   pay05ErrorText, paynowStatusLine, probeResultText,
   type PaynowAvailability, type PaynowHeldCollection, type PaynowMerchant, type PaynowProviderError,
 } from '@/lib/pay05Paynow'
@@ -200,7 +200,7 @@ export default function PaynowOperatorPanel() {
                     <ol className="mt-1 space-y-1 text-xs text-gray-700" data-testid="paynow-op-history">
                       {m.history.slice(0, 10).map((e) => (
                         <li key={e.seq} data-testid="paynow-op-history-row">
-                          {dateTimeLabel(e.created_at)} · {MERCHANT_EVENT_LABEL[e.event_type] ?? e.event_type} · {actorOf(e)}
+                          {dateTimeLabel(e.created_at)} · {merchantEventText(e.event_type)} · {actorOf(e)}
                         </li>
                       ))}
                     </ol>
