@@ -21,6 +21,7 @@ const names=[
   '20261103131000_dealer_compliance_submission_review.sql',
   '20261103132000_dealer_canonical_activation_and_legal_gate.sql',
   '20261103133000_dealer_research_grouping_and_public_contact.sql',
+  '20261103134000_dealer_operational_declaration_versions.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -429,6 +430,44 @@ try{
   assert.equal(activated.rows[0].receipt.public_verified_badge_granted,false);
   assert.equal(activated.rows[0].receipt.vehicle_listing_authority_granted,false);
   assert.equal(activated.rows[0].receipt.payment_entitlement_granted,false);
+  // C13/C20/C21/C22: SQL enforces actual owner, tenant, LIVE legal country policy,
+  // immutable versioned declarations and explicit private-only treatment.
+  const activeProfileId=activated.rows[0].receipt.dealer_profile_id;
+  await fails(`SELECT dealer_record_operational_declaration(
+    '${activeProfileId}','${tenant}','${outsider}',
+    'BUYER_ASSURANCE',0,'{"refund_policy":"A forged promise"}'::jsonb)`,
+    'ACTIVE_CANONICAL_DEALER_OWNER_AND_POLICY_REQUIRED');
+  await fails(`SELECT dealer_record_operational_declaration(
+    '${activeProfileId}','${tenant}','${claimant}',
+    'BUYER_ASSURANCE',0,'{"business_verified":"true"}'::jsonb)`,
+    'UNAPPROVED_OPERATION_FIELD_OR_UNSAFE_TEXT');
+  const recordedPolicy=await query(
+    'SELECT dealer_record_operational_declaration($1,$2,$3,$4,$5,$6::jsonb) AS receipt',
+    [activeProfileId,tenant,claimant,'BUYER_ASSURANCE',0,
+      JSON.stringify({inspection_rights:'Buyer may request a pre-purchase inspection'})]);
+  assert.equal(recordedPolicy.rows[0].receipt.public_approved,false);
+  assert.equal(recordedPolicy.rows[0].receipt.version,1);
+  const idemPolicy=await query(
+    'SELECT dealer_record_operational_declaration($1,$2,$3,$4,$5,$6::jsonb) AS receipt',
+    [activeProfileId,tenant,claimant,'BUYER_ASSURANCE',0,
+      JSON.stringify({inspection_rights:'Buyer may request a pre-purchase inspection'})]);
+  assert.equal(idemPolicy.rows[0].receipt.idempotent,true);
+  await fails(`SELECT dealer_record_operational_declaration(
+    '${activeProfileId}','${tenant}','${claimant}',
+    'BUYER_ASSURANCE',0,'{"refund_policy":"Written policy is private"}'::jsonb)`,
+    'STALE_OPERATION_SECTION_VERSION');
+  const amended=await query(
+    'SELECT dealer_record_operational_declaration($1,$2,$3,$4,$5,$6::jsonb) AS receipt',
+    [activeProfileId,tenant,claimant,'BUYER_ASSURANCE',1,
+      JSON.stringify({refund_policy:'Written refund terms require further buyer review'})]);
+  assert.equal(amended.rows[0].receipt.version,2);
+  await fails("UPDATE dealer_operational_declaration_events SET section='SOURCING'",
+    'APPEND_ONLY_LEDGER');
+  await exec('SET ROLE anon');
+  await fails('SELECT * FROM dealer_operational_declaration_events','permission denied');
+  await exec('RESET ROLE');
+  await fails(read('20261103134000_dealer_operational_declaration_versions.sql').down,
+    'CANNOT_ROLLBACK_WITH_DEALER_DECLARATION_CUSTODY');
   const reactivated=await query(
     'SELECT dealer_activate_approved_legal_claim($1,$2,$3) AS receipt',
     [legalId,'activationreviewer',
@@ -488,6 +527,10 @@ try{
   assert.equal((await query('SELECT operating_status FROM dealer_approved_seed_links')).rows[0].operating_status,'SUSPENDED');
   assert.equal((await query('SELECT active_state FROM dealer_profiles WHERE user_id=$1',[claimant])).rows[0].active_state,'inactive');
   assert.equal((await query('SELECT status FROM tenants WHERE id=$1',[tenant])).rows[0].status,'suspended');
+  await fails(`SELECT dealer_record_operational_declaration(
+    '${activeProfileId}','${tenant}','${claimant}',
+    'SOURCING',0,'{"sourcing_channels":"Unreviewed importer statement"}'::jsonb)`,
+    'ACTIVE_CANONICAL_DEALER_OWNER_AND_POLICY_REQUIRED');
 
   await fails(`SELECT dealer_record_candidate_document_extraction(
     '${uuid(1)}','${uuid(100)}','${claimant}','${sha}',
@@ -550,10 +593,11 @@ try{
   // Real source contact and grouping review receipts are append-only and their
   // rollback must refuse to destroy them.
   await exec('TRUNCATE dealer_research_grouping_review_events, dealer_research_public_contact_events');
+  await exec('TRUNCATE dealer_operational_declaration_events');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 10 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 11 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;
