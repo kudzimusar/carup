@@ -22,6 +22,7 @@ const names=[
   '20261103132000_dealer_canonical_activation_and_legal_gate.sql',
   '20261103133000_dealer_research_grouping_and_public_contact.sql',
   '20261103134000_dealer_operational_declaration_versions.sql',
+  '20261103135000_dealer_full_storefront_publication.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -292,7 +293,7 @@ try{
         research_confirmation:'CORRECT',
       }],
       BRANCHES:[{branch_ref:'BR-1',source_seed_id:'ZW-DEAL-0001',
-        branch_name:'Fixture showroom',city:'Harare'}],
+        branch_name:'Fixture showroom',city:'Harare',physical_address:'123 Fictional Fixture Rd'}],
       CONSENTS_DECLARATIONS:[{
         signer_name:'Fixture Director',signer_role:'Director',
         privacy_acknowledgment:'YES',
@@ -468,6 +469,46 @@ try{
   await exec('RESET ROLE');
   await fails(read('20261103134000_dealer_operational_declaration_versions.sql').down,
     'CANNOT_ROLLBACK_WITH_DEALER_DECLARATION_CUSTODY');
+  // D8: independently reviewed full public storefront, same research slug,
+  // actual canonical branch, explicitly selected owner-declared terms only.
+  const fixturePublicReason='A separate qualified reviewer checked the current legal tenant, branch record, source identity and precise buyer display policy for a synthetic dealer.';
+  const branchId=activated.rows[0].receipt.initial_branch_id;
+  await fails(`SELECT dealer_review_full_storefront_publication(
+    'ZW-DEAL-0001','${claimant}','PUBLISHED_FULL',
+    ARRAY['${branchId}']::uuid[],ARRAY['BUYER_ASSURANCE']::text[],
+    '${fixturePublicReason}')`,
+    'INDEPENDENT_PUBLIC_STOREFRONT_REVIEWER_REQUIRED');
+  await fails(`SELECT dealer_review_full_storefront_publication(
+    'ZW-DEAL-0001','legalreviewer','PUBLISHED_FULL',
+    ARRAY['${branchId}']::uuid[],ARRAY['BUYER_ASSURANCE']::text[],
+    '${fixturePublicReason}')`,
+    'SEPARATE_PUBLIC_REVIEWER_REQUIRED');
+  await fails(`SELECT dealer_review_full_storefront_publication(
+    'ZW-DEAL-0001','${reviewer}','PUBLISHED_FULL',
+    ARRAY[]::uuid[],ARRAY[]::text[],
+    '${fixturePublicReason}')`,
+    'REVIEWED_PUBLIC_BRANCH_IDS_REQUIRED');
+  const full=await query(
+    'SELECT dealer_review_full_storefront_publication($1,$2,$3,$4::uuid[],$5::text[],$6) AS result',
+    ['ZW-DEAL-0001',reviewer,'PUBLISHED_FULL',[branchId],['BUYER_ASSURANCE'],
+      fixturePublicReason]);
+  assert.equal(full.rows[0].result.public_full_approved,true);
+  assert.equal(full.rows[0].result.logo_rights_approved,false);
+  assert.equal(full.rows[0].result.stock_verified,false);
+  const current=await query(
+    "SELECT seed_dealer_id,public_slug,approved_branch_snapshot,dealer_declared_sections FROM dealer_full_storefront_current");
+  assert.equal(current.rows.length,1);
+  assert.equal(current.rows[0].public_slug,'zw-deal-0001');
+  assert.equal(current.rows[0].approved_branch_snapshot.length,1);
+  assert.equal(current.rows[0].dealer_declared_sections.BUYER_ASSURANCE.refund_policy,
+    'Written refund terms require further buyer review');
+  await fails('UPDATE dealer_full_storefront_review_events SET disposition=\'RETRACTED\'',
+    'APPEND_ONLY_LEDGER');
+  await exec('SET ROLE anon');
+  await fails('SELECT * FROM dealer_full_storefront_current','permission denied');
+  await exec('RESET ROLE');
+  await fails(read('20261103135000_dealer_full_storefront_publication.sql').down,
+    'CANNOT_ROLLBACK_WITH_PUBLIC_STORE_FRONT_CUSTODY');
   const reactivated=await query(
     'SELECT dealer_activate_approved_legal_claim($1,$2,$3) AS receipt',
     [legalId,'activationreviewer',
@@ -527,6 +568,15 @@ try{
   assert.equal((await query('SELECT operating_status FROM dealer_approved_seed_links')).rows[0].operating_status,'SUSPENDED');
   assert.equal((await query('SELECT active_state FROM dealer_profiles WHERE user_id=$1',[claimant])).rows[0].active_state,'inactive');
   assert.equal((await query('SELECT status FROM tenants WHERE id=$1',[tenant])).rows[0].status,'suspended');
+  assert.equal((await query('SELECT count(*)::int AS n FROM dealer_full_storefront_current')).rows[0].n,0);
+  // An independent reviewer can retract publication while the business is
+  // suspended; never silently republish upon a later claim reinstatement.
+  const withdrawn=await query(
+    'SELECT dealer_review_full_storefront_publication($1,$2,$3,$4::uuid[],$5::text[],$6) AS result',
+    ['ZW-DEAL-0001',reviewer,'RETRACTED',[],[],
+      'The fictional dealer claim was revoked, and all previously approved business display is retracted until another independent human review.']);
+  assert.equal(withdrawn.rows[0].result.public_full_approved,false);
+
   await fails(`SELECT dealer_record_operational_declaration(
     '${activeProfileId}','${tenant}','${claimant}',
     'SOURCING',0,'{"sourcing_channels":"Unreviewed importer statement"}'::jsonb)`,
@@ -593,11 +643,12 @@ try{
   // Real source contact and grouping review receipts are append-only and their
   // rollback must refuse to destroy them.
   await exec('TRUNCATE dealer_research_grouping_review_events, dealer_research_public_contact_events');
+  await exec('TRUNCATE dealer_full_storefront_review_events');
   await exec('TRUNCATE dealer_operational_declaration_events');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 11 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 12 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;
