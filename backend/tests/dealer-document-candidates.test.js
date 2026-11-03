@@ -39,7 +39,7 @@ test('D5 recorded observed fields carry page and unknown confidence; ambiguous c
   assert.equal(result.fields.registration_number.value,'ZW-00013');
   assert.equal(result.fields.issued_at,undefined);
   assert.equal(result.fields.registration_issuer,undefined);
-  assert.deepEqual(result.review_flags,['issued_at_AMBIGUOUS_DATE']);
+  assert.deepEqual(result.review_flags,['ISSUED_AT_AMBIGUOUS_DATE']);
   assert.deepEqual(svc.candidateMismatchFlags(result.fields,
     {legal_name:'Different Company Ltd',registration_number:'ZW-00013'}),
   ['legal_name_DIFFERS_FROM_DECLARATION']);
@@ -76,7 +76,7 @@ test('D5 excessive PDF pages and provider failures are explicit, not successful 
   assert.deepEqual(unavailable.fields,{});
 });
 test('D5 unproven identity and other business cannot fetch original OCR evidence',async()=>{
-  assert.throws(()=>svc.createClaimDocumentCandidate(CLAIM_ID,EVIDENCE_ID,
+  await assert.rejects(svc.createClaimDocumentCandidate(CLAIM_ID,EVIDENCE_ID,
     {userId:'owner-1',authenticationMethod:'x-user-id-fallback'}),/REAL_SESSION_REQUIRED/);
   const old=supabase.from;let storageReads=0;
   try{
