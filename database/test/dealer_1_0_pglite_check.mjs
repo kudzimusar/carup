@@ -65,7 +65,7 @@ try{
      'Official dealer / franchise label — UNVERIFIED');`);
   assert.equal((await query('SELECT count(*)::int AS n FROM dealer_research_public_profiles')).rows[0].n,0);
   const publish=await query('SELECT dealer_record_research_publication_review($1,$2,$3,$4) AS result',[
-    'ZW-DEAL-0001',reviewer,'PRELISTED_UNCLAIMED','Public business research eligibility reviewed; no licence badge.');
+    'ZW-DEAL-0001',reviewer,'PRELISTED_UNCLAIMED','Public business research eligibility reviewed; no licence badge.']);
   assert.equal(publish.rows[0].result.public,true);
   const publicRow=(await query("SELECT public_research_category,public_slug,publication_status FROM dealer_research_public_profiles WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0];
   assert.equal(publicRow.public_slug,'zw-deal-0001');
