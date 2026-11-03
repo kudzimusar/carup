@@ -17,8 +17,7 @@ CREATE TABLE dealer_operational_declaration_events (
  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
  publication_approved BOOLEAN NOT NULL DEFAULT false CHECK(publication_approved=false),
  independent_legal_verification BOOLEAN NOT NULL DEFAULT false CHECK(independent_legal_verification=false),
- UNIQUE(dealer_profile_id,section,section_version),
- UNIQUE(dealer_profile_id,section,content_sha256)
+ UNIQUE(dealer_profile_id,section,section_version)
 );
 CREATE INDEX dealer_operational_declarations_latest
  ON dealer_operational_declaration_events(dealer_profile_id,section,section_version DESC);
@@ -74,9 +73,11 @@ BEGIN
   d.active_state<>'active' OR d.identity_status<>'verified' OR
   d.compliance_review_state<>'passed' OR
   d.restriction_state<>'none' OR d.suspension_state<>'none' OR
-  d.investigation_state<>'none' OR d.expiry_date<=now() OR
-  policy.policy_state<>'APPROVED' OR policy.effective_at>now() OR
-  policy.expires_at<=now() OR law.legal_expires_at<=now() THEN
+  d.investigation_state<>'none' OR coalesce(d.expiry_date,'epoch'::timestamptz)<=now() OR
+  coalesce(policy.policy_state,'')<>'APPROVED' OR
+  coalesce(policy.effective_at,'infinity'::timestamptz)>now() OR
+  coalesce(policy.expires_at,'epoch'::timestamptz)<=now() OR
+  coalesce(law.legal_expires_at,'epoch'::timestamptz)<=now() THEN
   RAISE EXCEPTION 'ACTIVE_CANONICAL_DEALER_OWNER_AND_POLICY_REQUIRED';
  END IF;
  v_valid:=CASE p_section
