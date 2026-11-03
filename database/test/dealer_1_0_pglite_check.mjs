@@ -407,11 +407,6 @@ try{
   await fails('UPDATE dealer_legal_application_reviews SET verdict=\'REJECTED\'','APPEND_ONLY_LEDGER');
   await fails(read('20261103132000_dealer_canonical_activation_and_legal_gate.sql').down,
     'CANNOT_ROLLBACK_WITH_LEGAL_ACTIVATION_CUSTODY');
-  await exec(`UPDATE dealer_research_claim_requests
-    SET claim_status='CLAIM_REVOKED' WHERE claim_id='${uuid(1)}'`);
-  assert.equal((await query('SELECT operating_status FROM dealer_approved_seed_links')).rows[0].operating_status,'SUSPENDED');
-  assert.equal((await query('SELECT active_state FROM dealer_profiles WHERE user_id=$1',[claimant])).rows[0].active_state,'inactive');
-  assert.equal((await query('SELECT status FROM tenants WHERE id=$1',[tenant])).rows[0].status,'suspended');
   // D5: OCR is candidate-only and immutable; original-custody mismatch refuses.
   await fails(`SELECT dealer_record_candidate_document_extraction(
     '${uuid(1)}','${uuid(100)}','${outsider}','${sha}',
@@ -448,6 +443,18 @@ try{
   await exec('SET ROLE anon');
   await fails('SELECT * FROM dealer_claim_document_ocr_events','permission denied');
   await exec('RESET ROLE');
+  // Revocation AFTER processing the original document candidate must disable
+  // further access and suspend canonical operations immediately.
+  await exec(`UPDATE dealer_research_claim_requests
+    SET claim_status='CLAIM_REVOKED' WHERE claim_id='${uuid(1)}'`);
+  assert.equal((await query('SELECT operating_status FROM dealer_approved_seed_links')).rows[0].operating_status,'SUSPENDED');
+  assert.equal((await query('SELECT active_state FROM dealer_profiles WHERE user_id=$1',[claimant])).rows[0].active_state,'inactive');
+  assert.equal((await query('SELECT status FROM tenants WHERE id=$1',[tenant])).rows[0].status,'suspended');
+
+  await fails(`SELECT dealer_record_candidate_document_extraction(
+    '${uuid(1)}','${uuid(100)}','${claimant}','${sha}',
+    'CANDIDATE_REVIEW','{}'::jsonb,1,'{}'::text[],'LOCAL_TESSERACT_V1')`,
+    'CANDIDATE_CLAIM_OWNERSHIP_REQUIRED');
   // D2/C10: existing dealer compliance decisions commit ledger and effect
   // atomically, with independent verified reviewer and no applicant self-review.
   const dealerId=uuid(301);
