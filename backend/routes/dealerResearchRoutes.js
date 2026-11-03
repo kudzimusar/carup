@@ -7,7 +7,7 @@ import { exportBlankDealerIntakeXlsx } from '../services/dealer/dealerIntakeWork
 import {
   uploadPrivateClaimEvidence,listMyClaimEvidence,reviewerEvidencePreview,
   reviewDealerClaim,submitClaimAppeal,exportClaimPrefilledWorkbook,
-  importClaimWorkbook,readMyClaimIntakeDraft,listClaimReviewQueue,listReviewClaimEvidence,
+  importClaimWorkbook,saveManualClaimDraft,readMyClaimIntakeDraft,listClaimReviewQueue,listReviewClaimEvidence,
 } from '../services/dealer/dealerClaimApplicationService.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { rateLimiter } from '../middleware/securityMiddleware.js';
@@ -136,6 +136,14 @@ router.post('/api/dealership/claims/:claimId/workbook',claimWriteLimit,session,a
     const bytes=Buffer.from(base64,'base64');
     const result=await importClaimWorkbook(req.params.claimId,req.userContext,bytes,
       req.body?.expected_version??0);
+    res.set('Cache-Control','no-store').status(200).json(result);
+  } catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/dealership/claims/:claimId/manual-draft',
+ claimWriteLimit,session,async(req,res,next)=>{
+  try {
+    const result=await saveManualClaimDraft(req.params.claimId,req.userContext,
+      req.body?.fields||{},req.body?.expected_version??0);
     res.set('Cache-Control','no-store').status(200).json(result);
   } catch(error){errorResponse(res,next,error)}
 });
