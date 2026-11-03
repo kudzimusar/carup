@@ -29,6 +29,7 @@ import {
   listPublicResearch,
   reviewResearchSeed,
   listResearchReviewQueue,
+  recordResearchGroupingReview,recordResearchContactReview,getReviewedPublicResearchContacts,
   submitResearchClaim,
   listOwnResearchClaims,
   requestResearchCorrection,
@@ -120,6 +121,14 @@ router.get('/api/dealership/research', publicReadLimit, async (req,res,next) => 
   } catch (error) { errorResponse(res,next,error); }
 });
 
+// Reviewed public source contact data only, strictly tied to current publication.
+router.get('/api/dealership/research/:seedId/contact',publicReadLimit,async(req,res,next)=>{
+  try{
+    const contacts=await getReviewedPublicResearchContacts(req.params.seedId);
+    if(!contacts)return res.status(404).json({error:'Research listing unavailable'});
+    res.set('Cache-Control','no-store').json({contacts});
+  }catch(error){errorResponse(res,next,error)}
+});
 router.get('/api/dealership/research/:seedId', publicReadLimit, async (req,res,next) => {
   try {
     const profile = await getPublicResearch(req.params.seedId);
@@ -346,6 +355,24 @@ router.post('/api/admin/dealership/claims/:claimId/review',
 
 // Each private research candidate requires an individual source/public-interest
 // decision; this queue never leaks contact-rich research and has no bulk publish.
+// Parent/branch research associations remain unverified and create no legal role.
+router.post('/api/admin/dealership/research/:seedId/grouping-review',
+ reviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const review=await recordResearchGroupingReview(req.params.seedId,
+      req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({review});
+  }catch(error){errorResponse(res,next,error)}
+});
+// Field-by-field address/site/phone review, never raw private source person/email.
+router.post('/api/admin/dealership/research/:seedId/contact-review',
+ reviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const review=await recordResearchContactReview(req.params.seedId,
+      req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({review});
+  }catch(error){errorResponse(res,next,error)}
+});
 router.get('/api/admin/dealership/research/queue',reviewer,async(req,res,next)=>{
   try{
     const queue=await listResearchReviewQueue(req.userContext,{
