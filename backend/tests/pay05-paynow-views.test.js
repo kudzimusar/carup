@@ -304,3 +304,14 @@ test('R1: a plain-http result URL is only ever the local simulator\'s (ICR-S1)',
   assert.throws(() => publicResultUrl({ CARUP_PAY05_RESULT_ORIGIN: 'http://carup.example' }, id, 'paynow_test'), /PAY05_RESULT_ORIGIN_INVALID/);
   assert.match(publicResultUrl({ CARUP_PAY05_RESULT_ORIGIN: 'https://carup.example' }, id, 'paynow_live'), /^https:/);
 });
+
+test('an operator is told what the garage should do, not addressed as the garage', () => {
+  const row = { provider_status: 'paid', initiation: 'attached' };
+  for (const state of ['awaiting_provider', 'expired', 'stopping', 'at_paynow', 'under_review', 'confirmed_unallocated', 'confirmed_partial', 'reviewed_held',
+    'no_longer_needed', 'closed_live', 'released', 'settled_outside', 'not_counted', 'closed_not_counted', 'refunded']) {
+    const step = withCollectionState(paynowView(row), state, { operator: true }).facts.next_step;
+    assert.ok(step, `${state} has a next step`);
+    assert.doesNotMatch(step, /\byou\b|\byour\b/i, `${state}: ${step}`);
+    assert.doesNotMatch(withCollectionState(paynowView(row), state, {}).facts.next_step, /the garage records/i, `${state}: the garage keeps its own wording`);
+  }
+});

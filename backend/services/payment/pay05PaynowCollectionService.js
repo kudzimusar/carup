@@ -343,13 +343,24 @@ const NEXT_STEP = Object.freeze({
     refunded: 'Refunds happen in your Paynow dashboard; this one is recorded.',
   }),
 });
+// the operator reads the garage's view: where that addresses the garage, the operator is told what the garage should do
+const OPERATOR_STEP = Object.freeze({
+  ...NEXT_STEP.garage,
+  expired: 'The garage must not record this amount as paid unless the customer really paid it. CarUp keeps it reserved until Paynow answers or an operator releases it.',
+  stopping: 'The garage must not record this amount as paid unless the customer really paid it. CarUp keeps it reserved until Paynow answers or an operator releases it.',
+  reviewed_held: 'Release the amount once Paynow’s word is confirmed. The garage must not record it as paid unless the customer really paid it.',
+  settled_outside: 'The garage records what it really received. If Paynow reports more money, a new review opens.',
+  not_counted: 'The garage records what it really received. Paynow’s own Paid would count it again.',
+  closed_not_counted: 'The garage records what it really received and refunds any money Paynow still holds from its Paynow dashboard.',
+  refunded: 'Refunds happen in the garage’s Paynow dashboard; this one is recorded.',
+});
 
 /**
  * The label a person reads follows the COLLECTION's state, and every Paynow row carries its truth in separate parts
  * (R1 directive §4): what Paynow reported, what CarUp counted, any review, what can be done next, and when Paynow was last
  * read. While CarUp is reviewing a payment Paynow's word is reported as Paynow's word, never as confirmation.
  */
-export function withCollectionState(view, state, { counted = 0, currency = null, customer = false } = {}) {
+export function withCollectionState(view, state, { counted = 0, currency = null, customer = false, operator = false } = {}) {
   if (!view) return view;
   const said = view.provider_status ? STATUS_WORDS[view.provider_status] : null;
   const closedQuietly = CLOSED_STATES.has(state) && view.initiation === 'attached' && (!view.provider_status || view.provider_status === 'created' || view.provider_status === 'sent');
@@ -369,7 +380,7 @@ export function withCollectionState(view, state, { counted = 0, currency = null,
       counted: isCounted,
       allocation: isCounted ? `Counted on this invoice${currency ? `: ${pay04Money(counted, currency)} ${currency}` : ''}` : 'Not counted on this invoice',
       review: REVIEW_WORDS[state] ?? null,
-      next_step: (customer ? NEXT_STEP.customer : NEXT_STEP.garage)[state] ?? null,
+      next_step: (customer ? NEXT_STEP.customer : operator ? OPERATOR_STEP : NEXT_STEP.garage)[state] ?? null,
       last_read_at: view.last_read_at ?? null,
     },
   };
@@ -933,7 +944,7 @@ export async function listHeldPaynowCollections({ db = defaultDb, env = process.
         released: Boolean(tx.hold_released_at), settled: Boolean(tx.settled_off_platform_at),
         can_release: !block, release_blocked_reason: block,
         can_open_review: paynowReviewOpenable({ tx, collection: c, paymentStatus: payments.get(c.payment_reference), reviews, now }),
-        paynow: withCollectionState(view, state, { counted: countedOf(c.id), currency: c.currency }),
+        paynow: withCollectionState(view, state, { counted: countedOf(c.id), currency: c.currency, operator: true }),
       };
     });
   return { held, held_total: heldTotal };

@@ -608,6 +608,7 @@ test('PFR-H2: a reviewed word CarUp does not know can be released; the list and 
   await resolve(s.collection_id, 'provider_status_unrecognized', 'acknowledged');
   listed = (await P.listHeldPaynowCollections({ db, env })).held.find((h) => h.collection_id === s.collection_id);
   assert.equal(listed.can_release, true);
+  assert.doesNotMatch(listed.paynow.facts.next_step, /\byou\b|\byour\b/i, 'the operator list does not address the operator as the garage');
   await release(s.collection_id);
   assert.equal(Number((await money(inv.id)).provider_reserved), 0);
 });
