@@ -10,6 +10,11 @@ on:
       - 'backend/services/dealer/**'
       - 'backend/scripts/dealership/**'
       - 'backend/tests/dealer-*.test.js'
+      - 'backend/routes/dealerResearchRoutes.js'
+      - 'backend/server.js'
+      - 'web/src/pages/DealerDirectory.tsx'
+      - 'web/src/pages/DealerResearchProfile.tsx'
+      - 'web/src/App.tsx'
       - 'backend/tests/differentiator-journey.test.js'
       - 'database/migrations/*dealer_research_seed_candidates.sql'
       - 'docs/dealership/**'
@@ -63,7 +68,12 @@ jobs:
             backend/tests/dealer-compliance.test.js \
             backend/tests/dealer-routes.test.js \
             backend/tests/dealer-research-seed-contract.test.js \
+            backend/tests/dealer-research-service.test.js \
             backend/tests/differentiator-journey.test.js
+      - name: Web TypeScript validation
+        run: npx tsc --noEmit --project web/tsconfig.app.json
+      - name: Web production build (artifact not deployed)
+        run: npm run build
       - name: Confirm no external DB tests silently ran
         run: |
           test -z "${DEALER_SEED_DATABASE_URL:-}"
