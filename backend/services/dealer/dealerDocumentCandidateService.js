@@ -53,12 +53,12 @@ export function extractObservedCandidates(pages){
         const match=FIELD_LINES[key].exec(clean);
         if(!match)continue;
         const value=normalizeValue(match[1]);
-        if(!value){review_flags.push(key+'_UNREADABLE');continue;}
+        if(!value){review_flags.push(key.toUpperCase()+'_UNREADABLE');continue;}
         if(['issued_at','expires_at'].includes(key)&&!isoDate(value)){
-          review_flags.push(key+'_AMBIGUOUS_DATE');continue;
+          review_flags.push(key.toUpperCase()+'_AMBIGUOUS_DATE');continue;
         }
         if(fields[key]&&fields[key].value!==value){
-          review_flags.push(key+'_CONFLICTING_PAGES');continue;
+          review_flags.push(key.toUpperCase()+'_CONFLICTING_PAGES');continue;
         }
         // No imaginary OCR confidence, regulator validation or issuer assurance.
         fields[key]={value,page:index+1,confidence:null,source:'OBSERVED_LOCAL_OCR'};
