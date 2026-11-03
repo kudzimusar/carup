@@ -17,8 +17,14 @@ type ResearchProfile = {
   source_attribution: string
   reviewed_at: string
   information_notice: string
-  claimed: false
-  business_verified: false
+  claimed: boolean
+  business_verified: boolean
+  tier?: 'PRELISTED_UNCLAIMED'|'FULL_DEALER_APPROVED'
+  approved_branches?: Array<{branch_id:string;name:string;address:string;
+    display_reviewed:boolean;gps_verified:false}>
+  dealer_declared_sections?: Record<string,Record<string,string>>
+  disclosure?: string
+  publication_event_id?: string
 }
 type ReviewedResearchContacts={
   seed_dealer_id:string;reviewed_public_address:string|null;
@@ -77,7 +83,8 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
         setContactAvailability('unavailable')
       })
       if(typeof document!=='undefined'){
-        document.title=result.profile.name+' · Unclaimed research · CarUp dealers'
+        document.title=result.profile.name+(result.profile.business_verified?
+          ' · Reviewed dealer storefront · CarUp':' · Unclaimed research · CarUp dealers')
       }
     }).catch((error: unknown) => {
       if (!active) return
@@ -131,21 +138,70 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                 <p className="text-sm text-gray-600 mt-1">{profile.category}</p>
               </div>
             </div>
-            <Card className="mt-7 border-amber-200">
+            <Card className={'mt-7 '+(profile.business_verified?'border-blue-200':'border-amber-200')}>
               <CardContent className="p-6">
                 <div className="flex items-start gap-3">
-                  <ShieldAlert className="w-5 h-5 shrink-0 text-amber-700" aria-hidden="true" />
+                  <ShieldAlert className={'w-5 h-5 shrink-0 '+
+                    (profile.business_verified?'text-blue-700':'text-amber-700')} aria-hidden="true" />
                   <div>
-                    <h2 className="font-bold text-amber-900">{profile.label}</h2>
-                    <p className="text-sm text-gray-700 mt-1">{profile.information_notice}</p>
+                    <h2 className={'font-bold '+(profile.business_verified?
+                      'text-blue-900':'text-amber-900')}>{profile.label}</h2>
+                    <p className="text-sm text-gray-700 mt-1">
+                      {profile.business_verified
+                        ?'Legal dealership and currently active operating authority were independently reviewed. This does not verify any individual car, franchise, lender, logo, warranty or merchant.'
+                        :profile.information_notice}
+                    </p>
                     <p className="text-xs text-gray-500 mt-3">
-                      Research source: {profile.source_attribution}. Reviewed for limited publication, not for company authority.
+                      Research source: {profile.source_attribution}.
+                      {profile.business_verified?
+                        ' Public branch and dealer-declared details were separately reviewed for display.'
+                        :' Reviewed for limited publication, not for company authority.'}
                     </p>
                   </div>
                 </div>
               </CardContent>
             </Card>
-            <Card className="mt-6">
+            {profile.business_verified&&<div className="space-y-5 mt-6">
+              <Card><CardContent className="p-6">
+                <h2 className="text-xl font-semibold">Reviewed dealership branches</h2>
+                {(!profile.approved_branches||profile.approved_branches.length===0)&&
+                  <p className="text-sm text-gray-600 mt-3">No individually published branches are available.</p>}
+                {profile.approved_branches?.map(branch=><div key={branch.branch_id}
+                  className="mt-4 border-t pt-3">
+                  <h3 className="font-semibold">{branch.name}</h3>
+                  <p className="text-sm text-gray-700">{branch.address}</p>
+                  <p className="text-xs text-gray-500">
+                    Branch details independently approved for public display;
+                    GPS and live opening status are not verified.
+                  </p>
+                </div>)}
+              </CardContent></Card>
+              <Card><CardContent className="p-6">
+                <h2 className="text-xl font-semibold">Dealer-declared services and buyer information</h2>
+                <p className="text-sm text-gray-600 mt-2">
+                  These specific dealer declarations were reviewed for display, not certified as
+                  financing offers, legal warranty rights or business guarantees.
+                </p>
+                {Object.entries(profile.dealer_declared_sections||{}).map(([section,fields])=>
+                  <section key={section} className="mt-5 border-t pt-4">
+                    <h3 className="font-semibold">{section.replaceAll('_',' ')}</h3>
+                    <dl className="mt-2 space-y-3">
+                      {Object.entries(fields).map(([field,value])=>
+                        <div key={field}>
+                          <dt className="text-sm font-medium text-gray-600">{field.replaceAll('_',' ')}</dt>
+                          <dd className="text-sm text-gray-900 whitespace-pre-wrap break-words">{value}</dd>
+                        </div>)}
+                    </dl>
+                  </section>)}
+                {Object.keys(profile.dealer_declared_sections||{}).length===0&&
+                  <p className="mt-3 text-sm text-gray-600">No dealer-supplied policy text is published.</p>}
+                <p className="text-xs text-gray-500 mt-4">
+                  Buyer reviews and complaint totals: Not measured. VIN-specific inventory
+                  and vehicle duty status: Not verified by this company profile.
+                </p>
+              </CardContent></Card>
+            </div>}
+            {!profile.business_verified&&<Card className="mt-6">
               <CardContent className="p-6">
                 <h2 className="font-semibold text-xl mb-3">Researched business location</h2>
                 <div className="flex items-center gap-2 text-gray-700">
@@ -184,8 +240,20 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                   No CarUp-verified licence, official franchise affiliation, current stock, reviews, sale record, warranty or payment eligibility is asserted by this listing.
                 </p>
               </CardContent>
-            </Card>
-            {claimMode ? (
+            </Card>}
+            {profile.business_verified?(
+              <div className="mt-6">
+                <p className="text-sm text-blue-900 bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                  This business already has a claim-linked approved operating organization.
+                  New ownership requests must go through a separate independently reviewed
+                  transfer or dispute, not the unclaimed self-service flow.
+                </p>
+                <Link className="inline-block text-sm text-blue-700 underline mt-3"
+                  to={`/dealers/${profile.slug}/correction`}>
+                  Request correction, dispute or removal
+                </Link>
+              </div>
+            ):claimMode ? (
               <Card className="mt-6">
                 <CardContent className="p-6">
                   <h2 className="font-semibold text-xl mb-2">Request to claim this business</h2>
