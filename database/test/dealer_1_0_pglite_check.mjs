@@ -222,6 +222,16 @@ try{
     '{"registration_number":{"value":"FAKE","page":1,"confidence":null,"source":"OBSERVED_LOCAL_OCR"}}'::jsonb,
      1,'{}'::text[],'LOCAL_TESSERACT_V1')`,
     'UNAVAILABLE_OCR_CANNOT_HAVE_FIELDS');
+  await fails(`SELECT dealer_record_candidate_document_extraction(
+    '${uuid(1)}','${uuid(100)}','${claimant}','${sha}',
+    'CANDIDATE_REVIEW',
+    '{"legal_name":{"value":"UNQUALIFIED","page":1,"source":"OBSERVED_LOCAL_OCR"}}'::jsonb,
+    1,'{}'::text[],'LOCAL_TESSERACT_V1')`,
+    'UNQUALIFIED_OCR_FIELD');
+  await fails(`SELECT dealer_record_candidate_document_extraction(
+    '${uuid(1)}','${uuid(100)}','${claimant}','${sha}',
+    'CANDIDATE_REVIEW','{}'::jsonb,1,'{}'::text[],'LOCAL_TESSERACT_V1')`,
+    'CANDIDATE_REQUIRES_OBSERVED_PAGE_FIELDS');
   await exec('SET ROLE anon');
   await fails('SELECT * FROM dealer_claim_document_ocr_events','permission denied');
   await exec('RESET ROLE');
