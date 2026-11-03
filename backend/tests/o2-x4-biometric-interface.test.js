@@ -287,6 +287,9 @@ test('O2 guard: anywhere else, every mention is refused: no spelling, comment or
   const [message] = fingerprintViolations('-- a fingerprint\nSELECT 1;', NEW_FILE);
   assert.match(message, /backend\/tests\/helpers\/o2FingerprintGuard\.mjs/, 'the message says where a reviewed file is listed');
   assert.match(message, /O2 review/, 'and who reviews it');
+  const [changed] = fingerprintViolations('SELECT 1;', KEY_FILE);
+  assert.match(changed, /update its sha256/, 'a listed file is told to update its pin');
+  assert.match(fingerprintViolations("SELECT U&'x';", NEW_FILE)[0], /not needed under database/, 'a U& line says what to do');
 });
 
 test('O2 guard: Trust\'s fingerprint stays allowed in the files that use it', () => {

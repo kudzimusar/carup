@@ -68,8 +68,8 @@ const WHAT_TO_DO = 'if this is not biometric, list the file in REVIEWED_FINGERPR
 export function fingerprintViolations(contents, repoPath) {
   const reviewed = Object.hasOwn(REVIEWED_FINGERPRINT_FILES, repoPath) ? REVIEWED_FINGERPRINT_FILES[repoPath] : null;
   if (reviewed && createHash('sha256').update(contents).digest('hex') === reviewed.sha256) return [];
-  const violations = reviewed ? [`this reviewed file changed: ${WHAT_TO_DO}`] : [];
+  const violations = reviewed ? ['this reviewed file changed: after O2 review, update its sha256 in backend/tests/helpers/o2FingerprintGuard.mjs, and KEY_DIGEST_REVIEWED_LINES if it touches the Paynow key digest'] : [];
   for (const line of fingerprintMentions(contents)) violations.push(`a mention of fingerprint outside the reviewed files: ${line.slice(0, 160)} (${WHAT_TO_DO})`);
-  for (const line of unicodeEscapes(contents)) violations.push(`a Unicode-escaped name or string, which this guard cannot read: ${line.slice(0, 160)}`);
+  for (const line of unicodeEscapes(contents)) violations.push(`a U& name or string, which this guard cannot read and is not needed under database/: write it plainly: ${line.slice(0, 160)}`);
   return violations;
 }
