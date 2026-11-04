@@ -6,7 +6,7 @@
  *
  * Usage:
  *   node backend/scripts/dealership/importResearchSeed.mjs '/secure/path/dealers.xlsx'
- *   DEALER_SEED_DATABASE_URL=postgresql://...@localhost:5432/carup_test \
+ *   DEALER_SEED_DATABASE_URL=postgresql://...@localhost:5432/carup_dealer_owner_original_isolated \
  *     node backend/scripts/dealership/importResearchSeed.mjs '/secure/path/dealers.xlsx' \
  *     --commit-local --expect-sha256=<literal 64-hex file checksum>
  *
@@ -44,6 +44,12 @@ const REQUIRED_SEED_CATEGORIES = new Set([
   'Marketplace / brokerage claim', 'Dealer and service centre claim',
   'Commercial / heavy vehicle claim',
 ]);
+// The connected native Google re-export is a different binary and may not
+// silently replace the Owner's explicitly authorized original source bytes.
+export const ORIGINAL_OWNER_SOURCE_SHA256 =
+  'a9a6ac6f68bed5266c6870958520105fc1c69f75dd80f7020839e8d5fdd4b137';
+export const ORIGINAL_OWNER_DISPOSABLE_DATABASE =
+  'carup_dealer_owner_original_isolated';
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 const fail = (message) => { throw new Error('DEALER_SEED_REJECTED: ' + message); };
 
@@ -226,6 +232,40 @@ export function assertLocalDatabase(urlText) {
   return urlText;
 }
 
+/**
+ * The generic localhost guard is also used by isolated fictional CI. Actual
+ * owner-source data must NEVER be imported into that synthetic test database
+ * or an arbitrary localhost database that could be a staging/production tunnel.
+ */
+export function assertOriginalImportTarget(urlText){
+  const accepted=assertLocalDatabase(urlText);
+  const url=new URL(accepted);
+  if(url.pathname!=='/'+ORIGINAL_OWNER_DISPOSABLE_DATABASE ||
+     url.search || url.hash)
+    fail('original import requires the dedicated disposable localhost PostgreSQL database');
+  return accepted;
+}
+export function assertOriginalOwnerSourceSha(actual,expected){
+  if(actual!==ORIGINAL_OWNER_SOURCE_SHA256 || expected!==ORIGINAL_OWNER_SOURCE_SHA256)
+    fail('source SHA does not match explicitly approved Owner-original workbook');
+}
+export async function assertEmptyOriginalImportTarget(client){
+  const proof=await client.query(`SELECT
+    current_database() AS database_name,
+    (SELECT COUNT(*)::int FROM tenants) AS tenants,
+    (SELECT COUNT(*)::int FROM organizations) AS organizations,
+    (SELECT COUNT(*)::int FROM dealer_profiles) AS dealer_profiles,
+    (SELECT COUNT(*)::int FROM dealer_research_claim_requests) AS claims,
+    (SELECT COUNT(*)::int FROM dealer_research_public_profiles) AS public_profiles`);
+  const state=proof.rows?.[0];
+  if(proof.rows?.length!==1 ||
+     state?.database_name!==ORIGINAL_OWNER_DISPOSABLE_DATABASE ||
+     ['tenants','organizations','dealer_profiles','claims','public_profiles']
+       .some(key=>state?.[key]!==0))
+    fail('original-source target has existing real or fictional business authority');
+  return true;
+}
+
 export async function commitCandidatesLocal(client, records) {
   await client.query('BEGIN');
   try {
@@ -285,13 +325,17 @@ async function main() {
     console.log(JSON.stringify({ mode: 'READ_ONLY', ...summary }, null, 2));
     return;
   }
-  if (!expected || !/^[0-9a-f]{64}$/.test(expected) || expected !== hash) {
-    fail('explicit --expect-sha256 must match actual source file for commit-local');
-  }
-  const client = new pg.Client({ connectionString: assertLocalDatabase(process.env.DEALER_SEED_DATABASE_URL) });
+  assertOriginalOwnerSourceSha(hash,expected);
+  const client = new pg.Client({
+    connectionString:assertOriginalImportTarget(process.env.DEALER_SEED_DATABASE_URL),
+    ssl:false,application_name:'carup-owner-research-disposable-import',
+  });
   await client.connect();
-  try { console.log(JSON.stringify({ mode: 'LOCAL_DATABASE_ONLY', ...summary,
-      receipt: await commitCandidatesLocal(client, records) }, null, 2)); }
+  try {
+    await assertEmptyOriginalImportTarget(client);
+    console.log(JSON.stringify({ mode: 'LOCAL_DATABASE_ONLY', ...summary,
+      receipt: await commitCandidatesLocal(client, records) }, null, 2));
+  }
   finally { await client.end(); }
 }
 

@@ -11,6 +11,8 @@ import ExcelJS from 'exceljs';
 import {
   parseResearchWorkbook, assertLocalDatabase, SOURCE_TABS,
   DEV_TABS, ORIGINAL_HEADERS, commitCandidatesLocal, analyzeResearchIdentitySignals,
+  ORIGINAL_OWNER_SOURCE_SHA256,ORIGINAL_OWNER_DISPOSABLE_DATABASE,
+  assertOriginalImportTarget,assertOriginalOwnerSourceSha,assertEmptyOriginalImportTarget,
 } from '../scripts/dealership/importResearchSeed.mjs';
 
 function stubRow(number, values = []) {
@@ -130,6 +132,35 @@ test('never authorize a shared or remote database as seed target', () => {
   assert.throws(() => assertLocalDatabase('postgresql://x:y@10.0.0.4:5432/app'), /loopback/);
   assert.throws(() => assertLocalDatabase('postgresql://x:y@localhost:5432/app?sslmode=require'), /SSL/);
   assert.equal(assertLocalDatabase('postgresql://x:y@localhost:5432/app'), 'postgresql://x:y@localhost:5432/app');
+});
+
+test('Owner source commit refuses other XLSX binary, shared local DB and extant authority',async()=>{
+  assert.equal(ORIGINAL_OWNER_DISPOSABLE_DATABASE,'carup_dealer_owner_original_isolated');
+  const original='postgresql://x:y@localhost:5432/'+ORIGINAL_OWNER_DISPOSABLE_DATABASE;
+  assert.equal(assertOriginalImportTarget(original),original);
+  for(const pathname of ['/app','/postgres','/carup_dealer_isolated_ci','/carup_staging']){
+    assert.throws(()=>assertOriginalImportTarget(
+      'postgresql://x:y@localhost:5432'+pathname),/dedicated disposable/);
+  }
+  assert.throws(()=>assertOriginalImportTarget(original+'?sslmode=disable'),
+    /dedicated disposable/);
+  assert.throws(()=>assertOriginalImportTarget(
+    'postgresql://x:y@db.example.com:5432/'+ORIGINAL_OWNER_DISPOSABLE_DATABASE),/loopback/);
+  assert.doesNotThrow(()=>assertOriginalOwnerSourceSha(
+    ORIGINAL_OWNER_SOURCE_SHA256,ORIGINAL_OWNER_SOURCE_SHA256));
+  assert.throws(()=>assertOriginalOwnerSourceSha(
+    '93ff168fd186debf3f5caa0bac00f2d739bcc4188d3ff4f6170d8d2d269e8ab0',
+    '93ff168fd186debf3f5caa0bac00f2d739bcc4188d3ff4f6170d8d2d269e8ab0'),
+    /Owner-original/);
+  const target=(overrides={})=>({async query(){return {rows:[{
+    database_name:ORIGINAL_OWNER_DISPOSABLE_DATABASE,tenants:0,organizations:0,
+    dealer_profiles:0,claims:0,public_profiles:0,...overrides,
+  }]}}});
+  assert.equal(await assertEmptyOriginalImportTarget(target()),true);
+  await assert.rejects(()=>assertEmptyOriginalImportTarget(target({tenants:1})),
+    /existing real or fictional business authority/);
+  await assert.rejects(()=>assertEmptyOriginalImportTarget(
+    target({database_name:'carup_prod'})),/existing real or fictional business authority/);
 });
 
 test('S02 identical local reimport uses immutable same-row receipts', async () => {
