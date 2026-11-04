@@ -1567,7 +1567,11 @@ export function isPublicRoute(route: string): boolean {
     '/bank',
     '/admin',
   ]
-  return !protectedPrefixes.some(prefix => route.startsWith(prefix))
+  // Prefixes are whole URL path segments, not substrings. The dealer OS
+  // lives at /dealer, whereas reviewed public research and the claim entry
+  // live at /dealers/*. A startsWith('/dealer') test silently redirected
+  // legitimate guests to /login after the public directory rendered.
+  return !protectedPrefixes.some(prefix => route === prefix || route.startsWith(prefix + '/'))
 }
 
 /** Check if a route path is classified as protected (requires login) */

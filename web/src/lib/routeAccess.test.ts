@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { evaluateRouteAccess, loginWithReturnTo, type RouteAccessInput } from './routeAccess'
-import { resolveFeatureVisibility, getFeatureById, getFeatureByRoute, isLifecycleVisible, isLifecycleAccessible, type EffectiveFeatureState, type FeatureLifecycleState } from '@/config/featureRegistry'
+import { resolveFeatureVisibility, getFeatureById, getFeatureByRoute, isPublicRoute, isLifecycleVisible, isLifecycleAccessible, type EffectiveFeatureState, type FeatureLifecycleState } from '@/config/featureRegistry'
 
 const base: RouteAccessInput = {
   route: '/insurance',
@@ -31,6 +31,30 @@ describe('evaluateRouteAccess (Milestone 5)', () => {
 
   it('public active route renders', () => {
     expect(evaluateRouteAccess({ ...base, route: '/insurance' }).kind).toBe('render')
+  })
+
+  it('DEALER-R2: public /dealers routes must not inherit protected /dealer prefix', () => {
+    const publicRoutes = [
+      '/dealers',
+      '/dealers/zw-deal-0001',
+      '/dealers/zw-deal-0001/claim',
+      '/dealers/zw-deal-0001/correction',
+      '/dealers/claims',
+      '/dealers/staff',
+      '/dealers/inquiries',
+    ]
+    for (const route of publicRoutes) {
+      expect(isPublicRoute(route), route).toBe(true)
+      expect(evaluateRouteAccess({ ...base, route }).kind, route).toBe('render')
+      expect(evaluateRouteAccess({ ...base, route, enforceAuth: false }).kind, route).toBe('render')
+    }
+    // Frontend public access does not create owner/reviewer privilege: the
+    // actual authenticated dealership APIs continue to enforce their sessions.
+    for (const route of ['/dealer','/dealer/inventory','/dealer/leads',
+      '/dealer/does-not-exist','/dashboard/garage','/admin/dealer-claims']) {
+      expect(isPublicRoute(route), route).toBe(false)
+      expect(evaluateRouteAccess({ ...base, route }).kind, route).toBe('redirect')
+    }
   })
 
   it('protected route + no user → login with sanitized return-to', () => {
