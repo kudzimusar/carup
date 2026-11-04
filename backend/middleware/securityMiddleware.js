@@ -41,7 +41,9 @@ export function securityHeadersMiddleware(req, res, next) {
 /**
  * Custom Rate Limiter Middleware
  */
-export function rateLimiter({ max, windowMs, isSensitive = false }) {
+export function rateLimiter({ max, windowMs, isSensitive = false, bucket = 'shared' }) {
+  if(typeof bucket!=='string'||!/^[a-z][a-z0-9-]{0,63}$/.test(bucket))
+    throw new TypeError('INVALID_RATE_LIMIT_BUCKET');
   const store = isSensitive ? sensitiveStore : globalStore;
   // A single shared sensitive:<IP> counter mixes unrelated *limits*: e.g.
   // reviewer password step-up (15/hour) consumes an applicant's 4/hour
@@ -51,7 +53,7 @@ export function rateLimiter({ max, windowMs, isSensitive = false }) {
   // Do not key by user/route: that would let applicants evade the four-write
   // budget by rotating accounts or moving between intake endpoints.
   const tier = isSensitive ? 'sensitive' : 'global';
-  const policyBucket = `${tier}:${max}:${windowMs}`;
+  const policyBucket = `${tier}:${max}:${windowMs}:${bucket}`;
   return (req, res, next) => {
     // Bypass rate limiting in tests if requested
     if (process.env.NODE_ENV === 'test' && req.headers['x-bypass-rate-limit'] === 'true') {

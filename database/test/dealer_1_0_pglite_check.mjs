@@ -127,7 +127,8 @@ try{
     CREATE TABLE tenant_users(
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       tenant_id UUID NOT NULL REFERENCES tenants(id),user_id TEXT NOT NULL REFERENCES users(id),
-      role TEXT NOT NULL,UNIQUE(tenant_id,user_id)
+      role TEXT NOT NULL,joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE(tenant_id,user_id)
     );
     CREATE TABLE dealer_branches(
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

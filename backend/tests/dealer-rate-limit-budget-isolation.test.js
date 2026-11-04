@@ -43,3 +43,45 @@ test('reviewer step-up does not consume separate 4/hour claimant budget, while a
   assert.deepEqual(await request(reviews,ip,'/api/admin/dealership/claims/test/review'),
     {allowed:true},'reviewer budget must also be independent of claimant traffic');
 });
+
+test('dealer action-class quotas preserve 4/hour per class and 8/hour aggregate; no bypass',async()=>{
+  const ip='198.51.100.205';
+  const hour=3600000;
+  const all=rateLimiter({max:8,windowMs:hour,isSensitive:true,
+    bucket:'dealer-claimant-total'});
+  const claim=rateLimiter({max:4,windowMs:hour,isSensitive:true,
+    bucket:'dealer-claim-control'});
+  const evidence=rateLimiter({max:4,windowMs:hour,isSensitive:true,
+    bucket:'dealer-private-evidence'});
+  const intake=rateLimiter({max:4,windowMs:hour,isSensitive:true,
+    bucket:'dealer-application-intake'});
+  async function chained(specific,route){
+    const broad=await request(all,ip,route);
+    if(!broad.allowed)return broad;
+    return request(specific,ip,route);
+  }
+  // Normal, distinct steps (including later supporting evidence) must fit
+  // without spoofing X-Forwarded-For, bypass headers or server restarts.
+  for(const [limit,route] of [
+    [claim,'/research/1/claim'],
+    [evidence,'/claims/1/evidence/registration'],
+    [intake,'/claims/1/workbook'],
+    [intake,'/claims/1/compliance-submissions'],
+    [evidence,'/claims/1/evidence/signatory'],
+  ]){
+    assert.deepEqual(await chained(limit,route),{allowed:true});
+  }
+  for(const limit of [claim,claim,evidence])
+    assert.deepEqual(await chained(limit,'/claims/1/action'),{allowed:true});
+  const over=await chained(intake,'/claims/1/workbook');
+  assert.equal(over.allowed,false);
+  assert.equal(over.status,429);
+  // Each independent class must also remain strictly bounded even if it is
+  // the only activity for that IP.
+  const distinctIp='198.51.100.206';
+  const onlyEvidence=rateLimiter({max:4,windowMs:hour,isSensitive:true,
+    bucket:'dealer-private-evidence'});
+  for(let i=0;i<4;i++)
+    assert.deepEqual(await request(onlyEvidence,distinctIp,'/claims/1/evidence'),{allowed:true});
+  assert.equal((await request(onlyEvidence,distinctIp,'/claims/1/evidence')).status,429);
+});

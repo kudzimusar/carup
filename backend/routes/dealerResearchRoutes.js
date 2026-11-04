@@ -40,7 +40,16 @@ import {
 
 const router = express.Router();
 const publicReadLimit = rateLimiter({ max: 40, windowMs: 60 * 1000, isSensitive: false });
-const claimWriteLimit = rateLimiter({ max: 4, windowMs: 60 * 60 * 1000, isSensitive: true });
+// A legitimate complete application needs claim + originals + spreadsheet +
+ // immutable submission. Keep each class at four sensitive operations/hour/IP,
+ // AND retain an eight-write/hour/IP total claimant safety ceiling. Unlike the
+ // former single four-write budget, independent evidence and intake steps cannot
+ // silently make an otherwise valid submission impossible. Every write remains
+ // authenticated and independently authorized by its existing service.
+ const claimWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-claim-control'});
+ const evidenceWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-private-evidence'});
+ const applicationWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-application-intake'});
+ const claimantAggregateLimit = rateLimiter({max:8,windowMs:3600000,isSensitive:true,bucket:'dealer-claimant-total'});
 const reviewWriteLimit = rateLimiter({ max: 15, windowMs: 60 * 60 * 1000, isSensitive: true });
 const session = authorizeSessionRole([]);
 const reviewer = authorizeSessionRole(['admin','reviewer']);
@@ -141,7 +150,7 @@ router.get('/api/dealership/research/:seedId', publicReadLimit, async (req,res,n
 
 // Correction or removal concerns are queued privately; no unreviewed request can
 // hide, reassign or alter another dealership's public listing.
-router.post('/api/dealership/research/:seedId/corrections', claimWriteLimit, async (req,res,next) => {
+router.post('/api/dealership/research/:seedId/corrections', claimantAggregateLimit,claimWriteLimit, async (req,res,next) => {
   try {
     const request = await requestResearchCorrection(req.params.seedId,req.body || {});
     res.set('Cache-Control','no-store').status(202).json({ request });
@@ -158,7 +167,7 @@ router.get('/api/admin/dealership/research/corrections', reviewer, async (req,re
 
 // A signed-in representative can signal a claim and start evidence review.
 // NO tenant/role/verified status or access to a private prefilled workbook.
-router.post('/api/dealership/research/:seedId/claim', claimWriteLimit, session, async (req,res,next) => {
+router.post('/api/dealership/research/:seedId/claim', claimantAggregateLimit,claimWriteLimit, session, async (req,res,next) => {
   try {
     const claim = await submitResearchClaim(req.params.seedId,req.userContext,req.body || {});
     res.set('Cache-Control','no-store').status(202).json({ claim });
@@ -172,7 +181,7 @@ router.get('/api/dealership/claims/mine', session, async (req,res,next) => {
 
 // Sensitive document custody: uploaded originals are in the existing private
 // ocr-documents bucket; ClamAV must return CLEAN or upload fails closed.
-router.post('/api/dealership/claims/:claimId/evidence',claimWriteLimit,session,async(req,res,next)=>{
+router.post('/api/dealership/claims/:claimId/evidence',claimantAggregateLimit,evidenceWriteLimit,session,async(req,res,next)=>{
   try {
     const receipt=await uploadPrivateClaimEvidence(req.params.claimId,req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({receipt});
@@ -184,7 +193,7 @@ router.get('/api/dealership/claims/:claimId/evidence',session,async(req,res,next
     res.set('Cache-Control','no-store').json({evidence});
   } catch(error){errorResponse(res,next,error)}
 });
-router.post('/api/dealership/claims/:claimId/appeal',claimWriteLimit,session,async(req,res,next)=>{
+router.post('/api/dealership/claims/:claimId/appeal',claimantAggregateLimit,claimWriteLimit,session,async(req,res,next)=>{
   try {
     const appeal=await submitClaimAppeal(req.params.claimId,req.userContext,req.body?.reason);
     res.set('Cache-Control','no-store').status(202).json({appeal});
@@ -192,7 +201,7 @@ router.post('/api/dealership/claims/:claimId/appeal',claimWriteLimit,session,asy
 });
 // Candidate-only local OCR never upgrades compliance, claim rights or publication.
 router.post('/api/dealership/claims/:claimId/evidence/:evidenceId/extract',
- claimWriteLimit,session,async(req,res,next)=>{
+ claimantAggregateLimit,evidenceWriteLimit,session,async(req,res,next)=>{
   try{
     const result=await createClaimDocumentCandidate(
       req.params.claimId,req.params.evidenceId,req.userContext);
@@ -219,7 +228,7 @@ function csvEnvelope(raw){
   return bytes;
 }
 router.post('/api/dealership/claims/:claimId/csv-preview',
- claimWriteLimit,session,async(req,res,next)=>{
+ claimantAggregateLimit,applicationWriteLimit,session,async(req,res,next)=>{
   try{
     const preview=await previewMyClaimCsv(
       req.params.claimId,req.userContext,
@@ -228,7 +237,7 @@ router.post('/api/dealership/claims/:claimId/csv-preview',
   }catch(error){errorResponse(res,next,error)}
 });
 router.post('/api/dealership/claims/:claimId/csv-import',
- claimWriteLimit,session,async(req,res,next)=>{
+ claimantAggregateLimit,applicationWriteLimit,session,async(req,res,next)=>{
   try{
     const receipt=await importMyClaimCsv(
       req.params.claimId,req.userContext,
@@ -249,7 +258,7 @@ router.get('/api/dealership/claims/:claimId/jurisdiction-preview',
 // D6: applicant signs an explicit declaration and freezes the CURRENT 12-tab
 // submission version for independent preliminary review, not legal activation.
 router.post('/api/dealership/claims/:claimId/compliance-submissions',
- claimWriteLimit,session,async(req,res,next)=>{
+ claimantAggregateLimit,applicationWriteLimit,session,async(req,res,next)=>{
   try{
     const receipt=await submitDealerApplication(req.params.claimId,req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(202).json({receipt});
@@ -299,7 +308,7 @@ router.get('/api/dealership/claims/:claimId/workbook',session,async(req,res,next
       .send(buffer);
   } catch(error){errorResponse(res,next,error)}
 });
-router.post('/api/dealership/claims/:claimId/workbook',claimWriteLimit,session,async(req,res,next)=>{
+router.post('/api/dealership/claims/:claimId/workbook',claimantAggregateLimit,applicationWriteLimit,session,async(req,res,next)=>{
   try {
     const base64=req.body?.workbook_base64;
     if(typeof base64!=='string'||base64.length>11*1024*1024||!/^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64))
@@ -311,7 +320,7 @@ router.post('/api/dealership/claims/:claimId/workbook',claimWriteLimit,session,a
   } catch(error){errorResponse(res,next,error)}
 });
 router.post('/api/dealership/claims/:claimId/manual-draft',
- claimWriteLimit,session,async(req,res,next)=>{
+ claimantAggregateLimit,applicationWriteLimit,session,async(req,res,next)=>{
   try {
     const result=await saveManualClaimDraft(req.params.claimId,req.userContext,
       req.body?.fields||{},req.body?.expected_version??0);
