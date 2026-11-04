@@ -74,7 +74,7 @@ jobs:
       - name: Install locked Node dependencies
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
       - run: npm ci
       - name: Establish actual isolated PostgreSQL migrations and fictional 104-source workbook
