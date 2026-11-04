@@ -112,7 +112,13 @@ export default function DealerClaimWorkspace() {
       setError(problem instanceof Error?problem.message:'Claims unavailable')
     }finally{setLoading(false)}
   },[token,user])
-  useEffect(()=>{void reload()},[reload])
+  useEffect(()=>{
+    // Defer request-driven state to the async phase, avoiding a redundant
+    // synchronous render caused by setting loading state in an effect.
+    let mounted=true
+    void Promise.resolve().then(()=>{if(mounted)void reload()})
+    return()=>{mounted=false}
+  },[reload])
   const chosen=claims.find(c=>c.claim_id===selected)
   const loadDetails=useCallback(async()=>{
     if(!user||!token||!selected)return
@@ -152,7 +158,11 @@ export default function DealerClaimWorkspace() {
       setOperationalAuthority(results[5].status==='fulfilled'?results[5].value.authority:null)
     }catch{setEvidence([]);setDraft(null);setOcrCandidates([]);setJurisdiction(null);setComplianceSubmissions([]);setOperationalAuthority(null)}
   },[selected,user,token])
-  useEffect(()=>{void loadDetails()},[loadDetails])
+  useEffect(()=>{
+    let mounted=true
+    void Promise.resolve().then(()=>{if(mounted)void loadDetails()})
+    return()=>{mounted=false}
+  },[loadDetails])
 
   async function uploadEvidence(){
     if(!user||!token||!selected||!documentFile||busy)return

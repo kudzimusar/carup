@@ -87,9 +87,19 @@ export default function DealerOperatingDetails(){
       setError(problem instanceof Error?problem.message:'Dealer authority not active')
     }
   },[user,token])
-  useEffect(()=>{void reload()},[reload])
   useEffect(()=>{
-    setDraft(read?.latest?.[selected]?.values||{})
+    // Defer request-driven state to the async phase, avoiding a redundant
+    // synchronous render caused by setting loading state in an effect.
+    let mounted=true
+    void Promise.resolve().then(()=>{if(mounted)void reload()})
+    return()=>{mounted=false}
+  },[reload])
+  useEffect(()=>{
+    let active=true
+    void Promise.resolve().then(()=>{
+      if(active)setDraft(read?.latest?.[selected]?.values||{})
+    })
+    return()=>{active=false}
   },[selected,read])
   async function recordBranch(){
     if(!user||!token||busy||!workspace||branchName.trim().length<2||

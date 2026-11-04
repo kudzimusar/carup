@@ -51,9 +51,19 @@ export default function DealerFullStorefrontReview(){
    setError(problem instanceof Error?problem.message:'Could not load independent publication queue')
   }
  },[reviewer,user,token])
- useEffect(()=>{void reload()},[reload])
  useEffect(()=>{
-  setCandidate(null);setApprovedBranches([]);setApprovedSections([]);setReason('')
+    // Defer request-driven state to the async phase, avoiding a redundant
+    // synchronous render caused by setting loading state in an effect.
+    let mounted=true
+    void Promise.resolve().then(()=>{if(mounted)void reload()})
+    return()=>{mounted=false}
+  },[reload])
+ useEffect(()=>{
+  let active=true
+  void Promise.resolve().then(()=>{
+   if(active){setCandidate(null);setApprovedBranches([]);setApprovedSections([]);setReason('')}
+  })
+  return()=>{active=false}
  },[seed])
  async function inspect(){
   if(!user||!token||busy||!seed||password.length<8)return

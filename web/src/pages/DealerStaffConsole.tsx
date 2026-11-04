@@ -44,7 +44,13 @@ export default function DealerStaffConsole(){
     setError('No active authorized dealer owner or received invitation is available')
   setLoaded(true)
  },[user,token])
- useEffect(()=>{void reload()},[reload])
+ useEffect(()=>{
+    // Defer request-driven state to the async phase, avoiding a redundant
+    // synchronous render caused by setting loading state in an effect.
+    let mounted=true
+    void Promise.resolve().then(()=>{if(mounted)void reload()})
+    return()=>{mounted=false}
+  },[reload])
  async function invite(){
   if(!user||!token||!staff||busy||recipient.trim().length<2)return
   setBusy(true);setError('');setNotice('')

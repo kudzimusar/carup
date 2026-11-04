@@ -66,7 +66,13 @@ export default function DealerLegalActivationReview(){
       setError(problem instanceof Error?problem.message:'Private legal review unavailable')
     }
   },[allowed,user,token])
-  useEffect(()=>{void reload()},[reload])
+  useEffect(()=>{
+    // Defer request-driven state to the async phase, avoiding a redundant
+    // synchronous render caused by setting loading state in an effect.
+    let mounted=true
+    void Promise.resolve().then(()=>{if(mounted)void reload()})
+    return()=>{mounted=false}
+  },[reload])
   const activePolicy=policies.find(p=>p.policy_version===policyVersion)
   const selectedLegal=legalCases.find(x=>x.submission_id===submission)
   const selectedActivation=activations.find(x=>x.legal_review_id===legalReview)

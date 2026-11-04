@@ -47,8 +47,20 @@ export default function DealerComplianceApplicationReview(){
       setCases([])
     }
   },[allowed,user,token])
-  useEffect(()=>{void reload()},[reload])
-  useEffect(()=>{setPreview(null);setPassword('');setReason('')},[selected])
+  useEffect(()=>{
+    // Defer request-driven state to the async phase, avoiding a redundant
+    // synchronous render caused by setting loading state in an effect.
+    let mounted=true
+    void Promise.resolve().then(()=>{if(mounted)void reload()})
+    return()=>{mounted=false}
+  },[reload])
+  useEffect(()=>{
+    let active=true
+    void Promise.resolve().then(()=>{
+      if(active){setPreview(null);setPassword('');setReason('')}
+    })
+    return()=>{active=false}
+  },[selected])
   const current=cases.find(s=>s.submission_id===selected)
   async function openFrozenCase(){
     if(!current||!user||!token||busy||password.length<8)return

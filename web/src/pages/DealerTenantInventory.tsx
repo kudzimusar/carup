@@ -24,8 +24,11 @@ export default function DealerTenantInventory(){
  const [status,setStatus]=useState<'loading'|'ready'|'denied'>('loading')
  const [search,setSearch]=useState('')
  useEffect(()=>{
-  if(!user||!token){setStatus('denied');return}
   let live=true
+  if(!user||!token){
+    void Promise.resolve().then(()=>{if(live)setStatus('denied')})
+    return()=>{live=false}
+  }
   apiRequest<{inventory:Inventory}>({
     baseUrl:API,path:'/dealer/operational-inventory',
     authHeaders:auth(user.id,token),

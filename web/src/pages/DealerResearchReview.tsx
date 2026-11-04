@@ -57,7 +57,13 @@ export default function DealerResearchReview(){
       setError(problem instanceof Error?problem.message:'Source review queue unavailable')
     }
   },[allowed,user,token,page])
-  useEffect(()=>{void reload()},[reload])
+  useEffect(()=>{
+    // Defer request-driven state to the async phase, avoiding a redundant
+    // synchronous render caused by setting loading state in an effect.
+    let mounted=true
+    void Promise.resolve().then(()=>{if(mounted)void reload()})
+    return()=>{mounted=false}
+  },[reload])
   const current=queue?.entries.find(e=>e.seed_dealer_id===selected)
   const minimum=decision==='PRELISTED_UNCLAIMED'?80:25
   async function record(){

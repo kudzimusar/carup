@@ -46,7 +46,10 @@ export default function DealerBillingReadiness(){
   const [state,setState]=useState<'loading'|'ready'|'denied'>('loading')
   useEffect(()=>{
     let live=true
-    if(!user||!token){setState('denied');return}
+    if(!user||!token){
+      void Promise.resolve().then(()=>{if(live)setState('denied')})
+      return()=>{live=false}
+    }
     apiRequest<{readiness:Readiness}>({
       baseUrl:API,path:'/dealer/commercial-readiness',
       authHeaders:auth(user.id,token),

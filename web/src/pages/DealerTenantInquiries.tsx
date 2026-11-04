@@ -37,8 +37,15 @@ export default function DealerTenantInquiries(){
   const [actionError,setActionError]=useState('')
   useEffect(()=>{
     let active=true
-    if(!user||!token){setStatus('unavailable');setData(null);return}
-    setStatus('loading');setData(null)
+    if(!user||!token){
+      void Promise.resolve().then(()=>{
+        if(active){setStatus('unavailable');setData(null)}
+      })
+      return()=>{active=false}
+    }
+    void Promise.resolve().then(()=>{
+      if(active){setStatus('loading');setData(null)}
+    })
     apiRequest<{inquiries:Inbox}>({
       baseUrl:API,path:'/dealer/operational-inquiries',
       authHeaders:hdr(user.id,token),

@@ -56,12 +56,12 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
 
   useEffect(() => {
     const key = seedId?.toUpperCase()
-    if (!key || !/^ZW-DEAL-\d{4}$/.test(key)) {
-      setLoaded('missing')
-      return
-    }
     let active = true
-    setLoaded('loading')
+    if (!key || !/^ZW-DEAL-\d{4}$/.test(key)) {
+      void Promise.resolve().then(()=>{if(active)setLoaded('missing')})
+      return()=>{active=false}
+    }
+    void Promise.resolve().then(()=>{if(active)setLoaded('loading')})
     apiRequest<{profile: ResearchProfile}>({
       baseUrl: API, path: '/dealership/research/' + encodeURIComponent(key),
     }).then(result => {

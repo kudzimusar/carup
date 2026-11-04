@@ -50,12 +50,21 @@ export default function DealerClaimReview() {
         ?current:result.claims[0]?.claim_id||'')
     }catch(problem){setError(problem instanceof Error?problem.message:'Claim-review queue unavailable')}
   },[authorized,user,token])
-  useEffect(()=>{void reload()},[reload])
+  useEffect(()=>{
+    // Defer request-driven state to the async phase, avoiding a redundant
+    // synchronous render caused by setting loading state in an effect.
+    let mounted=true
+    void Promise.resolve().then(()=>{if(mounted)void reload()})
+    return()=>{mounted=false}
+  },[reload])
   const current=claims.find(c=>c.claim_id===selected)
   useEffect(()=>{
     if(!selected||!user||!token||!authorized)return
     let active=true
-    setPreview(null);setEvidence([]);setEvidenceId('')
+    // Clear the previous claim's private artifacts before new evidence resolves.
+    void Promise.resolve().then(()=>{
+      if(active){setPreview(null);setEvidence([]);setEvidenceId('')}
+    })
     apiRequest<{evidence:PrivateEvidence[]}>({
       baseUrl:API,path:'/admin/dealership/claims/'+encodeURIComponent(selected)+'/evidence',
       authHeaders:headers(token,user.id),
@@ -66,8 +75,16 @@ export default function DealerClaimReview() {
     }).catch(problem=>{if(active)setError(problem instanceof Error?problem.message:'Evidence unavailable')})
     return()=>{active=false}
   },[selected,user,token,authorized])
-  useEffect(()=>{if(current)setScope(current.claimed_scope==='PARENT_ORGANIZATION'?'PARENT_ORGANIZATION':'BRANCH')},
-    [current?.claim_id,current?.claimed_scope])
+  const currentClaimId=current?.claim_id
+  const currentClaimScope=current?.claimed_scope
+  useEffect(()=>{
+    if(!currentClaimId)return
+    let active=true
+    void Promise.resolve().then(()=>{
+      if(active)setScope(currentClaimScope==='PARENT_ORGANIZATION'?'PARENT_ORGANIZATION':'BRANCH')
+    })
+    return()=>{active=false}
+  },[currentClaimId,currentClaimScope])
 
   async function viewOriginal(){
     if(!current||!user||!token||!evidenceId||!password||busy)return
@@ -130,7 +147,10 @@ export default function DealerClaimReview() {
             {claims.length===0&&<p className="text-gray-600 mt-4 text-sm">No pending/recorded claims in this queue.</p>}
             {claims.map(claim=><button key={claim.claim_id} type="button"
               className={`block w-full text-left mt-3 p-3 rounded-lg border ${selected===claim.claim_id?'border-blue-700 bg-blue-50':'border-gray-200'}`}
-              onClick={()=>{setSelected(claim.claim_id);setError('');setNotice('');setPassword('')}}>
+              onClick={()=>{
+                setSelected(claim.claim_id);setError('');setNotice('');setPassword('')
+                setPreview(null);setEvidence([]);setEvidenceId('')
+              }}>
               <strong>{claim.seed_dealer_id}</strong>
               <span className="block text-xs text-gray-600 mt-1">{claim.claim_status.replaceAll('_',' ')}</span>
               <span className="block text-xs text-gray-500 mt-1">Scope {claim.claimed_scope}</span>

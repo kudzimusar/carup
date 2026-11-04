@@ -66,10 +66,14 @@ export default function DealerDashboard(){
   useEffect(()=>{
     let live=true
     if(!user||!token){
-      setWorkspace(null);setInventory(null);setStatus('missing');setStockStatus('unavailable')
-      return
+      void Promise.resolve().then(()=>{
+        if(live){setWorkspace(null);setInventory(null);setStatus('missing');setStockStatus('unavailable')}
+      })
+      return()=>{live=false}
     }
-    setWorkspace(null);setInventory(null);setStatus('loading');setStockStatus('loading')
+    void Promise.resolve().then(()=>{
+      if(live){setWorkspace(null);setInventory(null);setStatus('loading');setStockStatus('loading')}
+    })
     const hdr=authHeaders(user.id,token)
     apiRequest<{workspace:Workspace}>({
       baseUrl:API,path:'/dealer/operational-workspace',authHeaders:hdr,
