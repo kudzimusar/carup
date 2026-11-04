@@ -20,7 +20,8 @@ docker run -d --name carup-dealer-ci-storage --network host \
   -e POSTGREST_URL=http://127.0.0.1:3004 \
   -e PGRST_JWT_SECRET="${DEALER_BROWSER_LOCAL_JWT_SECRET}" \
   -e AUTH_JWT_SECRET="${DEALER_BROWSER_LOCAL_JWT_SECRET}" \
-  -e DATABASE_URL=postgresql://postgres:dealer-ci-ephemeral-only@127.0.0.1:5432/carup_dealer_isolated_ci \
+  -e DATABASE_URL=postgresql://postgres@127.0.0.1:5432/carup_dealer_isolated_ci \
+  -e PGPASSWORD="${PGPASSWORD}" \
   -e STORAGE_PUBLIC_URL=http://127.0.0.1:54321/storage/v1 \
   -e REQUEST_ALLOW_X_FORWARDED_PATH=true \
   -e FILE_SIZE_LIMIT=52428800 \
