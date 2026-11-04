@@ -42,6 +42,36 @@ try{
  assert.deepEqual(events.rows.map(x=>x.actor_user_id),
   [f.actors.claimant.id,f.actors.staff.id,f.actors.claimant.id])
  assert.equal(events.rows[1].canonical_member_role,'member')
+ const branchScope=await db.query(`SELECT s.scope_id,s.branch_id,
+  s.permission,s.status,s.granted_by,i.invite_id
+  FROM dealer_staff_branch_scopes s
+  JOIN dealer_staff_invitation_records i ON i.invite_id=s.invite_id
+  WHERE i.invited_user_id=$1 AND i.invited_by=$2`,
+  [f.actors.staff.id,f.actors.claimant.id])
+ assert.equal(branchScope.rowCount,1,
+  'one real private branch scope must have been explicitly granted')
+ assert.equal(branchScope.rows[0].permission,'EDIT_BRANCH_DETAILS')
+ assert.equal(branchScope.rows[0].status,'REVOKED',
+  'real staff membership revocation must revoke branch scope in same SQL transaction')
+ assert.equal(branchScope.rows[0].granted_by,f.actors.claimant.id)
+ const scopes=await db.query(`SELECT event_type,actor_user_id
+  FROM dealer_staff_branch_scope_events WHERE scope_id=$1`,
+  [branchScope.rows[0].scope_id])
+ assert.deepEqual(
+  scopes.rows.map(x=>x.event_type).sort(),
+  ['AUTO_REVOKED_ON_INVITATION','BRANCH_DETAILS_EDITED','GRANTED'].sort())
+ assert.ok(scopes.rows.some(x=>x.event_type==='GRANTED'&&
+  x.actor_user_id===f.actors.claimant.id))
+ assert.ok(scopes.rows.some(x=>x.event_type==='BRANCH_DETAILS_EDITED'&&
+  x.actor_user_id===f.actors.staff.id))
+ assert.equal((await db.query(`SELECT count(*)::int AS n FROM
+  dealer_staff_branch_scopes WHERE invite_id=$1 AND status='ACTIVE'`,
+  [record.invite_id])).rows[0].n,0)
+ const persistedPrivateBranch=await db.query(`SELECT id,opening_hours_text
+   FROM dealer_branches WHERE id=$1`,[branchScope.rows[0].branch_id])
+ assert.equal(persistedPrivateBranch.rowCount,1)
+ assert.equal(persistedPrivateBranch.rows[0].opening_hours_text,
+  'Fictional Mon-Fri 07:30-18:00; no open-now assertion')
  const state=await db.query(`SELECT
   (SELECT COUNT(*)::int FROM tenant_users WHERE tenant_id=$1
    AND user_id=$2 AND role='member') AS member_after_revocation,
@@ -100,8 +130,12 @@ try{
   canonical_member_created_then_revoked:true,
   final_staff_tenant_memberships:0,
   original_owner_preserved:true,
+  scoped_private_branch_permission_issued_then_revoked:true,
+  private_branch_staff_edit_persisted:true,
+  branch_scope_audit_events:['GRANTED','BRANCH_DETAILS_EDITED','AUTO_REVOKED_ON_INVITATION'],
+  active_staff_branch_rights_after_revocation:0,
   payments_or_seller_entitlements:false,
   real_dealer_role_approval:false,
  },null,2)+'\n',{mode:0o600})
- console.log('DEALER_NATIVE_FICTIONAL_STAFF_CUSTODY PASS: invited, independently accepted, owner revoked; canonical tenant/organization membership absent after revocation, owner preserved')
+ console.log('DEALER_NATIVE_FICTIONAL_STAFF_CUSTODY PASS: invited, independently accepted, scoped branch-edit persisted, owner revoked tenant/organization and branch scope atomically; owner preserved')
 }finally{await db.end()}
