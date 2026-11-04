@@ -27,6 +27,7 @@ import DealerResearchProfile from './pages/DealerResearchProfile'
 import DealerResearchCorrection from './pages/DealerResearchCorrection'
 import DealerClaimWorkspace from './pages/DealerClaimWorkspace'
 import DealerClaimReview from './pages/DealerClaimReview'
+import DealerReviewerLayout from './components/dealer/DealerReviewerLayout'
 import DealerResearchReview from './pages/DealerResearchReview'
 import DealerComplianceApplicationReview from './pages/DealerComplianceApplicationReview'
 import DealerLegalActivationReview from './pages/DealerLegalActivationReview'
@@ -437,11 +438,7 @@ export default function App() {
           <Route path="/admin/vehicles/:vin/review" element={<VehicleOperationsReview />} />
           <Route path="/admin/fraud-queue" element={<FraudQueue />} />
           <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
-          <Route path="/admin/dealer-claims" element={<DealerClaimReview />} />
-          <Route path="/admin/dealer-research-review" element={<DealerResearchReview />} />
-          <Route path="/admin/dealer-compliance-submissions" element={<DealerComplianceApplicationReview />} />
-          <Route path="/admin/dealer-legal-activation" element={<DealerLegalActivationReview />} />
-          <Route path="/admin/dealer-full-storefront-review" element={<DealerFullStorefrontReview />} />
+
           <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />
@@ -458,6 +455,18 @@ export default function App() {
           <Route path="/dashboard/admin/communications" element={<AdminCommunications />} />
           <Route path="/dashboard/admin/communications/inbox/:threadId" element={<AdminCommunications />} />
           <Route path="/dashboard/admin/communications/:section" element={<AdminCommunications />} />
+        </Route>
+
+        {/* Independently verified dealer reviewers are NOT generic platform admins.
+            The existing five reviewer workbenches keep their canonical routes and
+            proven backend session/step-up checks, but no longer inherit the
+            administrator-only dashboard redirect. */}
+        <Route element={<DealerReviewerLayout />}>
+          <Route path="/admin/dealer-claims" element={<DealerClaimReview />} />
+          <Route path="/admin/dealer-research-review" element={<DealerResearchReview />} />
+          <Route path="/admin/dealer-compliance-submissions" element={<DealerComplianceApplicationReview />} />
+          <Route path="/admin/dealer-legal-activation" element={<DealerLegalActivationReview />} />
+          <Route path="/admin/dealer-full-storefront-review" element={<DealerFullStorefrontReview />} />
         </Route>
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}

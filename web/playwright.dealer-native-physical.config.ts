@@ -11,7 +11,7 @@ export default defineConfig({
   forbidOnly:true,
   retries:0,
   workers:1,
-  timeout:60000,
+  timeout:120000,
   reporter:[['list'],['json',{outputFile:'test-results/dealer-native-physical-results.json'}]],
   use:{
     ...devices['Desktop Chrome'],

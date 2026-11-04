@@ -12,6 +12,15 @@ if(fixture.source_type!=='EXPLICITLY_FICTIONAL_NATIVE_POSTGRES_XLSX'||fixture.so
  throw Error('NON_SYNTHETIC_OR_NON_NATIVE_BROWSER_TEST_REFUSED')
 const API='http://127.0.0.1:3001/api'
 
+// Every synthetic browser scenario uses the same loopback address. Let the
+// authentic CarUp per-IP rate window advance between isolated browser cases;
+// unlike raising the server limit, this does NOT weaken the production policy.
+// The pause also runs after a failed case so later cases remain diagnostically
+// independent rather than inheriting a synthetic burst's HTTP 429.
+test.afterEach(async()=>{
+  await new Promise<void>(resolve=>setTimeout(resolve,42_000))
+})
+
 async function loginAs(page:Page,actor:Actor){
   await page.addInitScript(({user,token}:{user:Omit<Actor,'token'>;token:string})=>{
     localStorage.setItem('carup_user',JSON.stringify(user))
@@ -55,11 +64,6 @@ for(const width of [390,768,1280,1920]){
       await page.screenshot({path,fullPage:true})
       await info.attach('native-unclaimed-'+width+'px',{path,contentType:'image/png'})
       expect(failures).toEqual([])
-      // Six actual browser sessions exercise the SAME loopback IP. Respect
-      // CarUp's real 100-requests/minute API policy instead of overriding or
-      // disabling the security limiter in CI. Navigation analytics, registry,
-      // public research and reviewed contact requests share this quota.
-      await page.waitForTimeout(20_000)
       await context.close()
     })
 }
