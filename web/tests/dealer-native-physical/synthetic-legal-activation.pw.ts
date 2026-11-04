@@ -255,8 +255,21 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await claimant.getByRole('button',{name:'Save this section to CarUp'}).click()
  await expect(claimant.getByText('Saved private buyer assurance version 1.',{exact:false}))
   .toBeVisible({timeout:30000})
- await claimant.reload()
- await claimant.getByRole('button',{name:/Buyer assurance/}).click()
+ // The same local loopback IP is shared by many REAL browser navigation,
+ // session, menu and feature calls. A valid policy save must survive refresh
+ // without disabling or enlarging CarUp's fixed-window global rate limiter.
+ // Respect the actual window before the separate full-document reload.
+ await claimant.waitForTimeout(70_000)
+ const firstReloadResponse=await claimant.reload()
+ expect(firstReloadResponse?.status()).toBe(200)
+ await expect(claimant.getByRole('button',{name:/Buyer assurance/}))
+  .toBeVisible({timeout:30_000})
+ const postRefreshAuthority=await claimant.request.get(
+  API+'/dealer/operational-workspace',{
+    headers:headers(fixture.actors.claimant),
+  })
+ expect(postRefreshAuthority.status()).toBe(200)
+ await claimant.getByRole('button',{name:/Buyer assurance/}).click({timeout:30_000})
  await expect(claimant.locator('#dealer-refund_policy')).toHaveValue(
   'FICTIONAL CI: no actual deposits collected. All test orders are void and refunds are not real.',
   {timeout:30000})

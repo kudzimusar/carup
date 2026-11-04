@@ -83,6 +83,13 @@ try{
  await db.query(`GRANT SELECT ON tenants,organizations,organization_users,
    organization_roles,dealer_profiles,dealer_branches,tenant_users TO service_role`);
  await db.query(`GRANT INSERT,UPDATE ON dealer_branches TO service_role`);
+ // C23 live buyer-case candidate reads canonical escrow transactions through
+ // the genuine service_role, not a fabricated frontend transaction array.
+ // This is only the isolated disposable SQL harness; Supabase's production
+ // service_role grants are not modified or broadened to anon/authenticated.
+ await db.query(`GRANT SELECT ON escrow_trust_sessions,
+   dealer_transaction_feedback_cases,dealer_transaction_feedback_review_events
+   TO service_role`);
  await db.query(`UPDATE users SET
   name=CASE WHEN id='claimant1' THEN 'Fictional Claimant One'
        WHEN id='reviewer1' THEN 'Fictional Independent Reviewer'

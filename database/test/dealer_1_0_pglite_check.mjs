@@ -756,6 +756,17 @@ try{
     '${feedbackId}','${outsider}','REFERRED_TO_CANONICAL_DISPUTE',
     'The buyer is not an independent reviewer for their own original transaction feedback case.')`,
     'INDEPENDENT_BUYER_CASE_REVIEWER_REQUIRED');
+  // A dealership legal owner cannot review their own buyer complaints even
+  // when an administrator accidentally grants that owner a platform review
+  // role. Transaction buyer identity and dealer owner separation both matter.
+  const ownerPrior=(await query("SELECT role,is_verified FROM users WHERE id='claimant1'")).rows[0];
+  await exec("UPDATE users SET role='reviewer',is_verified=true WHERE id='claimant1'");
+  await fails(`SELECT dealer_record_transaction_feedback_finding(
+    '${feedbackId}','${claimant}','NOT_ELIGIBLE_FOR_PUBLIC_REVIEW',
+    'The legal dealership owner cannot independently moderate a complaint about their own seller business.')`,
+    'DEALER_CANNOT_REVIEW_OWN_BUYER_CASE');
+  await query("UPDATE users SET role=$1,is_verified=$2 WHERE id='claimant1'",
+    [ownerPrior.role,ownerPrior.is_verified]);
   const finding=await query(
     'SELECT dealer_record_transaction_feedback_finding($1,$2,$3,$4) AS receipt',
     [feedbackId,reviewer,'REFERRED_TO_CANONICAL_DISPUTE',

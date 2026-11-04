@@ -68,9 +68,13 @@ export default function DealerDirectory() {
             Discover researched automotive businesses and CarUp-approved dealerships.
             A research listing is not proof of legal ownership, current operation or business verification.
           </p>
-          <p className="text-sm text-gray-500 mb-6">
+          <p className="text-sm text-gray-500 mb-4">
             Profiles become visible only after CarUp independently reviews their public research information.
           </p>
+          <Link className="inline-flex text-sm font-medium text-blue-800 underline mb-6"
+            to="/dealers/feedback">
+            Transaction-linked buyer complaints and private feedback
+          </Link>
           <label htmlFor="dealer-city-filter" className="block font-medium text-sm mb-2 mt-4">
             Filter by researched or independently reviewed city
           </label>

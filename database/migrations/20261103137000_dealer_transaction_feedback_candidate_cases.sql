@@ -150,6 +150,14 @@ BEGIN
    OR r.is_verified IS DISTINCT FROM true OR
    r.id=c.buyer_user_id THEN
    RAISE EXCEPTION 'INDEPENDENT_BUYER_CASE_REVIEWER_REQUIRED'; END IF;
+ -- An independent platform reviewer may not be the dealership legal owner.
+ -- Buyer consent and legal company authority are separate maker/checker roles.
+ -- Even an owner granted a platform review role cannot judge their own case.
+ IF EXISTS(SELECT 1 FROM dealer_approved_seed_links owner_link
+    WHERE owner_link.seed_dealer_id=c.seed_dealer_id
+      AND owner_link.claimant_user_id=p_reviewer_id) THEN
+   RAISE EXCEPTION 'DEALER_CANNOT_REVIEW_OWN_BUYER_CASE';
+ END IF;
  INSERT INTO dealer_transaction_feedback_review_events(
    case_id,reviewer_user_id,finding,rationale)
  VALUES(p_case_id,p_reviewer_id,p_finding,btrim(p_reason))

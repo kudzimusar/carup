@@ -5,13 +5,16 @@ import {defineConfig,devices} from '@playwright/test'
  * These tests do not borrow staging/production, mock responses, or claim full golden
  * lifecycle authorization. Every API call is resolved by CarUp Express/PostgREST.
  */
-const phase=process.env.DEALER_BROWSER_PHASE==='synthetic-legal'
-  ?'synthetic-legal':'prelegal'
+const allowedPhases=new Set([
+  'prelegal','synthetic-legal','synthetic-staff','synthetic-feedback',
+])
+const phase=process.env.DEALER_BROWSER_PHASE||'prelegal'
+if(!allowedPhases.has(phase))
+  throw Error('UNRECOGNIZED_DISPOSABLE_DEALER_BROWSER_PHASE')
 
 export default defineConfig({
-  // Preserve both physical phases' screenshots, traces and JSON receipts.
-  // Running Playwright twice with the same output directory would otherwise
-  // delete the first phase's evidence before CI artifact upload.
+  // Four independent physical phases retain their own screenshots, traces
+  // and JSON receipts. Reusing outputDir would silently erase prior evidence.
   outputDir:'test-results/'+phase,
   testDir:'./tests/dealer-native-physical',
   // Distinct browser-only filename prevents Vitest from loading this file

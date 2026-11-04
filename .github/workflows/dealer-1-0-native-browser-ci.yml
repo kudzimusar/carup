@@ -248,6 +248,16 @@ jobs:
           cd ..
           node backend/scripts/dealership/verifyNativeFictionalStaffCustody.mjs
           echo 'DEALER_NATIVE_CANONICAL_STAFF_RESULT PASS: real browser invitation/accept/revoke; member only, no seller/payment/owner escalation; fictional CI only'
+          # FOURTH: one explicitly fictional transaction-linked buyer complaint,
+          # buyer session distinct from dealer and platform reviewer, genuine
+          # private PostgreSQL/escrow FK and password-gated immutable finding.
+          cd web
+          DEALER_BROWSER_PHASE=synthetic-feedback npx playwright test \
+            --config playwright.dealer-native-physical.config.ts \
+            tests/dealer-native-physical/synthetic-buyer-feedback.pw.ts
+          cd ..
+          node backend/scripts/dealership/verifyNativeFictionalBuyerFeedbackCustody.mjs
+          echo 'DEALER_NATIVE_PRIVATE_BUYER_CASE_RESULT PASS: factual private canonical feedback and independent reviewer, no public stars or money mutation, FICTIONAL ONLY'
       - name: Preserve screenshots, traces and physical test results
         if: always()
         uses: actions/upload-artifact@v4

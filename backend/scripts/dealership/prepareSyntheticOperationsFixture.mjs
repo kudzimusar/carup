@@ -59,6 +59,14 @@ try {
    'vehicle_purchase_interest','new','clear','web','OTHER PRIVATE BUYER',
    'other-private@example.invalid','CROSS-TENANT PRIVATE TEST')`,
   [own,vin,String(tenant),outside,'00000000-0000-4000-8000-000000009999']);
+ // A deliberately labelled sandbox escrow intent exercises the canonical
+ // transaction foreign key. It does not represent a genuine vehicle transfer,
+ // settlement, commercial entitlement or verified purchase.
+ const feedbackTx=randomUUID();
+ assert.equal(f.actors.buyer?.id,'notreviewer');
+ await db.query(`INSERT INTO escrow_trust_sessions(id,buyer_id,tenant_id,status)
+   VALUES($1,$2,$3,'released_sandbox')`,
+   [feedbackTx,f.actors.buyer.id,String(tenant)]);
  const proof=await db.query(`SELECT
    (SELECT COUNT(*)::int FROM vehicles WHERE tenant_id=$1) AS private_vin_count,
    (SELECT COUNT(*)::int FROM marketplace_inquiries WHERE seller_tenant_id=$2)
@@ -68,6 +76,7 @@ try {
  assert.deepEqual(proof.rows[0],{
    private_vin_count:1,private_buyer_inquiries:1,public_vehicles:0});
  f.synthetic_operations={vin,inquiry_id:own,foreign_inquiry_id:outside,
+  feedback_transaction_id:feedbackTx,
   tenant_id:String(tenant),stock_publication:'draft',fictional_only:true};
  writeFileSync(fpath,JSON.stringify(f),{mode:0o600});
  console.log('DEALER_SYNTHETIC_CANONICAL_OPERATIONS_SEED PASS: one private draft FICTIONAL VIN and one tenant-scoped fictional inquiry; cross-tenant negative seeded, no published stock/sale/payment');

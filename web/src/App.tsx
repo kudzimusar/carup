@@ -38,6 +38,8 @@ import DealerBillingReadiness from './pages/DealerBillingReadiness'
 import DealerStaffConsole from './pages/DealerStaffConsole'
 import DealerTenantInventory from './pages/DealerTenantInventory'
 import DealerTenantInquiries from './pages/DealerTenantInquiries'
+import DealerBuyerFeedback from './pages/DealerBuyerFeedback'
+import DealerBuyerFeedbackReview from './pages/DealerBuyerFeedbackReview'
 import GarageDirectory from './pages/GarageDirectory'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
@@ -271,6 +273,7 @@ export default function App() {
           <Route path="/search" element={<VehicleSearch />} />
           <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
+          <Route path="/dealers/feedback" element={<DealerBuyerFeedback />} />
           <Route path="/dealers/:seedId" element={<DealerResearchProfile />} />
           <Route path="/dealers/:seedId/claim" element={<DealerResearchProfile claimMode />} />
           <Route path="/dealers/:seedId/correction" element={<DealerResearchCorrection />} />
@@ -474,6 +477,7 @@ export default function App() {
           <Route path="/admin/dealer-compliance-submissions" element={<DealerComplianceApplicationReview />} />
           <Route path="/admin/dealer-legal-activation" element={<DealerLegalActivationReview />} />
           <Route path="/admin/dealer-full-storefront-review" element={<DealerFullStorefrontReview />} />
+          <Route path="/admin/dealer-buyer-feedback" element={<DealerBuyerFeedbackReview />} />
         </Route>
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}

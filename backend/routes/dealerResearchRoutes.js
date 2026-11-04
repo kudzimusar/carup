@@ -24,6 +24,11 @@ import {
   listDealerComplianceReviewQueue,previewDealerComplianceCase,
   recordDealerPreliminaryReview,
 } from '../services/dealer/dealerComplianceApplicationService.js';
+import {
+  listMyCanonicalDealerFeedbackContext,submitMyPrivateDealerFeedback,
+  listPrivateBuyerCaseReviewQueue,previewPrivateBuyerCase,
+  recordPrivateBuyerCaseFinding,
+} from '../services/dealer/dealerBuyerFeedbackService.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { rateLimiter } from '../middleware/securityMiddleware.js';
 import {
@@ -51,6 +56,10 @@ const publicReadLimit = rateLimiter({ max: 40, windowMs: 60 * 1000, isSensitive:
  const applicationWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-application-intake'});
  const claimantAggregateLimit = rateLimiter({max:8,windowMs:3600000,isSensitive:true,bucket:'dealer-claimant-total'});
 const reviewWriteLimit = rateLimiter({ max: 15, windowMs: 60 * 60 * 1000, isSensitive: true });
+const buyerCaseWriteLimit = rateLimiter({max:4,windowMs:3600000,
+  isSensitive:true,bucket:'dealer-buyer-feedback'});
+const buyerReviewWriteLimit = rateLimiter({max:12,windowMs:3600000,
+  isSensitive:true,bucket:'dealer-independent-buyer-case-review'});
 const session = authorizeSessionRole([]);
 const reviewer = authorizeSessionRole(['admin','reviewer']);
 
@@ -427,6 +436,46 @@ router.post('/api/admin/dealership/research/:seedId/review', reviewWriteLimit, r
     const review = await reviewResearchSeed(req.params.seedId,req.userContext,req.body || {});
     res.set('Cache-Control','no-store').status(201).json({ review });
   } catch (error) { errorResponse(res,next,error); }
+});
+
+// C23 private transaction-backed buyer cases: fail-closed SQL validates buyer,
+// canonical escrow intent and activated dealer tenancy; never a public rating.
+// Dealer legal owners cannot review complaints about their own dealership.
+router.get('/api/dealership/buyer-feedback/mine',session,async(req,res,next)=>{
+  try{
+    const context=await listMyCanonicalDealerFeedbackContext(req.userContext);
+    res.set('Cache-Control','no-store').json(context);
+  }catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/dealership/buyer-feedback/cases',
+  buyerCaseWriteLimit,session,async(req,res,next)=>{
+  try{
+    const receipt=await submitMyPrivateDealerFeedback(req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({receipt});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.get('/api/admin/dealership/buyer-feedback/queue',
+  reviewer,async(req,res,next)=>{
+  try{
+    const cases=await listPrivateBuyerCaseReviewQueue(req.userContext);
+    res.set('Cache-Control','no-store').json({cases});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/admin/dealership/buyer-feedback/:caseId/preview',
+  buyerReviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const preview=await previewPrivateBuyerCase(
+      req.userContext,req.params.caseId,req.body?.reviewer_password);
+    res.set('Cache-Control','no-store').json({preview});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/admin/dealership/buyer-feedback/:caseId/review',
+  buyerReviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const finding=await recordPrivateBuyerCaseFinding(
+      req.userContext,req.params.caseId,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({finding});
+  }catch(error){errorResponse(res,next,error)}
 });
 
 export default router;

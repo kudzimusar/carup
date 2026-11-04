@@ -23,6 +23,7 @@ const reviewLinks = [
   ['/admin/dealer-compliance-submissions','Application evidence'],
   ['/admin/dealer-legal-activation','Legal activation'],
   ['/admin/dealer-full-storefront-review','Public storefront decisions'],
+  ['/admin/dealer-buyer-feedback','Buyer complaints'],
 ] as const
 
 export default function DealerReviewerLayout() {

@@ -86,6 +86,19 @@ try{
  await db.query(`INSERT INTO user_sessions(token,user_id,is_valid,expires_at)
    VALUES($1,$2,true,now()+interval '2 hours')`,[staffToken,staffUser.id]);
  fixture.actors.staff={...staffUser,token:staffToken};
+ // A third entirely fictional buyer is not a claimant, staff member,
+ // reviewer or legal officer. Only their own escrow-trust intent can create a
+ // private complaint or feedback candidate; no real purchase is represented.
+ const buyer={id:'notreviewer',name:'Fictional Buyer of No Actual Vehicle',
+  email:'fictional-feedback-buyer@example.invalid',role:'member'};
+ const buyerAccount=await db.query(`UPDATE users
+   SET name=$2,email=$3 WHERE id=$1 AND role='member' AND is_verified=true`,
+   [buyer.id,buyer.name,buyer.email]);
+ assert.equal(buyerAccount.rowCount,1,'independent buyer fixture missing');
+ const buyerToken='fictional-private-buyer-session-'+randomUUID();
+ await db.query(`INSERT INTO user_sessions(token,user_id,is_valid,expires_at)
+   VALUES($1,$2,true,now()+interval '2 hours')`,[buyerToken,buyer.id]);
+ fixture.actors.buyer={...buyer,token:buyerToken};
  const authority=await db.query(`SELECT id,is_verified,role FROM users WHERE id='policyreviewer'`);
  assert.deepEqual(authority.rows,[{id:'policyreviewer',is_verified:true,role:'admin'}]);
  const digest=createHash('sha256').update(
