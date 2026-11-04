@@ -23,8 +23,10 @@ test('C11/C15 ordinary-member legal dealer dashboard uses claim-linked authority
   assert.doesNotMatch(dashboard,/useCarUpApi|fetchDealerInventory/);
 });
 test('C14 new branch is real tenant-checked canonical persistence, never local mock',()=>{
-  assert.match(dashboard,/path:'\/dealer\/operational-branches'/);
-  assert.match(dashboard,/method:'POST'/);
+  // Create and edit share canonical branch authority; the URL is conditional
+  // instead of a constant POST-only path.
+  assert.match(dashboard,/\/dealer\/operational-branches/);
+  assert.match(dashboard,/method:editingBranchId\?'PATCH':'POST'/);
   assert.match(routes,/router\.post\('\/api\/dealer\/operational-branches'/);
   assert.match(service,/supabase\.from\('dealer_branches'\)/);
   assert.match(service,/requireApprovedOwnerWorkspace\(actor\)/);
