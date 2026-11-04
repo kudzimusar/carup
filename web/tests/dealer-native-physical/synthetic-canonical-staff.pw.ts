@@ -144,7 +144,23 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  await owner.screenshot({path:leadShot,fullPage:true})
  await info.attach('fictional-real-marketplace-lead-qualified-no-sale',{
   path:leadShot,contentType:'image/png'})
- await owner.goto('/dealers/staff')
+ // A real sequence of authenticated owner + staff sessions shares one
+ // loopback IP in CI. Earlier operations and the Vite shell legitimately
+ // consume the production-equivalent 100/min global request budget.
+ // Respect the window rather than disabling the limiter or masking HTTP 429.
+ // This is ALSO a fresh authorized read after the committed lead transition.
+ await owner.waitForTimeout(70_000)
+ const staffReturn=await owner.goto('/dealers/staff')
+ expect(staffReturn?.status()).toBe(200)
+ const freshOwnerStaff=await owner.request.get(
+  'http://127.0.0.1:3001/api/dealer/operational-staff',{
+   headers:ownerHeaders,
+  })
+ expect(freshOwnerStaff.status()).toBe(200)
+ const staffRead=await freshOwnerStaff.json() as {staff:{
+  members:Array<{user_id:string;role:string}>}}
+ expect(staffRead.staff.members.some(m=>
+  m.user_id===f.actors.staff.id&&m.role==='member')).toBe(true)
  await owner.reload()
  await expect(owner.getByText(f.actors.staff.id,{exact:true}).first())
   .toBeVisible({timeout:30000})
