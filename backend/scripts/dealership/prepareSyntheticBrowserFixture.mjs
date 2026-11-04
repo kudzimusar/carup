@@ -90,7 +90,14 @@ try{
   email=CASE WHEN id='claimant1' THEN 'claimant1@example.invalid'
         WHEN id='reviewer1' THEN 'reviewer1@example.invalid'
         ELSE email END,
-  role=CASE WHEN id='reviewer1' THEN 'reviewer' ELSE role END
+  role=CASE WHEN id='reviewer1' THEN 'reviewer' ELSE role END,
+  -- Only the explicitly fictional claimant has completed the simulated
+  -- human identity check for browser UAT. The fresh schema mode starts
+  -- claimant1 unverified; the prior contract suite had verified it as a
+  -- side effect, masking the fixture's missing initial state.
+  -- This DOES NOT verify a dealership, grant a tenant role or approve legal
+  -- compliance. No real-user record can enter this isolated fixture.
+  is_verified=CASE WHEN id='claimant1' THEN true ELSE is_verified END
   WHERE id IN ('claimant1','reviewer1')`);
  // The first migration harness seeds reviewer1 as admin for SQL exercising.
  // In the physical browser fixture it MUST be a genuinely distinct,

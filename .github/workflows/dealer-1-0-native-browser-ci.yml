@@ -118,7 +118,11 @@ jobs:
           }finally{await maintenance.end()}
           console.log('DEALER_ISOLATED_DB_RESET PASS: fresh loopback database, migration tests retained in CI logs; no production or shared DB')
           DEALER_RESET_DB
-          DEALER_NATIVE_SCHEMA_ONLY=1 node database/test/dealer_1_0_pglite_check.mjs > "${RUNNER_TEMP}/fresh-browser-schema.log" 2>&1
+          if ! DEALER_NATIVE_SCHEMA_ONLY=1 node database/test/dealer_1_0_pglite_check.mjs > "${RUNNER_TEMP}/fresh-browser-schema.log" 2>&1; then
+            echo 'DEALER_FRESH_SCHEMA_FAILED: isolated synthetic schema log follows'
+            tail -n 100 "${RUNNER_TEMP}/fresh-browser-schema.log"
+            exit 1
+          fi
           grep -q '^DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS:' "${RUNNER_TEMP}/fresh-browser-schema.log"
           node backend/scripts/dealership/proveSynthetic104NativePostgres.mjs > "${RUNNER_TEMP}/synthetic-import.log" 2>&1
           grep -q '^DEALER_SYNTHETIC_104_NATIVE_RESULT PASS:' "${RUNNER_TEMP}/synthetic-import.log"
