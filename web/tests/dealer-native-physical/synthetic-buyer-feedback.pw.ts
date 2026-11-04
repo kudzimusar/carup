@@ -48,7 +48,7 @@ async function login(page:Page,actor:Actor){
    token:actor.token})
 }
 test('FICTIONAL buyer private complaint → immutable canonical receipt → separate reviewer password finding; zero public stars/money',async({browser},info)=>{
- test.setTimeout(360000)
+ test.setTimeout(420000)
  await new Promise<void>(r=>setTimeout(r,70_000))
  const buyerCtx=await browser.newContext({viewport:{width:390,height:844}})
  const buyer=await buyerCtx.newPage()
@@ -106,6 +106,13 @@ test('FICTIONAL buyer private complaint → immutable canonical receipt → sepa
    statement:'FICTIONAL cross-buyer forged case must not be recorded or made public.'},
  })
  expect(crossWrite.status()).toBe(409)
+ expect((await crossWrite.json() as {error:string}).error)
+  .toBe('DEALER_BUYER_FEEDBACK_CASE_REFUSED')
+ // Before a third authenticated browser identity enters, let the real
+ // production-equivalent 100/min GLOBAL loopback IP budget reset. The buyer,
+ // claimant, platform shell and CSRF requests are all genuine HTTP requests;
+ // disabling the rate limiter would invalidate this physical evidence.
+ await attacker.waitForTimeout(70_000)
 
  // Queue reveals metadata only; a separate reviewer must reauthenticate to
  // inspect the actual statement and reauthenticate again for the finding.
