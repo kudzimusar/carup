@@ -755,7 +755,7 @@ try{
   await exec('TRUNCATE dealer_staff_invitation_events, dealer_staff_invitation_records');
   await exec('TRUNCATE dealer_full_storefront_review_events');
   await exec('TRUNCATE dealer_operational_declaration_events');
-  -- Dispose synthetic private feedback before isolated rollback, never on a live DB.
+  // Dispose synthetic private feedback before isolated rollback, never on a live DB.
   await exec('TRUNCATE dealer_transaction_feedback_review_events, dealer_transaction_feedback_cases');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
