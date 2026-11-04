@@ -58,6 +58,16 @@ try{
   is_valid BOOLEAN NOT NULL DEFAULT true,
   expires_at TIMESTAMPTZ NOT NULL
  )`);
+ // The isolated SQL migration harness creates service_role without Supabase's
+ // production-equivalent BYPASSRLS attribute. Without it PostgREST legitimately
+ // returns HTTP 200 with [] for private-policy tables despite its service JWT.
+ // This is ONLY a disposable localhost database (guarded above), never shared.
+ await db.query('ALTER ROLE service_role BYPASSRLS');
+ const roleProof=await db.query(`SELECT rolname,rolbypassrls FROM pg_roles
+  WHERE rolname IN('service_role','anon','authenticated') ORDER BY rolname`);
+ assert.equal(roleProof.rows.find(row=>row.rolname==='service_role')?.rolbypassrls,true);
+ assert.ok(roleProof.rows.filter(row=>row.rolname!=='service_role')
+   .every(row=>row.rolbypassrls===false));
  await db.query(`GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role`);
  await db.query(`GRANT SELECT ON users,user_sessions TO service_role`);
  await db.query(`UPDATE users SET

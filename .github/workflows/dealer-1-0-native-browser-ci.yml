@@ -143,8 +143,15 @@ jobs:
           const fs=require('node:fs')
           const directory=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/local-directory-read.json','utf8'))
           if(directory.total!==1||directory.entries?.[0]?.seed_dealer_id!=='ZW-DEAL-0001'
-            ||directory.entries[0].business_verified!==false)
+            ||directory.entries[0].business_verified!==false){
+            // Public, fictional data only: diagnostic must not dump private sources or sessions.
+            console.error('NATIVE_BROWSER_PUBLIC_RESPONSE_SHAPE',
+              JSON.stringify({total:directory.total,entries:directory.entries?.map(e=>({
+                id:e.seed_dealer_id,tier:e.tier,business_verified:e.business_verified
+              })),keys:Object.keys(directory)}))
+            )
             throw Error('Native browser bootstrap did not return one real SQL-backed fictional prelisting')
+          }
           console.log('NATIVE_BROWSER_API_DATA_READY: one reviewed fictional unclaimed profile; 103 still private')
           NODE
           curl -fsS http://127.0.0.1:5173/dealers >/dev/null
