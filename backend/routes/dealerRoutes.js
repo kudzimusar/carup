@@ -32,6 +32,10 @@ import {
   listCanonicalDealerStaff,inviteDealerStaff,listOwnDealerStaffInvitations,
   acceptDealerStaffInvitation,revokeDealerStaffInvitation,
 } from '../services/dealer/dealerStaffMembershipService.js';
+import {
+  listMyStaffBranches,listMyOwnerStaffBranchScopes,
+  grantMyStaffBranchScope,revokeMyStaffBranchScope,editMyStaffBranch,
+} from '../services/dealer/dealerStaffBranchScopeService.js';
 import {getMyCanonicalDealerInventory}
   from '../services/dealer/dealerTenantInventoryReadService.js';
 import {getMyCanonicalDealerInquiries,advanceMyCanonicalDealerInquiry}
@@ -264,6 +268,64 @@ router.post('/api/dealer/staff-invitations/:id/revoke',authorizeSessionRole([]),
   try{
     const receipt=await revokeDealerStaffInvitation(req.userContext,req.params.id);
     res.set('Cache-Control','no-store').status(200).json({receipt});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+
+// C16: canonical branch-scoped member authorization (explicitly separate
+// from owner, seller, reviewer, financial and company signatory authority).
+// Every request is bound to a genuine signed CarUp session; SQL requires
+// both tenant_users + organization_users membership and current legal policy.
+router.get('/api/dealer/staff-branches/mine',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const scopes=await listMyStaffBranches(req.userContext);
+    res.set('Cache-Control','no-store').json({scopes});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+router.get('/api/dealer/staff-branch-scopes/owner',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const ledger=await listMyOwnerStaffBranchScopes(req.userContext);
+    res.set('Cache-Control','no-store').json({ledger});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+router.post('/api/dealer/staff-branch-scopes',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const receipt=await grantMyStaffBranchScope(req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({receipt});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+router.post('/api/dealer/staff-branch-scopes/:id/revoke',
+  authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const receipt=await revokeMyStaffBranchScope(req.userContext,req.params.id);
+    res.set('Cache-Control','no-store').json({receipt});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+router.patch('/api/dealer/staff-branches/:scopeId',
+  authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const receipt=await editMyStaffBranch(
+      req.userContext,req.params.scopeId,req.body||{});
+    res.set('Cache-Control','no-store').json({receipt});
   }catch(error){
     if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
       return res.status(error.statusCode).json({error:error.message});
