@@ -633,6 +633,37 @@ try{
   assert.equal(current.rows[0].approved_branch_snapshot.length,1);
   assert.equal(current.rows[0].dealer_declared_sections.BUYER_ASSURANCE.refund_policy,
     'Written refund terms require further buyer review');
+
+  // Current government/jurisdiction policy is an independently maintained
+  // external authority, not a cached public dealer badge. Prove immediate
+  // public FULL withdrawal when the previously approved TEST policy expires.
+  // Do not permanently modify even the synthetic data: this transaction is
+  // explicitly rolled back before running the following canonical operations.
+  await exec('BEGIN');
+  try{
+    await exec(`UPDATE dealer_country_legal_policy_authority
+      SET expires_at=now()-interval '1 day'
+      WHERE country_code='ZW' AND policy_state='APPROVED'`);
+    const withoutPolicy=await query(
+      "SELECT seed_dealer_id FROM dealer_full_storefront_current WHERE seed_dealer_id='ZW-DEAL-0001'");
+    assert.equal(withoutPolicy.rows.length,0,'expired policy must instantly suppress full public display');
+  }finally{await exec('ROLLBACK')}
+  assert.equal((await query(
+    "SELECT count(*)::int AS n FROM dealer_full_storefront_current")).rows[0].n,1,
+    'rollback of disposable policy expiry simulation restores valid original approval');
+
+  // A suspended business tenant is also immediately nonpublishable, without
+  // relying on browser caches, manufactured flags, or changing old audit rows.
+  await exec('BEGIN');
+  try{
+    await exec(`UPDATE tenants SET status='suspended' WHERE id='${tenant}'`);
+    assert.equal((await query(
+      "SELECT count(*)::int AS n FROM dealer_full_storefront_current")).rows[0].n,0,
+      'suspended actual canonical dealer tenant must never retain full public projection');
+  }finally{await exec('ROLLBACK')}
+  assert.equal((await query(
+    "SELECT count(*)::int AS n FROM dealer_full_storefront_current")).rows[0].n,1);
+  console.log('DEALER_NATIVE_PUBLIC_LIVE_REVOCATION PASS: synthetic policy expiry and canonical tenant suspension suppress full public display immediately; both isolated simulations rolled back');
   await fails('UPDATE dealer_full_storefront_review_events SET disposition=\'RETRACTED\'',
     'APPEND_ONLY_LEDGER');
   await exec('SET ROLE anon');

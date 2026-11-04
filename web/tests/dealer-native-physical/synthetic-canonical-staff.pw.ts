@@ -152,6 +152,33 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
   .toBeVisible({timeout:30000})
  await expect(owner.getByText('TEST0000000000001')).toBeVisible({timeout:30000})
  await expect(owner.getByText('draft',{exact:true})).toBeVisible()
+ await expect(owner.getByRole('heading',{name:'Structural listing precheck'}))
+  .toBeVisible({timeout:30000})
+ await expect(owner.getByText('fixture excluded')).toBeVisible()
+ await expect(owner.getByText('Seller Authority and Vehicle Passport review: not evaluated.',{
+  exact:false,
+ })).toBeVisible()
+ const stockPrecheck=await owner.request.get(
+  'http://127.0.0.1:3001/api/dealer/operational-inventory',
+  {headers:{'x-user-id':f.actors.claimant.id,
+   'x-session-token':f.actors.claimant.token}})
+ expect(stockPrecheck.status()).toBe(200)
+ const read=await stockPrecheck.json() as {inventory:{entries:Array<{
+  vin:string;listing_structural_precheck:{
+   source:string;blocking_reason_codes:string[];
+   seller_authority_check:string;human_publication_authorized:boolean;
+   merchant_payment_authorized:boolean;
+  }}>
+ }}
+ const v=read.inventory.entries.find(x=>x.vin==='TEST0000000000001')
+ expect(v).toBeTruthy()
+ expect(v?.listing_structural_precheck.source)
+  .toBe('EXISTING_MARKETPLACE_LISTING_ELIGIBILITY_RULES')
+ expect(v?.listing_structural_precheck.blocking_reason_codes)
+  .toContain('fixture_excluded')
+ expect(v?.listing_structural_precheck.seller_authority_check).toBe('NOT_EVALUATED')
+ expect(v?.listing_structural_precheck.human_publication_authorized).toBe(false)
+ expect(v?.listing_structural_precheck.merchant_payment_authorized).toBe(false)
  const stockShot=info.outputPath('fictional-canonical-draft-vin-not-published.png')
  await owner.screenshot({path:stockShot,fullPage:true})
  await info.attach('fictional-canonical-draft-vin-not-published',{
@@ -200,6 +227,20 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  await owner.getByRole('button',{name:'Record dealer-reported qualified enquiry'}).click()
  await expect(owner.getByText('Dealer-reported follow-up saved to the canonical Marketplace inquiry.',{exact:false}))
   .toBeVisible({timeout:30000})
+ // The genuine canonical NEW->CONTACTED->QUALIFIED writes were HTTP 200.
+ // The previous browser failure was an immediate reload while the shared
+ // 100/min loopback-IP request quota was exhausted by shell requests.
+ // Respect the real window instead of bypassing security or deleting assertions.
+ await owner.waitForTimeout(70_000)
+ const leadReturn=await owner.request.get(
+  'http://127.0.0.1:3001/api/dealer/operational-inquiries',
+  {headers:ownerHeaders})
+ expect(leadReturn.status()).toBe(200)
+ const currentLead=await leadReturn.json() as {inquiries:{entries:Array<{
+  inquiry_id:string;status:string;allowed_followup_status:string|null}>}}
+ expect(currentLead.inquiries.entries.filter(x=>x.status==='qualified')).toHaveLength(1)
+ expect(currentLead.inquiries.entries.find(x=>x.status==='qualified')?.allowed_followup_status)
+  .toBeNull()
  await owner.reload()
  await expect(owner.getByText('qualified',{exact:true})).toBeVisible({timeout:30000})
  const leadShot=info.outputPath('fictional-real-marketplace-lead-qualified-no-sale.png')

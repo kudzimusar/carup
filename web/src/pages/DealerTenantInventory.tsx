@@ -9,6 +9,14 @@ type Vehicle={
  recorded_marketplace_publication_state:string|null;
  seller_authority:string;legal_title_certified:false;import_duty_verified:false;
  branch_attribution:string;public_listing_approved_by_this_read:false;
+ listing_structural_precheck:{
+  source:'EXISTING_MARKETPLACE_LISTING_ELIGIBILITY_RULES';
+  blocking_reason_codes:string[];
+  result:'DATA_PRECHECK_ONLY'|'REQUIRES_DATA_CORRECTION';
+  seller_authority_check:'NOT_EVALUATED';
+  vehicle_passport_review:'NOT_EVALUATED';
+  human_publication_authorized:false;merchant_payment_authorized:false;
+ };
 }
 type Inventory={owner_tenant_id:string;entries:Vehicle[];returned_count:number;
  count_scope:string;actual_total:null;non_tenant_vehicle_visibility:false;
@@ -99,6 +107,24 @@ export default function DealerTenantInventory(){
        <div><dt className="text-slate-500">Marketplace publication</dt>
         <dd>{v.recorded_marketplace_publication_state||'Not recorded'}</dd></div>
       </dl>
+      <section className="border-t mt-4 pt-3 space-y-2">
+       <h3 className="text-sm font-semibold">Structural listing precheck</h3>
+       <p className="text-xs text-slate-600">
+        {v.listing_structural_precheck.result==='DATA_PRECHECK_ONLY'
+         ?'Recorded fields pass the existing Marketplace data-shape precheck.'
+         :'The existing Marketplace rules identified missing or invalid listing data.'}
+       </p>
+       {v.listing_structural_precheck.blocking_reason_codes.length>0&&
+        <ul className="list-disc pl-5 text-xs text-amber-900 space-y-1">
+         {v.listing_structural_precheck.blocking_reason_codes.map(code=>
+          <li key={code}>{code.replaceAll('_',' ')}</li>)}
+        </ul>}
+       <p className="text-xs text-amber-800">
+        Seller Authority and Vehicle Passport review: not evaluated.
+        This data check cannot publish, verify ownership or process a payment,
+        even when no structural issues remain.
+       </p>
+      </section>
       <p className="text-xs text-amber-800 mt-4">
        Tenant association does not prove current seller authority, legal title,
        import duty clearance, buyer-trust approval or physical branch location.

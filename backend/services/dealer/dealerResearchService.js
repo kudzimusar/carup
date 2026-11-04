@@ -43,7 +43,7 @@ function trim(value, maximum, minimum = 0) {
 }
 
 /** A private source record can NEVER be projected by this function. */
-export function publicResearchProjection(row, approvedFull = null) {
+export function publicResearchProjection(row, approvedFull = null, approvedClaimExists = false) {
   if (!row || row.publication_status !== PUBLIC_STATUS) return null;
   if (approvedFull) return Object.freeze({
     ...approvedFull, source_attribution:row.source_attribution,
@@ -51,7 +51,11 @@ export function publicResearchProjection(row, approvedFull = null) {
     source_reviewed_at:row.reviewed_at,
   });
   return Object.freeze({
-    tier:'PRELISTED_UNCLAIMED',
+    // Research-publication status alone is NOT claim status. A full-storefront
+    // review may be retracted or current legal policy may expire without
+    // revoking an already approved claimant's exclusive authority.
+    // Never re-advertise an existing claimed business as "unclaimed".
+    tier:approvedClaimExists?'CLAIMED_PUBLIC_DISPLAY_UNAPPROVED':'PRELISTED_UNCLAIMED',
     seed_dealer_id: row.seed_dealer_id,
     slug: row.public_slug,
     name: row.public_name,
@@ -60,11 +64,33 @@ export function publicResearchProjection(row, approvedFull = null) {
     source_attribution: row.source_attribution,
     reviewed_at: row.reviewed_at,
     revision: row.revision,
-    claimed: false,
+    claimed: approvedClaimExists,
     business_verified: false,
-    label: 'Unclaimed — Not independently business-verified',
-    information_notice: 'CarUp research information may be outdated. This is not a dealer endorsement.',
+    label: approvedClaimExists
+      ?'Existing approved claim — No current independently verified storefront'
+      :'Unclaimed — Not independently business-verified',
+    information_notice: approvedClaimExists
+      ?'A previously approved claimant exists, but current legal, operating or public-display approval cannot be inferred. No new self-service claim, licence verification, vehicle selling or payment authority is available. Contact CarUp for a separate dispute or transfer review.'
+      :'CarUp research information may be outdated. This is not a dealer endorsement.',
   });
+}
+
+/**
+ * Public-safe EXISTENCE only: do not return a claimant ID, email, evidence,
+ * legal name or reviewer data. This prevents an approved company from being
+ * called "unclaimed" after retraction/expiry of its full public display.
+ * Errors are fatal, not silently mapped to "unclaimed" (fail closed).
+ */
+export async function approvedResearchClaimIds(ids,{db=supabase}={}){
+  if(!Array.isArray(ids)||ids.length>50||
+    ids.some(id=>typeof id!=='string'||!SEED_ID.test(id)))
+    throw inputError('Invalid public claim-state lookup');
+  if(!ids.length)return new Set();
+  const {data,error}=await db.from('dealer_research_claim_requests')
+    .select('seed_dealer_id')
+    .in('seed_dealer_id',ids).eq('claim_status','CLAIM_APPROVED');
+  if(error||!Array.isArray(data))throw domainError(error,'public-safe existing claim-state read');
+  return new Set(data.map(row=>row.seed_dealer_id).filter(id=>ids.includes(id)));
 }
 
 export async function listPublicResearch({ q, city, page = 1, limit = 30 } = {}) {
@@ -90,9 +116,12 @@ export async function listPublicResearch({ q, city, page = 1, limit = 30 } = {})
   if (error) throw domainError(error,'research directory');
   // A full storefront is visible ONLY through the live legal/tenant/policy-safe
   // database view. One batched read avoids per-profile private table exposure.
-  const approved=await listReviewedFullStorefronts((data||[]).map(r=>r.seed_dealer_id));
-  return { entries: (data||[]).map(row=>
-    publicResearchProjection(row,approved.get(row.seed_dealer_id)||null)).filter(Boolean),
+  const ids=(data||[]).map(r=>r.seed_dealer_id);
+  const [approved,claimed]=await Promise.all([
+    listReviewedFullStorefronts(ids),approvedResearchClaimIds(ids)]);
+  return { entries: (data||[]).map(row=>publicResearchProjection(
+    row,approved.get(row.seed_dealer_id)||null,claimed.has(row.seed_dealer_id)))
+    .filter(Boolean),
     total: Number.isInteger(count) ? count : null, page: Math.floor(offset / pageSize) + 1, limit: pageSize };
 }
 
@@ -103,7 +132,9 @@ export async function getPublicResearch(seedId) {
     .eq('publication_status',PUBLIC_STATUS).maybeSingle();
   if (error) throw domainError(error,'research profile');
   if (!data) return null;
-  return publicResearchProjection(data,await getReviewedFullStorefront(id));
+  const [full,claimed]=await Promise.all([
+    getReviewedFullStorefront(id),approvedResearchClaimIds([id])]);
+  return publicResearchProjection(data,full,claimed.has(id));
 }
 
 /** Private allowlisted research queue; no source contacts, ownership PII or raw rows. */
@@ -273,6 +304,10 @@ export async function submitResearchClaim(seedId, actor, payload = {}) {
     const error = new Error('Research listing unavailable or withheld');
     error.statusCode = 404;
     throw error;
+  }
+  if(listed.claimed){
+    const error=new Error('An approved claim already exists. A new owner requires independent transfer or dispute review.');
+    error.statusCode=409;throw error;
   }
   const { data, error } = await supabase.from('dealer_research_claim_requests')
     .insert({

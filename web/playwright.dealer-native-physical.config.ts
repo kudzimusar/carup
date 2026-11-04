@@ -7,13 +7,14 @@ import {defineConfig,devices} from '@playwright/test'
  */
 const allowedPhases=new Set([
   'prelegal','synthetic-legal','synthetic-staff','synthetic-feedback',
+  'synthetic-retraction',
 ])
 const phase=process.env.DEALER_BROWSER_PHASE||'prelegal'
 if(!allowedPhases.has(phase))
   throw Error('UNRECOGNIZED_DISPOSABLE_DEALER_BROWSER_PHASE')
 
 export default defineConfig({
-  // Four independent physical phases retain their own screenshots, traces
+  // Five independent physical phases retain their own screenshots, traces
   // and JSON receipts. Reusing outputDir would silently erase prior evidence.
   outputDir:'test-results/'+phase,
   testDir:'./tests/dealer-native-physical',

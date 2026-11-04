@@ -16,7 +16,7 @@ type ResearchProfile = {
   label: string
   claimed: boolean
   business_verified: boolean
-  tier?:'PRELISTED_UNCLAIMED'|'FULL_DEALER_APPROVED'
+  tier?:'PRELISTED_UNCLAIMED'|'FULL_DEALER_APPROVED'|'CLAIMED_PUBLIC_DISPLAY_UNAPPROVED'
   approved_branches?:Array<{branch_id:string;name:string;address:string}>
   dealer_declared_sections?:Record<string,Record<string,string>>
 }
@@ -117,7 +117,7 @@ export default function DealerDirectory() {
           <>
             <p className="mb-5 text-sm text-gray-600" aria-live="polite">
               {directory.total == null ? 'Reviewed public results' : `${directory.total} reviewed public results`}
-              {' · '}Research entries are labelled unclaimed; independently approved businesses are clearly distinguished.
+              {' · '}Unclaimed research entries, existing claims without current public approval, and independently approved storefronts are distinguished.
             </p>
             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {directory.entries.map(dealer => (
@@ -148,7 +148,7 @@ export default function DealerDirectory() {
                       <Link className="text-blue-700 underline underline-offset-4" to={`/dealers/${dealer.slug}`}>
                         View researched profile
                       </Link>
-                      {!dealer.business_verified&&<Link className="text-blue-700 underline underline-offset-4"
+                      {!dealer.claimed&&<Link className="text-blue-700 underline underline-offset-4"
                         to={`/dealers/${dealer.slug}/claim`}>
                         Claim this dealership
                       </Link>}

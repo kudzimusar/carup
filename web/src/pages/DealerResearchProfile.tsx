@@ -19,7 +19,7 @@ type ResearchProfile = {
   information_notice: string
   claimed: boolean
   business_verified: boolean
-  tier?: 'PRELISTED_UNCLAIMED'|'FULL_DEALER_APPROVED'
+  tier?: 'PRELISTED_UNCLAIMED'|'FULL_DEALER_APPROVED'|'CLAIMED_PUBLIC_DISPLAY_UNAPPROVED'
   approved_branches?: Array<{branch_id:string;name:string;address:string;
     display_reviewed:boolean;gps_verified:false}>
   dealer_declared_sections?: Record<string,Record<string,string>>
@@ -84,7 +84,9 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
       })
       if(typeof document!=='undefined'){
         document.title=result.profile.name+(result.profile.business_verified?
-          ' · Reviewed dealer storefront · CarUp':' · Unclaimed research · CarUp dealers')
+          ' · Reviewed dealer storefront · CarUp':
+           result.profile.claimed?' · Claim recorded; public approval unavailable · CarUp':
+           ' · Unclaimed research · CarUp dealers')
       }
     }).catch((error: unknown) => {
       if (!active) return
@@ -251,6 +253,19 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                 <Link className="inline-block text-sm text-blue-700 underline mt-3"
                   to={`/dealers/${profile.slug}/correction`}>
                   Request correction, dispute or removal
+                </Link>
+              </div>
+            ):profile.claimed ? (
+              <div className="mt-6">
+                <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 p-4 rounded-lg">
+                  A reviewed company claim is already recorded. This research profile does
+                  not currently carry approved full-dealership verification. A different
+                  person cannot claim the business through the unclaimed form; CarUp must
+                  independently review an ownership transfer, dispute or correction.
+                </p>
+                <Link className="inline-block text-sm text-blue-700 underline mt-3"
+                  to={`/dealers/${profile.slug}/correction`}>
+                  Request independent correction, dispute or ownership transfer
                 </Link>
               </div>
             ):claimMode ? (

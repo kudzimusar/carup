@@ -278,6 +278,15 @@ jobs:
           cd ..
           node backend/scripts/dealership/verifyNativeFictionalBuyerFeedbackCustody.mjs
           echo 'DEALER_NATIVE_PRIVATE_BUYER_CASE_RESULT PASS: factual private canonical feedback and independent reviewer, no public stars or money mutation, FICTIONAL ONLY'
+          # FIFTH: separate full-storefront public DISPLAY retraction after
+          # the fictional positive journey. Canonical claim and tenant remain.
+          cd web
+          DEALER_BROWSER_PHASE=synthetic-retraction npx playwright test \
+            --config playwright.dealer-native-physical.config.ts \
+            tests/dealer-native-physical/synthetic-public-retraction.pw.ts
+          cd ..
+          node backend/scripts/dealership/verifyNativeFictionalPublicRetractionCustody.mjs
+          echo 'DEALER_NATIVE_PUBLIC_RETRACTION_RESULT PASS: same URL safely downgraded, approved corporate claim preserved, no fake unclaimed or real dealer publication'
       - name: Preserve screenshots, traces and physical test results
         if: always()
         uses: actions/upload-artifact@v4
