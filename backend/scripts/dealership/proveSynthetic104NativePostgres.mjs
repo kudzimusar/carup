@@ -48,7 +48,7 @@ const workbook=new ExcelJS.Workbook();
 for(const name of [...SOURCE_TABS,...DEV_TABS])workbook.addWorksheet(name);
 const source=workbook.getWorksheet('Car Dealers Database');
 const dev8=workbook.getWorksheet('DEV 8 - Seed Catalogue');
-source.getRow(7).values=[null,...ORIGINAL_HEADERS];
+source.getRow(7).values=[...ORIGINAL_HEADERS];
 workbook.getWorksheet('Dealer Profile Intake').getRow(1).getCell(40).value='Last Updated';
 workbook.getWorksheet('Field Dictionary').getRow(129).getCell(4).value='Buyer Visibility';
 for(const [idx,row] of manifest.rows.entries()){
@@ -66,9 +66,9 @@ for(const [idx,row] of manifest.rows.entries()){
     'FICTIONAL COMPANY — NO LEGAL PARENT',
     'https://example.invalid/fictional-dealer-'+n,id
   ];
-  source.getRow(n+7).values=[null,...original];
+  source.getRow(n+7).values=[...original];
   dev8.getRow(n+1).values=[
-    null,id,...original.slice(0,10),row.category,
+    id,...original.slice(0,10),row.category,
     'UNREVIEWED_PARENT_BRANCH_MATCH',
     'PENDING_HUMAN_SOURCE_ELIGIBILITY',
     'UNCLAIMED_NO_APPROVED_CLAIM',
