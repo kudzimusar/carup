@@ -45,7 +45,10 @@ jobs:
           --health-retries 15
     env:
       NODE_ENV: test
-      DEALER_ISOLATED_POSTGRES_URL: postgresql://postgres:dealer-ci-ephemeral-only@127.0.0.1:5432/carup_dealer_isolated_ci
+      # PostgreSQL client reads the ephemeral password separately from PGPASSWORD;
+      # never commit credential-bearing connection URIs, even for test databases.
+      PGPASSWORD: dealer-ci-ephemeral-only
+      DEALER_ISOLATED_POSTGRES_URL: postgresql://postgres@127.0.0.1:5432/carup_dealer_isolated_ci
     steps:
       - name: Checkout exact commit, no persisted token
         uses: actions/checkout@v4
