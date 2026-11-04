@@ -22,7 +22,7 @@
 import express from 'express';
 import dealerResearchRouter from './dealerResearchRoutes.js';
 import {getMyDealerMembershipSummary} from '../services/dealer/dealerOperationsReadService.js';
-import {getMyVerifiedDealerWorkspace,addDeclaredDealerBranch}
+import {getMyVerifiedDealerWorkspace,addDeclaredDealerBranch,updateDeclaredDealerBranch}
   from '../services/dealer/dealerVerifiedWorkspaceService.js';
 import {listMyOperationalDeclarations,recordMyOperationalDeclaration}
   from '../services/dealer/dealerOperationalDeclarationsService.js';
@@ -92,7 +92,17 @@ router.post('/api/dealer/operational-branches',
     next(error);
   }
 });
-
+router.patch('/api/dealer/operational-branches/:branchId',
+  authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const branch=await updateDeclaredDealerBranch(req.userContext,req.params.branchId,req.body||{});
+    res.set('Cache-Control','no-store').status(200).json({branch});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
 
 
 // Versioned private dealer-supplied descriptions, policies and terms.

@@ -25,6 +25,7 @@ const names=[
   '20261103135000_dealer_full_storefront_publication.sql',
   '20261103136000_dealer_staff_canonical_invitations.sql',
   '20261103137000_dealer_transaction_feedback_candidate_cases.sql',
+  '20261103138000_dealer_branch_operating_details.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -154,9 +155,29 @@ try{
     "SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed"
   )).rows[0].allowed,false);
 
-  // Fourteen additive dealer migrations create 29 dealer_ tables in the
+  // Fifteen additive dealer migrations create 29 dealer_ tables in the
   // isolated fixture (including legacy dealer_profiles and compliance tables).
   // This is a source-schema count, NOT 27 verified businesses or publications.
+  // Real schema-level private branch GPS/hour persistence + negative controls.
+  await exec("INSERT INTO dealer_profiles(id,user_id,legal_name) VALUES ('"+uuid(9870)+"','claimant1','Fictional Branch Fixture')");
+  await exec("INSERT INTO dealer_branches(id,dealer_id,name,address,latitude,longitude,opening_hours_text) VALUES ('"+
+    uuid(9871)+"','"+uuid(9870)+"','Fictional Location','Synthetic address',-17.825500,31.050000,'Mon–Fri 08:00–17:00')");
+  const storedBranch=await query(
+    'SELECT latitude::float AS latitude,longitude::float AS longitude,opening_hours_text FROM dealer_branches WHERE id=$1',
+    [uuid(9871)]);
+  assert.equal(storedBranch.rows[0].latitude,-17.8255);
+  assert.equal(storedBranch.rows[0].longitude,31.05);
+  assert.match(storedBranch.rows[0].opening_hours_text,/Mon/);
+  await fails("UPDATE dealer_branches SET longitude=NULL WHERE id='"+uuid(9871)+"'",
+    'dealer_branch_gps_pair_valid');
+  await fails("UPDATE dealer_branches SET latitude=91 WHERE id='"+uuid(9871)+"'",
+    'dealer_branch_gps_pair_valid');
+  await fails("UPDATE dealer_branches SET opening_hours_text='' WHERE id='"+uuid(9871)+"'",
+    'dealer_branch_hours_text_valid');
+  await fails(read('20261103138000_dealer_branch_operating_details.sql').down,
+    'CANNOT_ROLLBACK_WITH_BRANCH_OPERATING_DETAILS');
+  await exec("DELETE FROM dealer_branches WHERE id='"+uuid(9871)+"'");
+  await exec("DELETE FROM dealer_profiles WHERE id='"+uuid(9870)+"'");
   assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,29);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
@@ -760,7 +781,7 @@ try{
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 14 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 15 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;

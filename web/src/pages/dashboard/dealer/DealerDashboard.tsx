@@ -13,7 +13,7 @@ type Profile={
   active_state:string;restriction_state:string;suspension_state:string
   investigation_state:string;expiry_date:string|null
 }
-type Branch={id:string;dealer_id:string;name:string|null;address:string|null}
+type Branch={id:string;dealer_id:string;name:string|null;address:string|null;latitude:number|null;longitude:number|null;opening_hours_text:string|null}
 type Workspace={
   operational:true;owner_membership_confirmed:true;
   tenant_id:string;organization_id:string;claim_id:string;dealer_profile_id:string;
@@ -53,6 +53,10 @@ export default function DealerDashboard(){
   const [stockStatus,setStockStatus]=useState<'loading'|'ready'|'unavailable'>('loading')
   const [branchName,setBranchName]=useState('')
   const [branchAddress,setBranchAddress]=useState('')
+  const [branchLatitude,setBranchLatitude]=useState('')
+  const [branchLongitude,setBranchLongitude]=useState('')
+  const [branchHours,setBranchHours]=useState('')
+  const [editingBranchId,setEditingBranchId]=useState<string|null>(null)
   const [saving,setSaving]=useState(false)
   const [notice,setNotice]=useState('')
   const [error,setError]=useState('')
@@ -101,20 +105,39 @@ export default function DealerDashboard(){
     return()=>{live=false}
   },[user,token,revision])
 
-  async function addBranch(){
+  function editBranch(branch:Branch){
+    setEditingBranchId(branch.id)
+    setBranchName(branch.name||'')
+    setBranchAddress(branch.address||'')
+    setBranchLatitude(branch.latitude===null?'':String(branch.latitude))
+    setBranchLongitude(branch.longitude===null?'':String(branch.longitude))
+    setBranchHours(branch.opening_hours_text||'')
+    setNotice('');setError('')
+  }
+  function resetBranchForm(){
+    setEditingBranchId(null);setBranchName('');setBranchAddress('')
+    setBranchLatitude('');setBranchLongitude('');setBranchHours('')
+  }
+  async function saveBranch(){
     if(!user||!token||!workspace||saving||!branchName.trim()||!branchAddress.trim())return
     setSaving(true);setError('');setNotice('')
+    const isEditing=Boolean(editingBranchId)
     try{
       const result=await apiRequest<{branch:Branch &{private_declaration_only:true}}>({
-        baseUrl:API,path:'/dealer/operational-branches',
-        options:{method:'POST',body:JSON.stringify({
+        baseUrl:API,
+        path:editingBranchId?'/dealer/operational-branches/'+encodeURIComponent(editingBranchId):
+          '/dealer/operational-branches',
+        options:{method:editingBranchId?'PATCH':'POST',body:JSON.stringify({
           name:branchName.trim(),address:branchAddress.trim(),
+          latitude:branchLatitude.trim()||null,longitude:branchLongitude.trim()||null,
+          opening_hours_text:branchHours.trim()||null,
         })},
         authHeaders:authHeaders(user.id,token),
       })
       if(!result.branch?.private_declaration_only)throw Error('Private branch receipt unavailable')
-      setNotice('Branch declaration saved to the canonical dealer profile. It is not independently verified for public display.')
-      setBranchName('');setBranchAddress('');refresh()
+      setNotice(isEditing?'Private branch details updated in canonical storage. Public verification is unchanged.':
+        'Private branch added to the canonical dealer profile; public verification is unchanged.')
+      resetBranchForm();refresh()
     }catch(problem){
       setError(problem instanceof Error?problem.message:'Canonical branch submission unavailable')
     }finally{setSaving(false)}
@@ -222,19 +245,62 @@ export default function DealerDashboard(){
                 <p className="text-sm text-gray-600 mt-1 break-words">
                   {b.address||'No address recorded'}
                 </p>
+                {b.latitude!==null&&b.longitude!==null&&<p className="text-sm text-gray-600 mt-1">
+                  Dealer-declared GPS: {b.latitude}, {b.longitude} (not location-verified)
+                </p>}
+                <p className="text-sm text-gray-600 mt-1">
+                  Declared hours: {b.opening_hours_text||'Not recorded'}
+                </p>
                 <p className="text-xs text-gray-500 mt-2">Company record · independent public display review required</p>
+                <Button variant="outline" onClick={()=>editBranch(b)} className="mt-3">
+                  Edit private branch details
+                </Button>
               </div>)}
               <div className="border-t pt-4 space-y-3">
-                <h3 className="font-semibold">Add a private branch declaration</h3>
+                <h3 id="dealer-branch-editor" className="font-semibold">
+                  {editingBranchId?'Edit private branch declaration':'Add a private branch declaration'}
+                </h3>
                 <label htmlFor="dealer-new-branch-name" className="block text-sm font-medium">Branch name</label>
                 <Input id="dealer-new-branch-name" value={branchName}
                   maxLength={180} onChange={event=>setBranchName(event.target.value)}/>
                 <label htmlFor="dealer-new-branch-address" className="block text-sm font-medium">Physical address</label>
                 <Input id="dealer-new-branch-address" value={branchAddress}
                   maxLength={400} onChange={event=>setBranchAddress(event.target.value)}/>
-                <Button onClick={()=>{void addBranch()}} disabled={saving||!branchName.trim()||!branchAddress.trim()}>
-                  Save branch to canonical dealership profile
-                </Button>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="dealer-branch-latitude" className="block text-sm font-medium">
+                      Latitude (optional)
+                    </label>
+                    <Input id="dealer-branch-latitude" value={branchLatitude}
+                      placeholder="e.g. -17.825500" maxLength={12}
+                      onChange={event=>setBranchLatitude(event.target.value)}/>
+                  </div>
+                  <div>
+                    <label htmlFor="dealer-branch-longitude" className="block text-sm font-medium">
+                      Longitude (optional)
+                    </label>
+                    <Input id="dealer-branch-longitude" value={branchLongitude}
+                      placeholder="e.g. 31.050000" maxLength={13}
+                      onChange={event=>setBranchLongitude(event.target.value)}/>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Supply both coordinates together or leave both blank. All coordinates remain unverified private declarations.
+                </p>
+                <label htmlFor="dealer-branch-hours" className="block text-sm font-medium">
+                  Dealer-declared operating hours (optional)
+                </label>
+                <Input id="dealer-branch-hours" value={branchHours} maxLength={350}
+                  placeholder="Mon–Fri 08:00–17:00; Sat 09:00–13:00; Sun closed"
+                  onChange={event=>setBranchHours(event.target.value)}/>
+                <div className="flex gap-2 flex-wrap">
+                  <Button onClick={()=>{void saveBranch()}} disabled={saving||!branchName.trim()||!branchAddress.trim()}>
+                    {editingBranchId?'Save existing branch changes':'Save branch to canonical dealership profile'}
+                  </Button>
+                  {editingBranchId&&<Button variant="outline" onClick={resetBranchForm} disabled={saving}>
+                    Cancel edit
+                  </Button>}
+                </div>
                 <p className="text-xs text-gray-500">
                   Adding a branch does not grant a franchise, listing, geographic verification or new staff permissions.
                 </p>

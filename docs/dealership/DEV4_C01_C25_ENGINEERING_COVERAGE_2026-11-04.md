@@ -17,7 +17,7 @@
 | C11 | Claim-governed approved dealer activation | Corporate/AUTH/tenant service | dealer_activate_approved_legal_claim: canonical org/tenant/member SQL | SOURCE_IMPLEMENTED; REAL_POLICY_DISABLED |
 | C12 | Expiry/suspension/renewal | Compliance lifecycle | claim-revoke trigger; dealer active-policy/expiry reads | PARTIAL; RENEWAL_AND_PHYSICAL_INVALIDATION_UNQUALIFIED |
 | C13 | Comprehensive operating profile | Dealer operating domain | dealerOperationalDeclarationsService.js, versioned private business terms | SOURCE_IMPLEMENTED; FULL_BUSINESS_OS_NOT_CERTIFIED |
-| C14 | Multi-branch and GPS | dealer_branches extension | dealerVerifiedWorkspaceService.js branch create, approved company snapshot | PARTIAL; GPS/HOURS_AND_MULTISITE_RBAC_UNQUALIFIED |
+| C14 | Multi-branch and GPS | canonical dealer_branches | dealerVerifiedWorkspaceService.js private create/edit, server-validated coordinate pair + declared hours, additive `20261103138000` migration, owner-scoped read/write, dashboard editor + candidate tests | SOURCE_CANDIDATE; REAL_POSTGRES_READBACK, PHYSICAL_BROWSER_AND_MULTISITE_RBAC_UNQUALIFIED |
 | C15 | Functional dealer dashboard | Domain read models | DealerDashboard.tsx canonical membership/tenant VIN/branch write; dealerTenantLeadReadService.js plus DealerTenantInquiries.tsx actual Marketplace leads | SOURCE_IMPLEMENTED; PERSISTENT_LEADS_STATUS_WRITES_AND_AUTH_BROWSER_UAT_UNDONE |
 | C16 | Real staff roles and permissions | Corporate/AUTH memberships | dealerStaffMembershipService.js and staff invitations on tenant_users | SOURCE_IMPLEMENTED; PHYSICAL_RBAC_AND_BRANCH_SCOPE_UNQUALIFIED |
 | C17 | Canonical vehicle inventory | Vehicle/Seller/Marketplace | dealerTenantInventoryReadService.js, live first-100 tenant VINs | READ_ONLY; SELLER_OR_BRANCH_LISTING_AUTHORITY_NOT_INTEGRATED |
@@ -31,3 +31,7 @@
 | C25 | Country-specific onboarding | Country rules/version | dealerJurisdictionPreview.js, ZW draft, foreign fail closed | DRAFT_ZW_ONLY; INTERNATIONAL_RULES_UNAPPROVED |
 
 **Source and independent evidence must not be conflated.** The 104-owner-source audit is local SQLite only. Eleven-plus draft migration contracts are isolated, with actual current count and exact-head CI determined by the branch after last commit. No real publication eligibility, country signoff, real dealer pilot, live payment, controlled activation, VIN sale or owner UAT has been certified.
+
+
+### LR01-R2 C14 private branch operations checkpoint — source candidate only
+The new branch editor intentionally stores **dealer-declared** coordinates and hours only in canonical `dealer_branches`; it does not grant source/public location eligibility, seller rights, new tenant membership or any legal/compliance approval. The new migration protects existing declarations from destructive rollback. Source/CI gates and authenticated browser/PostgreSQL read-back must be run at the **post-R2 exact head** before C14 can be accepted. Existing C01–C25 gaps and the 67-case independent physical programme remain open.

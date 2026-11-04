@@ -7,6 +7,7 @@
 import {supabase} from '../../db/supabase.js';
 import {requireClaimantSession} from './dealerClaimApplicationService.js';
 import {readMyOperationalDealerAuthority} from './dealerLegalActivationService.js';
+import {parsePrivateBranchDetails} from './dealerBranchDetailsValidation.js';
 const refuse=(code,status=403)=>Object.assign(new Error(code),{statusCode:status,code});
 const clean=(v,max=180)=>typeof v==='string'&&v.trim().length>0&&v.trim().length<=max
   ?v.trim():null;
@@ -35,7 +36,7 @@ export async function getMyVerifiedDealerWorkspace(actor){
       .select('id,legal_name,trading_name,registration_number,operating_country,tenant_id,identity_status,compliance_review_state,active_state,restriction_state,suspension_state,investigation_state,expiry_date,updated_at')
       .eq('id',authority.dealer_profile_id).eq('user_id',actor.userId).maybeSingle(),
     supabase.from('dealer_branches')
-      .select('id,dealer_id,name,address,created_at')
+      .select('id,dealer_id,name,address,latitude,longitude,opening_hours_text,created_at')
       .eq('dealer_id',authority.dealer_profile_id).order('created_at',{ascending:true}).limit(100),
     supabase.from('tenant_users').select('user_id',{head:true,count:'exact'})
       .eq('tenant_id',authority.tenant_id),
@@ -56,11 +57,26 @@ export async function getMyVerifiedDealerWorkspace(actor){
  */
 export async function addDeclaredDealerBranch(actor,payload={}){
   const authority=await requireApprovedOwnerWorkspace(actor);
-  const name=clean(payload.name,180),address=clean(payload.address,400);
-  if(!name||!address)throw refuse('BRANCH_NAME_AND_ADDRESS_REQUIRED',400);
+  const details=parsePrivateBranchDetails(payload);
   const {data,error}=await supabase.from('dealer_branches')
-    .insert({dealer_id:authority.dealer_profile_id,name,address})
-    .select('id,dealer_id,name,address,created_at').single();
+    .insert({dealer_id:authority.dealer_profile_id,...details,
+      operating_details_updated_at:new Date().toISOString()})
+    .select('id,dealer_id,name,address,latitude,longitude,opening_hours_text,created_at').single();
   if(error)throw refuse('CANONICAL_BRANCH_WRITE_UNAVAILABLE',503);
+  return {...data,public_verified:false,private_declaration_only:true};
+}
+/** Modify PRIVATE branch details with a fresh canonical owner/tenant check. */
+export async function updateDeclaredDealerBranch(actor,branchId,payload={}){
+  const authority=await requireApprovedOwnerWorkspace(actor);
+  if(typeof branchId!=='string'||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(branchId))
+    throw refuse('INVALID_CANONICAL_BRANCH_ID',400);
+  const details=parsePrivateBranchDetails(payload);
+  const {data,error}=await supabase.from('dealer_branches')
+    .update({...details,operating_details_updated_at:new Date().toISOString()})
+    .eq('id',branchId).eq('dealer_id',authority.dealer_profile_id)
+    .select('id,dealer_id,name,address,latitude,longitude,opening_hours_text,created_at').maybeSingle();
+  if(error)throw refuse('CANONICAL_BRANCH_WRITE_UNAVAILABLE',503);
+  if(!data)throw refuse('CANONICAL_BRANCH_NOT_FOUND',404);
   return {...data,public_verified:false,private_declaration_only:true};
 }
