@@ -43,9 +43,15 @@ export function securityHeadersMiddleware(req, res, next) {
  */
 export function rateLimiter({ max, windowMs, isSensitive = false }) {
   const store = isSensitive ? sensitiveStore : globalStore;
-  // Namespace keys per limiter "tier" so global and sensitive counters never
-  // collide even if a future store backend is shared.
+  // A single shared sensitive:<IP> counter mixes unrelated *limits*: e.g.
+  // reviewer password step-up (15/hour) consumes an applicant's 4/hour
+  // claim/evidence/workbook/submission budget, causing valid forms to 429.
+  // Keep the strict per-IP budget across all handlers with the SAME configured
+  // policy (max + window), but isolate policies with different thresholds.
+  // Do not key by user/route: that would let applicants evade the four-write
+  // budget by rotating accounts or moving between intake endpoints.
   const tier = isSensitive ? 'sensitive' : 'global';
+  const policyBucket = `${tier}:${max}:${windowMs}`;
   return (req, res, next) => {
     // Bypass rate limiting in tests if requested
     if (process.env.NODE_ENV === 'test' && req.headers['x-bypass-rate-limit'] === 'true') {
@@ -60,7 +66,7 @@ export function rateLimiter({ max, windowMs, isSensitive = false }) {
     // Behind a Cloudflare-proxied host, req.ip is the edge address; carupClientIp is the real
     // client, but only when the request provably transited our zone (see edgeClientIp.js).
     const ip = req.carupClientIp || req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-    const key = `${tier}:${ip}`;
+    const key = `${policyBucket}:${ip}`;
 
     Promise.resolve(store.hit(key, windowMs)).then((rateData) => {
       if (rateData.count > max) {
