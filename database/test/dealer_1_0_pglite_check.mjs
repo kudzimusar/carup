@@ -24,6 +24,7 @@ const names=[
   '20261103134000_dealer_operational_declaration_versions.sql',
   '20261103135000_dealer_full_storefront_publication.sql',
   '20261103136000_dealer_staff_canonical_invitations.sql',
+  '20261103137000_dealer_transaction_feedback_candidate_cases.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -113,6 +114,11 @@ try{
       is_blocking BOOLEAN NOT NULL DEFAULT true,
       created_at TIMESTAMPTZ DEFAULT now(),updated_at TIMESTAMPTZ DEFAULT now()
     );
+    -- Throwaway canonical transaction row-type, never a real payment.
+    CREATE TABLE escrow_trust_sessions(
+      id UUID PRIMARY KEY,buyer_id TEXT REFERENCES users(id),
+      tenant_id TEXT,status TEXT NOT NULL
+    );
     CREATE TABLE dealer_compliance_decisions(
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       dealer_id UUID NOT NULL REFERENCES dealer_profiles(id),
@@ -148,10 +154,10 @@ try{
     "SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed"
   )).rows[0].allowed,false);
 
-  // Thirteen additive dealer migrations create 27 dealer_ tables in the
+  // Fourteen additive dealer migrations create 29 dealer_ tables in the
   // isolated fixture (including legacy dealer_profiles and compliance tables).
   // This is a source-schema count, NOT 27 verified businesses or publications.
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,27);
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,29);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -573,6 +579,58 @@ try{
     [tenant,claimant]);
   assert.equal(linked.rows[0].role,'dealer');
   assert.equal((await query("SELECT count(*)::int AS n FROM dealer_profiles WHERE user_id='claimant1'")).rows[0].n,1);
+
+  // C23 private feedback is linked to a canonical transaction (here a clearly
+  // labelled SANDBOX escrow fixture), never to a self-asserted completed sale.
+  await exec(`INSERT INTO escrow_trust_sessions(id,buyer_id,tenant_id,status)
+    VALUES ('${uuid(520)}','${outsider}','${tenant}','released_sandbox'),
+           ('${uuid(521)}','${outsider}','${tenant}','eligible')`);
+  await fails(`SELECT dealer_record_transaction_feedback_case(
+    'ZW-DEAL-0001','${uuid(520)}','${claimant}','REVIEW_CANDIDATE',
+    'The dealer tries to write a false review as a buyer instead of using actual buyer authority.',5)`,
+    'EXACT_CANONICAL_TRANSACTION_BUYER_REQUIRED');
+  await fails(`SELECT dealer_record_transaction_feedback_case(
+    'ZW-DEAL-0002','${uuid(520)}','${outsider}','BUYER_COMPLAINT',
+    'This private buyer is linked to another research dealer identity and cannot cross tenants.',NULL)`,
+    'EXACT_TRANSACTION_DEALER_TENANT_REQUIRED');
+  await fails(`SELECT dealer_record_transaction_feedback_case(
+    'ZW-DEAL-0001','${uuid(521)}','${outsider}','REVIEW_CANDIDATE',
+    'The buyer cannot rate a vehicle without an eligible canonical transaction release.',5)`,
+    'REVIEW_CANDIDATE_REQUIRES_CANONICAL_RELEASE_EVIDENCE');
+  const reviewText='This synthetic buyer review is linked to a sandbox-release intent, not a verified real completed vehicle purchase.';
+  const result=await query(
+    'SELECT dealer_record_transaction_feedback_case($1,$2,$3,$4,$5,$6) AS receipt',
+    ['ZW-DEAL-0001',uuid(520),outsider,'REVIEW_CANDIDATE',reviewText,4]);
+  const feedbackId=result.rows[0].receipt.case_id;
+  assert.equal(result.rows[0].receipt.public_review_eligible,false);
+  assert.equal(result.rows[0].receipt.verified_purchase,false);
+  assert.equal(result.rows[0].receipt.payment_changed,false);
+  const replay=await query(
+    'SELECT dealer_record_transaction_feedback_case($1,$2,$3,$4,$5,$6) AS receipt',
+    ['ZW-DEAL-0001',uuid(520),outsider,'REVIEW_CANDIDATE',reviewText,4]);
+  assert.equal(replay.rows[0].receipt.case_id,feedbackId);
+  await fails(`SELECT dealer_record_transaction_feedback_case(
+    'ZW-DEAL-0001','${uuid(520)}','${outsider}','REVIEW_CANDIDATE',
+    'A buyer cannot overwrite the immutable previously submitted feedback wording.',4)`,
+    'FEEDBACK_CASE_ALREADY_SUBMITTED_WITH_DIFFERENT_CONTENT');
+  await fails(`SELECT dealer_record_transaction_feedback_finding(
+    '${feedbackId}','${outsider}','REFERRED_TO_CANONICAL_DISPUTE',
+    'The buyer is not an independent reviewer for their own original transaction feedback case.')`,
+    'INDEPENDENT_BUYER_CASE_REVIEWER_REQUIRED');
+  const finding=await query(
+    'SELECT dealer_record_transaction_feedback_finding($1,$2,$3,$4) AS receipt',
+    [feedbackId,reviewer,'REFERRED_TO_CANONICAL_DISPUTE',
+      'Independent human-review fixture flagged that the buyer case requires a separate canonical dispute process, not fake paid status.']);
+  assert.equal(finding.rows[0].receipt.public_verified_review,false);
+  assert.equal(finding.rows[0].receipt.canonical_dispute_case_modified,false);
+  assert.equal(finding.rows[0].receipt.provider_payment_status_modified,false);
+  await fails('UPDATE dealer_transaction_feedback_cases SET public_review_eligible=true','APPEND_ONLY_LEDGER');
+  await fails('UPDATE dealer_transaction_feedback_review_events SET public_review_published=true','APPEND_ONLY_LEDGER');
+  await exec('SET ROLE anon');
+  await fails('SELECT * FROM dealer_transaction_feedback_cases','permission denied');
+  await exec('RESET ROLE');
+  await fails(read('20261103137000_dealer_transaction_feedback_candidate_cases.sql').down,
+    'CANNOT_ROLLBACK_WITH_BUYER_FEEDBACK_CUSTODY');
   await fails('UPDATE dealer_legal_application_reviews SET verdict=\'REJECTED\'','APPEND_ONLY_LEDGER');
   await fails(read('20261103132000_dealer_canonical_activation_and_legal_gate.sql').down,
     'CANNOT_ROLLBACK_WITH_LEGAL_ACTIVATION_CUSTODY');
@@ -697,10 +755,12 @@ try{
   await exec('TRUNCATE dealer_staff_invitation_events, dealer_staff_invitation_records');
   await exec('TRUNCATE dealer_full_storefront_review_events');
   await exec('TRUNCATE dealer_operational_declaration_events');
+  -- Dispose synthetic private feedback before isolated rollback, never on a live DB.
+  await exec('TRUNCATE dealer_transaction_feedback_review_events, dealer_transaction_feedback_cases');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 13 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 14 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;
