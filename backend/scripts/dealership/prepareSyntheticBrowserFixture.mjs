@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict';
 import {randomUUID,createHmac,scryptSync,randomBytes} from 'node:crypto';
-import {writeFileSync} from 'node:fs';
+import {writeFileSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import pg from 'pg';
 import {assertLocalDatabase} from './importResearchSeed.mjs';
@@ -58,12 +58,30 @@ try{
   ADD COLUMN IF NOT EXISTS email TEXT,
   ADD COLUMN IF NOT EXISTS phone TEXT,
   ADD COLUMN IF NOT EXISTS password_hash TEXT`);
- await db.query(`CREATE TABLE IF NOT EXISTS user_sessions(
-  token TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-  is_valid BOOLEAN NOT NULL DEFAULT true,
-  expires_at TIMESTAMPTZ NOT NULL
- )`);
+ // Use the existing real CarUp migrations, not a reduced local substitute.
+ // The old session stub omitted active_role and active_organization_id and
+ // the feature overrides table was absent, creating real 42703/42P01 errors.
+ for(const migration of [
+  '../../../database/migrations/20260617120000_user_sessions_auth_contract_align.sql',
+  '../../../database/migrations/20260621120000_feature_rollout_overrides.sql',
+ ]){
+  await db.query(readFileSync(new URL(migration,import.meta.url),'utf8'));
+ }
+ const sessionCols=await db.query(`SELECT column_name FROM information_schema.columns
+  WHERE table_schema='public' AND table_name='user_sessions'`);
+ const actualFields=new Set(sessionCols.rows.map(r=>r.column_name));
+ for(const name of ['id','token','user_id','is_valid','active_role',
+  'active_organization_id','created_at','expires_at'])
+  assert.equal(actualFields.has(name),true,'MISSING_CANONICAL_SESSION_COLUMN_'+name);
+ const featureAccess=await db.query(`SELECT
+  to_regclass('public.feature_rollout_overrides') IS NOT NULL AS installed,
+  has_table_privilege('anon','feature_rollout_overrides','SELECT') AS anon_read,
+  has_table_privilege('authenticated','feature_rollout_overrides','SELECT') AS member_read,
+  has_table_privilege('service_role','feature_rollout_overrides','SELECT') AS server_read`);
+ assert.deepEqual(featureAccess.rows[0],{
+  installed:true,anon_read:false,member_read:false,server_read:true,
+ },'existing feature migration must keep client feature-governance access denied');
+ console.log('DEALER_NATIVE_CANONICAL_BASELINE PASS: actual session/feature migrations, server-only governance');
  // The isolated SQL migration harness creates service_role without Supabase's
  // production-equivalent BYPASSRLS attribute. Without it PostgREST legitimately
  // returns HTTP 200 with [] for private-policy tables despite its service JWT.
@@ -133,8 +151,9 @@ try{
    token:'synthetic-reviewer-session-'+randomUUID()},
  };
  for(const actor of Object.values(actors)){
-  await db.query(`INSERT INTO user_sessions(token,user_id,is_valid,expires_at)
-    VALUES($1,$2,true,now()+interval '2 hours')`,[actor.token,actor.id]);
+  await db.query(`INSERT INTO user_sessions(token,user_id,active_role,is_valid,expires_at)
+    VALUES($1,$2,$3,true,(now()+interval '2 hours')::text)`,
+    [actor.token,actor.id,actor.role]);
  }
  // A fictional, already verified platform reviewer independently authorizes a
  // *single fabricated source* for a minimal public unclaimed profile. Never bulk
