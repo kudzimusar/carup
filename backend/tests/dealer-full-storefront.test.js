@@ -58,18 +58,37 @@ test('C18 correct same stable slug before and after full legal business review',
  assert.equal(research.publicResearchProjection({...pendingSource,
    publication_status:'UNDER_DISPUTE'},full.fullApprovedPublicProjection(fullRow)),null);
 });
-test('C18 full view null means no legal tenant company verification, not a false approved listing',async()=>{
+test('C18 full view null means no legal verification; claim-state stays independently authoritative',async()=>{
  const original=supabase.from;
+ let existingApprovedClaim=false;
  try{
   supabase.from=table=>{
     if(table==='dealer_research_public_profiles')return qb(pendingSource);
     if(table==='dealer_full_storefront_current')return qb(null);
+    if(table==='dealer_research_claim_requests')return {
+      select(cols){assert.equal(cols,'seed_dealer_id');return this},
+      in(k,ids){assert.equal(k,'seed_dealer_id');assert.deepEqual(ids,[valid]);return this},
+      async eq(k,v){
+        assert.equal(k,'claim_status');assert.equal(v,'CLAIM_APPROVED');
+        return {data:existingApprovedClaim?[{seed_dealer_id:valid}]:[],error:null};
+      },
+    };
     throw Error('Unexpected source '+table);
   };
-  const result=await research.getPublicResearch(valid);
-  assert.equal(result.business_verified,false);
-  assert.equal(result.tier,'PRELISTED_UNCLAIMED');
-  assert.equal(result.claimed,false);
+  const unclaimed=await research.getPublicResearch(valid);
+  assert.equal(unclaimed.business_verified,false);
+  assert.equal(unclaimed.tier,'PRELISTED_UNCLAIMED');
+  assert.equal(unclaimed.claimed,false);
+  // After independent legal approval, withdrawing PUBLIC DISPLAY does not
+  // erase an approved claimant or open a new unreviewed takeover.
+  existingApprovedClaim=true;
+  const claimed=await research.getPublicResearch(valid);
+  assert.equal(claimed.business_verified,false);
+  assert.equal(claimed.tier,'CLAIMED_PUBLIC_DISPLAY_UNAPPROVED');
+  assert.equal(claimed.claimed,true);
+  assert.equal(claimed.slug,unclaimed.slug);
+  assert.doesNotMatch(claimed.label,/Unclaimed/);
+  assert.ok(!JSON.stringify(claimed).includes('PRIVATE_CONTACT'));
  }finally{supabase.from=original}
 });
 test('C19 full review refuses forged reviewer, unauthorized scope and applicant self-publish shape',async()=>{
