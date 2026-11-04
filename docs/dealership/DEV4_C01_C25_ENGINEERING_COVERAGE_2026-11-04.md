@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | C01 | Dealer prelisting, secure business claim and registration | Registration + Dealer Compliance | dealerResearchService.js + dealerClaimApplicationService.js + reviewer UI | SOURCE_IMPLEMENTED; REAL_HUMAN_REVIEW_UNDONE |
 | C02 | Claim-specific PREFILLED dealer Excel registration | Dealer intake domain | dealerIntakeWorkbook.js + dealerWorkbookRoundtrip.js; claim-bound XLSX | CANDIDATE_ENGINEERING_ONLY |
-| C03 | Existing Excel/CSV migration | Import + entity crosswalk | dealerCsvIntake.js + dealer-csv-migration.test.js | PARTIAL_NONSTANDARD_CSV; REAL_FILE_PARITY_UNQUALIFIED |
+| C03 | Existing Excel/CSV migration | Import + entity crosswalk | canonical 20-worksheet parser/importer; 104-id safe manifest; disposable native PostgreSQL synthetic 20-tab XLSX insert/readback/reimport/immutability CI (`proveSynthetic104NativePostgres.mjs`); existing dealerCsvIntake.js | SOURCE_CANDIDATE; ORIGINAL_SHA_OWNER_XLSX_NATIVE_IMPORT_AND_REAL_CSV_PARITY_UNQUALIFIED |
 | C04 | AI-assisted field mapping | Governed advisory AI | deterministic human-confirmed CSV/header mapper; no AI service approved | PARTIAL_HUMAN_MAPPING; AI_OPTION_NOT_IMPLEMENTED |
 | C05 | Governed OCR document extraction | Document Intelligence | dealerDocumentCandidateService.js, Tesseract/Poppler local default off | SYNTHETIC_ONLY; REAL_DOC_RUNTIME_UNQUALIFIED |
 | C06 | Intelligent data validation | Deterministic field registry | dealerWorkbookRoundtrip.js; validations + negative cases | SOURCE_TESTED; COMPLETE_FIELDMAP_NOT_CERTIFIED |
@@ -39,3 +39,6 @@ The new branch editor intentionally stores **dealer-declared** coordinates and h
 
 ### LR01-R2 C15 canonical seller follow-up checkpoint — source candidate only
 A governed database RPC now proposes seller-reported progress for the original Marketplace inquiry, with canonical legal owner/country policy/tenant validation, risk clear only, row lock, two allowed monotone transitions, and an immutable audit event. No merchant/payment/transaction state, buyer message delivery, staff assignment, close or moderation action is granted. Real browser/real PostgreSQL verification and independent review remain outstanding. The original 67 acceptance cases remain NOT independently certified.
+
+### LR01-R2 D0/D4 synthetic native importer guard (distinct from actual 104 real dealers)
+The added CI scenario generates a real XLSX with entirely fictional dealer names/contacts and safe manifest categories/cities. It proves transactional import of 104 source IDs to real PostgreSQL, idempotent reimport, negative immutable conflict and zero public/legal/tenant authority; independent source validation against the original private Owner file is still blocked until those exact checksum-matching bytes are present. No research row is approved or published by this check.

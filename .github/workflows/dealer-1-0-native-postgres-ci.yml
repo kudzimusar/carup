@@ -9,12 +9,18 @@ on:
     paths:
       - 'database/migrations/*dealer*.sql'
       - 'database/test/dealer_1_0_pglite_check.mjs'
+      - 'backend/scripts/dealership/proveSynthetic104NativePostgres.mjs'
+      - 'backend/scripts/dealership/importResearchSeed.mjs'
+      - 'backend/tests/fixtures/dealer_source_104_safe_manifest.json'
       - '.github/workflows/dealer-1-0-native-postgres-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'database/migrations/*dealer*.sql'
       - 'database/test/dealer_1_0_pglite_check.mjs'
+      - 'backend/scripts/dealership/proveSynthetic104NativePostgres.mjs'
+      - 'backend/scripts/dealership/importResearchSeed.mjs'
+      - 'backend/tests/fixtures/dealer_source_104_safe_manifest.json'
       - '.github/workflows/dealer-1-0-native-postgres-ci.yml'
 
 permissions:
@@ -68,6 +74,13 @@ jobs:
           node database/test/dealer_1_0_pglite_check.mjs | tee "${RUNNER_TEMP}/dealer-native-postgres-result.log"
           grep -q '^DEALER_NATIVE_POSTGRES_VERSION 17' "${RUNNER_TEMP}/dealer-native-postgres-result.log"
           grep -q '^DEALER_NATIVE_POSTGRES_RESULT PASS:' "${RUNNER_TEMP}/dealer-native-postgres-result.log"
+      - name: Prove synthetic 104-row XLSX imported and reread in real PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          node backend/scripts/dealership/proveSynthetic104NativePostgres.mjs | tee "${RUNNER_TEMP}/dealer-synthetic-104-postgres-result.log"
+          grep -q '^DEALER_SYNTHETIC_104_NATIVE_RESULT PASS:' "${RUNNER_TEMP}/dealer-synthetic-104-postgres-result.log"
+          grep -q '^DEALER_SYNTHETIC_104_SOURCE_STATUS: FICTIONAL_CI_FIXTURE;' "${RUNNER_TEMP}/dealer-synthetic-104-postgres-result.log"
       - name: Assert no real workbook, service provider or deployed DB used
         shell: bash
         run: |
