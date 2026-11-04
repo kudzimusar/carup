@@ -96,6 +96,27 @@ test('Native PG physical browser · claimant submits real claim, sees evidence-r
   await expect(page.getByRole('heading',{name:'My dealership claim applications'}))
     .toBeVisible()
   await expect(page.getByText('ZW-DEAL-0001').first()).toBeVisible({timeout:20000})
+  // Physical negative-path: submitting an ownership claim does NOT unlock
+  // source-sensitive workbook export or application authorizations.
+  await expect(page.getByRole('button',{name:'Download my prefilled Excel workbook'}))
+    .toHaveCount(0)
+  const claimsResponse=await page.request.get(API+'/dealership/claims/mine',{
+    headers:{'x-session-token':fixture.actors.claimant.token,
+      'x-user-id':fixture.actors.claimant.id},
+  })
+  expect(claimsResponse.status()).toBe(200)
+  const mine=await claimsResponse.json() as {claims:Array<{
+    claim_id:string;seed_dealer_id:string;claim_status:string
+  }>}
+  const created=mine.claims.find(c=>c.seed_dealer_id==='ZW-DEAL-0001')
+  expect(created?.claim_status).toBe('AWAITING_DOCUMENTARY_EVIDENCE')
+  expect(created?.claim_id).toMatch(/^[0-9a-f-]{36}$/i)
+  const workbookRead=await page.request.get(
+    API+'/dealership/claims/'+encodeURIComponent(created!.claim_id)+'/workbook',{
+    headers:{'x-session-token':fixture.actors.claimant.token,
+      'x-user-id':fixture.actors.claimant.id},
+  })
+  expect(workbookRead.status()).toBe(403)
   await context.close()
  })
 
@@ -120,7 +141,10 @@ test('Native PG physical browser · separate session roles enforce reviewer queu
   await page.goto('/admin/dealer-claims')
   await expect(page.getByRole('heading',{name:'Independent dealership claim review'}))
     .toBeVisible()
-  await expect(page.getByText('ZW-DEAL-0001')).toBeVisible({timeout:25000})
+  // Queue button and selected detail both show the same seed ID.
+  // Assert the actual selected review DETAIL, not ambiguous text.
+  await expect(page.getByRole('heading',{name:'ZW-DEAL-0001',exact:true}))
+    .toBeVisible({timeout:25000})
   const path=info.outputPath('native-independent-reviewer-queue.png')
   await page.screenshot({path,fullPage:true})
   await info.attach('native-independent-reviewer-queue',{path,contentType:'image/png'})
