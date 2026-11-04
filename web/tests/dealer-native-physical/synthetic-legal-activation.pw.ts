@@ -221,6 +221,25 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
   .click()
  await expect(claimant.getByText('FICTIONAL SECOND YARD - PRIVATE ONLY'))
   .toBeVisible({timeout:30000})
+ // Operational buyer policies must persist in the canonical versioned
+ // dealer declaration ledger and survive a fresh browser page reload.
+ await claimant.goto('/dealers/operating-details')
+ await expect(claimant.getByRole('heading',{name:'Operate your verified dealership'}))
+  .toBeVisible({timeout:30000})
+ await claimant.getByRole('button',{name:/Buyer assurance/}).click()
+ await claimant.locator('#dealer-refund_policy').fill(
+  'FICTIONAL CI: no actual deposits collected. All test orders are void and refunds are not real.')
+ await claimant.locator('#dealer-dispute_resolution').fill(
+  'FICTIONAL CI: contact CarUp test reviewers. No customer claim is adjudicated here.')
+ await claimant.getByRole('button',{name:'Save this section to CarUp'}).click()
+ await expect(claimant.getByText('Saved private buyer assurance version 1.',{exact:false}))
+  .toBeVisible({timeout:30000})
+ await claimant.reload()
+ await claimant.getByRole('button',{name:/Buyer assurance/}).click()
+ await expect(claimant.locator('#dealer-refund_policy')).toHaveValue(
+  'FICTIONAL CI: no actual deposits collected. All test orders are void and refunds are not real.',
+  {timeout:30000})
+ await claimant.goto('/dealer/dashboard')
  const dashboardShot=info.outputPath('fictional-dealer-live-canonical-dashboard-1280px.png')
  await claimant.screenshot({path:dashboardShot,fullPage:true})
  await info.attach('fictional-dealer-live-canonical-dashboard-1280px',{
@@ -241,6 +260,12 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  })).toBeVisible({timeout:30000})
  await publish.getByRole('heading',{
   name:'Approve only verified branch display facts',
+ }).locator('..').locator('input[type="checkbox"]').first().check()
+ await expect(publish.getByRole('heading',{
+  name:'Independently review dealer-declared sections',
+ })).toBeVisible({timeout:30000})
+ await publish.getByRole('heading',{
+  name:'Independently review dealer-declared sections',
  }).locator('..').locator('input[type="checkbox"]').first().check()
  await publish.locator('#storefront-reason').fill(
   'Fictional CI public display approval only. The branch identity, local test policy and dealer-declared fields were reviewed under isolated synthetic sessions, with no real company publicity or merchant entitlement.')
@@ -264,6 +289,10 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  )).toBeVisible({timeout:30000})
  await expect(publicPage.getByText('No CarUp-verified licence',{exact:false}))
   .toHaveCount(0)
+ await expect(publicPage.getByRole('heading',{name:'BUYER ASSURANCE'}))
+  .toBeVisible({timeout:30000})
+ await expect(publicPage.getByText('FICTIONAL CI: no actual deposits collected.',{exact:false}))
+  .toBeVisible({timeout:30000})
  const publicShot=info.outputPath('fictional-stable-full-dealership-public-profile.png')
  await publicPage.screenshot({path:publicShot,fullPage:true})
  await info.attach('fictional-stable-full-dealership-public-profile',{
@@ -276,12 +305,10 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
   const ctx=await browser.newContext({viewport:{width,height:900}})
   const page=await ctx.newPage()
   await page.goto('/dealers/'+fixture.public_slug)
-  await expect(page).toHaveURL(new RegExp('/dealers/'+fixture.public_slug+'
-   publicReviewerContext,publicContext])await context.close()
- console.log('DEALER_FICTIONAL_COMPLETE_BROWSER_GOLDEN_RESULT PASS: separate authenticated reviewer/approver sessions; synthetic country policy only; real legal tenant and branch persisted; same public slug upgraded; zero real business/regulator authority')
-})
-))
+  await expect(page).toHaveURL(new RegExp('/dealers/'+fixture.public_slug+'$'))
   await expect(page.getByRole('heading',{name:'Reviewed dealership branches'}))
+   .toBeVisible({timeout:30000})
+  await expect(page.getByRole('heading',{name:'BUYER ASSURANCE'}))
    .toBeVisible({timeout:30000})
   const shot=info.outputPath('fictional-approved-same-slug-'+width+'px.png')
   await page.screenshot({path:shot,fullPage:true})

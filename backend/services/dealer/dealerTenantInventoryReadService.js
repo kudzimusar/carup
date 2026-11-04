@@ -18,13 +18,23 @@ export function projectTenantDealerVehicle(record){
     public_listing_approved_by_this_read:false,
   });
 }
-export async function getMyCanonicalDealerInventory(actor){
-  const owner=await requireApprovedOwnerWorkspace(actor);
-  const {data,error}=await supabase.from('vehicles')
+export async function getMyCanonicalDealerInventory(actor,{
+  db=supabase,resolveOwner=requireApprovedOwnerWorkspace,
+}={}){
+  const owner=await resolveOwner(actor);
+  if(typeof owner?.tenant_id!=='string'||!owner.tenant_id)
+    throw refuse('CANONICAL_TENANT_CONTEXT_REQUIRED',403);
+  const {data,error}=await db.from('vehicles')
     .select('vin,make,model,year,status,publication_status,tenant_id')
     .eq('tenant_id',owner.tenant_id).order('created_at',{ascending:false}).limit(100);
-  if(error)throw refuse('CANONICAL_TENANT_INVENTORY_UNAVAILABLE');
-  const entries=(data||[]).map(projectTenantDealerVehicle).filter(Boolean);
+  // A failed/malformed data response is NOT a genuine empty inventory.
+  if(error||!Array.isArray(data))
+    throw refuse('CANONICAL_TENANT_INVENTORY_UNAVAILABLE');
+  // Defence-in-depth against unexpectedly widened provider reads. Never
+  // project foreign inventory merely because the query requested a filter.
+  if(data.some(row=>row.tenant_id!==owner.tenant_id))
+    throw refuse('CROSS_TENANT_VEHICLE_READ_REFUSED',403);
+  const entries=data.map(projectTenantDealerVehicle).filter(Boolean);
   return {
     owner_tenant_id:owner.tenant_id,
     entries,

@@ -97,6 +97,20 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  await owner.goto('/dealers/inquiries')
  await expect(owner.getByRole('heading',{name:'Marketplace buyer enquiries'}))
   .toBeVisible({timeout:30000})
+ const ownerHeaders={'x-user-id':f.actors.claimant.id,
+  'x-session-token':f.actors.claimant.token}
+ // A real authenticated owner cannot tamper with another tenant's canonical
+ // Marketplace enquiry even when they know its genuine UUID.
+ const foreignId=(f as Fixture&{synthetic_operations?:{
+   foreign_inquiry_id:string}}).synthetic_operations?.foreign_inquiry_id
+ expect(foreignId).toBeTruthy()
+ const deniedForeign=await owner.request.patch(
+  'http://127.0.0.1:3001/api/dealer/operational-inquiries/'+foreignId+'/follow-up',{
+   headers:ownerHeaders,data:{next_status:'contacted'},
+  })
+ expect(deniedForeign.status()).toBe(409)
+ expect((await deniedForeign.json() as {error:string}).error)
+  .toBe('DEALER_INQUIRY_FOLLOWUP_REFUSED')
  await expect(owner.getByText('FICTIONAL TEST BUYER',{exact:false}))
   .toBeVisible({timeout:30000})
  await expect(owner.getByRole('button',{name:'Record dealer-reported contact'}))

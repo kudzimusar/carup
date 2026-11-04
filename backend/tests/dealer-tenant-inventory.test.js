@@ -38,3 +38,34 @@ test('C17 unapproved actor cannot enumerate arbitrary tenant stock through the o
   await assert.rejects(inventory.getMyCanonicalDealerInventory(actor));
  }
 });
+
+test('C17 fail-closed tenant scope revalidates provider rows and rejects unavailable inventory',async()=>{
+ const tenant='00000000-0000-4000-8000-000000000001';
+ const resolveOwner=async()=>({tenant_id:tenant});
+ const fakeDb=(result)=>({from(table){
+   assert.equal(table,'vehicles');
+   return {select(){return this},eq(k,v){
+     assert.deepEqual([k,v],['tenant_id',tenant]);return this;
+   },order(){return this},limit(n){
+     assert.equal(n,100);return Promise.resolve(result);
+   }};
+ }});
+ await assert.rejects(
+   inventory.getMyCanonicalDealerInventory({userId:'owner'},{
+     db:fakeDb({data:null,error:null}),resolveOwner,
+   }),/CANONICAL_TENANT_INVENTORY_UNAVAILABLE/);
+ await assert.rejects(
+   inventory.getMyCanonicalDealerInventory({userId:'owner'},{
+     db:fakeDb({data:[{tenant_id:'CROSS_TENANT',vin:'TEST0000000000001'}],error:null}),
+     resolveOwner,
+   }),/CROSS_TENANT_VEHICLE_READ_REFUSED/);
+ const own=await inventory.getMyCanonicalDealerInventory({userId:'owner'},{
+   db:fakeDb({data:[{tenant_id:tenant,vin:'TEST0000000000001',
+     make:'FICTIONAL',model:'TEST',year:2026,publication_status:'draft'}],error:null}),
+   resolveOwner,
+ });
+ assert.equal(own.returned_count,1);
+ assert.equal(own.entries[0].public_listing_approved_by_this_read,false);
+ assert.equal(own.entries[0].vin,'TEST0000000000001');
+ assert.equal(own.owner_tenant_id,tenant);
+});

@@ -101,12 +101,23 @@ try{
  assert.equal(added.address,'TEST STREET 2 - NOT A REAL PUBLIC ADDRESS');
  assert.equal(Number(added.latitude),-17.829);
  assert.equal(Number(added.longitude),31.052);
+ const declaration=await db.query(`SELECT section,section_version,declared_values
+  FROM dealer_operational_declaration_events
+  WHERE dealer_profile_id=$1 AND section='BUYER_ASSURANCE'
+  ORDER BY section_version DESC LIMIT 1`,[row.dealer_profile_id]);
+ assert.equal(declaration.rowCount,1);
+ assert.equal(declaration.rows[0].section_version,1);
+ assert.match(declaration.rows[0].declared_values.refund_policy,/^FICTIONAL CI:/);
  const publication=await db.query(`SELECT seed_dealer_id,public_slug,
-   approved_branch_snapshot FROM dealer_full_storefront_current
+   approved_branch_snapshot,dealer_declared_sections FROM dealer_full_storefront_current
    WHERE seed_dealer_id=$1`,[f.seed]);
  assert.equal(publication.rowCount,1);
  assert.equal(publication.rows[0].public_slug,f.public_slug);
  assert.ok(publication.rows[0].approved_branch_snapshot.length>=1);
+ assert.equal(publication.rows[0].dealer_declared_sections
+   .BUYER_ASSURANCE.refund_policy,
+   declaration.rows[0].declared_values.refund_policy,
+   'independent full publication must include exactly the reviewed recorded buyer terms');
  const events=await db.query(`SELECT reviewer_user_id,disposition FROM
    dealer_full_storefront_review_events WHERE seed_dealer_id=$1`,[f.seed]);
  assert.equal(events.rows.at(-1)?.disposition,'PUBLISHED_FULL');

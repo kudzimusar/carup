@@ -75,6 +75,10 @@ try{
    FROM marketplace_inquiries WHERE id=$1`,[f.synthetic_operations.foreign_inquiry_id]);
  assert.equal(foreign.rowCount,1);
  assert.notEqual(foreign.rows[0].seller_tenant_id,f.synthetic_operations.tenant_id);
+ const foreignPersisted=await db.query(`SELECT status,risk_status
+  FROM marketplace_inquiries WHERE id=$1`,[f.synthetic_operations.foreign_inquiry_id]);
+ assert.deepEqual(foreignPersisted.rows,[{status:'new',risk_status:'clear'}],
+  'a forged cross-tenant follow-up must not change another tenant invoice or buyer lead');
  const progress=await db.query(`SELECT previous_status,next_status,actor_user_id,
   seller_reported_only,buyer_contact_delivery_verified,transaction_status_modified
   FROM dealer_canonical_inquiry_progress_events WHERE inquiry_id=$1
