@@ -1,8 +1,9 @@
 import {test,expect,type Page} from '@playwright/test'
 import {readFileSync} from 'node:fs'
+import ExcelJS from 'exceljs'
 type Actor={id:string;name:string;email:string;role:string;token:string}
 type Fixture={
- actors:{claimant:Actor;reviewer:Actor};
+ actors:{claimant:Actor;reviewer:Actor};reviewer_password:string;
  seed:string;public_slug:string;source_population:104;source_type:string;
 }
 const file=process.env.DEALER_BROWSER_FIXTURE_JSON
@@ -149,4 +150,224 @@ test('Native PG physical browser · separate session roles enforce reviewer queu
   await page.screenshot({path,fullPage:true})
   await info.attach('native-independent-reviewer-queue',{path,contentType:'image/png'})
   await context.close()
+})
+
+/**
+ * A syntactically real PDF with the visible legend FICTIONAL / NOT A LEGAL
+ * CERTIFICATE. It exercises the actual browser file picker, ClamAV signatures,
+ * private Supabase Storage API, database evidence custody and reviewer step-up.
+ * Never use real customer or authority documents in the disposable CI suite.
+ */
+function fictionalEvidencePdf():Buffer {
+  const stream=[
+    'BT /F1 17 Tf 50 720 Td',
+    '(FICTIONAL CI TEST DOCUMENT ONLY) Tj',
+    '0 -27 Td (NOT A REAL COMPANY REGISTRATION) Tj',
+    '0 -27 Td (NO LEGAL OR GOVERNMENT AUTHORITY) Tj',
+    '0 -27 Td (SYNTHETIC CARUP DEALER - ISOLATED TEST) Tj',
+    'ET',
+  ].join('\n')
+  const objects=[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Length '+Buffer.byteLength(stream,'ascii')+' >>\nstream\n'+stream+'\nendstream',
+  ]
+  let output='%PDF-1.4\n'
+  const offsets=[0]
+  for(let i=0;i<objects.length;i++){
+    offsets.push(Buffer.byteLength(output,'ascii'))
+    output+=(i+1)+' 0 obj\n'+objects[i]+'\nendobj\n'
+  }
+  const start=Buffer.byteLength(output,'ascii')
+  output+='xref\n0 '+(objects.length+1)+'\n0000000000 65535 f \n'
+  for(const offset of offsets.slice(1))
+    output+=String(offset).padStart(10,'0')+' 00000 n \n'
+  output+='trailer\n<< /Size '+(objects.length+1)+' /Root 1 0 R >>\n'
+  output+='startxref\n'+start+'\n%%EOF\n'
+  return Buffer.from(output,'ascii')
+}
+
+function setWorkbookField(book:ExcelJS.Workbook,tab:string,label:string,value:string){
+  const sheet=book.getWorksheet(tab)
+  if(!sheet)throw Error('MISSING_CANONICAL_CUSTOMER_SHEET_'+tab)
+  const header=sheet.getRow(1)
+  let column=0
+  for(let i=1;i<=header.cellCount;i++){
+    if(header.getCell(i).text===label){column=i;break}
+  }
+  if(!column)throw Error('MISSING_CANONICAL_CUSTOMER_FIELD_'+tab+'_'+label)
+  sheet.getRow(2).getCell(column).value=value
+}
+
+// Unlike a service-only test, this exercises actual claimant and reviewer UI
+// interactions on the real Express application. The isolated Storage API owns
+// file bytes in a disposable Docker volume and Postgres owns document metadata.
+test('Native PG + private Storage · evidence, separate approval, claim-specific Excel and frozen application',
+ async({browser},info)=>{
+  test.setTimeout(260_000)
+  expect(fixture.reviewer_password).toMatch(/^EXPLICITLY_FAKE_DEALER_CI_REVIEWER_STEPUP_/)
+  const headers=(actor:Actor)=>({
+    'x-session-token':actor.token,'x-user-id':actor.id,
+  })
+  const claimantContext=await browser.newContext({viewport:{width:1280,height:900},acceptDownloads:true})
+  const claimantPage=await claimantContext.newPage()
+  await loginAs(claimantPage,fixture.actors.claimant)
+  const claimsResult=await claimantPage.request.get(API+'/dealership/claims/mine',{
+    headers:headers(fixture.actors.claimant),
+  })
+  expect(claimsResult.status()).toBe(200)
+  const mine=await claimsResult.json() as {claims:Array<{
+    claim_id:string;seed_dealer_id:string;claim_status:string
+  }>}
+  const claim=mine.claims.find(c=>c.seed_dealer_id==='ZW-DEAL-0001')
+  expect(claim?.claim_status).toBe('AWAITING_DOCUMENTARY_EVIDENCE')
+  const claimId=claim!.claim_id
+  await claimantPage.goto('/dealers/claims')
+  await expect(claimantPage.getByRole('heading',{name:'My dealership claim applications'}))
+    .toBeVisible({timeout:25000})
+  const pdf=fictionalEvidencePdf()
+  await claimantPage.locator('#claim-document-file').setInputFiles({
+    name:'EXPLICITLY_FICTIONAL_NO_LEGAL_AUTHORITY.pdf',
+    mimeType:'application/pdf',buffer:pdf,
+  })
+  await claimantPage.getByRole('button',{name:'Upload private evidence'}).click()
+  await expect(claimantPage.getByText('Original document stored privately.',{exact:false}))
+    .toBeVisible({timeout:55000})
+  await expect(claimantPage.getByText('1 private evidence record(s)')).toBeVisible()
+  const uploadShot=info.outputPath('real-private-clamav-storage-evidence-upload.png')
+  await claimantPage.screenshot({path:uploadShot,fullPage:true})
+  await info.attach('real-private-clamav-storage-evidence-upload',{
+    path:uploadShot,contentType:'image/png'})
+  const reviewerContext=await browser.newContext({viewport:{width:1280,height:900}})
+  const reviewerPage=await reviewerContext.newPage()
+  await loginAs(reviewerPage,fixture.actors.reviewer)
+  const foreignIntake=await reviewerPage.request.get(
+    API+'/dealership/claims/'+encodeURIComponent(claimId)+'/intake',{
+      headers:headers(fixture.actors.reviewer),
+    })
+  expect(foreignIntake.status()).toBe(404)
+  await reviewerPage.goto('/admin/dealer-claims')
+  await expect(reviewerPage.getByRole('heading',{name:'Independent dealership claim review'}))
+    .toBeVisible({timeout:25000})
+  await expect(reviewerPage.locator('#dealer-evidence-selection option')).toHaveCount(2,{
+    timeout:25000,
+  })
+  await reviewerPage.locator('#claim-reviewer-password').fill(fixture.reviewer_password)
+  await reviewerPage.getByRole('button',{name:'View selected original securely'}).click()
+  const signedLink=reviewerPage.getByRole('link',{name:/Open private original/})
+  await expect(signedLink).toBeVisible({timeout:20000})
+  const signedHref=await signedLink.getAttribute('href')
+  expect(signedHref).toMatch(/storage\/v1\/object\/sign\//)
+  const original=await reviewerPage.request.get(signedHref!)
+  expect(original.status()).toBe(200)
+  const originalBytes=await original.body()
+  expect(originalBytes.equals(pdf)).toBe(true)
+  const originalDigest=await reviewerPage.request.get(
+    'http://127.0.0.1:54321/storage/v1/object/public/ocr-documents/'+
+      'FICTIONAL_UNAUTHORIZED_PUBLIC_PATH')
+  expect(originalDigest.status()).not.toBe(200)
+  await reviewerPage.locator('#claim-verdict').selectOption('CLAIM_APPROVED')
+  await reviewerPage.locator('#claim-issuer').fill('EXPLICITLY FICTIONAL CI DOCUMENT ISSUER')
+  await reviewerPage.locator('#claim-review-reason').fill(
+    'Synthetic engineering review only. The company and document are explicitly fictional, do not constitute legal registration, and do not authorize any real dealership or national regulator.')
+  await reviewerPage.locator('#claim-reviewer-password').fill(fixture.reviewer_password)
+  await reviewerPage.getByRole('button',{name:'Record immutable review decision'}).click()
+  await expect(reviewerPage.getByText('Independent claim decision recorded: CLAIM_APPROVED',{exact:false}))
+    .toBeVisible({timeout:35000})
+  const reviewShot=info.outputPath('synthetic-independent-claim-review-with-step-up.png')
+  await reviewerPage.screenshot({path:reviewShot,fullPage:true})
+  await info.attach('synthetic-independent-claim-review-with-step-up',{
+    path:reviewShot,contentType:'image/png'})
+  await claimantPage.reload()
+  await expect(claimantPage.getByRole('heading',{name:'Prefilled Excel and application'}))
+    .toBeVisible({timeout:25000})
+  const [download]=await Promise.all([
+    claimantPage.waitForEvent('download',{timeout:35000}),
+    claimantPage.getByRole('button',{name:'Download my prefilled Excel workbook'}).click(),
+  ])
+  expect(download.suggestedFilename()).toMatch(/prefilled\.xlsx$/)
+  const exported=info.outputPath('FICTIONAL-claim-specific-prefilled.xlsx')
+  await download.saveAs(exported)
+  const book=new ExcelJS.Workbook()
+  await book.xlsx.load(readFileSync(exported))
+  expect(book.worksheets.length).toBe(12)
+  expect(book.getWorksheet('BUSINESS')?.getRow(2).getCell(1).text).toBe(claimId)
+  setWorkbookField(book,'BUSINESS','Registered legal name',
+    'SYNTHETIC CARUP DEALERSHIP LTD - TEST ONLY')
+  setWorkbookField(book,'BUSINESS','Confirmed trading name',
+    'SYNTHETIC FICTIONAL CAR DEALER 1')
+  setWorkbookField(book,'BUSINESS','Confirm researched facts: YES / CORRECT / UNKNOWN','CORRECT')
+  setWorkbookField(book,'BUSINESS','Accountable authorized signatory','Fictional Test Signatory')
+  setWorkbookField(book,'BRANCHES','City/town','FICTIONAL HARARE CORRECTED')
+  setWorkbookField(book,'BRANCHES','Latitude -90 to 90','-17.829')
+  setWorkbookField(book,'BRANCHES','Longitude -180 to 180','31.052')
+  setWorkbookField(book,'BRANCHES','Visitor opening hours','Mon-Fri 09:00-16:00 (FICTIONAL)')
+  setWorkbookField(book,'BRANCHES','Confirm researched branch: YES / CORRECT / UNKNOWN','CORRECT')
+  setWorkbookField(book,'BUYER_PROTECTION','Deposits/lay-by policy',
+    'NO REAL DEPOSITS OR MONEY COLLECTED IN THIS FICTIONAL SCENARIO')
+  setWorkbookField(book,'CONSENTS_DECLARATIONS','Authorized signatory name',
+    'Fictional Test Signatory')
+  setWorkbookField(book,'CONSENTS_DECLARATIONS','Signatory legal role',
+    'Fictional Applicant - No Authority Outside CI')
+  setWorkbookField(book,'CONSENTS_DECLARATIONS','Privacy notice read YES / NO','YES')
+  setWorkbookField(book,'CONSENTS_DECLARATIONS','Declaration draft — not a legal signature',
+    'Synthetic-only review of fictional details. No legal signature or authorization.')
+  const edited=Buffer.from(await book.xlsx.writeBuffer())
+  await claimantPage.locator('#claim-workbook-file').setInputFiles({
+    name:'EXPLICITLY_FICTIONAL_CARUP_DEALER_COMPLETED.xlsx',
+    mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer:edited,
+  })
+  await claimantPage.getByRole('button',{
+    name:'Upload completed workbook and populate application',
+  }).click()
+  await expect(claimantPage.getByText('Application draft saved (version 1)',{exact:false}))
+    .toBeVisible({timeout:35000})
+  const draftResponse=await claimantPage.request.get(
+    API+'/dealership/claims/'+encodeURIComponent(claimId)+'/intake',{
+      headers:headers(fixture.actors.claimant),
+    })
+  expect(draftResponse.status()).toBe(200)
+  const intake=await draftResponse.json() as {intake:{submission_version:number;
+    content:{tab_rows:Record<string,Array<Record<string,string>>>}}}
+  expect(intake.intake.submission_version).toBe(1)
+  expect(intake.intake.content.tab_rows.BUSINESS[0].legal_name)
+    .toBe('SYNTHETIC CARUP DEALERSHIP LTD - TEST ONLY')
+  expect(intake.intake.content.tab_rows.BRANCHES[0].city)
+    .toBe('FICTIONAL HARARE CORRECTED')
+  const authority=await claimantPage.request.get(
+    API+'/dealership/claims/'+encodeURIComponent(claimId)+'/operational-authority',{
+      headers:headers(fixture.actors.claimant),
+    })
+  expect(authority.status()).toBe(200)
+  const authBody=await authority.json() as {authority:{operational:boolean}}
+  expect(authBody.authority.operational).toBe(false)
+  const publicContext=await browser.newContext()
+  const publicPage=await publicContext.newPage()
+  await publicPage.goto('/dealers/zw-deal-0001')
+  await expect(publicPage.getByText('Unclaimed — Not independently business-verified'))
+    .toBeVisible({timeout:20000})
+  await publicContext.close()
+  await claimantPage.reload()
+  await expect(claimantPage.getByRole('heading',{name:'Saved application version 1'}))
+    .toBeVisible({timeout:25000})
+  const section=claimantPage.getByRole('heading',{
+    name:'Submit version 1 for preliminary review',
+  }).locator('..')
+  await section.locator('input[type="checkbox"]').check()
+  await section.getByRole('button',{
+    name:'Submit frozen application for independent review',
+  }).click()
+  await expect(claimantPage.getByText('submitted for independent preliminary review',{
+    exact:false,
+  })).toBeVisible({timeout:35000})
+  const applicationShot=info.outputPath('real-xlsx-reimport-persisted-and-frozen-application.png')
+  await claimantPage.screenshot({path:applicationShot,fullPage:true})
+  await info.attach('real-xlsx-reimport-persisted-and-frozen-application',{
+    path:applicationShot,contentType:'image/png'})
+  await claimantContext.close()
+  await reviewerContext.close()
+  console.log('DEALER_SYNTHETIC_GOLDEN_CLAIM_XLSX_SUBMISSION PASS: isolated storage, separate step-up reviewer, 12-tab edited workbook persisted and applicant declaration frozen; legal and tenant activation remain DISABLED')
 })

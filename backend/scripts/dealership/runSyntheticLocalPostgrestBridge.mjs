@@ -3,25 +3,32 @@
  * /rest/v1/* while directly self-hosted PostgREST serves /*.
  * No fixtures or fake query responses. Every data read/write is forwarded
  * to the REAL native PostgreSQL 17 database through PostgREST.
- * Does NOT implement Supabase Storage/Auth/Realtime and therefore cannot
- * qualify the full document-heavy golden journey.
+ * Auth and Realtime remain explicitly unsupported. Storage requests proxy to
+ * a separately booted real self-hosted Supabase Storage API writing to its own
+ * disposable filesystem volume and PostgreSQL object ledger. It is NOT a mock
+ * storage endpoint and it cannot activate real legal/business authority.
  */
 import http from 'node:http';
-const listen=54321,upstreamPort=3004,host='127.0.0.1';
+const listen=54321,restPort=3004,storagePort=5000,host='127.0.0.1';
 const server=http.createServer((req,res)=>{
   const full=req.url||'';
   if(req.method==='GET'&&full==='/bridge-health'){
     res.writeHead(200,{'Content-Type':'application/json'});
     res.end(JSON.stringify({mode:'NATIVE_POSTGRES_POSTGREST_PASSTHROUGH',
-      storage_provider_available:false,real_browser_only:true}));
+      storage_api_route:'PASSTHROUGH_ONLY',real_browser_only:true}));
     return;
   }
-  if(!full.startsWith('/rest/v1/')){
+  const isRest=full.startsWith('/rest/v1/');
+  const isStorage=full.startsWith('/storage/v1/');
+  if(!isRest && !isStorage){
     res.writeHead(404,{'Content-Type':'application/json'});
     res.end(JSON.stringify({error:'UNSUPPORTED_SUPABASE_ENDPOINT_IN_DISPOSABLE_TEST'}));
     return;
   }
-  const target=full.slice('/rest/v1'.length);
+  // Never fabricate Storage responses. The object API, auth, bucket policy and
+  // immutable file contents belong to the upstream real Storage API service.
+  const upstreamPort=isRest?restPort:storagePort;
+  const target=full.slice((isRest?'/rest/v1':'/storage/v1').length);
   const headers={...req.headers,host:host+':'+upstreamPort};
   delete headers.connection;
   const upstream=http.request({

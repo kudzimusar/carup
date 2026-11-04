@@ -8,7 +8,7 @@
  * or authorization to publish an actual third-party business.
  */
 import assert from 'node:assert/strict';
-import {randomUUID,createHmac} from 'node:crypto';
+import {randomUUID,createHmac,scryptSync,randomBytes} from 'node:crypto';
 import {writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import pg from 'pg';
@@ -38,6 +38,11 @@ const serviceKey=jwt({alg:'HS256',typ:'JWT'},{
  role:'service_role',iss:'carup-dealer-ephemeral-ci',aud:'authenticated',
  exp:Math.floor(Date.now()/1000)+3600
 },jwtSecret);
+const anonKey=jwt({alg:'HS256',typ:'JWT'},{
+ role:'anon',iss:'carup-dealer-ephemeral-ci',aud:'authenticated',
+ exp:Math.floor(Date.now()/1000)+3600
+},jwtSecret);
+const reviewerPassword='EXPLICITLY_FAKE_DEALER_CI_REVIEWER_STEPUP_NO_PRODUCTION_USE_2026';
 const db=new pg.Client({connectionString:dbUrl,ssl:false,
  application_name:'carup-dealer-authenticated-browser-ephemeral'});
 await db.connect();
@@ -51,7 +56,8 @@ try{
  await db.query(`ALTER TABLE users
   ADD COLUMN IF NOT EXISTS name TEXT,
   ADD COLUMN IF NOT EXISTS email TEXT,
-  ADD COLUMN IF NOT EXISTS phone TEXT`);
+  ADD COLUMN IF NOT EXISTS phone TEXT,
+  ADD COLUMN IF NOT EXISTS password_hash TEXT`);
  await db.query(`CREATE TABLE IF NOT EXISTS user_sessions(
   token TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
@@ -78,6 +84,13 @@ try{
         WHEN id='reviewer1' THEN 'reviewer1@example.invalid'
         ELSE email END
   WHERE id IN ('claimant1','reviewer1')`);
+ // Password challenge uses the genuine production scrypt verification logic.
+ // These bytes belong to an explicitly fictional account in this disposable DB.
+ const salt=randomBytes(16).toString('hex');
+ const reviewerHash='scrypt:'+salt+':'+
+   scryptSync(reviewerPassword,salt,64).toString('hex');
+ await db.query('UPDATE users SET password_hash=$1 WHERE id=$2',
+   [reviewerHash,'reviewer1']);
  const actors={
   claimant:{id:'claimant1',name:'Fictional Claimant One',
    email:'claimant1@example.invalid',role:'member',
@@ -108,9 +121,11 @@ try{
  const fixturePath=join(runnerTemp,'carup-dealer-browser-fixture.json');
  writeFileSync(fixturePath,JSON.stringify({actors,seed:'ZW-DEAL-0001',
   public_slug:'zw-deal-0001',source_population:104,
+  reviewer_password:reviewerPassword,
   source_type:'EXPLICITLY_FICTIONAL_NATIVE_POSTGRES_XLSX'}),{mode:0o600});
  const envPath=join(runnerTemp,'carup-dealer-browser.env');
- writeFileSync(envPath,'SUPABASE_SERVICE_ROLE_KEY='+serviceKey+'\n',{mode:0o600});
+ writeFileSync(envPath,'SUPABASE_SERVICE_ROLE_KEY='+serviceKey+'\n'
+  +'SUPABASE_ANON_KEY='+anonKey+'\n',{mode:0o600});
  console.log('DEALER_BROWSER_SYNTHETIC_FIXTURE PASS: 104 fictional sources, one reviewed unclaimed profile, two distinct real authenticated DB sessions, no legal dealer/tenant grants');
  console.log('DEALER_BROWSER_SOURCE_NOTE: FICTIONAL_ONLY; ORIGINAL_OWNER_XLSX_NOT_USED; LEGAL_PUBLICATION_IS_SIMULATED');
 }finally{await db.end()}
