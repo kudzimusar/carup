@@ -1,0 +1,17 @@
+[2026-11-04T00:40:48Z] stopped pid 62442 on 5051 (~/carup-pay05-uat/backend)
+[2026-11-04T00:40:48Z] stopped pid 46747 on 5071 (~/carup-pay05-uat)
+[2026-11-04T00:40:48Z] stopped pid 46933 on 5203 (~/carup-pay05-uat/web)
+[2026-11-04T00:40:51Z] UAT worktree at 261d701d0f47fefe97afe08d30b4c6091e595a7d, clean
+pay04-uat-db-before-pay05-20261102T092511Z.dump: OK
+[2026-11-04T00:41:29Z] DB: Done. Ledger: 82 entries; Paynow simulator ON, real Paynow OFF (CHECK-enforced).
+[2026-11-04T00:41:45Z] runtime up: backend 261d701d0f47fefe97afe08d30b4c6091e595a7d, web 200, TTL 300
+[2026-11-04T00:43:45Z] seed exit=0 QA seed complete.
+[2026-11-04T01:33:40Z] PAY-05 matrix exit=0 61/61 passed -> ~/carup-launch-evidence/pay05/uat/http-matrix-261d701d.json
+[2026-11-04T01:33:40Z] stopped pid 34207 on 5051 (~/carup-pay05-uat/backend)
+[2026-11-04T01:33:49Z] backend restarted at default TTL
+[2026-11-04T01:41:30Z] PAY-04 browser exit=0   Slow test file: [chromium] › e2e/pay04-garage-payments.spec.ts (7.6m)   Consider running tests from slow files in para
+[2026-11-04T01:52:49Z] PAY-05 browser exit=0   Slow test file: [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts (11.3m)   Consider running tests from slow files in par
+[2026-11-04T02:33:26Z] R1 browser+keyboard exit=0   Slow test file: [chromium] › e2e/pay05-r1-state-truth.spec.ts (40.5m)   Consider running tests from slow files in para
+[2026-11-04T02:37:46Z] keyboard baseline exit=0   ✓  3 [chromium] › e2e/icr-pay05-keyboard.spec.ts:176:1 › keyboard only (mobile): an InnBucks request can be continued
+[2026-11-04T02:44:30Z] PAY-04 matrix exit=0 26/26 passed -> ~/carup-launch-evidence/pay04/uat/http-matrix-261d701d.json
+[2026-11-04T02:44:30Z] REPRO_DONE all (runtime left up)

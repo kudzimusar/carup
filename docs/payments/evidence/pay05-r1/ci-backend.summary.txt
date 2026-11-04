@@ -1,7 +1,7 @@
-commit fae7841611b49d3569ec2f1d9cb0c3702a0ef46a
-== PAY-05 contracts rc=0 # tests 173 # pass 173 # fail 0 # skipped 0
+commit 261d701d0f47fefe97afe08d30b4c6091e595a7d
+== PAY-05 contracts rc=0 # tests 174 # pass 174 # fail 0 # skipped 0
 == PAY-04 static rc=0 # tests 38 # pass 18 # fail 0 # skipped 20
-== Garage domains rc=0 # tests 120 # pass 120 # fail 0 # skipped 0
+== Garage domains rc=1 # tests 120 # pass 119 # fail 1 # skipped 0
 == Inherited gates rc=0 # tests 784 # pass 784 # fail 0 # skipped 0
 == PAY regressions rc=0 # tests 131 # pass 131 # fail 0 # skipped 0
 == WSI rc=0 push dry run feat/carup-pay-05-zimbabwe-collections-mobile-money: 6 jobs; 0 with shared-data credentials

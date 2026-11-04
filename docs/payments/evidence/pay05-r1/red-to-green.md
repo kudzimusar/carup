@@ -1,6 +1,6 @@
 # CARUP-PAY-05-R1 — red to green
 
-Final runtime commit `fae7841611b49d3569ec2f1d9cb0c3702a0ef46a`. Names and outcomes only; sequences and working reproductions stay in restricted custody.
+Final runtime commit `261d701d0f47fefe97afe08d30b4c6091e595a7d`. Names and outcomes only; sequences and working reproductions stay in restricted custody.
 
 ## Real PostgreSQL blocks (`backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql`)
 
@@ -63,6 +63,11 @@ Final runtime commit `fae7841611b49d3569ec2f1d9cb0c3702a0ef46a`. Names and outco
 | R10 | `1a902df6`, before the pre-final review's fixes | failed | pass | pass |
 | R11 | `1a902df6`, before the pre-final review's fixes | failed | pass | pass |
 | R12 | `1a902df6`, before the pre-final review's fixes | failed | pass | pass |
+| R13 | `1a902df6`, before the pre-final review's fixes | failed | pass | pass |
+| R13b | `1a902df6`, before the pre-final review's fixes | failed | pass | pass |
+| R14 | `1a902df6`, before the pre-final review's fixes | failed | pass | pass |
+| R15 | `1a902df6`, before the pre-final review's fixes | failed | pass | pass |
+| R15b | `1a902df6`, before the pre-final review's fixes | failed | pass | pass |
 
 ## Real-PostgreSQL service tests (`backend/tests/pay05-r1-services.test.js`)
 
@@ -111,6 +116,7 @@ Final runtime commit `fae7841611b49d3569ec2f1d9cb0c3702a0ef46a`. Names and outco
 | PFR-L12: an operator's failed verification probes do not refuse the garage's own connection | - | failed | pass |
 | PFR-L13: reads that fail keep the slow pace: looking at an invoice again does not read Paynow again | - | failed | pass |
 | every Paynow collection this file made: counted money has Paynow's applied Paid as its latest word and exactly one live receipt | - | - | pass |
+| CERT-1: a dispute after a refund stays open and the customer is told so: no second payment, and no word of a refund as the answer | - | - | pass |
 
 A dash means the test had not been written yet or was not red in that run. Where a test was written after its fix (the second-line and concurrency tests), it was instead proven by mutation: see the mutation report.
 

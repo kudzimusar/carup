@@ -6,7 +6,7 @@
     "SHARED_REACH": "WSI-SHARED-DATA-REACH",
     "SHARED_APPROVAL": "WSI-SHARED-DATA-APPROVAL"
   },
-  "head_sha": "fae7841611b49d3569ec2f1d9cb0c3702a0ef46a",
+  "head_sha": "261d701d0f47fefe97afe08d30b4c6091e595a7d",
   "event": null,
   "workflows_scanned": 76,
   "violations": [],

@@ -1,4 +1,4 @@
-commit fae7841611b49d3569ec2f1d9cb0c3702a0ef46a order garage-first rc=0
+commit 261d701d0f47fefe97afe08d30b4c6091e595a7d order garage-first rc=0
 PAY01C_POSTGRES_SMOKE_PASS: isolated claim, RLS, idempotency, refund and monotonic entitlement
 PAY02_POSTGRES_SMOKE_PASS: 66-item DB catalogue, RLS, ACLs, atomic governance version advancement, q
 PAY03A_POSTGRES_SMOKE_PASS: Canonical vehicle/report schema preserved, synthetic fixtures segregated
@@ -78,5 +78,10 @@ PAY05_R1 R9 PASS
 PAY05_R1 R10 PASS
 PAY05_R1 R11 PASS
 PAY05_R1 R12 PASS
+PAY05_R1 R13 PASS
+PAY05_R1 R13b PASS
+PAY05_R1 R14 PASS
+PAY05_R1 R15 PASS
+PAY05_R1 R15b PASS
 PAY05_R1_FINANCIAL_INTEGRITY_POSTGRES_SMOKE_PASS: money counts only on Paynow's own matching Paid, s
 PAY05_POSTGRES_CERTIFICATION_PASS (garage-first)

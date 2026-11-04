@@ -203,6 +203,7 @@ themselves, and a receipt exists only for money that counts.
 | Disputed, whatever its amount | not counted, `provider_disputed` review; Paynow's figure kept as evidence | held |
 | Refunded, whatever figure it carries | applied as a full refund; not counted; `provider_refund_unquantified` once per collection, keeping Paynow's figure as evidence | freed |
 | Refunded on a payment CarUp closed | the payment stays closed; the operator is told, whether or not CarUp saw the money | — |
+| Disputed after a Refunded | a `provider_disputed` review stays open and holds its room, in no one's name, until an operator settles it or Paynow itself reports Refunded again. For Paynow money, a refund closes a review only when Paynow's own latest word is Refunded | — |
 | An unknown word, or a step back from money | `provider_status_unrecognized` review | held |
 | A money word on an integration with no reviewed settlement currency | `currency_mismatch` review, never allocated | held until resolved |
 
@@ -241,7 +242,7 @@ the order reads arrive in is not the order Paynow answered them. Every read take
 - Two deliveries of one message can race. If an older read wrote first, the later read is still evaluated as the poll it is, so its
   news is not lost with the duplicate.
 - Each message has its own budget of twelve update-triggered reads per collection in ten minutes, with sixty across messages as a
-  second line (`pay05_begin_status_update_read`). A replayed message cannot use up another's. Past the budget CarUp answers non-2xx and
+  second line (`pay05_begin_status_update_read`). A replayed message cannot use up another's budget, though enough distinct captured messages can spend the overall one for a window. Past the budget CarUp answers non-2xx and
   makes no read. Ordinary reads are unaffected.
 - A message already recorded, read again and showing nothing new, writes no row and starts no new generation.
 
@@ -261,6 +262,7 @@ the order reads arrive in is not the order Paynow answered them. Every read take
 - **A reservation is not money.** A request that only holds room does not outrank a Paid that Paynow has reported on another request:
   that money counts, and the request holding the room then says it is no longer needed, with no link, code or form. If it is paid
   anyway, that money is unallocated, for an operator.
+- **Voiding.** An invoice cannot be voided with a review open on a Paynow request, settled or not; the review closes first. A refund to confirm does not block, because that money is already gone.
 - **Room freed.** When a refund, a dispute or a review takes money off an invoice, Paynow money waiting for that room counts at once, oldest
   first, with its receipt. Settled money stays capped.
 - **Settlement:** the operator can settle a wrong-amount Paid, an unrecognised status, a dispute or an unverifiable currency

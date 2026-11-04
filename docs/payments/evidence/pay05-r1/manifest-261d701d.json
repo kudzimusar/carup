@@ -1,0 +1,559 @@
+{
+  "candidate": "261d701d0f47fefe97afe08d30b4c6091e595a7d",
+  "rehearsals": [
+    "fae7841611b49d3569ec2f1d9cb0c3702a0ef46a",
+    "616e623c131373546a4f0521eae397f17e092e9d",
+    "f3b1cf5318a7a1d9ea0b5c622ebd1e1580c78ccd"
+  ],
+  "published_at": "2026-11-04T03:36:30.930Z",
+  "files": [
+    {
+      "file": "http-matrix-261d701d.json",
+      "sha256": "0cf4a18c58960dacf3f17ef6063130970fd196e6a11ec6d8cc470d9eff72f18a"
+    },
+    {
+      "file": "pay04-http-matrix-261d701d.json",
+      "sha256": "606ab1bc805cbc7066e2727366dd9f884d8c0f1f1c666fe2c214c11d3221ec7b"
+    },
+    {
+      "file": "physical-run-261d701d.txt",
+      "sha256": "f4f6f2a699d96b55f6a0d568bdf4a27b0e4cf1e87644a3ed32ef6ffeef38bab6"
+    },
+    {
+      "file": "pay05-browser-261d701d.txt",
+      "sha256": "a4631a1c87b077fbfbf418769eb421e74e9a4294d451a64cff01edfb875a7cb0"
+    },
+    {
+      "file": "pay04-browser-261d701d.txt",
+      "sha256": "3600c4efb75067201c955af54a81c6a0accfbec42015bb3dbeb2b37aa83ed944"
+    },
+    {
+      "file": "r1-browser-261d701d.txt",
+      "sha256": "5abebed6bda2a44fe5fb3522134b01aebff235068f8dfef3d2e519a8c8724422"
+    },
+    {
+      "file": "pay05-browser-journal-261d701d.json",
+      "sha256": "e6ed4ac1aafda9b1d3eab2865604d8fb834561e627a96942605a6e5998873a22"
+    },
+    {
+      "file": "r1-browser-journal-261d701d.json",
+      "sha256": "995c06cbc87dda8279d6c13bd417f7cd52f18bb274bca5d59189953f25679d84"
+    },
+    {
+      "file": "pay04-browser-journal-261d701d.json",
+      "sha256": "fbc8977a67a527a224253a1b00f44305a4338d263f1020092ccdf08b4f60b613"
+    },
+    {
+      "file": "screens/r1-r1-customer-closedLive-desktop.png",
+      "sha256": "7921928f1cfc8008b9ada071fd1d4816b43381736f32cae33a699abd415b7a9b"
+    },
+    {
+      "file": "screens/r1-r1-customer-closedLive-mobile.png",
+      "sha256": "6f4f297b5b3544637c266accc706643ed2d244ed322f6f136ac2966e217cdf00"
+    },
+    {
+      "file": "screens/r1-r1-customer-closedLive-tablet.png",
+      "sha256": "573e32434cdabadc1ca750f98447abb268d7d1b22825c180b5d769bcbe038437"
+    },
+    {
+      "file": "screens/r1-r1-customer-counted-desktop.png",
+      "sha256": "2e8aade01fde64a077bb006b9f27cac1335859f00516c95b4f494fde7bab36ea"
+    },
+    {
+      "file": "screens/r1-r1-customer-counted-mobile.png",
+      "sha256": "ac47f69d4a8eae9e580dde89e7499906829856afd0be8b4be8489d3c1b6eddc4"
+    },
+    {
+      "file": "screens/r1-r1-customer-counted-tablet.png",
+      "sha256": "3eb8cdbc65fd5e44e0ae28a779bf818f0a027581cf9f3bdaffd86e33809987c6"
+    },
+    {
+      "file": "screens/r1-r1-customer-disputed-desktop.png",
+      "sha256": "4a622677657af7b6a794b1abe3850403ed3511327bf774bb5f66fc0ef9c5c0b4"
+    },
+    {
+      "file": "screens/r1-r1-customer-disputed-mobile.png",
+      "sha256": "5dc1c82a31b267ceec213e24c844960c32dcd9925ec3de2cd4b2f3dbf4e6349b"
+    },
+    {
+      "file": "screens/r1-r1-customer-disputed-tablet.png",
+      "sha256": "243ac13488f665551fb165da8d0528080d73543f204cb376d3dfad786365a1d3"
+    },
+    {
+      "file": "screens/r1-r1-customer-escrow-desktop.png",
+      "sha256": "848c1018df3cb546b5c1168e2c8f08dc51d4c0cdb68d7445033fead41fcbef49"
+    },
+    {
+      "file": "screens/r1-r1-customer-escrow-mobile.png",
+      "sha256": "be8a2573223517428838fa0b47d656afd8357bb6eaff0584538ba0ca94dec17e"
+    },
+    {
+      "file": "screens/r1-r1-customer-escrow-tablet.png",
+      "sha256": "89301a9628c4fa9e6f4dabf467f38515b0e8ea7d386944aa4daee85b96b8bf26"
+    },
+    {
+      "file": "screens/r1-r1-customer-lateClosed-desktop.png",
+      "sha256": "7aba55d1a77a1ae2f662ecf847cf7edfb0874aa0b0a1350471974d3226de2a68"
+    },
+    {
+      "file": "screens/r1-r1-customer-lateClosed-mobile.png",
+      "sha256": "9842924a8920da0c91049aa2ac098148577a0405bea10c9d4a0f5f5fcdaeccbc"
+    },
+    {
+      "file": "screens/r1-r1-customer-lateClosed-tablet.png",
+      "sha256": "e5d4de26eccc522e01839135131b31b93e72d832f44d440a76946c8fb3df6721"
+    },
+    {
+      "file": "screens/r1-r1-customer-lateOpen-desktop.png",
+      "sha256": "77eb45ba5a7d954b699e4976efc861fa2311f7ff55b5b292b95f5b7494ff3faf"
+    },
+    {
+      "file": "screens/r1-r1-customer-lateOpen-mobile.png",
+      "sha256": "ddb14d844f864396dd1854e6a939fc206cac43d04790dc7d8c7d1b5e2e9bcec5"
+    },
+    {
+      "file": "screens/r1-r1-customer-lateOpen-tablet.png",
+      "sha256": "497fb0bdcebfaf057b6e54a6b0d97e7afa85e4ddb643f873d00b08ecba1c9d09"
+    },
+    {
+      "file": "screens/r1-r1-customer-notNeeded-desktop.png",
+      "sha256": "4b8440a6c5af6db5aab01955db246dc3f9c8ffe0bad0fe1772617d2fca8f59a1"
+    },
+    {
+      "file": "screens/r1-r1-customer-notNeeded-mobile.png",
+      "sha256": "8f96e4a6c39955d60cd78a5b0974bb709f1bb96afeba79e69aef2b388cc95b8a"
+    },
+    {
+      "file": "screens/r1-r1-customer-notNeeded-tablet.png",
+      "sha256": "4aa71c3937d51d9863564b8227393fde0c640ede467f0542a01d7668cb635a2f"
+    },
+    {
+      "file": "screens/r1-r1-customer-partial-desktop.png",
+      "sha256": "94c70e40f141313ef59f5edcc1aabcda69f13f0340c08d8ccaafef8bf40027bf"
+    },
+    {
+      "file": "screens/r1-r1-customer-partial-mobile.png",
+      "sha256": "0ebe0a0fd49fd3d5c07f539e908a228a9a401bb4fe6d5092b288957536544f11"
+    },
+    {
+      "file": "screens/r1-r1-customer-partial-tablet.png",
+      "sha256": "7e539e57f186071776826f067e2ef52596202a8b808f5287d4c5cd876d7e71b1"
+    },
+    {
+      "file": "screens/r1-r1-customer-released-desktop.png",
+      "sha256": "afad19ddda7cb74a0a1c4599ec5c49f4ed4381c900fd572b89b057f8e58e2e82"
+    },
+    {
+      "file": "screens/r1-r1-customer-released-mobile.png",
+      "sha256": "c41c3532e56c05bfad689d49f68d9d09ac2ad4571956bb255cecec02f61b3d28"
+    },
+    {
+      "file": "screens/r1-r1-customer-released-tablet.png",
+      "sha256": "0fdc24d859c8f6f9f007f7931cf8ddb2c65bdcda9f2ad279fa6ea4ff18a35e01"
+    },
+    {
+      "file": "screens/r1-r1-customer-reversed-desktop.png",
+      "sha256": "91aee238124dbea83ce53dc2a44c7798a12aa6c3a3f9daa8d86f431544a3e9f1"
+    },
+    {
+      "file": "screens/r1-r1-customer-reversed-mobile.png",
+      "sha256": "5d8f8733a76199a20846f88ebca98aa3f5477adc49973d46aaf463306f3c858b"
+    },
+    {
+      "file": "screens/r1-r1-customer-reversed-tablet.png",
+      "sha256": "a72fde76f9c70d0429bdcef1cc4d36ffbf8669952f193128413dfe0f3d780cc3"
+    },
+    {
+      "file": "screens/r1-r1-customer-reviewedHeld-desktop.png",
+      "sha256": "7bfe8c70e93c777dd5d81d66f98335ed87fe45936853d1ce8d46fb64ce07e92c"
+    },
+    {
+      "file": "screens/r1-r1-customer-reviewedHeld-mobile.png",
+      "sha256": "bdfbee9a7635b25b92ac4f349a54d7ed6633bfadc4af45f825187953cf8dce19"
+    },
+    {
+      "file": "screens/r1-r1-customer-reviewedHeld-tablet.png",
+      "sha256": "b08b31a67cba9c2640e314b6bd1fb4b56283fff71cfd134e8727215ac115755d"
+    },
+    {
+      "file": "screens/r1-r1-customer-settled-desktop.png",
+      "sha256": "13500d79fae61c5b1c446e48bf60860556441cdb8d27efadbc97f137777fde7f"
+    },
+    {
+      "file": "screens/r1-r1-customer-settled-mobile.png",
+      "sha256": "ae1129932711bd50cfa94c2e4dd07e16debd5d06f182f167bc3f77433c501a7b"
+    },
+    {
+      "file": "screens/r1-r1-customer-settled-tablet.png",
+      "sha256": "0ce6802d4a0466e83cbc57a9a58d29c961fc38805e7b1619ac904e9d2a54200c"
+    },
+    {
+      "file": "screens/r1-r1-garage-closedLive-desktop.png",
+      "sha256": "3d7a81a8e734d0564cbf7a689fecb21a7fe522fbdd6c77b871379ec760c314bf"
+    },
+    {
+      "file": "screens/r1-r1-garage-closedLive-mobile.png",
+      "sha256": "ae4cdf730c43bda3c95afce2176ed4bd3a9d5805b94ef05acddf046281b086d7"
+    },
+    {
+      "file": "screens/r1-r1-garage-closedLive-tablet.png",
+      "sha256": "596ba787e111af25d7945e0c8869bda4c84655e47c9b892001bd9380e07e0904"
+    },
+    {
+      "file": "screens/r1-r1-garage-counted-desktop.png",
+      "sha256": "75b6bb87021ffe1fa38b8336d6e8623e175b07aed4052667ca40cc120df5ba20"
+    },
+    {
+      "file": "screens/r1-r1-garage-counted-mobile.png",
+      "sha256": "2879debefdc4c2899ba9c0685378559fb487f00f1f1f85a8d7bff2f9b302a00a"
+    },
+    {
+      "file": "screens/r1-r1-garage-counted-tablet.png",
+      "sha256": "76fc7a07918c963e542ad5a989db76ed11b96ce6da429d3f5224fb9e149412c9"
+    },
+    {
+      "file": "screens/r1-r1-garage-disputed-desktop.png",
+      "sha256": "bac96e91bda29f4a777503c5a6c9c511b8f581ea76699ae6943d5baa4eb60afd"
+    },
+    {
+      "file": "screens/r1-r1-garage-disputed-mobile.png",
+      "sha256": "9d3bc19be16e5117d5f2e940c7a48f08338c157d15823403ece4c2bf0d240568"
+    },
+    {
+      "file": "screens/r1-r1-garage-disputed-tablet.png",
+      "sha256": "3e0deddc4734356dde846083539d0cc10c556833bfec30fdb1877afa0e59b4a9"
+    },
+    {
+      "file": "screens/r1-r1-garage-escrow-desktop.png",
+      "sha256": "6140b3b9380b6a10e15a36341de7dd10fab6040e2a657e5525742d233f73e7ac"
+    },
+    {
+      "file": "screens/r1-r1-garage-escrow-mobile.png",
+      "sha256": "0602d3931850d3b6cf804b0fcfc26a1cadd096a73e3d12924ee2ab8cfdeb4044"
+    },
+    {
+      "file": "screens/r1-r1-garage-escrow-tablet.png",
+      "sha256": "90e42f439062ec9ddc8706174a5e62c6d54e0773c43335e59db9b961c35e9170"
+    },
+    {
+      "file": "screens/r1-r1-garage-lateClosed-desktop.png",
+      "sha256": "2e4625870ff976a2b40a0cfe2fd0bc01b19dc6a702598f68d89e9b6945d90cf0"
+    },
+    {
+      "file": "screens/r1-r1-garage-lateClosed-mobile.png",
+      "sha256": "b3a98ef94e3f983cc6c58d8ab86aecf10771dfd03ed384745531c47c86289e8d"
+    },
+    {
+      "file": "screens/r1-r1-garage-lateClosed-tablet.png",
+      "sha256": "528dd9643efb61503a86a26c8dfda52dcf3b03e317790e9deb96e12f22e70be0"
+    },
+    {
+      "file": "screens/r1-r1-garage-notNeeded-desktop.png",
+      "sha256": "d434b2b8a3d872bb0aff329ddff7aebaab57920f71a2d6f02932fc4691c17abf"
+    },
+    {
+      "file": "screens/r1-r1-garage-notNeeded-mobile.png",
+      "sha256": "8a286831f0c4e312b9c3026f3b39305d0f5f0a4459f5168aaa3ce66463a415d2"
+    },
+    {
+      "file": "screens/r1-r1-garage-notNeeded-tablet.png",
+      "sha256": "af8a7bbdb28eb00ddf0a5fcf8c4a55b2c2bb9516b812339b6513d21b426388e8"
+    },
+    {
+      "file": "screens/r1-r1-garage-partial-desktop.png",
+      "sha256": "30d88ffb47de70b6d03c4906fbc1721662b4fcfad6bbb02164858b139a681ac7"
+    },
+    {
+      "file": "screens/r1-r1-garage-partial-mobile.png",
+      "sha256": "81c2dd85277cbbd0b7dec1f80758bc2af6da40649ff4e469e742b7311f028c4c"
+    },
+    {
+      "file": "screens/r1-r1-garage-partial-tablet.png",
+      "sha256": "2a849f33890c161f43fd656faf7bb5744e3b9f2f6c1c7761308ada8e2fefecdb"
+    },
+    {
+      "file": "screens/r1-r1-garage-released-desktop.png",
+      "sha256": "633a019a084fae66c12f968576fb7188274d6afae9e547d1408a45e0a394c4fc"
+    },
+    {
+      "file": "screens/r1-r1-garage-released-mobile.png",
+      "sha256": "0d773c8cfa7700d5c411d73e418b2b91f1724a4a8f0aea6fcfab730e71f12719"
+    },
+    {
+      "file": "screens/r1-r1-garage-released-tablet.png",
+      "sha256": "2d5eee98b30e58e740e2c06aededf22cce256c75d9c1139a2c8e11fb27afdaf9"
+    },
+    {
+      "file": "screens/r1-r1-garage-reversed-desktop.png",
+      "sha256": "4836611de085977a69a4c2ad053ab7998ce72aeeb2444d92f2b3f2ccf852636b"
+    },
+    {
+      "file": "screens/r1-r1-garage-reversed-mobile.png",
+      "sha256": "55b4f60ab942a01d3fed97cb1e2f1a683bf10138b0ad21c984503d07f096e5b3"
+    },
+    {
+      "file": "screens/r1-r1-garage-reversed-tablet.png",
+      "sha256": "8133b9448cfaf382ad01a2c3c258c52eae3f8ccb45012f1a13752eff9177fd03"
+    },
+    {
+      "file": "screens/r1-r1-garage-reviewedHeld-desktop.png",
+      "sha256": "8b82ab2b265152efc5c9137656516fef36ca213af0644743a593514b35efd59b"
+    },
+    {
+      "file": "screens/r1-r1-garage-reviewedHeld-mobile.png",
+      "sha256": "f94c2c1d2efba5271a3f607c6c062ff864c5e45a6128db1baa052a0e79a8faf5"
+    },
+    {
+      "file": "screens/r1-r1-garage-reviewedHeld-tablet.png",
+      "sha256": "b62b850b687da1c5df7626a0ceb57748efa8a780ebd241631ef61f9bbfb15c03"
+    },
+    {
+      "file": "screens/r1-r1-garage-settled-desktop.png",
+      "sha256": "287990547629862d81158e43291c34cc667b13fb80e7ccd697966a6c88f155d3"
+    },
+    {
+      "file": "screens/r1-r1-garage-settled-mobile.png",
+      "sha256": "7ee0056b122abd9431a8879ef653208fab9692a183a9fecc31cf1cab94bb6ec7"
+    },
+    {
+      "file": "screens/r1-r1-garage-settled-tablet.png",
+      "sha256": "7f58bb3496f6e6196064389a684e796789206274e54eec2001f51dc0730e1e37"
+    },
+    {
+      "file": "screens/r1-r1-operator-escrow-desktop.png",
+      "sha256": "7b7d5c66d7a25e995f080f107ba983dffc7b1cc2ea7c23c63ce539e69d701c52"
+    },
+    {
+      "file": "screens/r1-r1-operator-escrow-mobile.png",
+      "sha256": "87418215194e10163bd3d51b07a4afab5704eb847e1b8afe5b4219b52cb3a3f3"
+    },
+    {
+      "file": "screens/r1-r1-operator-escrow-tablet.png",
+      "sha256": "b9c1be5bcbe388cb4c62379c37c3a7569d1d5d033a11f5901a8b9cb328e9bbba"
+    },
+    {
+      "file": "screens/r1-r1-operator-released-desktop.png",
+      "sha256": "87bf5cf3aef078eb04c2d707e1f0c148b53f04be07a6a9da746d26d286a9edb0"
+    },
+    {
+      "file": "screens/r1-r1-operator-released-mobile.png",
+      "sha256": "f3026ce9c4ea4536bf78009cbe8d577d4ad0d9d2aaccce8584cb5f8c87064c62"
+    },
+    {
+      "file": "screens/r1-r1-operator-released-tablet.png",
+      "sha256": "6caf942fa5b6e4a6bcae8c354d2cf4a509c19bd4631fddf55a19b32116816f06"
+    },
+    {
+      "file": "screens/r1-r1-operator-settled-desktop.png",
+      "sha256": "f3e2b42cd24e3dc985091c385375d38de7c6d426021968f7835a925c17c6dad9"
+    },
+    {
+      "file": "screens/r1-r1-operator-settled-mobile.png",
+      "sha256": "e9f8646a88a4678db492a748ef9953aaed6e2edb021bf945e51131935876fb0c"
+    },
+    {
+      "file": "screens/r1-r1-operator-settled-tablet.png",
+      "sha256": "c3c245045d6a26c848f1bdc9ef6971bfcc1ce0bdeabde6d45605058c076b82d5"
+    },
+    {
+      "file": "screens/r1-r1-operator-waitingPast-desktop.png",
+      "sha256": "f2278df53d8c2f59849383e63e31be74c272432fd1f7700216f86ec5c93ae912"
+    },
+    {
+      "file": "screens/r1-r1-operator-waitingPast-mobile.png",
+      "sha256": "38f1156907ebfca1c1cb237b21e12fe52ea8d8f67fd670429326a03ac978ba2d"
+    },
+    {
+      "file": "screens/r1-r1-operator-waitingPast-tablet.png",
+      "sha256": "82f5f833e3fa61130e419be395c1d37e1f0aec22730baab85610fa5eba0c92ed"
+    },
+    {
+      "file": "screens/pay05-01-garage-connect-field-error-desktop.png",
+      "sha256": "aa3810fff675bb98c0775474ca0dcc448bb3fd63ef52a1d313916e12ba0250ca"
+    },
+    {
+      "file": "screens/pay05-02-garage-connected-pending-desktop.png",
+      "sha256": "11bcfa17ff51643d90a324412dd9feca2da42f73a0a606df9812c08bab7082bb"
+    },
+    {
+      "file": "screens/pay05-03-operator-verify-ready-desktop.png",
+      "sha256": "90f104a0b1d631cce2aff912d1a0b3f3a8baa7e831adf147504e9857cd45429a"
+    },
+    {
+      "file": "screens/pay05-04-operator-verified-history-desktop.png",
+      "sha256": "2bf26839a61347f6eb7da1935d7c9d47445f13fcd3da561f23557ad3c7b6ad5f"
+    },
+    {
+      "file": "screens/pay05-05-customer-paynow-methods-desktop.png",
+      "sha256": "10078f485bd1cc534efbcc42256f17fd93a955bc4054ca6eda27ae31b88723f8"
+    },
+    {
+      "file": "screens/pay05-06-simulated-paynow-hosted-page.png",
+      "sha256": "60c63b7a0b83a772d90a47ddc87a9cba5f127046155b192e21c630959b65f6e4"
+    },
+    {
+      "file": "screens/pay05-07-customer-return-confirmed-desktop.png",
+      "sha256": "a39b061fada9d39024baca2d5698fe5696796888c0421d0b650fa7668c0e96d0"
+    },
+    {
+      "file": "screens/pay05-08-customer-ecocash-pending-tablet.png",
+      "sha256": "769e44bc49454d3413a2183da125f614f44f71b0aabfa1d72f80c8e5901f7974"
+    },
+    {
+      "file": "screens/pay05-09-customer-ecocash-confirmed-tablet.png",
+      "sha256": "4dc034483475f85bdc77430cd27ef892bf3da58e1141a55b6fa3edd08c90f4a5"
+    },
+    {
+      "file": "screens/pay05-10-customer-innbucks-code-mobile.png",
+      "sha256": "f7051bf193b99604fb0e0252bd5001e50c0de8c403d8efb7c4c4848b189394cb"
+    },
+    {
+      "file": "screens/pay05-11-customer-innbucks-continue-mobile.png",
+      "sha256": "3ed68a0208cba39b967654bd9cb469702c9f99b64979cc0e56518cec00e4cf7a"
+    },
+    {
+      "file": "screens/pay05-12-customer-omari-wrong-code-mobile.png",
+      "sha256": "c3539abd87baa1d7e2f1aad4f049b9081e16c449b76f3dd7ef64c686446c1885"
+    },
+    {
+      "file": "screens/pay05-13-customer-omari-confirmed-mobile.png",
+      "sha256": "8b1608d4d7cefd6ca8b6126dfe3cb4a17939103808c21f605ecb929e2c1836e7"
+    },
+    {
+      "file": "screens/pay05-14-garage-paynow-payments-tablet.png",
+      "sha256": "52c4d32413e4b3cc85f96e930f5059899d157f5f6e6ce2c0b406468ee9724b5c"
+    },
+    {
+      "file": "screens/pay05-15-operator-held-request-desktop.png",
+      "sha256": "00c9a3e81135324af9178b586a26b20cc97dd76aa98547c59ce44504dff23ead"
+    },
+    {
+      "file": "screens/pay05-16-customer-paynow-checkout-desktop.png",
+      "sha256": "4c3142459981879340132a27f092a3e5fdfb4b41392b7d911b425a9893b7dc92"
+    },
+    {
+      "file": "screens/pay05-16-customer-paynow-checkout-mobile.png",
+      "sha256": "5750b2242e543e4bedb5460b2548e96d8c01d30875464010f7d64d41c2b83809"
+    },
+    {
+      "file": "screens/pay05-16-customer-paynow-checkout-tablet.png",
+      "sha256": "2a3fd8947247722c2d1776874f8ecba4c59b650a44598195c4a9a1d309619caf"
+    },
+    {
+      "file": "screens/pay05-17-garage-paynow-connection-desktop.png",
+      "sha256": "e94831dcc2ec1bb84fdc7719e6aa25c5ac05a24b57f54e028c6affdb97e37bfd"
+    },
+    {
+      "file": "screens/pay05-17-garage-paynow-connection-mobile.png",
+      "sha256": "7ed0890d22139e4cc50ef5942c2384fa43f8228478023760913840f62f8dca92"
+    },
+    {
+      "file": "screens/pay05-17-garage-paynow-connection-tablet.png",
+      "sha256": "8e9c7c2c7de94242650fdd67191fd41292b78c9c684179de0c6fd157de7be15a"
+    },
+    {
+      "file": "screens/pay05-18-operator-paynow-panel-desktop.png",
+      "sha256": "d607fb7ee0bb11c6c9393fc33f9fa40e30ec469324b802552aa5344e7caf4f82"
+    },
+    {
+      "file": "screens/pay05-18-operator-paynow-panel-mobile.png",
+      "sha256": "d9bbbb27036cc47d2e460388dc0c412af3dad29adc7f019932dea99da9a8c409"
+    },
+    {
+      "file": "screens/pay05-18-operator-paynow-panel-tablet.png",
+      "sha256": "291a22b8a7a066b17bf4d89d17cf1b8375712ffe0103346c93e1458c094e0a9f"
+    },
+    {
+      "file": "mutation-report-261d701d.json",
+      "sha256": "37a01fa386b8eef5dbf84798590674411107d91a17db52319e83351aa6f91afd"
+    },
+    {
+      "file": "mutation-report-541c0fce.json",
+      "sha256": "0d16e102a4fbca07f7a1c83caf8c841be4ac834937c3d665ef5a1b024990bd83"
+    },
+    {
+      "file": "mutation-report-616e623c.json",
+      "sha256": "ae03f0711ca30f1a492aa24d1b51b94ea793fa1be80d8c3ed8883d7e83d25bed"
+    },
+    {
+      "file": "mutation-report-67ce56b7.json",
+      "sha256": "95cd80c0f0f3d88a52c2b3c9483646bf07e1a138782e9141acb6d20274bbd650"
+    },
+    {
+      "file": "mutation-report-a986b8f0.json",
+      "sha256": "efeeab2fde4b043011b117fe4c494c7c03b62ff02c87dd6dff64db2660c8eedf"
+    },
+    {
+      "file": "mutation-report-fae78416.json",
+      "sha256": "8d278e391fd36fb1b74592fdc8fd05e4dd803f22ccaea475f04f5941c221a23d"
+    },
+    {
+      "file": "cert-payments-first.summary.txt",
+      "sha256": "ad8c5fb9bfbde5b75125f3440f0f95b63759a217ed5e7470e2cedd775287fee9"
+    },
+    {
+      "file": "cert-garage-first.summary.txt",
+      "sha256": "dc2a011c02e287ddec605203f4d318381ff97904131be5209a345f7cd3a212e7"
+    },
+    {
+      "file": "realpg-suites.summary.txt",
+      "sha256": "4e6dbfb11186d7c09e71d82ba58384d59e76f6c7021d5654bad618b21d5b2459"
+    },
+    {
+      "file": "web-full.summary.txt",
+      "sha256": "d5e8e3417169b09b79844e00faa07289c124ab4abb8f2d12bed59fc5d585fd01"
+    },
+    {
+      "file": "ci-backend.summary.txt",
+      "sha256": "5dabb8ffc3f3468f6dc80ce5e060c7d9d41b36710fbc39c1824218e8e5a534b5"
+    },
+    {
+      "file": "red-to-green.md",
+      "sha256": "019436b73afb330c05e41e59fa196bddeffd536d24fe7e435d34bb37bc514ce1"
+    },
+    {
+      "file": "invariants.summary.txt",
+      "sha256": "8fc94359032ac6cbd620a47ca8dd10f9ab33618a478f17e5d1d02f8404832511"
+    },
+    {
+      "file": "wsi-dry-run.json",
+      "sha256": "e58b3e99f1b416f8b539fa76b3a2b6f59b3d1ff67267cae895f58aef78666088"
+    },
+    {
+      "file": "rehearsal-http-matrix-fae78416.json",
+      "sha256": "293199c9cb2a8ed8bbfab55397d80c841cd223c603c500c21fba7b320cf056a1"
+    },
+    {
+      "file": "rehearsal-physical-run-fae78416.txt",
+      "sha256": "036b8ce7dbfdee196fd22390d94400a30fbf5f3047ad266658460e5e5529ce49"
+    },
+    {
+      "file": "rehearsal-findings-fae78416.md",
+      "sha256": "3170bc4ab1c9cfdb4c2020420a0973ac3595fb4fda902e43b9443b63a077c7d9"
+    },
+    {
+      "file": "rehearsal-http-matrix-616e623c.json",
+      "sha256": "a34523f5a13f16c98fdfa1599d413960d416c07d82e68f964d2e1dacfecbb1c7"
+    },
+    {
+      "file": "rehearsal-physical-run-616e623c.txt",
+      "sha256": "a0eb4b0c435374ba736a7c17fb0069ae54c8d311785f5c97d86d5ede1da46fca"
+    },
+    {
+      "file": "rehearsal-findings-616e623c.md",
+      "sha256": "9c117f020040a02c1e6ae5a4d4f216b85be075186f76c83302314d7fe4a77323"
+    },
+    {
+      "file": "rehearsal-http-matrix-f3b1cf53.json",
+      "sha256": "d2f1e309bb06729255a0ec9b8e744ec5f08730457543deb50ef222e1bedab87b"
+    },
+    {
+      "file": "rehearsal-physical-run-f3b1cf53.txt",
+      "sha256": "ead2f9e42e8cacf58efa9bc409d2bd588e335aa4f81261eb51648422119372d4"
+    },
+    {
+      "file": "rehearsal-findings-f3b1cf53.md",
+      "sha256": "f34b420dd214e8245d1a5fb1d4a4b611809191bed7a5319b293408da38d25320"
+    }
+  ]
+}

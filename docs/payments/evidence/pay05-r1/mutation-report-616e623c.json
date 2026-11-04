@@ -1,0 +1,1878 @@
+{
+  "summary": {
+    "total": 169,
+    "killed": 169,
+    "survived": [],
+    "invalid": [],
+    "worktree_clean_after": true
+  },
+  "results": [
+    {
+      "id": "S01",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "the provider-truth gate gone: a closure re-counts reversed money",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:278: ERROR:  PAY05_R1_CHECK_FAILED: A3 acknowledging does not re-count"
+      ]
+    },
+    {
+      "id": "S02",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "the settlement cap gone",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:379: ERROR:  PAY05_R1_CHECK_FAILED: A9 settled money never starts counting"
+      ]
+    },
+    {
+      "id": "S03",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "provider_corrected without Paynow correcting it",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:278: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_CORRECTION_NOT_CONFIRMED_BY_PROVIDER (sql: SELECT pay04_resolve_garage_payment_discrepancy('28d060a5-f0be-4191-b026-bd28c5145573', 'provider_corrected', 'r1-op', 'admin', 'The operator reviewed the Paynow merchant records for this payment.'))"
+      ]
+    },
+    {
+      "id": "S04",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "no settlement exit for a dispute",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:572: ERROR:  PAY04_RESOLUTION_INVALID"
+      ]
+    },
+    {
+      "id": "S05",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "no acknowledged exit once Paynow closed a dispute",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:550: ERROR:  PAY04_RESOLUTION_INVALID"
+      ]
+    },
+    {
+      "id": "S06",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "acknowledging a dispute Paynow still holds",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:572: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY04_RESOLUTION_INVALID (sql: SELECT pay04_resolve_garage_payment_discrepancy('a6cdc65c-3939-43e6-b59d-8123108484fe', 'acknowledged', 'r1-op', 'admin', 'The operator reviewed the Paynow merchant records for this payment.'))"
+      ]
+    },
+    {
+      "id": "S17",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a refusal after a trace cannot close",
+      "verdict": "KILLED",
+      "seconds": 0.7,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:797: ERROR:  PAY05_INITIATION_STATE_INVALID"
+      ]
+    },
+    {
+      "id": "S17g",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "the guard refuses unknown to refused",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:797: ERROR:  PAY05_TRANSACTION_IMMUTABLE"
+      ]
+    },
+    {
+      "id": "S18",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a forward word superseded by ticket order",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:759: ERROR:  PAY05_R1_CHECK_FAILED: G1 Paid answered later than a newer ticket's Sent still applies"
+      ]
+    },
+    {
+      "id": "S19",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "everything ignored after a settlement (the frozen defect)",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:238: ERROR:  PAY05_R1_CHECK_FAILED: A1 a later Refunded still acts on the canonical row"
+      ]
+    },
+    {
+      "id": "S19b",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a repeat ignores the amount",
+      "verdict": "KILLED",
+      "seconds": 0.3,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:431: ERROR:  PAY05_R1_CHECK_FAILED: B2 the correct amount now is new money: a review"
+      ]
+    },
+    {
+      "id": "S20",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a refund of a closed payment ignored",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:733: ERROR:  PAY05_R1_CHECK_FAILED: F3 no money seen: the operator is still told"
+      ]
+    },
+    {
+      "id": "S21",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a re-read reopens a closed review",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:637: ERROR:  PAY05_R1_CHECK_FAILED: D5 the same word again is recorded only"
+      ]
+    },
+    {
+      "id": "S22",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "money after settlement is not late money",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:411: ERROR:  PAY05_R1_CHECK_FAILED: B1 it opens a review"
+      ]
+    },
+    {
+      "id": "S22b",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "wrong-amount money after a close is a mismatch again",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:733: ERROR:  PAY05_R1_CHECK_FAILED: F3 late money is a review"
+      ]
+    },
+    {
+      "id": "S23",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a Disputed of another amount is not a dispute",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:615: ERROR:  PAY05_R1_CHECK_FAILED: D4 a dispute, not an amount mismatch"
+      ]
+    },
+    {
+      "id": "S24",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an unreviewed currency reaches an allocation",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:923: ERROR:  PAY05_R1_CHECK_FAILED: L2 never allocated: a currency review"
+      ]
+    },
+    {
+      "id": "S25",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "Cancelled after money closes the payment",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:595: ERROR:  PAY05_R1_CHECK_FAILED: D3 not closed: a review"
+      ]
+    },
+    {
+      "id": "S26",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "Refunded carries Paynow figure into the writer",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:662: ERROR:  PAY05_OBSERVATION_NOT_APPLIED"
+      ]
+    },
+    {
+      "id": "S27",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an unapplied snapshot recorded as applied",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:707: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_OBSERVATION_NOT_APPLIED (sql: SELECT pg_temp.read('b4901f1b-ca2a-4e31-9ece-bd5786315e7f', 'paid'))"
+      ]
+    },
+    {
+      "id": "S28",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a refund review reopens on each read",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:680: ERROR:  PAY05_R1_CHECK_FAILED: F2 one review per collection"
+      ]
+    },
+    {
+      "id": "S29",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "refund after close not told to the operator",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:733: ERROR:  PAY05_R1_CHECK_FAILED: F3 no money seen: the operator is still told"
+      ]
+    },
+    {
+      "id": "S30",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "the generation does not advance",
+      "verdict": "KILLED",
+      "seconds": 0.7,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1008: ERROR:  PAY05_R1_CHECK_FAILED: N1 advanced"
+      ]
+    },
+    {
+      "id": "S31",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an unevaluated read uses the message up",
+      "verdict": "KILLED",
+      "seconds": 4.1,
+      "evidence": [
+        "not ok 5 - non-2xx when the confirming poll was superseded by a newer read",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "S32",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "no read budget",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1029: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_STATUS_UPDATE_READS_UNAVAILABLE (sql: SELECT pay05_begin_status_update_read('94e3462d-2ffb-4f59-8dd1-6867809d1d3e', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'))"
+      ]
+    },
+    {
+      "id": "S33",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a release while a review is open",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:595: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_HOLD_NOT_RELEASABLE (sql: SELECT pay05_release_paynow_hold('40ca607f-5530-49a5-bcf5-c24f6fbd8e86', 'r1-op', 'admin', 'Release while the review is open.'))"
+      ]
+    },
+    {
+      "id": "S34",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "no release after a reviewed reversal",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:595: ERROR:  PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ"
+      ]
+    },
+    {
+      "id": "S35",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "settled money holds room",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:461: ERROR:  PAY05_R1_CHECK_FAILED: B3 settled money reserves nothing"
+      ]
+    },
+    {
+      "id": "S38",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "evidence against a settlement leaves money counted",
+      "verdict": "KILLED",
+      "seconds": 0.4,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:506: ERROR:  PAY05_R1_CHECK_FAILED: B3b what counted stops at once"
+      ]
+    },
+    {
+      "id": "S39",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "anyone may take a budgeted read",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1056: ERROR:  PAY05_R1_CHECK_FAILED: anon cannot take a budgeted read"
+      ]
+    },
+    {
+      "id": "S40",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an API role can use an identity sequence",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1056: ERROR:  PAY05_R1_CHECK_FAILED: no API role can use a PAY-05 sequence"
+      ]
+    },
+    {
+      "id": "S07",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an ID reserved without a proved key",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:841: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_INTEGRATION_NOT_ACCEPTED (sql: SELECT pay05_register_paynow_merchant('0d520d07-a23c-4df3-8bc8-81311d0ccd1d', gen_random_uuid(), 'r1k1-admin', 'K1 Garage', pg_temp.profile('K1 Motors (Pvt) Ltd'), '[{\"iv\": \"AAECAwQFBgcICQoL\", \"tag\": \"AAECAwQFBgcICQoLDA0)"
+      ]
+    },
+    {
+      "id": "S08",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "the probe not bound to the key",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:841: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_INTEGRATION_NOT_ACCEPTED (sql: SELECT pay05_register_paynow_merchant('7ad82258-2b7d-4e67-bd00-1aec45501da2', gen_random_uuid(), 'r1k1-admin', 'K1 Garage', pg_temp.profile('K1 Motors (Pvt) Ltd'), '[{\"iv\": \"AAECAwQFBgcICQoL\", \"tag\": \"AAECAwQFBgcICQoLDA0)"
+      ]
+    },
+    {
+      "id": "S09",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "another garage takes a verified ID",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:857: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_INTEGRATION_NOT_ACCEPTED (sql: SELECT pay05_register_paynow_merchant('92fe3eae-5cb5-41f6-b8c0-fac1d3f2435f', gen_random_uuid(), 'r1k4-admin', 'K4 Garage', pg_temp.profile('K4 Motors (Pvt) Ltd'), '[{\"iv\": \"AAECAwQFBgcICQoL\", \"tag\": \"AAECAwQFBgcICQoLDA0)"
+      ]
+    },
+    {
+      "id": "S10",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "no cool-down",
+      "verdict": "KILLED",
+      "seconds": 0.7,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:841: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_INTEGRATION_NOT_ACCEPTED (sql: SELECT pay05_register_paynow_merchant('6acd5d41-a699-4358-8eb6-ba15e0269f15', gen_random_uuid(), 'r1k2-admin', 'K2 Garage', pg_temp.profile('K2 Motors (Pvt) Ltd'), '[{\"iv\": \"AAECAwQFBgcICQoL\", \"tag\": \"AAECAwQFBgcICQoLDA0)"
+      ]
+    },
+    {
+      "id": "S11",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a currency that differs is verified",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:900: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_CURRENCY_EVIDENCE_MISMATCH (sql: SELECT pay05_verify_paynow_merchant('8d3a3294-6e2e-447a-b3af-54ae81c8b708', 'r1-op', 'admin', '{\"credential_probes\": {\"324d01e4-a21c-41a7-9167-0490fcf52bec\": {\"result\": \"authenticated\", \"probed_at\": \"2026-11-03T23:18:11.)"
+      ]
+    },
+    {
+      "id": "S12",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "no evidence of the currency",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:900: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_VERIFICATION_EVIDENCE_INCOMPLETE (sql: SELECT pay05_verify_paynow_merchant('3cd9d577-faf7-4e14-b2a1-8162764f6497', 'r1-op', 'admin', '{\"credential_probes\": {\"43aa246a-d069-4213-8fcd-bd83953ad5fe\": {\"result\": \"authenticated\", \"probed_at\": \"2026-11-03T23:18:11.)"
+      ]
+    },
+    {
+      "id": "S13",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "no reference to where it was checked",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:900: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_VERIFICATION_EVIDENCE_INCOMPLETE (sql: SELECT pay05_verify_paynow_merchant('865a5436-da6f-4eb4-8ee2-97f2e739b9d2', 'r1-op', 'admin', '{\"credential_probes\": {\"18843e4e-72cb-4a07-9a26-959da75f99b7\": {\"result\": \"authenticated\", \"probed_at\": \"2026-11-03T23:18:12.)"
+      ]
+    },
+    {
+      "id": "S14",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a real mode without the fee attestation",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:956: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_VERIFICATION_EVIDENCE_INCOMPLETE (sql: SELECT pay05_verify_paynow_merchant('5f10d26b-9508-4afa-85df-5da09ece318b', 'r1-op', 'admin', '{\"credential_probes\": {\"0976c467-65d8-4477-8ac0-38629ff5f49a\": {\"result\": \"authenticated\", \"probed_at\": \"2026-11-03T23:18:12.)"
+      ]
+    },
+    {
+      "id": "S15",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an integration with no evidence counts as verified",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:923: ERROR:  PAY05_R1_CHECK_FAILED: L2 not a verified integration without evidence"
+      ]
+    },
+    {
+      "id": "S36",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an ex-employee verifies",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:873: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_REVIEWER_SEPARATION_REQUIRED (sql: SELECT pay05_verify_paynow_merchant('d2abb303-0818-46e2-a760-20f377cc1859', 'r1k5-op', 'admin', '{\"credential_probes\": {\"f4e12a38-57c4-4c66-83d3-385da20225ee\": {\"result\": \"authenticated\", \"probed_at\": \"2026-11-03T23:18:1)"
+      ]
+    },
+    {
+      "id": "S37",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "test mode without the merchant e-mail",
+      "verdict": "KILLED",
+      "seconds": 0.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:983: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_TEST_AUTH_EMAIL_REQUIRED (sql: SELECT pay05_register_paynow_merchant('98e6f04d-f1ba-4f04-b06e-2e7c708822b4', gen_random_uuid(), 'r1l6-admin', 'L6 Garage', pg_temp.profile('L6 Motors (Pvt) Ltd'), '[{\"iv\": \"AAECAwQFBgcICQoL\", \"tag\": \"AAECAwQFBgcICQoLDA0)"
+      ]
+    },
+    {
+      "id": "V01",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a status that differs treated as a duplicate",
+      "verdict": "KILLED",
+      "seconds": 3.5,
+      "evidence": [
+        "not ok 2 - ICR-M2 02b: a dispute learned by poll, then Paid, twice: the second Paid still counts",
+        "  error: |-",
+        "  name: 'AssertionError'",
+        "not ok 4 - non-2xx when the confirming poll did not confirm: Paynow resends and the money then applies"
+      ]
+    },
+    {
+      "id": "V02",
+      "file": "backend/services/payment/pay05PaynowProtocol.js",
+      "why": "variants are new messages",
+      "verdict": "KILLED",
+      "seconds": 3.9,
+      "evidence": [
+        "not ok 3 - ICR-S1: trivially different variants of one signed update are one event: no read, no row, no money",
+        "  error: |-",
+        "  name: 'AssertionError'",
+        "not ok 31 - PFR-M3: a signed message re-split across a field boundary is the same message: it costs reads, never rows, and changes nothing"
+      ]
+    },
+    {
+      "id": "V03",
+      "file": "backend/services/payment/pay05PaynowProtocol.js",
+      "why": "the same words later are the same event",
+      "verdict": "KILLED",
+      "seconds": 3.8,
+      "evidence": [
+        "not ok 1 - ICR-M2: Paid, Disputed, Paid, Disputed through signed updates: the second dispute de-counts; none is a resend",
+        "  error: |-",
+        "  name: 'AssertionError'",
+        "not ok 5 - non-2xx when the confirming poll was superseded by a newer read"
+      ]
+    },
+    {
+      "id": "V04",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "200 for an unconfirmed update",
+      "verdict": "KILLED",
+      "seconds": 4.3,
+      "evidence": [
+        "not ok 4 - non-2xx when the confirming poll did not confirm: Paynow resends and the money then applies",
+        "  error: 'expected PAY05_STATUS_UPDATE_UNCONFIRMED'",
+        "  name: 'AssertionError'",
+        "not ok 5 - non-2xx when the confirming poll was superseded by a newer read"
+      ]
+    },
+    {
+      "id": "V05",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "no budget on update-triggered reads",
+      "verdict": "KILLED",
+      "seconds": 3.7,
+      "evidence": [
+        "not ok 6 - ICR-S1: a budget per message bounds the reads status updates can trigger; other messages and polls are unaffected",
+        "  error: 'over budget: PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED,PAY05_STATUS_UPDATE_UNCONFIRMED'",
+        "  name: 'AssertionError'",
+        "not ok 30 - PFR-M3: replaying a stale message costs no rows and cannot use up a genuine message's reads"
+      ]
+    },
+    {
+      "id": "V06",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a case difference refuses every update",
+      "verdict": "KILLED",
+      "seconds": 3.8,
+      "evidence": [
+        "not ok 18 - ICR-P5: a poll URL differing only in case or encoding still binds; another poll URL does not",
+        "  error: 'PAY05_PROVIDER_BINDING_MISMATCH'"
+      ]
+    },
+    {
+      "id": "V06b",
+      "file": "backend/services/payment/pay05PaynowProtocol.js",
+      "why": "any poll URL binds",
+      "verdict": "KILLED",
+      "seconds": 1.4,
+      "evidence": [
+        "not ok 56 - R1: case and percent-encoding are not another poll URL; another payment or host is",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V09",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a key failure reveals the collection exists",
+      "verdict": "KILLED",
+      "seconds": 4.5,
+      "evidence": [
+        "not ok 17 - ICR-S6: a key that cannot be opened answers exactly as a missing collection does",
+        "  error: 'no retry-class answer reveals existence (503, 404)'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V11",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "plain http resulturl for real Paynow",
+      "verdict": "KILLED",
+      "seconds": 1.5,
+      "evidence": [
+        "not ok 82 - R1: a plain-http result URL is only ever the local simulator's (ICR-S1)",
+        "  error: 'Missing expected exception.'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V12",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "test mode with the payer e-mail",
+      "verdict": "KILLED",
+      "seconds": 1.5,
+      "evidence": [
+        "not ok 81 - R1: test mode authenticates with the merchant's login, live with the payer; a missing login e-mail is never replaced (ICR-P2)",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V10",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "the service uses an unreviewed integration",
+      "verdict": "KILLED",
+      "seconds": 4.6,
+      "evidence": [
+        "not ok 19 - ICR-P1: without its reviewed settlement currency an integration is not offered and collects nothing",
+        "  error: |-",
+        "    +       provider_error: null,",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V13",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "released and settled re-read on every view",
+      "verdict": "KILLED",
+      "seconds": 4.5,
+      "evidence": [
+        "not ok 11 - ICR-M3: settled and released requests stay on the operator list and are re-read, at a slow pace",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V14",
+      "file": "backend/services/payment/pay04GaragePaymentService.js",
+      "why": "views never re-read a settled request",
+      "verdict": "KILLED",
+      "seconds": 4.3,
+      "evidence": [
+        "not ok 12 - ICR-M3: looking at an invoice re-reads a request settled outside CarUp, whatever its canonical status",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V15",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "paying again with no fresh read",
+      "verdict": "KILLED",
+      "seconds": 4.8,
+      "evidence": [
+        "not ok 14 - pay again: an earlier released request is re-read first; money at Paynow on it refuses a new request",
+        "  error: 'expected PAY05_EARLIER_REQUEST_UNRESOLVED'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V16",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "paying again though money is at Paynow",
+      "verdict": "KILLED",
+      "seconds": 5.0,
+      "evidence": [
+        "not ok 14 - pay again: an earlier released request is re-read first; money at Paynow on it refuses a new request",
+        "  error: 'expected PAY05_EARLIER_REQUEST_UNRESOLVED'",
+        "  name: 'AssertionError'",
+        "not ok 24 - PFR-H3: late money under review on a closed request: no new request is offered or accepted until the review ends"
+      ]
+    },
+    {
+      "id": "V17",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a canonical Paid reads confirmed though nothing counts",
+      "verdict": "KILLED",
+      "seconds": 2.0,
+      "evidence": [
+        "not ok 62 - R1: \"Paid\" and \"counted\" are said only when the money was counted",
+        "  error: '[null,\"paid\",\"confirmed\",0,[]]'",
+        "  name: 'AssertionError'",
+        "not ok 66 - R1: a canonical Paid CarUp does not count reads as what it is"
+      ]
+    },
+    {
+      "id": "V18",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "escrow past time reads stopped",
+      "verdict": "KILLED",
+      "seconds": 1.3,
+      "evidence": [
+        "not ok 65 - R1: escrow past CarUp's time is at Paynow, not expired (ICR-W1); late money closed by an operator is not \"before payment\"",
+        "  error: |-",
+        "  name: 'AssertionError'",
+        "not ok 72 - PFR-H4: a request the invoice no longer needs says so, and only while it holds no money of its own"
+      ]
+    },
+    {
+      "id": "V19",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "release offered with money reported",
+      "verdict": "KILLED",
+      "seconds": 1.3,
+      "evidence": [
+        "not ok 69 - R1: the operator release is offered only when the database would allow it (ICR-W6)",
+        "  error: 'paid'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V20",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a released request offers a form and a link",
+      "verdict": "KILLED",
+      "seconds": 1.3,
+      "evidence": [
+        "not ok 63 - R1: a released or settled request is never waiting for the customer, never \"still counts\", and offers nothing to act on",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V21",
+      "file": "backend/services/payment/pay05MerchantService.js",
+      "why": "a garage reads operators identities",
+      "verdict": "KILLED",
+      "seconds": 4.8,
+      "evidence": [
+        "not ok 13 - ICR Info: a garage does not read CarUp operators' identities or notes about its own merchant",
+        "  error: |-",
+        "  name: 'AssertionError'",
+        "not ok 40 - PFR-L11: a garage does not read the operator's free-text currency reference"
+      ]
+    },
+    {
+      "id": "V22",
+      "file": "backend/services/payment/pay05CredentialVault.js",
+      "why": "a truncated tag opens a key",
+      "verdict": "KILLED",
+      "seconds": 1.6,
+      "evidence": [
+        "not ok 21 - R1 (ICR Info): a truncated GCM tag never opens a key",
+        "  error: 'Missing expected exception.'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V24",
+      "file": "backend/services/payment/pay05MerchantService.js",
+      "why": "a refused key treated as proved",
+      "verdict": "KILLED",
+      "seconds": 5.2,
+      "evidence": [
+        "not ok 15 - ICR-S2: an integration ID is reserved only with its key proved at connect; the refusal is generic; failures cool down",
+        "  error: 'expected PAY05_INTEGRATION_NOT_ACCEPTED'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V25",
+      "file": "backend/services/payment/pay05MerchantService.js",
+      "why": "no cool-down on failed proofs",
+      "verdict": "KILLED",
+      "seconds": 4.7,
+      "evidence": [
+        "not ok 15 - ICR-S2: an integration ID is reserved only with its key proved at connect; the refusal is generic; failures cool down",
+        "  error: 'expected PAY05_INTEGRATION_NOT_ACCEPTED'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "V26",
+      "file": "backend/services/payment/pay05MerchantService.js",
+      "why": "an outage reads as a refusal",
+      "verdict": "KILLED",
+      "seconds": 4.5,
+      "evidence": [
+        "not ok 16 - ICR-S2: Paynow unreachable at connect is not a refusal of the merchant, and reserves nothing",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "W01",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "a released request can be continued",
+      "verdict": "KILLED",
+      "seconds": 2.8,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W2: a released or settled request is not waiting for anyone > {\"hold_released\":true} created",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W2: a released or settled request is not waiting for anyone > {\"hold_released\":true} sent",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W2: a released or settled request is not waiting for anyone > {\"hold_released\":true} null",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W2: a released or settled request is not waiting for anyone > {\"hold_released\":true,\"settled_outside\":true} created"
+      ]
+    },
+    {
+      "id": "W02",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "means of payment vanish past CarUp time",
+      "verdict": "KILLED",
+      "seconds": 2.0,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W7: while the amount stays reserved, the request can still be continued > state expired",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W7: while the amount stays reserved, the request can still be continued > state stopping",
+        "AssertionError: expected false to be true // Object.is equality",
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > ICR-W7: no dead ends while the money stays reserved > the InnBucks code stays on screen past CarUp\u2019s time; the stop warning says the amount stays reserved"
+      ]
+    },
+    {
+      "id": "W03",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "Paid said though not counted",
+      "verdict": "KILLED",
+      "seconds": 1.8,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W3: \"Paid\" is said only when the money counts > state awaiting_provider with Paynow's Paid never reads as confirmed",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W3: \"Paid\" is said only when the money counts > state at_paynow with Paynow's Paid never reads as confirmed",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W3: \"Paid\" is said only when the money counts > state stopping with Paynow's Paid never reads as confirmed",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W3: \"Paid\" is said only when the money counts > state expired with Paynow's Paid never reads as confirmed"
+      ]
+    },
+    {
+      "id": "W04",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "a lost answer says nothing changed",
+      "verdict": "KILLED",
+      "seconds": 1.8,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W4: a lost answer to an O\u2019mari code is never \"nothing changed\" > PAY05_PROVIDER_UNREACHABLE",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W4: a lost answer to an O\u2019mari code is never \"nothing changed\" > PAY05_PROVIDER_HTTP_ERROR",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W4: a lost answer to an O\u2019mari code is never \"nothing changed\" > PAY05_PROVIDER_RESPONSE_UNAUTHENTICATED",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W4: a lost answer to an O\u2019mari code is never \"nothing changed\" > PAY05_PROVIDER_MESSAGE_MALFORMED"
+      ]
+    },
+    {
+      "id": "W05",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "the catch-all promises nothing changed",
+      "verdict": "KILLED",
+      "seconds": 1.9,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W11: no raw code or browser error reaches a person > an unknown PAY-05 code reads as words and promises nothing about the money",
+        "AssertionError: expected 'That did not go through. Nothing was \u2026' not to match /nothing (was )?changed/i"
+      ]
+    },
+    {
+      "id": "W06",
+      "file": "web/src/lib/pay04GaragePayments.ts",
+      "why": "money is with the provider while only awaiting approval",
+      "verdict": "KILLED",
+      "seconds": 1.8,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W9, W10: PAY-04 words on Paynow rows > an invoice with a Paynow request only awaiting approval does not say money is with the provider",
+        "AssertionError: expected 'Not paid yet \u2014 money is with the prov\u2026' not to match /money is with/i"
+      ]
+    },
+    {
+      "id": "W07",
+      "file": "web/src/components/owner/serviceJourney/InvoicePayment.tsx",
+      "why": "focus lost after a stop",
+      "verdict": "KILLED",
+      "seconds": 7.2,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > ICR-W5: focus moves to the new content after each action > customer: Yes, stop it is announced in the live region that was already there, and takes the focus",
+        "AssertionError: expected <body><div>\u2026(1)</div></body> to be <p \u2026(6)></p> // Object.is equality"
+      ]
+    },
+    {
+      "id": "W08",
+      "file": "web/src/components/owner/serviceJourney/PaynowCheckout.tsx",
+      "why": "a retry mints a new request",
+      "verdict": "KILLED",
+      "seconds": 1.8,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > ICR-W12: an edit does not mint a new request > after a lost answer, editing a field and restoring it retries the SAME request",
+        "AssertionError: expected '01332297-b1b3-494f-8b6e-ead4ced573d4' to be '01ce73a7-f85a-43dd-a301-14e73e886c20' // Object.is equality"
+      ]
+    },
+    {
+      "id": "W09",
+      "file": "web/src/components/admin/PaynowOperatorPanel.tsx",
+      "why": "a release offered that the database must refuse",
+      "verdict": "KILLED",
+      "seconds": 1.8,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > ICR-W6: the operator is offered only what the database would allow > a request Paynow reports paid: no release, and it says why",
+        "AssertionError: expected <button data-slot=\"button\" \u2026(5)></button> to be null",
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > ICR-W6: the operator is offered only what the database would allow > released and settled requests stay on the page, can be read again, and offer no release",
+        "AssertionError: expected <button data-slot=\"button\" \u2026(5)></button> to be null"
+      ]
+    },
+    {
+      "id": "W10",
+      "file": "web/src/components/admin/PaynowOperatorPanel.tsx",
+      "why": "a differing currency can be verified",
+      "verdict": "KILLED",
+      "seconds": 2.0,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > ICR-P1: verification asks for each integration\u2019s own settlement currency > sends each one, and cannot verify while a currency differs or a reference is missing"
+      ]
+    },
+    {
+      "id": "W11",
+      "file": "web/src/lib/pay04GaragePayments.ts",
+      "why": "a system event reads as a person",
+      "verdict": "KILLED",
+      "seconds": 2.2,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W9, W10: PAY-04 words on Paynow rows > activity reads as words",
+        "AssertionError: expected 'CarUp user' to be 'CarUp' // Object.is equality"
+      ]
+    },
+    {
+      "id": "W12",
+      "file": "web/src/components/owner/serviceJourney/InvoiceCard.tsx",
+      "why": "the invoice card hides the parts",
+      "verdict": "KILLED",
+      "seconds": 2.5,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > Each surface shows the truth in separate parts (R1 directive \u00a74) > the customer\u2019s invoice card"
+      ]
+    },
+    {
+      "id": "W13",
+      "file": "web/src/components/owner/serviceJourney/InvoicePayment.tsx",
+      "why": "a lost answer vanishes with the checkout",
+      "verdict": "KILLED",
+      "seconds": 7.3,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > ICR-W5: focus moves to the new content after each action > customer: a lost answer on Pay while the request was created: the warning survives the refresh and takes the focus"
+      ]
+    },
+    {
+      "id": "W14",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "a released request reads as waiting",
+      "verdict": "KILLED",
+      "seconds": 2.0,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W2: a released or settled request is not waiting for anyone > {\"hold_released\":true} created",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W2: a released or settled request is not waiting for anyone > {\"hold_released\":true} sent",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > ICR-W2: a released or settled request is not waiting for anyone > {\"hold_released\":true} null",
+        "AssertionError: expected 'Waiting for you to approve the paymen\u2026' not to match /waiting for|still counts|approve the\u2026/i"
+      ]
+    },
+    {
+      "id": "P01",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an older Paid overrides a newer closed or unknown word",
+      "verdict": "KILLED",
+      "seconds": 1.2,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1082: ERROR:  PAY05_R1_CHECK_FAILED: R1 an older Paid changes nothing"
+      ]
+    },
+    {
+      "id": "P02",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an older Paid overrides a newer unknown word with no money seen",
+      "verdict": "KILLED",
+      "seconds": 1.6,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1102: ERROR:  PAY05_R1_CHECK_FAILED: R1b an older Paid does not override a newer unknown word"
+      ]
+    },
+    {
+      "id": "P02b",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an older Paid overrides a newer Cancelled after money",
+      "verdict": "KILLED",
+      "seconds": 0.8,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1082: ERROR:  PAY05_R1_CHECK_FAILED: R1 an older Paid changes nothing"
+      ]
+    },
+    {
+      "id": "P03",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a recorded-only read does not move the ticket",
+      "verdict": "KILLED",
+      "seconds": 0.8,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1143: ERROR:  PAY05_R1_CHECK_FAILED: R1d an older Paid does not slip past a recorded read"
+      ]
+    },
+    {
+      "id": "P03b",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an ignored read moves the ticket and the time",
+      "verdict": "KILLED",
+      "seconds": 1.0,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1454: ERROR:  PAY05_R1_CHECK_FAILED: R9 an ignored read does not"
+      ]
+    },
+    {
+      "id": "P04",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a re-read does not refresh the release check",
+      "verdict": "KILLED",
+      "seconds": 0.8,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1239: ERROR:  PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ"
+      ]
+    },
+    {
+      "id": "P05",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a reviewed unknown word cannot be released",
+      "verdict": "KILLED",
+      "seconds": 0.7,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1260: ERROR:  PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ"
+      ]
+    },
+    {
+      "id": "P05b",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "escrow can be released",
+      "verdict": "KILLED",
+      "seconds": 0.7,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1288: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_HOLD_RELEASE_REQUIRES_FRESH_UNPAID_READ (sql: SELECT pay05_release_paynow_hold('b4b98430-1e96-45ca-ae6c-a08bcf541d41', 'r1-op', 'admin', 'The operator reviewed this hold in the merchant records.'))"
+      ]
+    },
+    {
+      "id": "P06",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a review opens before CarUp time ends",
+      "verdict": "KILLED",
+      "seconds": 0.8,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1288: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_REVIEW_NOT_OPENABLE (sql: SELECT pay05_open_paynow_review('1b697ebe-b423-4669-bb0c-1cf920b01041', 'r1-op', 'admin', 'Paynow cannot settle this; the operator opens a review.'))"
+      ]
+    },
+    {
+      "id": "P07",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a second review opens over the first",
+      "verdict": "KILLED",
+      "seconds": 0.7,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1288: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_REVIEW_NOT_OPENABLE (sql: SELECT pay05_open_paynow_review('33c430be-d07b-4115-b0f3-28ed1ab72254', 'r1-op', 'admin', 'Paynow cannot settle this; the operator opens a review.'))"
+      ]
+    },
+    {
+      "id": "P08",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "anyone opens a review",
+      "verdict": "KILLED",
+      "seconds": 0.8,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1288: ERROR:  PAY05_R1_WRONG_ERROR: expected PAY05_REVIEW_AUTHORITY_REFUSED got PAY05_REVIEW_SELF_DEALING_REFUSED (sql: SELECT pay05_open_paynow_review('9cfae14e-370e-4e07-be88-dffd7bc6573b', 'r1r4-admin', 'owner', 'Paynow cannot settle this; the operator opens a review.'))"
+      ]
+    },
+    {
+      "id": "P09",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a settled request reopens by review",
+      "verdict": "KILLED",
+      "seconds": 0.8,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1313: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_REVIEW_NOT_OPENABLE (sql: SELECT pay05_open_paynow_review('5bb724d8-9ef7-41e4-87f6-c68c467a60b0', 'r1-op', 'admin', 'Paynow cannot settle this; the operator opens a review.'))"
+      ]
+    },
+    {
+      "id": "P10",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a review opens on counted money",
+      "verdict": "KILLED",
+      "seconds": 0.7,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1313: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_REVIEW_NOT_OPENABLE (sql: SELECT pay05_open_paynow_review('93e6fa79-660a-43bc-8913-df26891f7ae0', 'r1-op', 'admin', 'Paynow cannot settle this; the operator opens a review.'))"
+      ]
+    },
+    {
+      "id": "P11",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a connected person opens a review",
+      "verdict": "KILLED",
+      "seconds": 0.9,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1480: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_REVIEW_SELF_DEALING_REFUSED (sql: SELECT pay05_open_paynow_review('77e6f78d-e544-4b10-8930-6795911ca4e7', 'r1r10-op', 'admin', 'Paynow cannot settle this; the operator opens a review.'))"
+      ]
+    },
+    {
+      "id": "P12",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "room freed does not count waiting money",
+      "verdict": "KILLED",
+      "seconds": 0.8,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1338: ERROR:  PAY05_R1_CHECK_FAILED: R6 the freed room counts the waiting money"
+      ]
+    },
+    {
+      "id": "P12b",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "the newest waiting money goes first",
+      "verdict": "KILLED",
+      "seconds": 0.9,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1381: ERROR:  PAY05_R1_CHECK_FAILED: R6b only the room there is"
+      ]
+    },
+    {
+      "id": "P13",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "one budget per collection: a replay starves another message",
+      "verdict": "KILLED",
+      "seconds": 0.9,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1411: ERROR:  PAY05_STATUS_UPDATE_READS_UNAVAILABLE"
+      ]
+    },
+    {
+      "id": "P13b",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "no bound across messages",
+      "verdict": "KILLED",
+      "seconds": 0.9,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1426: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_STATUS_UPDATE_READS_UNAVAILABLE (sql: SELECT pay05_begin_status_update_read('1ff974cb-d4a6-419b-ba0e-2668c4df618d', '0000000000000000000000000000000000000000000000000000000000000061'))"
+      ]
+    },
+    {
+      "id": "P14",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a replay writes rows",
+      "verdict": "KILLED",
+      "seconds": 0.9,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1411: ERROR:  PAY05_R1_CHECK_FAILED: R7 no row"
+      ]
+    },
+    {
+      "id": "P15",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "another amount is taken for nothing new",
+      "verdict": "KILLED",
+      "seconds": 0.8,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1411: ERROR:  PAY05_R1_CHECK_FAILED: R7 another amount is news"
+      ]
+    },
+    {
+      "id": "P16",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a recorded message is not recognised",
+      "verdict": "KILLED",
+      "seconds": 0.8,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1411: ERROR:  PAY05_R1_CHECK_FAILED: R7 no row"
+      ]
+    },
+    {
+      "id": "P18",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an evaluated read does not move the time",
+      "verdict": "KILLED",
+      "seconds": 0.8,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1411: ERROR:  PAY05_R1_CHECK_FAILED: R7 still a read: the ticket and time move, the generation does not"
+      ]
+    },
+    {
+      "id": "P19",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an attempt is not timed",
+      "verdict": "KILLED",
+      "seconds": 0.9,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1454: ERROR:  PAY05_R1_CHECK_FAILED: R9 the attempt is timed"
+      ]
+    },
+    {
+      "id": "P20",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a row that no longer counts blocks a void",
+      "verdict": "KILLED",
+      "seconds": 0.9,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1506: ERROR:  PAY04_INVOICE_HAS_PROVIDER_PAYMENTS"
+      ]
+    },
+    {
+      "id": "P21",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "finished requests crowd the queue",
+      "verdict": "KILLED",
+      "seconds": 0.9,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1537: ERROR:  PAY05_R1_CHECK_FAILED: R12 what is held, and only that"
+      ]
+    },
+    {
+      "id": "P22",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a former worker closes a review",
+      "verdict": "KILLED",
+      "seconds": 0.9,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1480: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY04_RESOLUTION_SELF_DEALING_REFUSED (sql: SELECT pay04_resolve_garage_payment_discrepancy('c853efa2-ec2b-40cb-8aab-2b6743a0d8cd', 'acknowledged', 'r1r10-op', 'admin', 'I used to work at this garage myself.'))"
+      ]
+    },
+    {
+      "id": "P22b",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a former worker releases a hold",
+      "verdict": "KILLED",
+      "seconds": 0.9,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1480: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_RELEASE_SELF_DEALING_REFUSED (sql: SELECT pay05_release_paynow_hold('ef3b8124-8ef2-43ed-b01d-0bef6267fe57', 'r1r10-op', 'admin', 'The operator reviewed this hold in the merchant records.'))"
+      ]
+    },
+    {
+      "id": "Q01",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "late money under review does not stop a new request",
+      "verdict": "KILLED",
+      "seconds": 4.1,
+      "evidence": [
+        "not ok 24 - PFR-H3: late money under review on a closed request: no new request is offered or accepted until the review ends",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q01b",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a closed request is not reckoned with",
+      "verdict": "KILLED",
+      "seconds": 3.9,
+      "evidence": [
+        "not ok 24 - PFR-H3: late money under review on a closed request: no new request is offered or accepted until the review ends",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q02",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a request the invoice no longer needs keeps asking",
+      "verdict": "KILLED",
+      "seconds": 1.6,
+      "evidence": [
+        "not ok 72 - PFR-H4: a request the invoice no longer needs says so, and only while it holds no money of its own",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q03",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a reviewed word reads as still waiting",
+      "verdict": "KILLED",
+      "seconds": 1.5,
+      "evidence": [
+        "not ok 71 - PFR-H2: a word with no way forward whose review closed is reviewed and held, whatever Paynow said",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q04",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a state that cannot be paid offers a way to pay",
+      "verdict": "KILLED",
+      "seconds": 1.3,
+      "evidence": [
+        "not ok 74 - PFR-M5: only a request that can still be paid offers a way to pay it, and no closed request reads as waiting",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q05",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a later read is thrown away with the duplicate",
+      "verdict": "KILLED",
+      "seconds": 4.3,
+      "evidence": [
+        "not ok 29 - PFR-M2: a second delivery whose read saw Paid is not thrown away because an older read wrote first",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q06",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a resend is swallowed after a read of another amount",
+      "verdict": "KILLED",
+      "seconds": 4.1,
+      "evidence": [
+        "not ok 36 - PFR-L1: Paid, then a read of another amount, then Paid again: a resend reads again, so the operator can close it on Paynow's word",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q07",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a settled request that cannot be read refuses forever",
+      "verdict": "KILLED",
+      "seconds": 4.2,
+      "evidence": [
+        "not ok 27 - PFR-M1: a hold Paynow cannot be read for has an exit: an operator opens a review and settles it; the garage can then record cash",
+        "  error: 'PAY05_EARLIER_REQUEST_UNRESOLVED'"
+      ]
+    },
+    {
+      "id": "Q09",
+      "file": "backend/services/payment/pay05MerchantService.js",
+      "why": "operators failures refuse the garage",
+      "verdict": "KILLED",
+      "seconds": 4.2,
+      "evidence": [
+        "not ok 41 - PFR-L12: an operator's failed verification probes do not refuse the garage's own connection",
+        "  error: 'PAY05_INTEGRATION_NOT_ACCEPTED'"
+      ]
+    },
+    {
+      "id": "Q10",
+      "file": "backend/services/payment/pay05MerchantService.js",
+      "why": "the operators note reaches the garage",
+      "verdict": "KILLED",
+      "seconds": 4.3,
+      "evidence": [
+        "not ok 40 - PFR-L11: a garage does not read the operator's free-text currency reference",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q11",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "failing reads lose the pace",
+      "verdict": "KILLED",
+      "seconds": 4.2,
+      "evidence": [
+        "not ok 11 - ICR-M3: settled and released requests stay on the operator list and are re-read, at a slow pace",
+        "  error: |-",
+        "  name: 'AssertionError'",
+        "not ok 42 - PFR-L13: reads that fail keep the slow pace: looking at an invoice again does not read Paynow again"
+      ]
+    },
+    {
+      "id": "Q12",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a late-bound closed request does not say Paynow may have it",
+      "verdict": "KILLED",
+      "seconds": 1.4,
+      "evidence": [
+        "not ok 73 - PFR-M5: closed is closed: Paynow may still have a request bound late, and a refund of a closed request reads as one",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q13",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a paid invoice reads as a payment in progress",
+      "verdict": "KILLED",
+      "seconds": 4.2,
+      "evidence": [
+        "not ok 25 - PFR-H4: late money takes the room; the request still holding it is told not to complete it, and its own money is reviewed, never counted twice",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q14",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "the customer gets the garage next step",
+      "verdict": "KILLED",
+      "seconds": 3.9,
+      "evidence": [
+        "not ok 39 - PFR-L7: the customer's stop answer carries the customer's next step, not the garage's",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q15",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a page left open pays a request that cannot be paid",
+      "verdict": "KILLED",
+      "seconds": 4.0,
+      "evidence": [
+        "not ok 34 - PFR-M5: a page left open cannot pay a request that can no longer be paid, and a replay of it offers nothing",
+        "  error: |-",
+        "  name: 'AssertionError'",
+        "not ok 35 - PFR-H4: a replay of a request the invoice no longer needs offers no way to pay it"
+      ]
+    },
+    {
+      "id": "Q16",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a replay offers a closed request",
+      "verdict": "KILLED",
+      "seconds": 3.9,
+      "evidence": [
+        "not ok 35 - PFR-H4: a replay of a request the invoice no longer needs offers no way to pay it",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q17",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a review is offered on a settled request",
+      "verdict": "KILLED",
+      "seconds": 1.4,
+      "evidence": [
+        "not ok 70 - PFR-M1: a review can be opened only on what the database would allow",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "W15",
+      "file": "web/src/components/admin/PaynowOperatorPanel.tsx",
+      "why": "no way to open a review",
+      "verdict": "KILLED",
+      "seconds": 2.3,
+      "evidence": [
+        " FAIL  src/components/admin/PaynowOperatorPanel.test.tsx > PFR-M1: a request nothing else can move has an exit > opens a review with a reason; the result is said; the button is there only when the database would allow it",
+        " FAIL  src/components/admin/PaynowOperatorPanel.test.tsx > PFR-M1: a request nothing else can move has an exit > a release that may work stays the first action; the review is offered beside it"
+      ]
+    },
+    {
+      "id": "W16",
+      "file": "web/src/components/admin/PaynowOperatorPanel.tsx",
+      "why": "the queue hides that it shows part",
+      "verdict": "KILLED",
+      "seconds": 6.6,
+      "evidence": [
+        " FAIL  src/components/admin/PaynowOperatorPanel.test.tsx > PFR-H5: the queue says when it shows only part > names how many there are when more are held than shown"
+      ]
+    },
+    {
+      "id": "W17",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "a reviewed request says nothing was charged",
+      "verdict": "KILLED",
+      "seconds": 1.8,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > The pre-final review: each state says what is true, and a closed review is not an open one > PFR-L4: a word from a review that has closed does not say \"until the review ends\"",
+        "AssertionError: reviewed_held/disputed: expected 'This payment needs review before it c\u2026' not to match /until the review ends/",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > The pre-final review: each state says what is true, and a closed review is not an open one > PFR-L4: \"nothing was charged\" is said only of a closed request Paynow took no money on",
+        "AssertionError: reviewed_held: expected 'Paynow reports this payment was not c\u2026' not to match /nothing was charged/i"
+      ]
+    },
+    {
+      "id": "W18",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "no warning on a request no longer needed",
+      "verdict": "KILLED",
+      "seconds": 2.0,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > The pre-final review: each state says what is true, and a closed review is not an open one > PFR-L4: \"nothing was charged\" is said only of a closed request Paynow took no money on",
+        "AssertionError: no_longer_needed: expected 'Paynow reports this payment was not c\u2026' not to match /nothing was charged/i",
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > The pre-final review: each state says what is true, and a closed review is not an open one > PFR-H4: a request the invoice no longer needs is not one to complete",
+        "AssertionError: expected 'Waiting for you to approve the paymen\u2026' to match /do not complete/i"
+      ]
+    },
+    {
+      "id": "W19",
+      "file": "web/src/components/owner/serviceJourney/PaynowCheckout.tsx",
+      "why": "the request is left off a phone screen",
+      "verdict": "KILLED",
+      "seconds": 2.6,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > The way to pay comes first in a request (390 px rehearsal) > a started request keeps its code together, leaves the separate facts to the list below it, and takes the focus without leaving it off screen",
+        "AssertionError: expected \"vi.fn()\" to be called with arguments: [ { block: 'start' } ]"
+      ]
+    },
+    {
+      "id": "W21",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "a closed request reads as waiting",
+      "verdict": "KILLED",
+      "seconds": 1.9,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > The pre-final review: each state says what is true, and a closed review is not an open one > PFR-M5: a closed request never reads as waiting, for anyone",
+        "AssertionError: stopped/null: expected 'Waiting for the customer to pay throu\u2026' not to match /waiting/i"
+      ]
+    },
+    {
+      "id": "P23",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a review is acknowledged away while Paynow reports money",
+      "verdict": "KILLED",
+      "seconds": 0.5,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:506: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_REVIEW_MONEY_STILL_REPORTED (sql: SELECT pay04_resolve_garage_payment_discrepancy('da52b238-5c12-4768-a030-6f489d6707df', 'acknowledged', 'r1-op', 'admin', 'The operator reviewed the Paynow merchant records for this payment.'))"
+      ]
+    },
+    {
+      "id": "P24",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a superseded money word is forgotten",
+      "verdict": "KILLED",
+      "seconds": 0.8,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1182: ERROR:  PAY05_R1_CHECK_FAILED: R1f a review, not a quiet close"
+      ]
+    },
+    {
+      "id": "P25",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a newer word on a closed payment with late money is lost",
+      "verdict": "KILLED",
+      "seconds": 0.7,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1214: ERROR:  PAY05_R1_CHECK_FAILED: R1g Paynow's newer word is what CarUp holds"
+      ]
+    },
+    {
+      "id": "P26",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "the first report of money is not kept",
+      "verdict": "KILLED",
+      "seconds": 0.7,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1182: ERROR:  PAY05_R1_CHECK_FAILED: R1f it is still on record that Paynow reported money"
+      ]
+    },
+    {
+      "id": "Q18",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a closed request reads as if no money had been reported",
+      "verdict": "KILLED",
+      "seconds": 1.5,
+      "evidence": [
+        "not ok 73 - PFR-M5: closed is closed: Paynow may still have a request bound late, and a refund of a closed request reads as one",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "W22",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "a part-counted released request says it is not counted",
+      "verdict": "KILLED",
+      "seconds": 1.8,
+      "evidence": [
+        " FAIL  src/lib/pay05PaynowTruth.test.ts > The pre-final review: each state says what is true, and a closed review is not an open one > PFR-L3: a part-counted request CarUp had released never says it is not counted",
+        "AssertionError: customer: expected 'CarUp released this request after Pay\u2026' to match /part of it counts/i"
+      ]
+    },
+    {
+      "id": "Q19",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a settled request says released",
+      "verdict": "KILLED",
+      "seconds": 1.3,
+      "evidence": [
+        "not ok 78 - a settled request says it is settled, not released",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "O01",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "a reviewed path may hold anything",
+      "verdict": "KILLED",
+      "seconds": 1.2,
+      "evidence": [
+        "not ok 8 - O2 guard: the Moderator's two-table fixture is refused, naming both declarations",
+        "  error: 'database/migrations/20261103100000_carup_pay05_zimbabwe_paynow_collections.sql'",
+        "  name: 'AssertionError'",
+        "not ok 9 - O2 guard: a reviewed file passes only as itself: one changed byte, or the same bytes elsewhere, is refused"
+      ]
+    },
+    {
+      "id": "O02",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "a reviewed file is refused",
+      "verdict": "KILLED",
+      "seconds": 1.2,
+      "evidence": [
+        "not ok 7 - X4: no biometric fingerprint store and no template/embedding store anywhere \u2014 migrations, candidates or code",
+        "  error: |-",
+        "  name: 'AssertionError'",
+        "not ok 9 - O2 guard: a reviewed file passes only as itself: one changed byte, or the same bytes elsewhere, is refused"
+      ]
+    },
+    {
+      "id": "O03",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "a reviewed file may lose its mentions",
+      "verdict": "KILLED",
+      "seconds": 1.2,
+      "evidence": [
+        "not ok 9 - O2 guard: a reviewed file passes only as itself: one changed byte, or the same bytes elsewhere, is refused",
+        "  error: 'database/migrations/002_multi_tenant_and_auth_schema.sql with its mentions gone'",
+        "  name: 'AssertionError'",
+        "not ok 12 - O2 guard: anywhere else, every mention is refused: no spelling, comment or name is exempt"
+      ]
+    },
+    {
+      "id": "O04",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "the list is read through a prototype",
+      "verdict": "KILLED",
+      "seconds": 1.2,
+      "evidence": [
+        "not ok 9 - O2 guard: a reviewed file passes only as itself: one changed byte, or the same bytes elsewhere, is refused",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "O05",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "upper case escapes",
+      "verdict": "KILLED",
+      "seconds": 1.2,
+      "evidence": [
+        "not ok 12 - O2 guard: anywhere else, every mention is refused: no spelling, comment or name is exempt",
+        "  error: 'upper case'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "O06",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "a comment line is exempt again",
+      "verdict": "KILLED",
+      "seconds": 1.1,
+      "evidence": [
+        "not ok 9 - O2 guard: a reviewed file passes only as itself: one changed byte, or the same bytes elsewhere, is refused",
+        "  error: 'database/migrations/20260817090000_issue164_phase0_flagged_table_containment.sql mentions a fingerprint, or it should not be on the list'",
+        "  name: 'AssertionError'",
+        "not ok 12 - O2 guard: anywhere else, every mention is refused: no spelling, comment or name is exempt"
+      ]
+    },
+    {
+      "id": "O07",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "Trust names are exempt again",
+      "verdict": "KILLED",
+      "seconds": 1.2,
+      "evidence": [
+        "not ok 12 - O2 guard: anywhere else, every mention is refused: no spelling, comment or name is exempt",
+        "  error: \"Trust's name declared\"",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "O08",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "a pin that no longer matches",
+      "verdict": "KILLED",
+      "seconds": 1.2,
+      "evidence": [
+        "not ok 7 - X4: no biometric fingerprint store and no template/embedding store anywhere \u2014 migrations, candidates or code",
+        "  error: |-",
+        "  name: 'AssertionError'",
+        "not ok 9 - O2 guard: a reviewed file passes only as itself: one changed byte, or the same bytes elsewhere, is refused"
+      ]
+    },
+    {
+      "id": "O09",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "a biometric pattern is dropped",
+      "verdict": "KILLED",
+      "seconds": 1.2,
+      "evidence": [
+        "not ok 14 - O2 guard: the biometric patterns refuse each form they exist for, even in a reviewed file",
+        "  error: 'face_embedding'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "O10",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "a biometric pattern is dropped",
+      "verdict": "KILLED",
+      "seconds": 1.4,
+      "evidence": [
+        "not ok 14 - O2 guard: the biometric patterns refuse each form they exist for, even in a reviewed file",
+        "  error: 'biometric fingerprint'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "O12",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "a Unicode-escaped name passes",
+      "verdict": "KILLED",
+      "seconds": 1.3,
+      "evidence": [
+        "not ok 12 - O2 guard: anywhere else, every mention is refused: no spelling, comment or name is exempt",
+        "  error: 'a Unicode-escaped name that PostgreSQL reads as the column'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "O13",
+      "file": "backend/tests/helpers/o2FingerprintGuard.mjs",
+      "why": "a narrower biometric pattern",
+      "verdict": "KILLED",
+      "seconds": 1.2,
+      "evidence": [
+        "not ok 14 - O2 guard: the biometric patterns refuse each form they exist for, even in a reviewed file",
+        "  error: |-",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "O14",
+      "file": "backend/tests/o2-x4-biometric-interface.test.js",
+      "why": "the sweep stops calling the guard",
+      "verdict": "KILLED",
+      "seconds": 1.1,
+      "evidence": [
+        "not ok 7 - X4: no biometric fingerprint store and no template/embedding store anywhere \u2014 migrations, candidates or code",
+        "  error: 'the sweep reached database/migrations/002_multi_tenant_and_auth_schema.sql'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "O11",
+      "file": "backend/tests/o2-x4-biometric-interface.test.js",
+      "why": "the sweep loses the candidates",
+      "verdict": "KILLED",
+      "seconds": 1.1,
+      "evidence": [
+        "not ok 7 - X4: no biometric fingerprint store and no template/embedding store anywhere \u2014 migrations, candidates or code",
+        "  error: 'the biometric candidates are part of the scan'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q20",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "the operator list addresses the operator as the garage",
+      "verdict": "KILLED",
+      "seconds": 4.3,
+      "evidence": [
+        "not ok 23 - PFR-H2: a reviewed word CarUp does not know can be released; the list and the database agree",
+        "  error: 'the operator list does not address the operator as the garage'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "Q21",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "the operator is addressed as the garage",
+      "verdict": "KILLED",
+      "seconds": 1.4,
+      "evidence": [
+        "not ok 83 - an operator is told what the garage should do, not addressed as the garage",
+        "  error: 'expired: Do not record this amount as paid unless the customer really paid you. CarUp keeps it reserved until Paynow answers or an operator releases it.'",
+        "  name: 'AssertionError'"
+      ]
+    },
+    {
+      "id": "W23",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "an event reads as nothing useful",
+      "verdict": "KILLED",
+      "seconds": 1.6,
+      "evidence": [
+        " FAIL  src/lib/pay05Paynow.test.ts > merchant history words > every event the database can record reads as a sentence, never as a code",
+        "AssertionError: expected 'A change was recorded' to match /opened a review/"
+      ]
+    },
+    {
+      "id": "W24",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "a code reaches the screen",
+      "verdict": "KILLED",
+      "seconds": 1.2,
+      "evidence": [
+        " FAIL  src/lib/pay05Paynow.test.ts > merchant history words > every event the database can record reads as a sentence, never as a code",
+        "AssertionError: expected 'something_new' to be 'A change was recorded' // Object.is equality"
+      ]
+    },
+    {
+      "id": "C01",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "CarUp closes a dispute in Paynow name",
+      "verdict": "KILLED",
+      "seconds": 1.1,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1566: ERROR:  PAY05_R1_CHECK_FAILED: R13 the dispute stays open, credited to no one"
+      ]
+    },
+    {
+      "id": "C02",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "Paynow own Refunded no longer closes a dispute",
+      "verdict": "KILLED",
+      "seconds": 1.0,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1566: ERROR:  PAY05_R1_CHECK_FAILED: R13 Paynow's own Refunded closes the dispute"
+      ]
+    },
+    {
+      "id": "C03",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a review closes as refunded while money is reported",
+      "verdict": "KILLED",
+      "seconds": 1.0,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1605: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY05_REVIEW_MONEY_STILL_REPORTED (sql: SELECT pay04_resolve_garage_payment_discrepancy('196a3563-cdb9-47b0-bdc5-4f18b4bd1be0', 'refunded_to_customer', 'r1-op', 'admin', 'The operator reviewed the Paynow merchant records for this payment.'))"
+      ]
+    },
+    {
+      "id": "C04",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "an invoice is voided with a review open",
+      "verdict": "KILLED",
+      "seconds": 1.0,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1646: ERROR:  PAY05_R1_EXPECTED_FAILURE: PAY04_INVOICE_HAS_PROVIDER_PAYMENTS (sql: SELECT garage_ops07_void_invoice('a652ecdd-6e64-4902-bebe-d9cd733381bf', 'e9fd7f3e-0b06-44ed-9000-7f8bbbacb6d4', 'the customer changed their mind', 'r1r15-admin'))"
+      ]
+    },
+    {
+      "id": "C05",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a refund to confirm blocks the void",
+      "verdict": "KILLED",
+      "seconds": 1.1,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1646: ERROR:  PAY04_INVOICE_HAS_PROVIDER_PAYMENTS"
+      ]
+    },
+    {
+      "id": "C06",
+      "file": "database/migrations/20261104100000_carup_pay05_r1_financial_integrity.sql",
+      "why": "a settled Paid blocks the void",
+      "verdict": "KILLED",
+      "seconds": 1.1,
+      "evidence": [
+        "psql:backend/tests/sql/pay05-r1-financial-integrity-postgres-smoke.sql:1668: ERROR:  PAY04_INVOICE_HAS_PROVIDER_PAYMENTS"
+      ]
+    },
+    {
+      "id": "W25",
+      "file": "web/src/components/owner/serviceJourney/InvoicePayment.tsx",
+      "why": "focus falls to the page after a check",
+      "verdict": "KILLED",
+      "seconds": 7.1,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > A keyboard user keeps their place when a check answers (CERT-2) > a row: the answer takes the focus, because the button disables itself while checking",
+        "AssertionError: expected <button data-slot=\"button\" \u2026(4)></button> to be <p \u2026(6)></p> // Object.is equality"
+      ]
+    },
+    {
+      "id": "W26",
+      "file": "web/src/components/owner/serviceJourney/InvoicePayment.tsx",
+      "why": "focus falls to the page after a failed check",
+      "verdict": "KILLED",
+      "seconds": 7.0,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > A keyboard user keeps their place when a check answers (CERT-2) > a row: so it does when the check itself fails",
+        "AssertionError: expected <body><div>\u2026(1)</div></body> to be <p \u2026(6)></p> // Object.is equality"
+      ]
+    },
+    {
+      "id": "W27",
+      "file": "web/src/components/owner/serviceJourney/PaynowCheckout.tsx",
+      "why": "focus falls to the page on the checkout",
+      "verdict": "KILLED",
+      "seconds": 7.3,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowCheckout.test.tsx > Paying the garage with Paynow > EcoCash needs a valid phone, then shows Paynow\u2019s instructions and never claims success before Paynow does",
+        "AssertionError: expected <h6 tabindex=\"-1\" \u2026(2)></h6> to be <p tabindex=\"-1\" role=\"status\" \u2026(4)></p> // Object.is equality"
+      ]
+    },
+    {
+      "id": "W28",
+      "file": "web/src/components/owner/serviceJourney/InvoiceCard.tsx",
+      "why": "paid in full drops the focus",
+      "verdict": "KILLED",
+      "seconds": 7.3,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > A keyboard user keeps their place when a check answers (CERT-2) > the invoice is paid in full and the way to pay goes away: the invoice says so, and the focus lands there, not at the top of the page",
+        "AssertionError: expected <body><div>\u2026(1)</div></body> to be <p tabindex=\"-1\" role=\"status\" \u2026(3)></p> // Object.is equality"
+      ]
+    },
+    {
+      "id": "W29",
+      "file": "web/src/components/owner/serviceJourney/InvoiceCard.tsx",
+      "why": "paid in full steals the focus",
+      "verdict": "KILLED",
+      "seconds": 2.2,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > A keyboard user keeps their place when a check answers (CERT-2) > it does not take the focus from where a person has moved on to",
+        "AssertionError: expected <p tabindex=\"-1\" role=\"status\" \u2026(3)></p> to be <button></button> // Object.is equality"
+      ]
+    },
+    {
+      "id": "W30",
+      "file": "web/src/components/owner/serviceJourney/InvoiceCard.tsx",
+      "why": "an old paid invoice speaks",
+      "verdict": "KILLED",
+      "seconds": 2.0,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > A keyboard user keeps their place when a check answers (CERT-2) > an invoice that was never owed says nothing"
+      ]
+    },
+    {
+      "id": "W31",
+      "file": "web/src/lib/pay05Paynow.ts",
+      "why": "an alert no one sent",
+      "verdict": "KILLED",
+      "seconds": 2.4,
+      "evidence": [
+        " FAIL  src/components/owner/serviceJourney/PaynowTruth.r1.test.tsx > Nothing claims an alert no one sent (CERT-5) > review words say who can see it",
+        "AssertionError: expected 'This payment needs review before it c\u2026' not to match /alerted/i"
+      ]
+    },
+    {
+      "id": "Q22",
+      "file": "backend/services/payment/pay05PaynowCollectionService.js",
+      "why": "a closed badge claims a word Paynow never sent",
+      "verdict": "KILLED",
+      "seconds": 1.5,
+      "evidence": [
+        "not ok 84 - a closed request says nothing Paynow did not say: its badge does not claim a word Paynow may never have sent",
+        "  error: 'stopped'",
+        "  name: 'AssertionError'"
+      ]
+    }
+  ]
+}

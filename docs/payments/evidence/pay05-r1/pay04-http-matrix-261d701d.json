@@ -1,9 +1,9 @@
 {
   "programme": "CARUP-PAY-04-LR01",
   "level": "Level 1 (local simulator; no provider, no money)",
-  "recorded_at": "2026-11-03T15:42:22.542Z",
-  "backend_commit": "fae7841611b49d3569ec2f1d9cb0c3702a0ef46a",
-  "harness_commit": "fae7841611b49d3569ec2f1d9cb0c3702a0ef46a",
+  "recorded_at": "2026-11-04T02:44:30.294Z",
+  "backend_commit": "261d701d0f47fefe97afe08d30b4c6091e595a7d",
+  "harness_commit": "261d701d0f47fefe97afe08d30b4c6091e595a7d",
   "stack": "carup-pay04-supabase 127.0.0.1:56321/56322",
   "results": [
     {
@@ -14,7 +14,7 @@
         "can_issue_invoice": true,
         "parts_used": [
           {
-            "id": "a618cc5d-e89c-4d7d-9fbe-a88717e1fc1e",
+            "id": "214329d2-df46-42fc-b936-827904de997a",
             "quantity": 2,
             "active": true
           }
@@ -100,7 +100,7 @@
       "title": "Invoice balance decreases correctly",
       "pass": true,
       "detail": {
-        "invoice_id": "af81582a-eab2-4fdc-9efa-c7d0373685ea",
+        "invoice_id": "f221bfb5-c9b5-48b6-9542-c8164747e5ee",
         "currency": "USD",
         "invoice_status": "issued",
         "total_amount": 210,
@@ -150,7 +150,7 @@
       "detail": {
         "payment_status": "paid",
         "money": {
-          "invoice_id": "af81582a-eab2-4fdc-9efa-c7d0373685ea",
+          "invoice_id": "f221bfb5-c9b5-48b6-9542-c8164747e5ee",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 210,
@@ -172,7 +172,7 @@
         {
           "n": "RCT-000022",
           "amount": 60,
-          "pay": "a210a535-4c5e-433a-8f1c-5d25c9377ae7",
+          "pay": "e12310fb-01e7-47f0-b75a-d95ff00b386b",
           "pay_amount": 60,
           "source": "garage_recorded_external",
           "status": "issued"
@@ -180,7 +180,7 @@
         {
           "n": "RCT-000023",
           "amount": 150,
-          "pay": "287ba28e-155d-4434-9f36-dc97b0199b1b",
+          "pay": "ded0594c-ef6d-4373-87f8-69e25e8a83d9",
           "pay_amount": 150,
           "source": "garage_recorded_external",
           "status": "issued"
@@ -215,7 +215,7 @@
       "detail": {
         "status": 200,
         "money": {
-          "invoice_id": "af81582a-eab2-4fdc-9efa-c7d0373685ea",
+          "invoice_id": "f221bfb5-c9b5-48b6-9542-c8164747e5ee",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 210,
@@ -262,7 +262,7 @@
         "started": 201,
         "replay_same_collection": true,
         "in_flight": {
-          "invoice_id": "ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6",
+          "invoice_id": "c2eabcfa-e8f3-428c-823a-53ed9cdb1117",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 120,
@@ -276,11 +276,11 @@
         },
         "simulator_redirect": {
           "status": 303,
-          "location": "http://127.0.0.1:5203/dashboard/service-requests?invoice=ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6&collection=1cd82d7c-b964-481b-affa-46d0f40ec4ba&pay04=returned"
+          "location": "http://127.0.0.1:5203/dashboard/service-requests?invoice=c2eabcfa-e8f3-428c-823a-53ed9cdb1117&collection=f7132d01-421b-4bf0-a2ed-f90c2cd52bc2&pay04=returned"
         },
         "verified_state": "confirmed",
         "money_after": {
-          "invoice_id": "ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6",
+          "invoice_id": "c2eabcfa-e8f3-428c-823a-53ed9cdb1117",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 120,
@@ -325,7 +325,7 @@
         "wrong_signature": 400,
         "stale_signature": 400,
         "money": {
-          "invoice_id": "c2acf6ea-321a-4e34-a5c3-c6fc02ab762b",
+          "invoice_id": "5eaf1819-56fa-4469-94ee-e6acffd35f60",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 60,
@@ -348,7 +348,7 @@
         "external_refund": 200,
         "held_status": "reconciliation_hold",
         "held_money": {
-          "invoice_id": "ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6",
+          "invoice_id": "c2eabcfa-e8f3-428c-823a-53ed9cdb1117",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 120,
@@ -367,7 +367,7 @@
           "partially_refunded"
         ],
         "money_after": {
-          "invoice_id": "ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6",
+          "invoice_id": "c2eabcfa-e8f3-428c-823a-53ed9cdb1117",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 120,
@@ -411,7 +411,7 @@
         ],
         "canonical_status_during": "pending",
         "money_during": {
-          "invoice_id": "669fd362-ab40-4d8e-9741-7dd4b3986a07",
+          "invoice_id": "68254788-439a-4a27-9c9b-30a9ec5c1203",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 50,
@@ -431,7 +431,7 @@
           }
         ],
         "money_after": {
-          "invoice_id": "669fd362-ab40-4d8e-9741-7dd4b3986a07",
+          "invoice_id": "68254788-439a-4a27-9c9b-30a9ec5c1203",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 50,
@@ -491,7 +491,7 @@
           "refunded"
         ],
         "money": {
-          "invoice_id": "1757cf83-4750-4e1b-89b0-56c94efe9024",
+          "invoice_id": "c4e98f19-0109-450f-98dc-2ffeacbf88ee",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 70,
@@ -543,13 +543,13 @@
       "detail": {
         "statuses": [
           409,
-          409,
-          409,
           201,
+          409,
+          409,
           409
         ],
         "money": {
-          "invoice_id": "51aa9fa1-3d5c-4bfe-8781-5375723d2587",
+          "invoice_id": "2a0bf621-ebcf-455c-a2c6-cfec91037e5a",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 100,
@@ -581,7 +581,7 @@
         "allocations_after": "1",
         "live_receipts": "1",
         "money": {
-          "invoice_id": "51aa9fa1-3d5c-4bfe-8781-5375723d2587",
+          "invoice_id": "2a0bf621-ebcf-455c-a2c6-cfec91037e5a",
           "currency": "USD",
           "invoice_status": "issued",
           "total_amount": 100,
@@ -636,28 +636,28 @@
         "receipts_not_equal_counted": "0",
         "non_external_declared_rows": "0",
         "garage_money_as_carup_money": "0",
-        "garage_collection_rows_by_gateway": "pay04_garage_provider_simulator:24,paynow_zimbabwe:56",
+        "garage_collection_rows_by_gateway": "pay04_garage_provider_simulator:24,paynow_zimbabwe:60",
         "stock_movement_types_seen": "consumption,opening,reversal"
       }
     }
   ],
   "facts": {
     "job1": {
-      "caseId": "c14d8825-fb39-4654-b897-9b7da8fbf964",
-      "workOrderId": "37f8bad0-4342-46d8-95cf-3cbc861ae0ea"
+      "caseId": "236df0f8-6013-4857-b4b4-b05554932f3e",
+      "workOrderId": "358fc8ac-e0be-4094-980a-63c99ac6687d"
     },
     "invoice1": {
-      "id": "af81582a-eab2-4fdc-9efa-c7d0373685ea",
+      "id": "f221bfb5-c9b5-48b6-9542-c8164747e5ee",
       "number": "INV-000019",
       "total": "210.00"
     },
     "invoice2": {
-      "id": "ba9050e2-cfd2-4f8c-8a9f-ac1a242ea3e6",
+      "id": "c2eabcfa-e8f3-428c-823a-53ed9cdb1117",
       "number": "INV-000020",
-      "collection": "1cd82d7c-b964-481b-affa-46d0f40ec4ba"
+      "collection": "f7132d01-421b-4bf0-a2ed-f90c2cd52bc2"
     },
-    "raceInvoice": "51aa9fa1-3d5c-4bfe-8781-5375723d2587",
-    "raceCollection": "7872710e-5cb5-4dd6-ba3a-be0484c63249"
+    "raceInvoice": "2a0bf621-ebcf-455c-a2c6-cfec91037e5a",
+    "raceCollection": "ffcb0d9b-e001-4155-907d-7570d603c51b"
   },
   "summary": {
     "total": 26,

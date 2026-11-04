@@ -10,7 +10,7 @@ The directive asks for one remediator, one different independent certifier, and 
 |---|---|---|---|---|
 | Remediator (single source writer) | The PAY-05 implementation specialist, Claude Opus 5.5, session of this assignment | The R1 worktree; disposable local stacks | Every commit on `fix/carup-pay-05-r1-financial-integrity` | May not certify its own work |
 | Pre-final adversarial reviewer | A fresh agent started by the remediator, given the code and a private sandbox and no conclusions | Read-only worktree; disposable PostgreSQL | 5 High, 5 Medium, 13 Low (PFR ids) | All dispositioned in the closure matrix. Not the certifier |
-| Independent final certifier | Pending: a fresh agent started by the remediator, given the code, the original report and a private sandbox, and no conclusions | Read-only worktree at the evidence head; disposable PostgreSQL; the running local runtime | Pending | Pending |
+| Independent final certifier | A fresh agent started by the remediator, given the code, the original report and a private sandbox, and no conclusions | Read-only worktree at the evidence head; disposable PostgreSQL; the running local runtime | First pass at `fae78416`: RECOMMEND REMEDIATE (CERT-1 to CERT-7). Narrow recertification pending | Every fix is in the closure matrix; its decision stands on the record |
 | Reviewer for the cross-program test guard (O2-X4) | Fresh agents started by the remediator, three in all. **Not the O2 programme's owner** | Read-only worktree; private fixture folders; no database | REQUEST CHANGES twice on the design, twice on the wording, then APPROVE at `f3b1cf53` | Every blocking finding corrected; the Moderator decides whether this is enough |
 
 **Limit on independence, stated plainly.** The certifier and the O2 reviewer are fresh agents started from the remediator's session, on the same account and the same model family, with no access to its working notes or conclusions until the step that checks them. They are not people, and the remediator wrote their briefs, which are kept in private custody with hashes. Whether that meets "a truly separate certifier" and "the O2 owner's independent signoff" is the Moderator's decision. If it does not, the private handoff lets a separate session or person repeat the certification from the same reproductions.
@@ -20,7 +20,7 @@ The directive asks for one remediator, one different independent certifier, and 
 | Item | State | Authority |
 |---|---|---|
 | PAY-05 at frozen head `1d3b6901` | Not accepted: ICR-01 returned REMEDIATE | Moderator, #255 |
-| R1 Level 1 remediation at runtime `fae78416` | Pending the independent certification | Moderator |
+| R1 Level 1 remediation at runtime `261d701d` | First pass: RECOMMEND REMEDIATE. Narrow recertification pending | Moderator |
 | Cross-program test guard O2-X4 | Independently reviewed, not owner-signed. Three questions are open for the Moderator (certification §4 and the closure matrix) | Moderator, O2 owner |
 | Real Paynow, Level 2 | Blocked: needs the Owner's and Paynow's merchant and financial authority | Owner, Moderator |
 | PAY-06 | Implementation blocked until R1 is accepted; read-only preparation allowed | Moderator |
@@ -35,7 +35,7 @@ The directive asks for one remediator, one different independent certifier, and 
 | Branch | `fix/carup-pay-05-r1-financial-integrity` |
 | Frozen defective head | `1d3b690198c5f0842fc580f36280714fedaba32a` |
 | Accepted parent | `b3ca4d211f316a40728d56612f4d975c745c4061` |
-| Final runtime commit | `fae7841611b49d3569ec2f1d9cb0c3702a0ef46a` |
+| Final runtime commit | `261d701d0f47fefe97afe08d30b4c6091e595a7d` |
 | Evidence head | the commit that adds this file, or a later documents-only commit |
 | Exact-head CI | Recorded in the certification after the push |
 | Private handoff | `~/carup-launch-evidence/pay05-r1/HANDOFF.md`, with the ICR's report, its 184 evidence files, every reproduction, the review's scripts and their outputs. Not in this repository |

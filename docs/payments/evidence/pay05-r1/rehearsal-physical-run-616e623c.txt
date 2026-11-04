@@ -1,0 +1,17 @@
+[2026-11-03T17:27:05Z] stopped pid 78201 on 5051 (~/carup-pay05-uat/backend)
+[2026-11-03T17:27:05Z] stopped pid 62891 on 5071 (~/carup-pay05-uat)
+[2026-11-03T17:27:05Z] stopped pid 63042 on 5203 (~/carup-pay05-uat/web)
+[2026-11-03T17:27:07Z] UAT worktree at 616e623c131373546a4f0521eae397f17e092e9d, clean
+pay04-uat-db-before-pay05-20261102T092511Z.dump: OK
+[2026-11-03T17:27:44Z] DB: Done. Ledger: 82 entries; Paynow simulator ON, real Paynow OFF (CHECK-enforced).
+[2026-11-03T17:27:59Z] runtime up: backend 616e623c131373546a4f0521eae397f17e092e9d, web 200, TTL 300
+[2026-11-03T17:29:59Z] seed exit=0 QA seed complete.
+[2026-11-03T18:19:53Z] PAY-05 matrix exit=0 61/61 passed -> ~/carup-launch-evidence/pay05/uat/http-matrix-616e623c.json
+[2026-11-03T18:19:53Z] stopped pid 46812 on 5051 (~/carup-pay05-uat/backend)
+[2026-11-03T18:19:57Z] backend restarted at default TTL
+[2026-11-03T18:27:40Z] PAY-04 browser exit=0   Slow test file: [chromium] › e2e/pay04-garage-payments.spec.ts (7.6m)   Consider running tests from slow files in para
+[2026-11-03T18:38:10Z] PAY-05 browser exit=1     [chromium] › e2e/pay05-zimbabwe-paynow.spec.ts:417:1 › D/E (browser, mobile): O'mari — a wrong code is refused in wo
+[2026-11-03T19:18:19Z] R1 browser+keyboard exit=0   Slow test file: [chromium] › e2e/pay05-r1-state-truth.spec.ts (40.1m)   Consider running tests from slow files in para
+[2026-11-03T19:58:48Z] keyboard baseline exit=1   1 failed     [chromium] › e2e/icr-pay05-keyboard.spec.ts:128:3 › keyboard only (mobile): open How to pay, choose EcoCa
+[2026-11-03T22:58:56Z] PAY-04 matrix exit=1 16/26 passed -> ~/carup-launch-evidence/pay04/uat/http-matrix-616e623c.json
+[2026-11-03T22:58:56Z] REPRO_DONE all (runtime left up)
