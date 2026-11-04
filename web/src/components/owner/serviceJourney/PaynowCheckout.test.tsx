@@ -118,6 +118,22 @@ describe('Paying the garage with Paynow', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('paynow-outcome')))
   })
 
+  it('CERT-8: its answer ends when a newer read of the request shows another state', async () => {
+    startGarageInvoicePayment.mockResolvedValue(started({}))
+    verifyGarageInvoicePayment.mockResolvedValue({ collection: { state: 'at_paynow' }, applied: true, refused: null, duplicate_event: false,
+      payment_status: 'pending', money: {}, paynow: paynowView({ provider_status: 'awaiting_delivery', provider_status_label: 'Paid to Paynow — held by Paynow' }) })
+    await openPaynow()
+    fireEvent.click(screen.getByTestId('paynow-method-ecocash'))
+    fireEvent.change(screen.getByTestId('paynow-phone'), { target: { value: '0771234567' } })
+    fireEvent.click(screen.getByTestId('paynow-start'))
+    await screen.findByTestId('paynow-pending')
+    fetchGarageInvoicePaymentOptions.mockResolvedValue(options({ provider_payments: [row({ provider_status: 'disputed' }, { state: 'under_review', state_label: 'Under review — not counted' })] }))
+    const reads = fetchGarageInvoicePaymentOptions.mock.calls.length
+    fireEvent.click(screen.getByTestId('paynow-check'))
+    await waitFor(() => expect(fetchGarageInvoicePaymentOptions.mock.calls.length).toBeGreaterThan(reads))
+    await waitFor(() => expect(screen.getByTestId('paynow-outcome')).toBeEmptyDOMElement())
+  })
+
   it('W7: while the number is missing, Pay says why it cannot be pressed', async () => {
     await openPaynow()
     expect(screen.queryByTestId('paynow-phone-hint')).toBeNull()
