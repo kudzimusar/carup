@@ -104,10 +104,27 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  const foreignId=(f as Fixture&{synthetic_operations?:{
    foreign_inquiry_id:string}}).synthetic_operations?.foreign_inquiry_id
  expect(foreignId).toBeTruthy()
- const deniedForeign=await owner.request.patch(
-  'http://127.0.0.1:3001/api/dealer/operational-inquiries/'+foreignId+'/follow-up',{
-   headers:ownerHeaders,data:{next_status:'contacted'},
-  })
+ const foreignPath='http://127.0.0.1:3001/api/dealer/operational-inquiries/'+
+  foreignId+'/follow-up'
+ // Exercise both authorization boundaries. A raw state-changing request must
+ // fail CSRF first; a genuinely authenticated, CSRF-bound request must then
+ // reach the SQL tenant-isolation check and receive its canonical refusal.
+ // Do not bypass middleware via NODE_ENV=test or x-verify-csrf toggles.
+ const csrfRejected=await owner.request.patch(foreignPath,{
+  headers:ownerHeaders,data:{next_status:'contacted'},
+ })
+ expect(csrfRejected.status()).toBe(403)
+ expect((await csrfRejected.json() as {error:string}).error)
+  .toBe('CSRF validation failed. Request untrusted.')
+ const csrfResponse=await owner.request.get(
+  'http://127.0.0.1:3001/api/security/csrf-token',{headers:ownerHeaders})
+ expect(csrfResponse.status()).toBe(200)
+ const {csrfToken}=await csrfResponse.json() as {csrfToken:string}
+ expect(csrfToken).toMatch(/\.[0-9a-f]{64}$/)
+ const deniedForeign=await owner.request.patch(foreignPath,{
+  headers:{...ownerHeaders,'x-csrf-token':csrfToken},
+  data:{next_status:'contacted'},
+ })
  expect(deniedForeign.status()).toBe(409)
  expect((await deniedForeign.json() as {error:string}).error)
   .toBe('DEALER_INQUIRY_FOLLOWUP_REFUSED')

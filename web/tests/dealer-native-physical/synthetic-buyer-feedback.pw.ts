@@ -27,6 +27,19 @@ if(fixture.source_type!=='EXPLICITLY_FICTIONAL_NATIVE_POSTGRES_XLSX'||
 
 const API='http://127.0.0.1:3001/api'
 const hdr=(actor:Actor)=>({'x-user-id':actor.id,'x-session-token':actor.token})
+async function mutationHeaders(page:Page,actor:Actor){
+ // Direct Playwright API requests do not pass through web/src/lib/apiClient.
+ // Obtain the real signed token in the SAME browser session and identity.
+ // A missing token yields a global CSRF 403, not the domain-specific denial
+ // we intend to certify for a forged buyer or failed reviewer password.
+ const tokenResponse=await page.request.get(API+'/security/csrf-token',{
+  headers:hdr(actor),
+ })
+ expect(tokenResponse.status()).toBe(200)
+ const {csrfToken}=await tokenResponse.json() as {csrfToken:string}
+ expect(csrfToken).toMatch(/\.[0-9a-f]{64}$/)
+ return {...hdr(actor),'x-csrf-token':csrfToken}
+}
 async function login(page:Page,actor:Actor){
  await page.addInitScript(({user,token}:{user:Omit<Actor,'token'>;token:string})=>{
   localStorage.setItem('carup_user',JSON.stringify(user))
@@ -86,7 +99,7 @@ test('FICTIONAL buyer private complaint → immutable canonical receipt → sepa
  expect(hidden.entries).toHaveLength(0)
  expect(hidden.cases).toHaveLength(0)
  const crossWrite=await attacker.request.post(API+'/dealership/buyer-feedback/cases',{
-  headers:hdr(fixture.actors.claimant),
+  headers:await mutationHeaders(attacker,fixture.actors.claimant),
   data:{seed_dealer_id:fixture.seed,
    transaction_id:fixture.synthetic_operations.feedback_transaction_id,
    case_type:'BUYER_COMPLAINT',
@@ -108,7 +121,7 @@ test('FICTIONAL buyer private complaint → immutable canonical receipt → sepa
  const selectedCase=history.cases[0].case_id
  const forbidden=await review.request.post(
   API+'/admin/dealership/buyer-feedback/'+selectedCase+'/preview',{
-   headers:hdr(fixture.actors.reviewer),
+   headers:await mutationHeaders(review,fixture.actors.reviewer),
    data:{reviewer_password:'intentionally-wrong-reviewer-password'},
   })
  expect(forbidden.status()).toBe(403)
