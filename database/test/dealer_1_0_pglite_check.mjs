@@ -28,6 +28,7 @@ const names=[
   '20261103137000_dealer_transaction_feedback_candidate_cases.sql',
   '20261103138000_dealer_branch_operating_details.sql',
   '20261103139000_dealer_canonical_inquiry_progress.sql',
+  '20261103140000_dealer_staff_branch_scope.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -233,7 +234,7 @@ try{
     assert.deepEqual(fresh.rows[0],{
       tenants:0,organizations:0,profiles:0,seeds:0,claims:0,
     },'browser schema must not inherit contract-test business/tenant authority');
-    console.log('DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS: 16 exact dealership migrations applied to empty disposable PostgreSQL; 0 business/tenant/claim authorities, protected users preseeded');
+    console.log('DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS: 17 exact dealership migrations applied to empty disposable PostgreSQL; 0 business/tenant/claim authorities, protected users preseeded');
   } else {
   // Direct authenticated/PostgREST clients cannot mint their own tenant, identity,
   // compliance, activation or listing authority even if they own a dealer row.
@@ -254,7 +255,7 @@ try{
     "SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed"
   )).rows[0].allowed,false);
 
-  // Sixteen additive dealer migrations create 30 dealer_ tables in the
+  // Seventeen additive dealer migrations create 32 dealer_ tables in the
   // isolated fixture (including legacy dealer_profiles and compliance tables).
   // This is a source-schema count, NOT 27 verified businesses or publications.
   // Real schema-level private branch GPS/hour persistence + negative controls.
@@ -277,7 +278,7 @@ try{
     'CANNOT_ROLLBACK_WITH_BRANCH_OPERATING_DETAILS');
   await exec("DELETE FROM dealer_branches WHERE id='"+uuid(9871)+"'");
   await exec("DELETE FROM dealer_profiles WHERE id='"+uuid(9870)+"'");
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,30);
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,32);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -704,6 +705,12 @@ try{
   await fails(`SELECT dealer_accept_staff_invitation(
     '${staffInvite}','${outsider}')`,
     'OWN_STAFF_INVITATION_REQUIRED');
+  await fails(`SELECT dealer_grant_staff_branch_scope(
+    '${staffInvite}','${branchId}','EDIT_BRANCH_DETAILS','${claimant}',
+    'Owner scope only after independent acceptance')`,
+    'ACCEPTED_ORIGINAL_OWNER_STAFF_INVITATION_REQUIRED');
+  assert.deepEqual((await query(
+    "SELECT dealer_list_my_staff_branches('notreviewer') AS scopes")).rows[0].scopes,[]);
   const joined=await query('SELECT dealer_accept_staff_invitation($1,$2) AS receipt',
     [staffInvite,'notreviewer']);
   assert.equal(joined.rows[0].receipt.canonical_member_created,true);
@@ -717,6 +724,59 @@ try{
   const staffMembership=await query('SELECT role FROM tenant_users WHERE tenant_id=$1 AND user_id=$2',
     [tenant,'notreviewer']);
   assert.equal(staffMembership.rows[0].role,'member');
+  await fails(`SELECT dealer_grant_staff_branch_scope(
+    '${staffInvite}','${branchId}','SELL_VIN','${claimant}',
+    'Unapproved seller privilege was requested by owner')`,
+    'UNRECOGNIZED_STAFF_BRANCH_PERMISSION');
+  await fails(`SELECT dealer_grant_staff_branch_scope(
+    '${staffInvite}','${branchId}','EDIT_BRANCH_DETAILS','${outsider}',
+    'Different actor must never grant a staff branch')`,
+    'ACCEPTED_ORIGINAL_OWNER_STAFF_INVITATION_REQUIRED');
+  await fails(`SELECT dealer_grant_staff_branch_scope(
+    '${staffInvite}','${uuid(9840)}','EDIT_BRANCH_DETAILS','${claimant}',
+    'Different or nonexistent branch must not be granted')`,
+    'CANONICAL_STAFF_BRANCH_LINKAGE_REQUIRED');
+  const grant=await query('SELECT dealer_grant_staff_branch_scope($1,$2,$3,$4,$5) AS result',
+    [staffInvite,branchId,'EDIT_BRANCH_DETAILS',claimant,
+      'Synthetic owner explicitly granted private editing of own approved branch']);
+  const scopeId=grant.rows[0].result.scope_id;
+  assert.equal(grant.rows[0].result.seller_rights_granted,false);
+  assert.equal(grant.rows[0].result.finance_rights_granted,false);
+  const repeatGrant=await query('SELECT dealer_grant_staff_branch_scope($1,$2,$3,$4,$5) AS result',
+    [staffInvite,branchId,'EDIT_BRANCH_DETAILS',claimant,
+      'Synthetic owner explicitly granted private editing of own approved branch']);
+  assert.equal(repeatGrant.rows[0].result.idempotent,true);
+  const scoped=(await query("SELECT dealer_list_my_staff_branches('notreviewer') AS scopes")).rows[0].scopes;
+  assert.equal(scoped.length,1);
+  assert.equal(scoped[0].branch_id,branchId);
+  assert.equal(scoped[0].permission,'EDIT_BRANCH_DETAILS');
+  assert.equal(scoped[0].listing_rights,false);
+  assert.deepEqual((await query("SELECT dealer_list_my_staff_branches('claimant2') AS scopes")).rows[0].scopes,[]);
+  await fails(`SELECT dealer_edit_my_staff_branch(
+    '${outsider}','${scopeId}','Fake Branch','Wrong Company',-17.8,31.0,'Mon 01-02')`,
+    'CANONICAL_ACTIVE_STAFF_MEMBERSHIP_REQUIRED');
+  await fails(`SELECT dealer_edit_my_staff_branch(
+    'notreviewer','${scopeId}','Invalid Branch','Wrong GPS',91.1,31.0,'Mon 01-02')`,
+    'STAFF_BRANCH_DETAILS_INVALID');
+  const beforePublic=JSON.stringify((await query(
+    'SELECT approved_branch_snapshot FROM dealer_full_storefront_current')).rows[0].approved_branch_snapshot);
+  const saved=await query('SELECT dealer_edit_my_staff_branch($1,$2,$3,$4,$5,$6,$7) AS receipt',
+    ['notreviewer',scopeId,'Fictional Staff Managed Branch',
+      'Fictional Local Branch Address',-17.812345,31.034567,
+      'Mon-Fri 07:30-18:00 private statement']);
+  assert.equal(saved.rows[0].receipt.private_declaration_only,true);
+  assert.equal(saved.rows[0].receipt.public_snapshot_unchanged,true);
+  assert.equal((await query('SELECT name FROM dealer_branches WHERE id=$1',[branchId])).rows[0].name,
+    'Fictional Staff Managed Branch');
+  const afterPublic=JSON.stringify((await query(
+    'SELECT approved_branch_snapshot FROM dealer_full_storefront_current')).rows[0].approved_branch_snapshot);
+  assert.equal(afterPublic,beforePublic,'private staff edits must not silently republish');
+  await fails("UPDATE dealer_staff_branch_scope_events SET event_type='GRANTED'",
+    'APPEND_ONLY_LEDGER');
+  await exec('SET ROLE authenticated');
+  await fails("SELECT dealer_list_my_staff_branches('notreviewer')",'permission denied');
+  await exec('RESET ROLE');
+  console.log('DEALER_NATIVE_STAFF_BRANCH_SCOPE PASS: verified owner grant + limited edit, cross-branch and seller denied, public snapshot unchanged');
   await fails("UPDATE dealer_staff_invitation_events SET action='REVOKED'",
     'APPEND_ONLY_LEDGER');
   await fails(`SELECT dealer_revoke_staff_invitation(
@@ -725,6 +785,13 @@ try{
   const revokedStaff=await query('SELECT dealer_revoke_staff_invitation($1,$2) AS receipt',
     [staffInvite,claimant]);
   assert.equal(revokedStaff.rows[0].receipt.member_access_revoked,true);
+  assert.equal((await query("SELECT count(*)::int AS n FROM dealer_staff_branch_scopes WHERE status='ACTIVE'")).rows[0].n,0);
+  assert.deepEqual((await query("SELECT dealer_list_my_staff_branches('notreviewer') AS scopes")).rows[0].scopes,[]);
+  await fails(`SELECT dealer_edit_my_staff_branch(
+    'notreviewer','${scopeId}','Revoked Staff','Wrong Site',-17.8,31.0,'Mon 08-17')`,
+    'STAFF_BRANCH_EDIT_SCOPE_REQUIRED');
+  await fails(read('20261103140000_dealer_staff_branch_scope.sql').down,
+    'CANNOT_ROLLBACK_WITH_BRANCH_PERMISSION_CUSTODY');
   assert.equal((await query('SELECT count(*)::int AS n FROM tenant_users')).rows[0].n,1);
   assert.equal((await query('SELECT count(*)::int AS n FROM organization_users')).rows[0].n,1);
   await fails(read('20261103136000_dealer_staff_canonical_invitations.sql').down,
@@ -926,6 +993,7 @@ try{
   // Real source contact and grouping review receipts are append-only and their
   // rollback must refuse to destroy them.
   await exec('TRUNCATE dealer_research_grouping_review_events, dealer_research_public_contact_events');
+  await exec('TRUNCATE dealer_staff_branch_scope_events, dealer_staff_branch_scopes');
   await exec('TRUNCATE dealer_staff_invitation_events, dealer_staff_invitation_records');
   await exec('TRUNCATE dealer_canonical_inquiry_progress_events');
   await exec('TRUNCATE dealer_full_storefront_review_events');
@@ -936,7 +1004,7 @@ try{
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
-    '16 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+    '17 migration apply/rollback/reapply, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
   } // End full destructive synthetic contract suite; fresh schema mode stays empty.
 }catch(error){
   console.error(native?'DEALER_NATIVE_POSTGRES_RESULT FAIL':'DEALER_PGLITE_RESULT FAIL',error);
