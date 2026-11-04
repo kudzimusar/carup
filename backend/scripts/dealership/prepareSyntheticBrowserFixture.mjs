@@ -88,10 +88,12 @@ try{
  // The first migration harness seeds reviewer1 as admin for SQL exercising.
  // In the physical browser fixture it MUST be a genuinely distinct,
  // independently verified "reviewer", not an admin masquerading in UI.
+ // Claimant identity verification is independent of legal company approval:
+ // is_verified=true must NEVER grant dealer/tenant membership.
  const actorRoleProof=await db.query(`SELECT id,role,is_verified FROM users
    WHERE id IN('claimant1','reviewer1') ORDER BY id`);
  assert.deepEqual(actorRoleProof.rows,[
-   {id:'claimant1',role:'member',is_verified:false},
+   {id:'claimant1',role:'member',is_verified:true},
    {id:'reviewer1',role:'reviewer',is_verified:true},
  ]);
  // Password challenge uses the genuine production scrypt verification logic.
