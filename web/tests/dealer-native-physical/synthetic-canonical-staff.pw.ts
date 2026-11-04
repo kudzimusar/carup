@@ -82,6 +82,10 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  await info.attach('fictional-distinct-staff-accepted-768px',{
   path:staffShot,contentType:'image/png'})
 
+ // The real shared-loopback global limiter (100/min) is not exempted
+ // for CI. The claimant and recipient's genuine page/CSRF reads all count.
+ // Let the first window clear before verifying the separate legal-owner grant.
+ await owner.waitForTimeout(70_000)
  // Canonical membership alone grants NO branch operating rights.
  const readBefore=await staff.request.get(
   'http://127.0.0.1:3001/api/dealer/staff-branches/mine',
