@@ -41,6 +41,40 @@ for attempt in $(seq 1 90); do
   sleep 2
 done
 curl -fsS http://127.0.0.1:5000/status >/dev/null
+# The native 16-migration dealer fixture does not install the usual Supabase
+# schema grants. The real Storage API has migrated its private storage schema,
+# but a service-role JWT cannot create a private bucket until the same
+# disposable PostgreSQL service role is granted schema/table usage.
+# NEVER run this against a shared DB: the strict loopback DB guard above is
+# required before any SQL executes. Do not grant broad anonymous privileges.
+node --input-type=module <<'NODE'
+import assert from 'node:assert/strict'
+import pg from 'pg'
+const db=new pg.Client({
+  connectionString:process.env.DEALER_ISOLATED_POSTGRES_URL,
+  ssl:false,application_name:'dealer-ci-storage-service-role-grants'
+})
+await db.connect()
+try{
+  const objects=await db.query(
+    "SELECT to_regclass('storage.buckets')::text AS buckets, to_regclass('storage.objects')::text AS objects"
+  )
+  assert.equal(objects.rows[0]?.buckets,'storage.buckets')
+  assert.equal(objects.rows[0]?.objects,'storage.objects')
+  await db.query('GRANT USAGE ON SCHEMA storage TO service_role')
+  await db.query('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA storage TO service_role')
+  await db.query('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA storage TO service_role')
+  const access=await db.query(
+    "SELECT has_schema_privilege('service_role','storage','USAGE') AS service_schema, "+
+    "has_table_privilege('service_role','storage.buckets','INSERT') AS service_bucket_write, "+
+    "has_table_privilege('service_role','storage.objects','SELECT') AS service_object_read"
+  )
+  assert.deepEqual(access.rows[0],{
+    service_schema:true,service_bucket_write:true,service_object_read:true,
+  })
+  console.log('DEALER_NATIVE_STORAGE_SERVICE_ROLE_GRANT PASS: isolated schema only; no anonymous role grant')
+}finally{await db.end()}
+NODE
 node --input-type=module <<'NODE'
 import assert from 'node:assert/strict'
 import {createClient} from '@supabase/supabase-js'
