@@ -18,8 +18,8 @@ const API='http://127.0.0.1:3001/api'
 // unlike raising the server limit, this does NOT weaken the production policy.
 // The pause also runs after a failed case so later cases remain diagnostically
 // independent rather than inheriting a synthetic burst's HTTP 429.
-test.afterEach(async(fixtures,testInfo)=>{
-  void fixtures
+test.afterEach(async({browser},testInfo)=>{
+  void browser
   // Only pause between scenarios; after the final storage/XLSX case there
   // is no subsequent browser user for whom the shared loopback budget matters.
   if(testInfo.title.includes('Native PG + private Storage'))return
