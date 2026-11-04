@@ -272,6 +272,7 @@ export default function DealerDashboard(){
                 ['Manage operating terms and policies','/dealers/operating-details'],
                 ['Manage canonical team membership','/dealers/staff'],
                 ['Inspect VIN inventory','/dealers/stock'],
+                ['Real Marketplace buyer enquiries','/dealers/inquiries'],
                 ['Subscription and merchant readiness','/dealers/billing'],
                 ['Claim and private evidence history','/dealers/claims'],
               ].map(([label,url])=><Link key={url} to={url}
