@@ -989,6 +989,22 @@ try{
     'CANNOT_ROLLBACK_WITH_REVIEWED_CLAIMS');
   await fails(read('20261103133000_dealer_research_grouping_and_public_contact.sql').down,
     'CANNOT_ROLLBACK_WITH_SOURCE_PUBLICATION_CUSTODY');
+  // The new scoped staff edit is real canonical branch data, so an ordinary
+  // rollback of 20261103138000 MUST refuse while it exists. Demonstrate the
+  // refusal first; then clear ONLY the known fictional branch we modified,
+  // strictly in the disposable local test DB before explicit down/reapply.
+  await fails(read('20261103138000_dealer_branch_operating_details.sql').down,
+    'CANNOT_ROLLBACK_WITH_BRANCH_OPERATING_DETAILS');
+  await query(`UPDATE dealer_branches
+    SET latitude=NULL,longitude=NULL,opening_hours_text=NULL,
+        operating_details_updated_at=NULL WHERE id=$1`,[branchId]);
+  const cleared=(await query(`SELECT latitude,longitude,opening_hours_text,
+    operating_details_updated_at FROM dealer_branches WHERE id=$1`,
+    [branchId])).rows[0];
+  assert.deepEqual(cleared,{latitude:null,longitude:null,
+    opening_hours_text:null,operating_details_updated_at:null},
+    'fictional branch teardown must not hide real retained operating data');
+
   // Only the deliberately disposable isolated PGlite fixture is wiped here.
   // Real source contact and grouping review receipts are append-only and their
   // rollback must refuse to destroy them.
