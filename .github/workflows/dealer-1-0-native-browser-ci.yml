@@ -149,7 +149,6 @@ jobs:
               JSON.stringify({total:directory.total,entries:directory.entries?.map(e=>({
                 id:e.seed_dealer_id,tier:e.tier,business_verified:e.business_verified
               })),keys:Object.keys(directory)}))
-            )
             throw Error('Native browser bootstrap did not return one real SQL-backed fictional prelisting')
           }
           console.log('NATIVE_BROWSER_API_DATA_READY: one reviewed fictional unclaimed profile; 103 still private')
