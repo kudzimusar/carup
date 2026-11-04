@@ -43,7 +43,10 @@ for(const width of [390,768,1280,1920]){
       await expect(page.getByRole('heading',{name:'SYNTHETIC FICTIONAL CAR DEALER 1'}))
         .toBeVisible()
       await expect(page.getByRole('link',{name:'Claim this dealership'})).toBeVisible()
-      await expect(page.getByText('No CarUp-verified licence', {exact:false})).toBeVisible()
+      // Real DOM text, not a mocked response. A false claim of official
+      // licensing must never appear on the unclaimed public profile.
+      await expect.poll(async()=>page.locator('main').textContent())
+        .toContain('No CarUp-verified licence')
       const widthOverrun=await page.evaluate(()=>Math.max(0,
         document.documentElement.scrollWidth-document.documentElement.clientWidth))
       expect(widthOverrun).toBeLessThanOrEqual(3)
@@ -60,7 +63,14 @@ test('Native PG physical browser · claimant submits real claim, sees evidence-r
   const context=await browser.newContext({viewport:{width:1280,height:900}})
   const page=await context.newPage()
   await loginAs(page,fixture.actors.claimant)
-  await page.goto('/dealers/zw-deal-0001/claim')
+  const me=await page.request.get(API+'/auth/me',{headers:{
+    'x-session-token':fixture.actors.claimant.token,
+    'x-user-id':fixture.actors.claimant.id,
+  }})
+  expect(me.status()).toBe(200)
+  const session=await me.json() as {user:{id:string}}
+  expect(session.user.id).toBe(fixture.actors.claimant.id)
+  await page.goto('/dealers/zw-deal-0001/claim',{waitUntil:'domcontentloaded'})
   await expect(page.getByRole('heading',{name:'Request to claim this business'}))
     .toBeVisible({timeout:25000})
   await page.locator('#dealer-claim-legal-name').fill('Fictional Car Dealer Ltd — Test Only')

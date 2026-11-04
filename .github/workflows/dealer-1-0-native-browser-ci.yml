@@ -109,6 +109,7 @@ jobs:
           . "${RUNNER_TEMP}/carup-dealer-browser.env"
           set +a
           SUPABASE_URL=http://127.0.0.1:54321 NODE_ENV=development \
+            JWT_SECRET="${DEALER_BROWSER_LOCAL_JWT_SECRET}" \
             CARUP_ENV=local CARUP_ALLOW_X_USER_ID_FALLBACK=false PORT=3001 \
             node backend/server.js > "${RUNNER_TEMP}/real-dealer-api.log" 2>&1 &
           API_PID=$!
