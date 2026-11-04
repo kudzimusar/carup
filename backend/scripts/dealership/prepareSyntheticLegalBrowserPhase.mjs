@@ -67,8 +67,9 @@ try{
     [officer.id,officer.name,officer.email,password_hash]);
   assert.equal(changed.rowCount,1,'preseeded independent officer missing: '+officer.id);
   const token='fictional-legal-phase-session-'+randomUUID();
-  await db.query(`INSERT INTO user_sessions(token,user_id,is_valid,expires_at)
-  VALUES($1,$2,true,now()+interval '2 hours')`,[token,officer.id]);
+  await db.query(`INSERT INTO user_sessions(token,user_id,active_role,is_valid,expires_at)
+  VALUES($1,$2,'admin',true,(now()+interval '2 hours')::text)`,
+  [token,officer.id]);
   const label=officer.id==='legalreviewer'?'legalReviewer':'activator';
   fixture.actors[label]={id:officer.id,name:officer.name,email:officer.email,
     role:'admin',token};
@@ -83,8 +84,9 @@ try{
    WHERE id=$1 AND role='member'`,[staffUser.id,staffUser.name,staffUser.email]);
  assert.equal(staffUpdate.rowCount,1,'separate existing staff user missing');
  const staffToken='fictional-staff-membership-session-'+randomUUID();
- await db.query(`INSERT INTO user_sessions(token,user_id,is_valid,expires_at)
-   VALUES($1,$2,true,now()+interval '2 hours')`,[staffToken,staffUser.id]);
+ await db.query(`INSERT INTO user_sessions(token,user_id,active_role,is_valid,expires_at)
+   VALUES($1,$2,$3,true,(now()+interval '2 hours')::text)`,
+   [staffToken,staffUser.id,staffUser.role]);
  fixture.actors.staff={...staffUser,token:staffToken};
  // A third entirely fictional buyer is not a claimant, staff member,
  // reviewer or legal officer. Only their own escrow-trust intent can create a
@@ -96,8 +98,9 @@ try{
    [buyer.id,buyer.name,buyer.email]);
  assert.equal(buyerAccount.rowCount,1,'independent buyer fixture missing');
  const buyerToken='fictional-private-buyer-session-'+randomUUID();
- await db.query(`INSERT INTO user_sessions(token,user_id,is_valid,expires_at)
-   VALUES($1,$2,true,now()+interval '2 hours')`,[buyerToken,buyer.id]);
+ await db.query(`INSERT INTO user_sessions(token,user_id,active_role,is_valid,expires_at)
+   VALUES($1,$2,$3,true,(now()+interval '2 hours')::text)`,
+   [buyerToken,buyer.id,buyer.role]);
  fixture.actors.buyer={...buyer,token:buyerToken};
  const authority=await db.query(`SELECT id,is_verified,role FROM users WHERE id='policyreviewer'`);
  assert.deepEqual(authority.rows,[{id:'policyreviewer',is_verified:true,role:'admin'}]);
