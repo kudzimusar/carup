@@ -22,6 +22,7 @@ async function loginAs(page:Page,actor:Actor){
 for(const width of [390,768,1280,1920]){
   test('Native PG physical browser · '+width+'px · guest reviewed unclaimed directory and stable URL',
     async({browser},info)=>{
+      test.setTimeout(90_000)
       const context=await browser.newContext({viewport:{width,height:880}})
       const page=await context.newPage()
       const failures:string[]=[]
@@ -45,7 +46,7 @@ for(const width of [390,768,1280,1920]){
       await expect(page.getByRole('link',{name:'Claim this dealership'})).toBeVisible()
       // Real DOM text, not a mocked response. A false claim of official
       // licensing must never appear on the unclaimed public profile.
-      await expect.poll(async()=>page.locator('main').textContent())
+      await expect.poll(async()=>page.locator('main').last().textContent())
         .toContain('No CarUp-verified licence')
       const widthOverrun=await page.evaluate(()=>Math.max(0,
         document.documentElement.scrollWidth-document.documentElement.clientWidth))
@@ -54,6 +55,11 @@ for(const width of [390,768,1280,1920]){
       await page.screenshot({path,fullPage:true})
       await info.attach('native-unclaimed-'+width+'px',{path,contentType:'image/png'})
       expect(failures).toEqual([])
+      // Six actual browser sessions exercise the SAME loopback IP. Respect
+      // CarUp's real 100-requests/minute API policy instead of overriding or
+      // disabling the security limiter in CI. Navigation analytics, registry,
+      // public research and reviewed contact requests share this quota.
+      await page.waitForTimeout(20_000)
       await context.close()
     })
 }
