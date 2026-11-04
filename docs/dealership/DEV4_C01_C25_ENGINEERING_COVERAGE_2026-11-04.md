@@ -18,7 +18,7 @@
 | C12 | Expiry/suspension/renewal | Compliance lifecycle | claim-revoke trigger; dealer active-policy/expiry reads | PARTIAL; RENEWAL_AND_PHYSICAL_INVALIDATION_UNQUALIFIED |
 | C13 | Comprehensive operating profile | Dealer operating domain | dealerOperationalDeclarationsService.js, versioned private business terms | SOURCE_IMPLEMENTED; FULL_BUSINESS_OS_NOT_CERTIFIED |
 | C14 | Multi-branch and GPS | dealer_branches extension | dealerVerifiedWorkspaceService.js branch create, approved company snapshot | PARTIAL; GPS/HOURS_AND_MULTISITE_RBAC_UNQUALIFIED |
-| C15 | Functional dealer dashboard | Domain read models | DealerDashboard.tsx canonical membership/tenant VIN/branch write | SOURCE_IMPLEMENTED; AUTH_BROWSER_UAT_UNDONE |
+| C15 | Functional dealer dashboard | Domain read models | DealerDashboard.tsx canonical membership/tenant VIN/branch write; dealerTenantLeadReadService.js plus DealerTenantInquiries.tsx actual Marketplace leads | SOURCE_IMPLEMENTED; PERSISTENT_LEADS_STATUS_WRITES_AND_AUTH_BROWSER_UAT_UNDONE |
 | C16 | Real staff roles and permissions | Corporate/AUTH memberships | dealerStaffMembershipService.js and staff invitations on tenant_users | SOURCE_IMPLEMENTED; PHYSICAL_RBAC_AND_BRANCH_SCOPE_UNQUALIFIED |
 | C17 | Canonical vehicle inventory | Vehicle/Seller/Marketplace | dealerTenantInventoryReadService.js, live first-100 tenant VINs | READ_ONLY; SELLER_OR_BRANCH_LISTING_AUTHORITY_NOT_INTEGRATED |
 | C18 | Populated unclaimed + approved dealer directory | Approved public projection | research reviewer queue/SQL, unclaimed directory; actual 104 SQLite audit | REVIEW_WORKFLOW_SOURCE_ONLY; 0 HUMAN_APPROVED_PUBLIC |
@@ -27,7 +27,7 @@
 | C21 | Financing and payments policy | Versioned approved policy | FINANCE_TERMS private declarations; carup/dealer/garage flow separation | DECLARATIONS_ONLY; REAL_PAYMENT_AND_LENDER_BLOCKED |
 | C22 | Warranty/after-sales capabilities | Branch operating / policy | WARRANTY_AFTERSALES; SERVICE_CAPABILITIES declared sections | DECLARATIONS_ONLY; PUBLIC_REVIEWED_SERVICES_UNQUALIFIED |
 | C23 | Genuine reviews/complaints | Transactions/complaints/moderation | buyer-facing Not measured state; no transaction-backed feedback pipeline | NOT_IMPLEMENTED_TRANSACTION_BACKED_REVIEWS |
-| C24 | Approved paid services and subscriptions | PAY-02/03B/04/05 as eligible | dealerCommercialReadinessService.js with all payments disabled | FAIL_CLOSED_READINESS_ONLY; PROVIDER_AND_PR_CONVERGENCE_REQUIRED |
+| C24 | Approved paid services and subscriptions | PAY-02/03B/04/05 as eligible | dealerCommercialReadinessService.js read-only tenant-scoped PAY03B subscription/invoice/payment_transactions snapshot if tables exist; DealerBillingReadiness.tsx; all payments disabled | FAIL_CLOSED_READINESS_ONLY; PROVIDER_AND_PR_CONVERGENCE_REQUIRED |
 | C25 | Country-specific onboarding | Country rules/version | dealerJurisdictionPreview.js, ZW draft, foreign fail closed | DRAFT_ZW_ONLY; INTERNATIONAL_RULES_UNAPPROVED |
 
 **Source and independent evidence must not be conflated.** The 104-owner-source audit is local SQLite only. Eleven-plus draft migration contracts are isolated, with actual current count and exact-head CI determined by the branch after last commit. No real publication eligibility, country signoff, real dealer pilot, live payment, controlled activation, VIN sale or owner UAT has been certified.
