@@ -306,7 +306,7 @@ export default function DealerStaffConsole(){
      </>}
     </div>)}
    </section>
-   {notice&&<p className="mt-6 p-4 bg-blue-50 text-blue-900 rounded-lg" role="status">{notice}</p>
+   {notice&&<p className="mt-6 p-4 bg-blue-50 text-blue-900 rounded-lg" role="status">{notice}</p>}
    {error&&<p className="mt-6 p-4 bg-red-50 text-red-800 rounded-lg" role="alert">{error}</p>}
   </div>
  </main>
