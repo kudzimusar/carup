@@ -18,7 +18,10 @@ const API='http://127.0.0.1:3001/api'
 // unlike raising the server limit, this does NOT weaken the production policy.
 // The pause also runs after a failed case so later cases remain diagnostically
 // independent rather than inheriting a synthetic burst's HTTP 429.
-test.afterEach(async()=>{
+test.afterEach(async({},testInfo)=>{
+  // Only pause between scenarios; after the final storage/XLSX case there
+  // is no subsequent browser user for whom the shared loopback budget matters.
+  if(testInfo.title.includes('Native PG + private Storage'))return
   await new Promise<void>(resolve=>setTimeout(resolve,42_000))
 })
 
@@ -344,6 +347,10 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
   expect(authority.status()).toBe(200)
   const authBody=await authority.json() as {authority:{operational:boolean}}
   expect(authBody.authority.operational).toBe(false)
+  // Real Vite pages and private session flows are intentionally noisy on the
+  // same loopback IP. Respect CarUp's unchanged 100-request/minute throttle
+  // before opening the anonymous public projection; never raise/disable it.
+  await claimantPage.waitForTimeout(65_000)
   const publicContext=await browser.newContext()
   const publicPage=await publicContext.newPage()
   await publicPage.goto('/dealers/zw-deal-0001')

@@ -28,6 +28,7 @@ import DealerResearchCorrection from './pages/DealerResearchCorrection'
 import DealerClaimWorkspace from './pages/DealerClaimWorkspace'
 import DealerClaimReview from './pages/DealerClaimReview'
 import DealerReviewerLayout from './components/dealer/DealerReviewerLayout'
+import DealerCanonicalWorkspaceLayout from './components/dealer/DealerCanonicalWorkspaceLayout'
 import DealerResearchReview from './pages/DealerResearchReview'
 import DealerComplianceApplicationReview from './pages/DealerComplianceApplicationReview'
 import DealerLegalActivationReview from './pages/DealerLegalActivationReview'
@@ -364,7 +365,13 @@ export default function App() {
           <Route path="/dashboard/intelligence" element={<SellerIntelligence />} />
         </Route>
 
-        {/* Dealer Dashboard */}
+        {/* Canonical active dealer owners may retain global member role. Only
+            the real session/tenant/compliance authority unlocks this route. */}
+        <Route element={<DealerCanonicalWorkspaceLayout />}>
+          <Route path="/dealer/dashboard" element={<DealerDashboard />} />
+        </Route>
+
+        {/* Legacy global-role dealer routes remain isolated from verified owner path. */}
         <Route element={<DashboardLayout role="dealer" />}>
           <Route path="/dealer" element={<DealerDashboard />} />
           <Route path="/dealer/inventory" element={<Inventory />} />
