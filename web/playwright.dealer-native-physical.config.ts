@@ -7,6 +7,10 @@ import {defineConfig,devices} from '@playwright/test'
  */
 export default defineConfig({
   testDir:'./tests/dealer-native-physical',
+  // Distinct browser-only filename prevents Vitest from loading this file
+  // before its real PostgreSQL/Express/fixture setup exists.
+  testMatch:/.*\.pw\.ts$/,
+
   fullyParallel:false,
   forbidOnly:true,
   retries:0,
