@@ -217,7 +217,8 @@ export function paynowCollectionState(collection, payment, view, { now = Date.no
   const word = view?.provider_status ?? null;
   const unallocated = openDiscrepancies.some((d) => d.discrepancy_type === 'unallocated_provider_money');
   if (status === 'reconciliation_hold' || openDiscrepancies.some(HOLDING_REVIEW)) return 'under_review';
-  if (status === 'refunded') return 'refunded';
+  // settled outside CarUp while Paynow's latest word is not its refund: the settlement is what stands (CERT-10)
+  if (status === 'refunded') return view?.settled_outside && word !== 'refunded' ? 'settled_outside' : 'refunded';
   if (status === 'paid') {
     if (unallocated) return Number(counted) > 0 ? 'confirmed_partial' : 'confirmed_unallocated';
     if (Number(counted) > 0) return 'confirmed';

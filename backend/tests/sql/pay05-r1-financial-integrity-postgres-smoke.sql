@@ -1490,7 +1490,7 @@ BEGIN
   PERFORM pg_temp.send_attach(c);
   PERFORM pg_temp.read(c, 'paid');
   PERFORM pg_temp.read(c, 'disputed');
-  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r11-admin')$q$, g, inv.id), 'PAY04_INVOICE_HAS_P');
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r11-admin')$q$, g, inv.id), 'PAY04_INVOICE_HAS_OPEN_REVIEW');
   PERFORM pg_temp.resolve(c, 'provider_disputed', 'settled_off_platform');
   PERFORM pg_temp.check(pg_temp.status(c) = 'paid' AND pg_temp.counted(c) = 0, 'R11 canonical paid, nothing counted');
   PERFORM garage_ops07_void_invoice(g, inv.id, 'the customer changed their mind', 'r1r11-admin');
@@ -1618,7 +1618,7 @@ BEGIN
   PERFORM pg_temp.resolve(c, 'provider_status_unrecognized', 'settled_off_platform');
   PERFORM pg_temp.read(c, 'disputed');
   PERFORM pg_temp.check(EXISTS (SELECT 1 FROM pay04_garage_payment_discrepancies WHERE collection_id = c AND status = 'open'), 'R15 a review is open on the settled request');
-  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r15-admin')$q$, g, inv.id), 'PAY04_INVOICE_HAS_PROVIDER_PAYMENTS');
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r15-admin')$q$, g, inv.id), 'PAY04_INVOICE_HAS_OPEN_REVIEW');
   -- closing the review frees the void
   PERFORM pay04_resolve_garage_payment_discrepancy(q.id, 'settled_off_platform', 'r1-op', 'admin', 'The operator reviewed the Paynow merchant records for this payment.')
     FROM pay04_garage_payment_discrepancies q WHERE q.collection_id = c AND q.status = 'open';
@@ -1632,7 +1632,7 @@ BEGIN
   PERFORM pg_temp.resolve(c2, 'provider_status_unrecognized', 'settled_off_platform');
   PERFORM pg_temp.read(c2, 'paid');
   PERFORM pg_temp.check(EXISTS (SELECT 1 FROM pay04_garage_payment_discrepancies WHERE collection_id = c2 AND status = 'open'), 'R15 late money opens a review');
-  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r15-admin')$q$, g, inv2.id), 'PAY04_INVOICE_HAS_PROVIDER_PAYMENTS');
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r15-admin')$q$, g, inv2.id), 'PAY04_INVOICE_HAS_OPEN_REVIEW');
   -- a refund to confirm does not block the void
   inv3 := pg_temp.invoice(g, 'r1r15', 30.00);
   c3 := pg_temp.start(inv3.id, 30.00, 'r1r15-key-000003');
@@ -1665,6 +1665,48 @@ BEGIN
   PERFORM garage_ops07_void_invoice(g, inv.id, 'the customer changed their mind', 'r1r15b-admin');
   PERFORM pg_temp.check((SELECT status = 'voided' FROM garage_invoices WHERE id = inv.id), 'R15b voided');
   RAISE NOTICE 'PAY05_R1 R15b PASS';
+END $$;
+
+-- R14b (CERT-7b): the refusal covers each word that reports money, not only Paid. Paynow's own Refunded again lets the review close.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; c uuid;
+BEGIN
+  g := pg_temp.garage('r1r14b');
+  PERFORM pg_temp.merchant(g, 'r1r14b', '60096');
+  inv := pg_temp.invoice(g, 'r1r14b', 40.00);
+  c := pg_temp.start(inv.id, 40.00, 'r1r14b-key-00001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'paid');
+  PERFORM pg_temp.read(c, 'refunded');
+  PERFORM pg_temp.read(c, 'disputed');
+  PERFORM pg_temp.check(pay05_latest_provider_status(c) = 'review:disputed', 'R14b Paynow''s latest word is a dispute under review');
+  PERFORM pg_temp.expect(pg_temp.resolve_sql(c, 'provider_disputed', 'refunded_to_customer'), 'PAY05_REVIEW_MONEY_STILL_REPORTED');
+  PERFORM pg_temp.read(c, 'refunded');
+  PERFORM pg_temp.check((SELECT status FROM pay04_garage_payment_discrepancies WHERE collection_id = c AND discrepancy_type = 'provider_disputed') = 'resolved', 'R14b Paynow''s own Refunded closes it');
+  RAISE NOTICE 'PAY05_R1 R14b PASS';
+END $$;
+
+-- R15c (CERT-9): each refusal names what is really wrong: an uncounted payment under review says so, and money that does count says refund.
+DO $$
+DECLARE g uuid; inv garage_invoices%ROWTYPE; inv2 garage_invoices%ROWTYPE; c uuid; c2 uuid;
+BEGIN
+  g := pg_temp.garage('r1r15c');
+  PERFORM pg_temp.merchant(g, 'r1r15c', '60097');
+  -- a dispute after a refund: under review, nothing counted, and no way to stop it
+  inv := pg_temp.invoice(g, 'r1r15c', 25.00);
+  c := pg_temp.start(inv.id, 25.00, 'r1r15c-key-00001');
+  PERFORM pg_temp.send_attach(c);
+  PERFORM pg_temp.read(c, 'paid');
+  PERFORM pg_temp.read(c, 'refunded');
+  PERFORM pg_temp.read(c, 'disputed');
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r15c-admin')$q$, g, inv.id), 'PAY04_INVOICE_HAS_OPEN_REVIEW');
+  -- money that counts is not called a review
+  inv2 := pg_temp.invoice(g, 'r1r15c', 25.00);
+  c2 := pg_temp.start(inv2.id, 25.00, 'r1r15c-key-00002');
+  PERFORM pg_temp.send_attach(c2);
+  PERFORM pg_temp.read(c2, 'paid');
+  PERFORM pg_temp.expect(format($q$SELECT garage_ops07_void_invoice(%L, %L, 'the customer changed their mind', 'r1r15c-admin')$q$, g, inv2.id), 'GARAGE_OPS07_INVOICE_HAS_PAYMENTS');
+  RAISE NOTICE 'PAY05_R1 R15c PASS';
 END $$;
 
 DO $$

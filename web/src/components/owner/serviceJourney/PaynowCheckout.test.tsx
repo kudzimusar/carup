@@ -110,6 +110,7 @@ describe('Paying the garage with Paynow', () => {
     expect(screen.getByTestId('paynow-instructions')).toHaveTextContent('EcoCash PIN')
     expect(screen.getByTestId('paynow-cannot-cancel')).toHaveTextContent('Paynow cannot cancel')
     expect(screen.queryByText(/It now counts on the invoice/)).toBeNull()
+    screen.getByTestId('paynow-check').focus()
     fireEvent.click(screen.getByTestId('paynow-check'))
     await waitFor(() => expect(screen.getByTestId('paynow-outcome')).toHaveTextContent(/held by Paynow/))
     expect(screen.getByTestId('paynow-outcome')).toHaveAttribute('data-tone', 'wait')

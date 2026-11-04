@@ -1009,7 +1009,7 @@ await step('G7', 'R1 (CERT-3, CERT-4): a review with money reported cannot be cl
   await waitFor(() => /provider_status_unrecognized/.test(openDiscrepancies(collection)));
   const refused = await resolve(collection, 'provider_status_unrecognized', 'refunded_to_customer');
   const voided = await call('POST', `/api/garage/invoices/${inv.id}/void`, { reason: 'Wrong labour rate (R1 QA)' }, as.adminA);
-  return { pass: refused.status >= 400 && code(refused) === 'PAY05_REVIEW_MONEY_STILL_REPORTED' && voided.status >= 400 && counted(collection) === 0,
+  return { pass: refused.status >= 400 && code(refused) === 'PAY05_REVIEW_MONEY_STILL_REPORTED' && voided.status === 409 && /CarUp operator/.test(voided.json?.error?.message ?? voided.json?.message ?? JSON.stringify(voided.json)) && !/Refund it/.test(JSON.stringify(voided.json)) && counted(collection) === 0,
     detail: { refused: [refused.status, code(refused)], voided: [voided.status, code(voided)] } };
 });
 

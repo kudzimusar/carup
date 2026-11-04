@@ -74,7 +74,8 @@ const list = (data) => (Array.isArray(data) ? data : data ? [data] : []);
 // CARUP-PAY-04: refusals the PAY-04 guards raise inside these same OPS07 calls (issue, void, record a payment).
 const PAY04_MESSAGES = Object.freeze({
   PAYMENT_EXCEEDS_UNCOMMITTED_BALANCE: 'Part of this balance is being paid through the garage’s payment provider, so it cannot be recorded again.',
-  INVOICE_HAS_PAYMENT_IN_PROGRESS: 'A payment through the garage’s payment provider is in progress on this invoice. Wait for it to finish, or stop it, before voiding.',
+  INVOICE_HAS_PAYMENT_IN_PROGRESS: 'A payment through the garage’s payment provider is in progress or held on this invoice. Wait for it to finish, or stop it and ask CarUp to release it, before voiding.',
+  INVOICE_HAS_OPEN_REVIEW: 'A payment on this invoice is under review at CarUp, and nothing is counted for it. A CarUp operator must close the review before this invoice can be voided. Do not refund the customer because of this message.',
   INVOICE_HAS_PROVIDER_PAYMENTS: 'The garage’s payment provider confirmed money on this invoice. Refund it before voiding.',
   PART_LINE_REQUIRES_RECORDED_USAGE: 'A part can only be invoiced from a part recorded as used on this job. Record the part first.',
   LINE_SOURCE_NOT_ON_THIS_JOB: 'A line refers to a part or service record that is not on this job.',
@@ -82,7 +83,7 @@ const PAY04_MESSAGES = Object.freeze({
   LINE_QUANTITY_EXCEEDS_RECORDED_USAGE: 'A part line bills more than was used on this job.',
   LINE_SOURCE_CATEGORY_MISMATCH: 'A line\'s category does not match its source (parts come from parts used; labour and fees from service records).',
 });
-const PAY04_CONFLICT = new Set(['PAYMENT_EXCEEDS_UNCOMMITTED_BALANCE', 'INVOICE_HAS_PAYMENT_IN_PROGRESS', 'INVOICE_HAS_PROVIDER_PAYMENTS']);
+const PAY04_CONFLICT = new Set(['PAYMENT_EXCEEDS_UNCOMMITTED_BALANCE', 'INVOICE_HAS_PAYMENT_IN_PROGRESS', 'INVOICE_HAS_PROVIDER_PAYMENTS', 'INVOICE_HAS_OPEN_REVIEW']);
 
 export function invoiceFailure(error, fallback = 'Could not complete the invoice action') {
   const message = String(error?.message || error || '');

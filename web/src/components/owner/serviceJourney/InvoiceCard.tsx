@@ -60,6 +60,7 @@ export default function InvoiceCard({ invoice: inv, onChanged }: { invoice: Cust
   // the way to pay goes away the moment nothing is owed, taking the focus and any answer with it: this keeps both on the invoice (CERT-2)
   const wasOwed = useRef(owed)
   const nothingOwedRef = useRef<HTMLParagraphElement>(null)
+  // said only while nothing is owed: if the money stops counting with this page open, the line goes with it (CERT-8)
   const [nothingOwed, setNothingOwed] = useState(false)
   useEffect(() => {
     const settledNow = wasOwed.current && !owed && !voided
@@ -178,8 +179,8 @@ export default function InvoiceCard({ invoice: inv, onChanged }: { invoice: Cust
 
       {/* before the lists: a payment started here adds rows to them, and that must not push its code or form off a phone's screen */}
       {owed && <InvoicePayment invoice={inv} onChanged={onChanged} />}
-      <p ref={nothingOwedRef} tabIndex={-1} role="status" aria-live="polite" className={nothingOwed ? 'mt-4 rounded-md bg-green-50 p-2 text-sm text-green-900' : ''}
-        data-testid="invoice-nothing-owed">{nothingOwed ? 'This invoice now has nothing left to pay. How it was paid is below.' : ''}</p>
+      <p ref={nothingOwedRef} tabIndex={-1} role="status" aria-live="polite" className={nothingOwed && !owed ? 'mt-4 rounded-md bg-green-50 p-2 text-sm text-green-900' : ''}
+        data-testid="invoice-nothing-owed">{nothingOwed && !owed ? 'This invoice now has nothing left to pay. How it was paid is below.' : ''}</p>
 
       <section className="mt-4" aria-label={`Payments recorded for invoice ${inv.invoice_number}`} data-testid="invoice-payments">
         <h5 className="text-sm font-semibold text-gray-900">Payments</h5>

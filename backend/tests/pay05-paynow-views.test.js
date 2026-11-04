@@ -319,3 +319,10 @@ test('an operator is told what the garage should do, not addressed as the garage
 test('a closed request says nothing Paynow did not say: its badge does not claim a word Paynow may never have sent', () => {
   for (const state of ['stopped', 'cancelled']) assert.doesNotMatch(PAYNOW_STATE_LABELS[state], /Paynow reports/, state);
 });
+
+test('CERT-10: a dispute after a refund that an operator settled reads as settled, not as refunded, while Paynow says otherwise', () => {
+  const collection = { amount: '25.00', expires_at: '2026-11-02T10:30:00Z', cancelled_at: null };
+  assert.equal(paynowCollectionState(collection, { status: 'refunded' }, { provider_status: 'disputed', settled_outside: true }), 'settled_outside');
+  assert.equal(paynowCollectionState(collection, { status: 'refunded' }, { provider_status: 'refunded', settled_outside: true }), 'refunded');
+  assert.equal(paynowCollectionState(collection, { status: 'refunded' }, { provider_status: 'refunded' }), 'refunded');
+});

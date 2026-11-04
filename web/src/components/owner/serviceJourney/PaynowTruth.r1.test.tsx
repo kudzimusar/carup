@@ -488,6 +488,100 @@ describe('A keyboard user keeps their place when a check answers (CERT-2)', () =
   })
 })
 
+describe('An answer does not outlive what it said (CERT-8)', () => {
+  const cardOf = (balance: string, status: string) => ({
+    id: 'inv-9', invoice_number: 'INV-000009', currency: 'USD', status: 'issued', payment_status: status, total_amount: '60.00', paid_amount: '0.00', balance_amount: balance,
+    issued_at: '2026-11-02T10:00:00Z', lines: [], payments: [], receipts: [], payment_source_label: 'x', variance: { state: 'none' }, provider_receipts: [], provider_payments: [],
+    money: { currency: 'USD', invoice_status: 'issued', total_amount: '60.00', declared_paid: '0.00', provider_paid: '60.00', paid_amount: '60.00', balance_amount: balance, provider_reserved: '0.00', uncommitted_balance: balance, payment_status: status },
+  }) as never
+  it('the invoice owes again: "nothing left to pay" goes, and comes back only if it is paid again', async () => {
+    const view = render(<MemoryRouter><InvoiceCard invoice={cardOf('60.00', 'unpaid')} /></MemoryRouter>)
+    view.rerender(<MemoryRouter><InvoiceCard invoice={cardOf('0.00', 'paid')} /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('invoice-nothing-owed')).toHaveTextContent(/nothing left to pay/i))
+    view.rerender(<MemoryRouter><InvoiceCard invoice={cardOf('60.00', 'unpaid')} /></MemoryRouter>)
+    expect(screen.getByTestId('invoice-nothing-owed')).toBeEmptyDOMElement()
+    view.rerender(<MemoryRouter><InvoiceCard invoice={cardOf('0.00', 'paid')} /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('invoice-nothing-owed')).toHaveTextContent(/nothing left to pay/i))
+  })
+  it('a row: "confirmed" goes once a later read of that row says otherwise', async () => {
+    api.fetchGarageInvoicePaymentOptions.mockResolvedValueOnce(inProgress([row()]))
+    api.fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([row({ provider_status: 'disputed' }, { state: 'under_review', state_label: 'Under review — not counted' })]))
+    api.verifyGarageInvoicePayment.mockResolvedValue({ paynow: pview({ provider_status: 'paid' }), collection: { state: 'confirmed' } })
+    await openHowToPay()
+    fireEvent.click(await screen.findByTestId('my-provider-payment-check'))
+    await waitFor(() => expect(screen.getByTestId('my-provider-payment')).toHaveAttribute('data-state', 'under_review'))
+    expect(screen.getByTestId('my-provider-payment-outcome')).not.toHaveTextContent(/confirmed|counts on the invoice/i)
+  })
+  it('back from Paynow: the notice does not keep saying confirmed once the page shows otherwise', async () => {
+    api.verifyGarageInvoicePayment.mockResolvedValue({ paynow: pview({ provider_status: 'paid' }), collection: { state: 'confirmed' } })
+    const at = `/dashboard/service-requests?pay05=returned&collection=${COLL}`
+    const view = render(<MemoryRouter initialEntries={[at]}><PaymentReturnNotice currentState="confirmed" /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('payment-return-outcome')).toHaveTextContent(/counts on the invoice/))
+    view.rerender(<MemoryRouter initialEntries={[at]}><PaymentReturnNotice currentState="under_review" /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('payment-return-outcome')).not.toHaveTextContent(/counts on the invoice/))
+  })
+  it('back from Paynow: a list that has not caught up does not silence the answer', async () => {
+    api.verifyGarageInvoicePayment.mockResolvedValue({ paynow: pview({ provider_status: 'paid' }), collection: { state: 'confirmed' } })
+    render(<MemoryRouter initialEntries={[`/dashboard/service-requests?pay05=returned&collection=${COLL}`]}><PaymentReturnNotice currentState="awaiting_provider" /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('payment-return-outcome')).toHaveTextContent(/counts on the invoice/))
+  })
+})
+
+describe('Focus is not taken from where a person moved, and a busy control keeps it (CERT-2a, CERT-2b)', () => {
+  const deferred = () => { let resolve!: (v: unknown) => void; const promise = new Promise((r) => { resolve = r }); return { promise, resolve } }
+  it('a slow check: a person who moved on stays where they are, and the answer is still said', async () => {
+    const answer = deferred()
+    api.fetchGarageInvoicePaymentOptions.mockResolvedValue(inProgress([row()]))
+    api.verifyGarageInvoicePayment.mockReturnValue(answer.promise)
+    await openHowToPay()
+    fireEvent.click(await screen.findByTestId('my-provider-payment-check'))
+    const elsewhere = screen.getByTestId('how-to-pay-toggle')
+    elsewhere.focus()
+    answer.resolve({ paynow: pview(), collection: { state: 'awaiting_provider' } })
+    await waitFor(() => expect(screen.getByTestId('my-provider-payment-outcome')).not.toBeEmptyDOMElement())
+    expect(document.activeElement).toBe(elsewhere)
+  })
+  it('the garage: a busy check stays focusable and does nothing more', () => {
+    const run = vi.fn()
+    const inv = { id: 'inv-9', currency: 'USD', status: 'issued', provider_payments_supported: true, provider_receipts: [], provider_source_label: 'x',
+      provider_payments: [{ ...row(), open_discrepancies: [] }], provider_history: [] }
+    render(<ProviderPaymentsPanel invoice={inv as never} canAct busy run={run as never} />)
+    const check = screen.getByTestId('provider-payment-reconcile')
+    expect(check).not.toBeDisabled()
+    expect(check).toHaveAttribute('aria-disabled', 'true')
+    check.focus()
+    fireEvent.click(check)
+    expect(run).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(check)
+  })
+  it('the customer: a refresh keeps the focus while it runs, and hands it on when its button goes away', async () => {
+    const answer = deferred()
+    api.fetchGarageInvoicePaymentOptions.mockResolvedValueOnce(inProgress([row()]))
+    api.fetchGarageInvoicePaymentOptions.mockRejectedValueOnce(new Error('offline'))
+    api.fetchGarageInvoicePaymentOptions.mockReturnValue(answer.promise)
+    api.verifyGarageInvoicePayment.mockResolvedValue({ paynow: pview(), collection: { state: 'awaiting_provider' } })
+    await openHowToPay()
+    fireEvent.click(await screen.findByTestId('my-provider-payment-check'))
+    const refresh = await screen.findByTestId('how-to-pay-refresh')
+    refresh.focus()
+    fireEvent.click(refresh)
+    await waitFor(() => expect(refresh).toHaveAttribute('aria-disabled', 'true'))
+    expect(document.activeElement).toBe(refresh)
+    answer.resolve(inProgress([row()]))
+    await waitFor(() => expect(screen.queryByTestId('how-to-pay-refresh')).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('how-to-pay-toggle')))
+  })
+  it('a row: when the refresh after a check fails, the answer stands', async () => {
+    api.fetchGarageInvoicePaymentOptions.mockResolvedValueOnce(inProgress([row()]))
+    api.fetchGarageInvoicePaymentOptions.mockRejectedValueOnce(new Error('offline'))
+    api.verifyGarageInvoicePayment.mockResolvedValue({ paynow: pview({ provider_status: 'paid' }), collection: { state: 'confirmed' } })
+    await openHowToPay()
+    fireEvent.click(await screen.findByTestId('my-provider-payment-check'))
+    await screen.findByTestId('how-to-pay-refresh')
+    expect(screen.getByTestId('my-provider-payment-outcome')).toHaveTextContent(/counts on the invoice/)
+  })
+})
+
 describe('Nothing claims an alert no one sent (CERT-5)', () => {
   it('review words say who can see it', () => {
     for (const out of [{ paynow: pview({ provider_status: 'disputed' }), collection: { state: 'under_review' } }, { paynow: pview({ provider_status: 'unrecognized' }), collection: { state: 'other' } }]) {

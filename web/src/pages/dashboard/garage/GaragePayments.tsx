@@ -149,7 +149,7 @@ export default function GaragePayments() {
             {overview.open_discrepancies > 0 && (
               <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-900" data-testid="garage-money-discrepancies">
                 {overview.open_discrepancies === 1 ? '1 provider-payment exception is under review' : `${overview.open_discrepancies} provider-payment exceptions are under review`}
-                {' '}— the money it concerns is not counted until it is resolved. CarUp operations has been alerted.
+                {' '}— the money it concerns is not counted until it is resolved. CarUp operations can see it.
               </p>
             )}
             <div className="rounded-lg border p-3 text-sm" data-testid="garage-provider-status">

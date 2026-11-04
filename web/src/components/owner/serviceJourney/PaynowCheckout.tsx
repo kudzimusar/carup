@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { newIdempotencyKey } from '@/lib/garageBusiness'
 import { MONEY_ACTION_BUTTON_CLASS, onlineAmountProblem } from '@/lib/pay04GaragePayments'
-import {
+import { answerStillHolds, focusStillWith,
   PAYNOW_METHOD_HINT, PAYNOW_METHOD_LABEL, needsPhone, pay05ErrorText, paynowOutcomeMessage, paynowStartFailure, paynowStateBadge, paynowStatusLine,
   phoneProblem,
   type PaynowMethod, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment, type PaynowStartResult, type PaynowView,
@@ -135,13 +135,13 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
     setChecked(null) // the outcome region empties, so the same answer twice is still said twice
     try {
       const outcome = await verifyGarageInvoicePayment(pending.collectionId) as PaynowOutcome
-      // the button disables itself while checking, which drops the focus: it moves to the answer (CERT-2)
-      focusOutcome.current = true
+      // the button disables itself while checking, which drops the focus: it moves to the answer, unless the person has moved on (CERT-2, CERT-2a)
+      focusOutcome.current = focusStillWith('paynow-check')
       setChecked({ outcome, failed: false })
       setPending((p) => (p ? { ...p, paynow: outcome.paynow ?? p.paynow, state: outcome.collection?.state ?? p.state } : p))
       onChanged?.()
     } catch {
-      focusOutcome.current = true
+      focusOutcome.current = focusStillWith('paynow-check')
       setChecked({ outcome: null, failed: true })
     } finally {
       setBusy(false)
@@ -159,7 +159,8 @@ export default function PaynowCheckout({ invoiceId, option, onChanged, onStarted
   const view = pending?.paynow
   const badge = pending ? paynowStateBadge(pending.state, view?.provider_status ?? null) : null
   const statusText = pending ? (view ? paynowStatusLine(pending.state, view) : 'Waiting for Paynow. Nothing is counted until Paynow confirms it.') : ''
-  const outcome = checked ? paynowOutcomeMessage(checked.outcome, checked.failed) : null
+  // an answer says nothing once a newer read of this request shows another state (CERT-8)
+  const outcome = checked && answerStillHolds(checked.outcome?.collection?.state, pending?.state) ? paynowOutcomeMessage(checked.outcome, checked.failed) : null
   return (
     <div className="rounded-md border p-3 space-y-3" data-testid="paynow-checkout">
       <p className="font-medium">Pay online with Paynow — into the garage’s own Paynow account</p>

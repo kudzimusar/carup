@@ -20,6 +20,14 @@ test('money in flight blocks a declared payment and a void with a conflict that 
   const inFlight = invoiceFailure({ message: 'PAY04_INVOICE_HAS_PAYMENT_IN_PROGRESS' });
   assert.ok(inFlight instanceof ConflictError);
   assert.match(inFlight.message, /in progress/);
+  // CERT-9: a payment under review is not money to refund, and its exit is a CarUp operator
+  const review = invoiceFailure({ message: 'PAY04_INVOICE_HAS_OPEN_REVIEW' });
+  assert.ok(review instanceof ConflictError);
+  assert.match(review.message, /under review/);
+  assert.match(review.message, /CarUp operator/);
+  assert.match(review.message, /Do not refund/);
+  assert.doesNotMatch(inFlight.message, /or stop it,/, 'a request Paynow cannot cancel is not simply stopped');
+  assert.match(inFlight.message, /release/);
   const confirmed = invoiceFailure({ message: 'PAY04_INVOICE_HAS_PROVIDER_PAYMENTS' });
   assert.ok(confirmed instanceof ConflictError);
   assert.match(confirmed.message, /refund/i);

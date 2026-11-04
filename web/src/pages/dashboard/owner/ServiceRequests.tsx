@@ -120,6 +120,9 @@ export default function ServiceRequests() {
   const [estimatesState, setEstimatesState] = useState<Loadable<CustomerEstimate>['status']>('idle')
   const [invoices, setInvoices] = useState<CustomerInvoice[]>([])
   const [invoicesState, setInvoicesState] = useState<Loadable<CustomerInvoice>['status']>('idle')
+  // the invoice list's own read of a payment the customer came back from: the notice's words end when it shows otherwise (CERT-8)
+  const returnedCollection = new URLSearchParams(window.location.search).get('collection')
+  const returnedPaymentState = invoices.flatMap((i) => i.provider_payments ?? []).find((p) => p.id === returnedCollection)?.state ?? null
 
   const loadCommercial = useCallback(async () => {
     const loadEstimates = async () => {
@@ -176,6 +179,7 @@ export default function ServiceRequests() {
     void loadCommercial()
   }, [fetchMyServiceAppointments, fetchMyServiceRequests, loadCommercial])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- the page's existing first read, unchanged
   useEffect(() => { load() }, [load])
 
   async function withdraw(id: string) {
@@ -289,7 +293,7 @@ export default function ServiceRequests() {
       </div>
 
       {/* CARUP-PAY-04: back from the garage's payment provider — one fresh provider read, then the invoices again */}
-      <PaymentReturnNotice onSettled={() => { void loadCommercial() }} />
+      <PaymentReturnNotice onSettled={() => { void loadCommercial() }} currentState={returnedPaymentState} />
 
       {(estimatesState === 'error' || invoicesState === 'error') && (
         <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-4" data-testid="commercial-error">

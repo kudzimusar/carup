@@ -17,7 +17,11 @@ const COLLECTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
  * says only what that fresh read says: confirmed and counted, still waiting, or under review. Until the read answers,
  * it says it is checking.
  */
-export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => void }) {
+export default function PaymentReturnNotice({ onSettled, currentState = null }: {
+  onSettled?: () => void
+  /** the invoice list's latest state of this collection, when the page has it */
+  currentState?: string | null
+}) {
   const [params] = useSearchParams()
   const { verifyGarageInvoicePayment } = useCarUpApi()
   // PAY-05: back from Paynow's own page (?pay05=returned) — the same rule: coming back proves nothing
@@ -35,6 +39,12 @@ export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => v
   useEffect(() => { if (answered) outcomeRef.current?.focus() }, [answered])
   // while a person's re-check runs its button stays: taking it away would drop their focus (ICR-W5)
   const [rechecking, setRechecking] = useState(false)
+  const [agreedState, setAgreedState] = useState<string | null>(null)
+  const answeredState = outcome?.collection?.state ?? null
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (answeredState && currentState === answeredState) setAgreedState(answeredState)
+  }, [answeredState, currentState])
 
   const check = async (asked = false) => {
     setPhase('checking')
@@ -60,7 +70,10 @@ export default function PaymentReturnNotice({ onSettled }: { onSettled?: () => v
   }, [valid, collectionId])
 
   if (!valid) return null
-  const message = phase === 'checking' ? null
+  // once the page's own read has agreed with this answer, a later read that differs ends it (CERT-8). Until they agree, a refresh that
+  // failed or is still on its way does not silence the answer
+  const answerEnded = agreedState !== null && agreedState === outcome?.collection?.state && currentState !== null && currentState !== agreedState
+  const message = phase === 'checking' || answerEnded ? null
     : paynow ? paynowOutcomeMessage(outcome as PaynowOutcome | null, failed) : returnOutcomeMessage(outcome, failed)
   // PAY-05: back from Paynow without finishing — what Paynow gave CarUp to continue the request (its page, a code)
   const view = message && paynow && !failed ? (outcome as PaynowOutcome | null)?.paynow ?? null : null

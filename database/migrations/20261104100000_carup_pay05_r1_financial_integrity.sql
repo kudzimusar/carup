@@ -1082,6 +1082,14 @@ DECLARE v_m record;
 BEGIN
   IF OLD.status = 'issued' AND NEW.status = 'voided' THEN
     SELECT * INTO v_m FROM public.pay04_invoice_money(OLD.id);
+    -- PAY-05-R1: not with a review open on a Paynow request, settled or not: it closes first. With nothing counted there is nothing to
+    -- refund, so this says what is really wrong (CERT-4, CERT-9). A refund to confirm is money already gone, and does not block.
+    IF v_m.provider_paid = 0 AND EXISTS (SELECT 1 FROM public.pay04_garage_payment_discrepancies q
+                 JOIN public.pay04_garage_collections c ON c.id = q.collection_id
+                WHERE c.invoice_id = OLD.id AND c.gateway = 'paynow_zimbabwe' AND q.status = 'open'
+                  AND q.discrepancy_type <> 'provider_refund_unquantified') THEN
+      RAISE EXCEPTION 'PAY04_INVOICE_HAS_OPEN_REVIEW';
+    END IF;
     IF v_m.provider_paid <> 0 OR EXISTS (
          SELECT 1 FROM public.pay04_garage_collections c JOIN public.payment_transactions p ON p.reference = c.payment_reference
           WHERE c.invoice_id = OLD.id AND p.status IN ('paid', 'partially_refunded')
@@ -1092,13 +1100,6 @@ BEGIN
       RAISE EXCEPTION 'PAY04_INVOICE_HAS_PROVIDER_PAYMENTS';
     END IF;
     IF v_m.provider_reserved <> 0 THEN RAISE EXCEPTION 'PAY04_INVOICE_HAS_PAYMENT_IN_PROGRESS'; END IF;
-    -- PAY-05-R1: nor with a review open on a Paynow request, settled or not: it is closed first. A refund to confirm is money already gone (CERT-4)
-    IF EXISTS (SELECT 1 FROM public.pay04_garage_payment_discrepancies q
-                 JOIN public.pay04_garage_collections c ON c.id = q.collection_id
-                WHERE c.invoice_id = OLD.id AND c.gateway = 'paynow_zimbabwe' AND q.status = 'open'
-                  AND q.discrepancy_type <> 'provider_refund_unquantified') THEN
-      RAISE EXCEPTION 'PAY04_INVOICE_HAS_PROVIDER_PAYMENTS';
-    END IF;
   END IF;
   RETURN NEW;
 END $$;

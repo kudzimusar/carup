@@ -509,3 +509,16 @@ export const PROVIDER_ERROR_LABEL: Record<string, string> = {
   otp_rejected: 'Paynow rejected an O’mari code',
   credential_probe_failed: 'An integration key did not prove itself with Paynow',
 }
+
+/**
+ * After a slow answer, may the focus move to it? Only if the person is still where they asked: on the control they pressed, or on
+ * nothing because that control disabled itself. Someone who has moved on stays where they are; the live region still says the answer (CERT-2a).
+ */
+export const focusStillWith = (testId: string) => {
+  const active = document.activeElement
+  return !active || active === document.body || active.getAttribute('data-testid') === testId
+}
+
+/** An answer about a request says nothing once a later read of it shows another state (CERT-8). */
+export const answerStillHolds = (answerState: string | null | undefined, currentState: string | null | undefined) =>
+  !answerState || !currentState || answerState === currentState

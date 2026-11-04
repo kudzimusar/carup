@@ -9,7 +9,7 @@ import {
   type CollectionOutcome, type CustomerInvoicePayment,
 } from '@/lib/pay04GaragePayments'
 import { requestDate } from '@/lib/serviceRequests'
-import {
+import { answerStillHolds, focusStillWith,
   PAYNOW_METHOD_LABEL, paynowContinuable, paynowErrorText, paynowOutcomeMessage, paynowStatusLine, type PaynowOnlineOption, type PaynowOutcome, type PaynowProviderPayment,
 } from '@/lib/pay05Paynow'
 import PaynowFacts from '@/components/garage/PaynowFacts'
@@ -38,7 +38,10 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
   const [key, setKey] = useState(() => newIdempotencyKey())
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
-  const [checked, setChecked] = useState<{ id: string; outcome: CollectionOutcome | null; failed: boolean } | null>(null)
+  const [checked, setChecked] = useState<{ id: string; outcome: CollectionOutcome | null; failed: boolean; atRead?: number } | null>(null)
+  // how many reads of this invoice have arrived: an answer stands until a read newer than it shows another state (CERT-8)
+  const [readNo, setReadNo] = useState(0)
+  const readsDone = useRef(0)
   const [stopAsk, setStopAsk] = useState<string | null>(null)
   const [stopError, setStopError] = useState<{ id: string; text: string } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -75,23 +78,34 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
     const inPlace = loaded.current
     if (inPlace) setRefreshing(true)
     else setState('loading')
-    setRefreshFailed(false)
     try {
       const res = await fetchGarageInvoicePaymentOptions(invoice.id)
       if (!res || !res.money || !res.online_payment) throw new Error('Unexpected payment options response')
       if (read !== reads.current) return
       setData(res)
+      // only now: the way to refresh again must stay on the page while the refresh runs, with the focus on it (CERT-2)
+      setRefreshFailed(false)
+      readsDone.current += 1
+      setReadNo(readsDone.current)
       setAmount(res.online_payment.available ? res.online_payment.max_amount : '')
       loaded.current = true
       setState('ready')
+      return true
     } catch {
-      if (read !== reads.current) return
+      if (read !== reads.current) return false
       if (inPlace) setRefreshFailed(true)
       else setState('error')
+      return false
     } finally {
       if (read === reads.current) setRefreshing(false)
     }
   }, [fetchGarageInvoicePaymentOptions, invoice.id])
+
+  // this button goes away once a refresh works, and the focus must not go with it (CERT-2)
+  const refreshAgain = async () => {
+    const worked = await load()
+    if (worked && focusStillWith('how-to-pay-refresh')) setFocusId(`${uid}-toggle`)
+  }
 
   const toggle = () => {
     const next = !open
@@ -121,14 +135,14 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
     setChecked(null) // the outcome region empties, so the same answer twice is still said twice
     try {
       const outcome = await verifyGarageInvoicePayment(collectionId)
-      setChecked({ id: collectionId, outcome, failed: false })
-      // the button disables itself while checking, which drops the focus: it moves to the answer (CERT-2)
-      setFocusId(`${uid}-outcome-${collectionId}`)
+      setChecked({ id: collectionId, outcome, failed: false, atRead: readsDone.current })
+      // the button disables itself while checking, which drops the focus: it moves to the answer, unless the person has moved on (CERT-2, CERT-2a)
+      if (focusStillWith('my-provider-payment-check')) setFocusId(`${uid}-outcome-${collectionId}`)
       await load()
       onChanged?.()
     } catch {
       setChecked({ id: collectionId, outcome: null, failed: true })
-      setFocusId(`${uid}-outcome-${collectionId}`)
+      if (focusStillWith('my-provider-payment-check')) setFocusId(`${uid}-outcome-${collectionId}`)
     } finally {
       setBusy(false)
     }
@@ -170,7 +184,7 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
         <span role="status" aria-live="polite" className="text-xs text-gray-700" data-testid="how-to-pay-refreshing">
           {open && refreshing ? 'Updating…' : open && refreshFailed ? 'Could not update just now — what is shown may be out of date.' : ''}
         </span>
-        <Button variant="outline" className="min-h-11" aria-expanded={open} aria-controls={panelId} onClick={toggle} data-testid="how-to-pay-toggle">
+        <Button id={`${uid}-toggle`} variant="outline" className="min-h-11" aria-expanded={open} aria-controls={panelId} onClick={toggle} data-testid="how-to-pay-toggle">
           {open ? 'Hide how to pay' : 'How to pay'}
         </Button>
       </div>
@@ -186,7 +200,7 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
           {state === 'ready' && data && (
             <>
               {refreshFailed && (
-                <Button variant="outline" className="min-h-11" disabled={refreshing} onClick={() => void load()} data-testid="how-to-pay-refresh">
+                <Button variant="outline" className="min-h-11 aria-disabled:opacity-50" aria-disabled={refreshing || undefined} onClick={() => { if (!refreshing) void refreshAgain() }} data-testid="how-to-pay-refresh">
                   Update the payments
                 </Button>
               )}
@@ -288,7 +302,7 @@ export default function InvoicePayment({ invoice, onChanged }: { invoice: Custom
                         )}
                         {(() => {
                           // a live region in the page before its words arrive (W8)
-                          const message = notice?.id === p.id ? { tone: 'wait' as const, text: notice.text } : checked?.id !== p.id ? null : paynow
+                          const message = notice?.id === p.id ? { tone: 'wait' as const, text: notice.text } : checked?.id !== p.id || (checked.atRead !== undefined && checked.atRead !== readNo && !answerStillHolds(checked.outcome?.collection?.state, p.state)) ? null : paynow
                             ? paynowOutcomeMessage(checked.outcome as PaynowOutcome | null, checked.failed) : returnOutcomeMessage(checked.outcome, checked.failed)
                           return (
                             <p id={`${uid}-outcome-${p.id}`} tabIndex={-1} role="status" aria-live="polite" className={message ? `mt-2 rounded-md p-2 ${TONE[message.tone]}` : ''}

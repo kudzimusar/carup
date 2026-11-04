@@ -118,15 +118,16 @@ function PaymentRow({ payment, currency, canAct, busy, run }: {
           <PaynowFacts facts={paynow?.facts} />
           {discrepancies.map((d) => (
             <p key={d.id} className="text-xs text-red-800" data-testid="provider-payment-discrepancy">
-              Under review: {discrepancyLabel(d)}{d.amount ? ` (${formatMoney(d.amount, payment.currency)})` : ''}. CarUp operations has been alerted.
+              Under review: {discrepancyLabel(d)}{d.amount ? ` (${formatMoney(d.amount, payment.currency)})` : ''}. CarUp operations can see it.
             </p>
           ))}
         </div>
         {canAct && (
           <div className="flex flex-wrap gap-2">
             <Button
-              variant="outline" className="min-h-11" disabled={busy} data-testid="provider-payment-reconcile"
-              onClick={() => run('closeout', inWords(() => reconcileGarageProviderPayment(payment.id)), 'Checked with the payment provider.')}
+              variant="outline" className="min-h-11 aria-disabled:opacity-50" aria-disabled={busy || undefined} data-testid="provider-payment-reconcile"
+              // stays focusable while busy: disabling it would drop the focus to the top of the page (CERT-2b)
+              onClick={() => { if (!busy) run('closeout', inWords(() => reconcileGarageProviderPayment(payment.id)), 'Checked with the payment provider.') }}
             >
               Check with the provider
             </Button>
