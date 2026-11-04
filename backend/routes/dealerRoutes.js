@@ -34,6 +34,8 @@ import {
 } from '../services/dealer/dealerStaffMembershipService.js';
 import {getMyCanonicalDealerInventory}
   from '../services/dealer/dealerTenantInventoryReadService.js';
+import {getMyCanonicalDealerInquiries}
+  from '../services/dealer/dealerTenantLeadReadService.js';
 import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   createOrUpdateProfile,
@@ -265,6 +267,19 @@ router.get('/api/dealer/operational-inventory',authorizeSessionRole([]),async(re
   try{
     const inventory=await getMyCanonicalDealerInventory(req.userContext);
     res.set('Cache-Control','no-store').json({inventory});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+
+// Read existing canonical Marketplace buyer inquiries only for the actually
+// approved, active dealership tenant; no fake dealer_leads shadow table.
+router.get('/api/dealer/operational-inquiries',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const inquiries=await getMyCanonicalDealerInquiries(req.userContext);
+    res.set('Cache-Control','no-store').json({inquiries});
   }catch(error){
     if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
       return res.status(error.statusCode).json({error:error.message});
