@@ -5,7 +5,8 @@ import {readFileSync} from 'node:fs'
  * CI-only continuation of independently reviewed FICTIONAL canonical tenant.
  * Uses the live CarUp browser, PostgreSQL, real user_sessions and existing
  * Corporate tenant_users/organization_users, not mocked API responses.
- * No franchise, financial, branch, owner or VIN-selling staff rights.
+ * No franchise, financial, owner or VIN-selling staff rights. Private
+ * branch edits require a separate real original-owner delegation.
  */
 type Actor={id:string;name:string;email:string;role:string;token:string}
 type Fixture={actors:{claimant:Actor;staff:Actor};source_type:string;
@@ -24,7 +25,7 @@ async function actorOn(page:Page,actor:Actor){
  },{user:{id:actor.id,name:actor.name,email:actor.email,role:actor.role},token:actor.token})
 }
 test('Fictional approved dealer invites, staff independently accepts, owner revokes, all survive refresh',async({browser},info)=>{
- test.setTimeout(360000)
+ test.setTimeout(480000)
  await new Promise<void>(r=>setTimeout(r,70_000))
  const ownerContext=await browser.newContext({viewport:{width:1280,height:900}})
  const owner=await ownerContext.newPage()
@@ -80,6 +81,63 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  await staff.screenshot({path:staffShot,fullPage:true})
  await info.attach('fictional-distinct-staff-accepted-768px',{
   path:staffShot,contentType:'image/png'})
+
+ // Canonical membership alone grants NO branch operating rights.
+ const readBefore=await staff.request.get(
+  'http://127.0.0.1:3001/api/dealer/staff-branches/mine',
+  {headers:staffHeaders})
+ expect(readBefore.status()).toBe(200)
+ expect((await readBefore.json() as {scopes:{branches:unknown[]}}).scopes.branches)
+  .toHaveLength(0)
+ await owner.reload()
+ await expect(owner.locator('#staff-branch-scope-branch')).toBeVisible({timeout:30000})
+ await owner.locator('#staff-branch-grant-reason').fill(
+  'Only private operating hours at this fictional branch may be edited')
+ await owner.getByRole('button',{name:'Grant limited branch edit access'}).click()
+ await expect(owner.getByText('Explicit private branch-only operating access recorded.',{
+  exact:false,
+ })).toBeVisible({timeout:30000})
+ const ownerGrantShot=info.outputPath('fictional-owner-private-branch-grant.png')
+ await owner.screenshot({path:ownerGrantShot,fullPage:true})
+ await info.attach('fictional-owner-private-branch-grant',
+  {path:ownerGrantShot,contentType:'image/png'})
+ await staff.reload()
+ await expect(staff.getByText('Explicit scope: EDIT_BRANCH_DETAILS',{exact:false}))
+  .toBeVisible({timeout:30000})
+ const readGranted=await staff.request.get(
+  'http://127.0.0.1:3001/api/dealer/staff-branches/mine',
+  {headers:staffHeaders})
+ expect(readGranted.status()).toBe(200)
+ const scoped=(await readGranted.json()) as {scopes:{branches:Array<{
+  scope_id:string;branch_id:string;permission:string;
+  owner_rights:boolean;listing_rights:boolean;finance_rights:boolean}>}}
+ expect(scoped.scopes.branches).toHaveLength(1)
+ const delegated=scoped.scopes.branches[0]
+ expect(delegated.permission).toBe('EDIT_BRANCH_DETAILS')
+ expect([delegated.owner_rights,delegated.listing_rights,delegated.finance_rights])
+  .toEqual([false,false,false])
+ const staffDeclaredHours='Fictional Mon-Fri 07:30-18:00; no open-now assertion'
+ await staff.getByLabel('Private opening hours for this branch').fill(staffDeclaredHours)
+ await staff.getByRole('button',{name:'Save authorized branch operating details'}).click()
+ await expect(staff.getByText('Authorized private branch operating hours saved.',{
+  exact:false,
+ })).toBeVisible({timeout:30000})
+ await staff.reload()
+ await expect(staff.getByLabel('Private opening hours for this branch'))
+  .toHaveValue(staffDeclaredHours,{timeout:30000})
+ const staffBranchShot=info.outputPath('fictional-staff-scoped-private-branch-saved.png')
+ await staff.screenshot({path:staffBranchShot,fullPage:true})
+ await info.attach('fictional-staff-scoped-private-branch-saved',
+  {path:staffBranchShot,contentType:'image/png'})
+ const ownerBranchRead=await owner.request.get(
+  'http://127.0.0.1:3001/api/dealer/operational-workspace',
+  {headers:{'x-user-id':f.actors.claimant.id,
+    'x-session-token':f.actors.claimant.token}})
+ expect(ownerBranchRead.status()).toBe(200)
+ const ownerBranches=(await ownerBranchRead.json() as {workspace:{
+  branches:Array<{id:string;opening_hours_text:string|null}>}}).workspace.branches
+ expect(ownerBranches.some(b=>b.id===delegated.branch_id&&
+  b.opening_hours_text===staffDeclaredHours)).toBe(true)
 
  // The same real owner session can read ONLY its tenant's canonical VIN
  // records and progress its CLEAR-risk Marketplace lead. These rows were
@@ -175,11 +233,27 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  await staff.reload()
  await expect(staff.getByText('Status: REVOKED; role: member'))
   .toBeVisible({timeout:30000})
+ await expect(staff.getByText('No active branch-operating scope was delegated to this account.'))
+  .toBeVisible({timeout:30000})
+ const afterScope=await staff.request.get(
+  'http://127.0.0.1:3001/api/dealer/staff-branches/mine',
+  {headers:staffHeaders})
+ expect(afterScope.status()).toBe(200)
+ expect((await afterScope.json() as {scopes:{branches:unknown[]}}).scopes.branches)
+  .toHaveLength(0)
+ const ownerLedger=await owner.request.get(
+  'http://127.0.0.1:3001/api/dealer/staff-branch-scopes/owner',
+  {headers:ownerHeaders})
+ expect(ownerLedger.status()).toBe(200)
+ const scopes=(await ownerLedger.json() as {ledger:{
+  scopes:Array<{scope_id:string;status:string}>}}).ledger.scopes
+ expect(scopes.some(x=>x.scope_id===delegated.scope_id&&x.status==='REVOKED'))
+  .toBe(true)
  const revokedShot=info.outputPath('fictional-staff-access-revoked.png')
  await owner.screenshot({path:revokedShot,fullPage:true})
  await info.attach('fictional-staff-access-revoked',{
   path:revokedShot,contentType:'image/png'})
  await staffContext.close()
  await ownerContext.close()
- console.log('DEALER_SYNTHETIC_STAFF_PHYSICAL PASS: two true authenticated people, canonical tenant member role created only on acceptance, then independent original-owner revocation persisted; zero role escalation')
+ console.log('DEALER_SYNTHETIC_STAFF_PHYSICAL PASS: two true authenticated people, canonical tenant member role created only on acceptance, then scoped private branch edit, and original-owner revocation atomically removed the scoped permission; zero role escalation')
 })
