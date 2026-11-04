@@ -212,6 +212,26 @@ jobs:
           }
           console.log('NATIVE_BROWSER_API_DATA_READY: one reviewed fictional unclaimed profile; 103 still private')
           NODE
+          # Cross-service integration smoke: existing CarUp navigation coverage
+          # must not 500 merely because this native dealership fixture omitted
+          # the canonical vehicle public-search columns. All VINs remain DRAFT,
+          # so no coverage category may be activated or fabricated.
+          curl --fail --silent --show-error             'http://127.0.0.1:3001/api/marketplace/nav-coverage'             > "${RUNNER_TEMP}/native-marketplace-navigation-coverage.json"
+          node --input-type=module <<'DEALER_NAV_PROOF'
+          import assert from 'node:assert/strict'
+          import {readFileSync} from 'node:fs'
+          const coverage=JSON.parse(readFileSync(
+            process.env.RUNNER_TEMP+'/native-marketplace-navigation-coverage.json','utf8'))
+          assert.ok(Number.isInteger(coverage.threshold)&&coverage.threshold>0)
+          for(const group of ['categories','tags']){
+            assert.ok(coverage[group]&&typeof coverage[group]==='object')
+            for(const [key,value] of Object.entries(coverage[group])){
+              assert.equal(value.count,0,group+'.'+key+' has no public real VIN')
+              assert.equal(value.active,false,group+'.'+key+' must stay unavailable')
+            }
+          }
+          console.log('DEALER_NATIVE_MARKETPLACE_NAV_COVERAGE PASS: genuine public Marketplace route reads canonical draft-only VIN baseline and returns zero eligible listings, no fake visibility')
+          DEALER_NAV_PROOF
           curl -fsS http://127.0.0.1:5173/dealers >/dev/null
           # FIRST: physical prelisting, distinct claimant/reviewer, actual private
           # scanned document, claim approval, claim-specific XLSX and frozen draft.

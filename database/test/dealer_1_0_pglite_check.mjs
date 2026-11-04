@@ -152,7 +152,31 @@ try{
       mileage INTEGER NOT NULL DEFAULT 0,price NUMERIC NOT NULL DEFAULT 0,
       status TEXT DEFAULT 'Available',
       publication_status TEXT NOT NULL DEFAULT 'draft',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      -- Genuine canonical Marketplace public search needs these EXISTING
+      -- vehicle read columns. Earlier four-field dealer-only fixture caused
+      -- HTTP 500 on /api/marketplace/nav-coverage even though there were
+      -- no publicly eligible vehicles. No source here publishes anything.
+      owner_id TEXT,
+      color TEXT,
+      fuel_type TEXT,
+      transmission TEXT,
+      import_source TEXT,
+      duty_paid BOOLEAN,
+      police_verified BOOLEAN,
+      currency TEXT,
+      plate_status TEXT,
+      registration_country TEXT,
+      registration_status TEXT,
+      registration_authority TEXT,
+      plate_verified_at TIMESTAMPTZ,
+      current_seller_type TEXT,
+      public_seller_display_enabled BOOLEAN,
+      vehicle_condition_category TEXT,
+      passport_verified BOOLEAN,
+      zimra_verified BOOLEAN,
+      safe_pay_ready BOOLEAN,
+      inspection_ready BOOLEAN
     );
     ALTER TABLE vehicles ENABLE ROW LEVEL SECURITY;
     REVOKE ALL ON vehicles FROM PUBLIC,anon,authenticated;
