@@ -41,7 +41,9 @@ test('C15 owner sees only genuine tenant-scoped buyer enquiry and no transaction
   assert.equal(data.entries[0].payment_authority_granted,false);
   assert.equal(data.entries[0].buyer_transaction_verified,false);
   assert.equal(data.entries[0].staff_assignment_enabled,false);
-  assert.equal(data.status_updates_require_separate_marketplace_authority,true);
+  assert.equal(data.moderation_and_assignment_require_marketplace_authority,true);
+  assert.equal(data.dealer_followup_uses_canonical_atomic_inquiry_authority,true);
+  assert.equal(data.entries[0].allowed_followup_status,'contacted');
   assert.deepEqual(db.calls[0].filters,[['seller_tenant_id',tenant]]);
   assert.ok(!JSON.stringify(data).includes('seller_id'));
 });

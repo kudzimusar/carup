@@ -12,6 +12,8 @@ type Lead={
   contact_email:string|null;contact_phone:string|null;message:string|null;
   risk_state:'SELLER_SAFE_READ_ONLY';
   buyer_transaction_verified:false;payment_authority_granted:false;
+  allowed_followup_status:'contacted'|'qualified'|null;
+  seller_followup_self_reported_only:true;
 }
 type Inbox={
   tenant_id:string;entries:Lead[];returned_visible_count:number;
@@ -30,6 +32,9 @@ export default function DealerTenantInquiries(){
   const [status,setStatus]=useState<'loading'|'ready'|'unavailable'>('loading')
   const [refresh,setRefresh]=useState(0)
   const [search,setSearch]=useState('')
+  const [updatingId,setUpdatingId]=useState<string|null>(null)
+  const [actionNotice,setActionNotice]=useState('')
+  const [actionError,setActionError]=useState('')
   useEffect(()=>{
     let active=true
     if(!user||!token){setStatus('unavailable');setData(null);return}
@@ -46,6 +51,32 @@ export default function DealerTenantInquiries(){
     })
     return()=>{active=false}
   },[user,token,refresh])
+  async function recordDealerFollowup(item:Lead){
+    if(!user||!token||!item.allowed_followup_status||updatingId)return
+    setUpdatingId(item.inquiry_id);setActionNotice('');setActionError('')
+    try{
+      const result=await apiRequest<{receipt:{
+        inquiry_id:string;status:string;seller_reported_only:true;
+        buyer_contact_delivery_verified:false;payment_or_transaction_status_modified:false;
+      }}>({
+        baseUrl:API,
+        path:'/dealer/operational-inquiries/'+encodeURIComponent(item.inquiry_id)+'/follow-up',
+        options:{method:'PATCH',body:JSON.stringify({
+          next_status:item.allowed_followup_status,
+        })},
+        authHeaders:hdr(user.id,token),
+      })
+      if(result.receipt.inquiry_id!==item.inquiry_id||
+         result.receipt.status!==item.allowed_followup_status||
+         !result.receipt.seller_reported_only||
+         result.receipt.payment_or_transaction_status_modified!==false)
+        throw Error('Canonical follow-up receipt could not be confirmed')
+      setActionNotice('Dealer-reported follow-up saved to the canonical Marketplace inquiry. No message or sale has been recorded by this action.')
+      setRefresh(n=>n+1)
+    }catch(problem){
+      setActionError(problem instanceof Error?problem.message:'Dealer follow-up was not saved')
+    }finally{setUpdatingId(null)}
+  }
   const filtered=(data?.entries||[]).filter(row=>{
     const needle=search.trim().toLocaleLowerCase()
     return [row.vin,row.inquiry_type,row.status,row.contact_name].
@@ -74,6 +105,12 @@ export default function DealerTenantInquiries(){
         className="rounded-lg border border-amber-200 bg-amber-50 mt-7 p-5">
         Canonical tenant enquiry access is unavailable. This is not proof that
         your dealership has no customers or enquiries.
+      </p>}
+      {actionNotice&&<p role="status" className="mt-5 border rounded-lg bg-blue-50 text-blue-900 p-4">
+        {actionNotice}
+      </p>}
+      {actionError&&<p role="alert" className="mt-5 border rounded-lg bg-red-50 text-red-900 p-4">
+        {actionError}
       </p>}
       {status==='ready'&&data&&<>
         <div className="mt-7 flex flex-wrap gap-5 items-end">
@@ -121,10 +158,18 @@ export default function DealerTenantInquiries(){
             </>:<p className="text-sm text-amber-800">
               Contact withheld pending risk and eligibility confirmation.
             </p>}
+            {item.allowed_followup_status&&<Button variant="outline" className="mt-3"
+              disabled={Boolean(updatingId)}
+              onClick={()=>{void recordDealerFollowup(item)}}>
+              {updatingId===item.inquiry_id?'Saving...':
+                item.allowed_followup_status==='contacted'?'Record dealer-reported contact':
+                  'Record dealer-reported qualified enquiry'}
+            </Button>}
             <p className="text-xs text-slate-500 border-t pt-3">
-              Updating contact status, sending communications, accepting money
-              or claiming buyer transaction verification requires separate
-              Marketplace and Communications authority.
+              This records a seller-reported, risk-cleared follow-up in the
+              canonical Marketplace inquiry only. It does not send a message,
+              prove buyer contact, assign a moderator, verify a transaction,
+              close a sale or authorize payment.
             </p>
           </CardContent></Card>)}
         </div>

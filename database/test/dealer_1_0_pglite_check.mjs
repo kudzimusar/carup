@@ -26,6 +26,7 @@ const names=[
   '20261103136000_dealer_staff_canonical_invitations.sql',
   '20261103137000_dealer_transaction_feedback_candidate_cases.sql',
   '20261103138000_dealer_branch_operating_details.sql',
+  '20261103139000_dealer_canonical_inquiry_progress.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -115,6 +116,14 @@ try{
       is_blocking BOOLEAN NOT NULL DEFAULT true,
       created_at TIMESTAMPTZ DEFAULT now(),updated_at TIMESTAMPTZ DEFAULT now()
     );
+    -- Throwaway canonical Marketplace inquiry schema: real Marketplace remains
+    -- the status authority; no second dealer lead status source is introduced.
+    CREATE TABLE marketplace_inquiries(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      seller_tenant_id TEXT,status TEXT NOT NULL DEFAULT 'new',
+      risk_status TEXT NOT NULL DEFAULT 'clear',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
     -- Throwaway canonical transaction row-type, never a real payment.
     CREATE TABLE escrow_trust_sessions(
       id UUID PRIMARY KEY,buyer_id TEXT REFERENCES users(id),
@@ -155,7 +164,7 @@ try{
     "SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed"
   )).rows[0].allowed,false);
 
-  // Fifteen additive dealer migrations create 29 dealer_ tables in the
+  // Sixteen additive dealer migrations create 30 dealer_ tables in the
   // isolated fixture (including legacy dealer_profiles and compliance tables).
   // This is a source-schema count, NOT 27 verified businesses or publications.
   // Real schema-level private branch GPS/hour persistence + negative controls.
@@ -178,7 +187,7 @@ try{
     'CANNOT_ROLLBACK_WITH_BRANCH_OPERATING_DETAILS');
   await exec("DELETE FROM dealer_branches WHERE id='"+uuid(9871)+"'");
   await exec("DELETE FROM dealer_profiles WHERE id='"+uuid(9870)+"'");
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,29);
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,30);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -543,6 +552,49 @@ try{
   // D7 C16: staff invitation does NOT create a shadow user or membership.
   // The invited EXISTING verified platform user must independently accept.
   await exec("UPDATE users SET is_verified=true WHERE id='claimant1'");
+  // C15 real canonical seller follow-up: atomic status and append-only audit.
+  // These are explicitly synthetic rows, not a real buyer/pilot.
+  await exec("INSERT INTO marketplace_inquiries(id,seller_tenant_id,status,risk_status) VALUES ('"+
+    uuid(8851)+"','"+tenant+"','new','clear'),('"+
+    uuid(8852)+"','"+uuid(8850)+"','new','clear'),('"+
+    uuid(8853)+"','"+tenant+"','new','watch')");
+  await fails(`SELECT dealer_advance_marketplace_inquiry(
+    '${activeProfileId}','${outsider}','${uuid(8851)}','contacted')`,
+    'VERIFIED_CANONICAL_LEGAL_OWNER_REQUIRED_FOR_STAFF');
+  await fails(`SELECT dealer_advance_marketplace_inquiry(
+    '${activeProfileId}','${claimant}','${uuid(8852)}','contacted')`,
+    'INQUIRY_NOT_OWNED_OR_NOT_ELIGIBLE');
+  await fails(`SELECT dealer_advance_marketplace_inquiry(
+    '${activeProfileId}','${claimant}','${uuid(8853)}','contacted')`,
+    'INQUIRY_NOT_OWNED_OR_NOT_ELIGIBLE');
+  await fails(`SELECT dealer_advance_marketplace_inquiry(
+    '${activeProfileId}','${claimant}','${uuid(8851)}','qualified')`,
+    'DEALER_INQUIRY_TRANSITION_REFUSED');
+  const contacted=(await query('SELECT dealer_advance_marketplace_inquiry($1,$2,$3,$4) AS receipt',[
+    activeProfileId,claimant,uuid(8851),'contacted'])).rows[0].receipt;
+  assert.equal(contacted.previous_status,'new');
+  assert.equal(contacted.status,'contacted');
+  assert.equal(contacted.buyer_contact_delivery_verified,false);
+  assert.equal(contacted.payment_or_transaction_status_modified,false);
+  await fails(`SELECT dealer_advance_marketplace_inquiry(
+    '${activeProfileId}','${claimant}','${uuid(8851)}','contacted')`,
+    'DEALER_INQUIRY_TRANSITION_REFUSED');
+  const qualifiedInquiry=(await query(
+    'SELECT dealer_advance_marketplace_inquiry($1,$2,$3,$4) AS receipt',[
+    activeProfileId,claimant,uuid(8851),'qualified'])).rows[0].receipt;
+  assert.equal(qualifiedInquiry.previous_status,'contacted');
+  assert.equal(qualifiedInquiry.status,'qualified');
+  assert.equal((await query('SELECT status FROM marketplace_inquiries WHERE id=$1',[uuid(8851)])).rows[0].status,'qualified');
+  assert.equal((await query('SELECT count(*)::int AS n FROM dealer_canonical_inquiry_progress_events')).rows[0].n,2);
+  await fails('UPDATE dealer_canonical_inquiry_progress_events SET next_status=\'contacted\'',
+    'APPEND_ONLY_LEDGER');
+  await fails(read('20261103139000_dealer_canonical_inquiry_progress.sql').down,
+    'CANNOT_ROLLBACK_WITH_DEALER_INQUIRY_AUDIT');
+  await exec('SET ROLE authenticated');
+  await fails(`SELECT dealer_advance_marketplace_inquiry(
+    '${activeProfileId}','${claimant}','${uuid(8851)}','contacted')`,
+    'permission denied');
+  await exec('RESET ROLE');
   await fails(`SELECT dealer_invite_existing_staff_account(
     '${activeProfileId}','${claimant}','${claimant}')`,
     'VERIFIED_EXISTING_STAFF_ACCOUNT_REQUIRED');
@@ -774,6 +826,7 @@ try{
   // rollback must refuse to destroy them.
   await exec('TRUNCATE dealer_research_grouping_review_events, dealer_research_public_contact_events');
   await exec('TRUNCATE dealer_staff_invitation_events, dealer_staff_invitation_records');
+  await exec('TRUNCATE dealer_canonical_inquiry_progress_events');
   await exec('TRUNCATE dealer_full_storefront_review_events');
   await exec('TRUNCATE dealer_operational_declaration_events');
   // Dispose synthetic private feedback before isolated rollback, never on a live DB.
@@ -781,7 +834,7 @@ try{
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 15 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log('DEALER_PGLITE_RESULT PASS: 16 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
   console.error('DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;

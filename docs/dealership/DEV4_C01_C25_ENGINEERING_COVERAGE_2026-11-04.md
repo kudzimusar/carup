@@ -18,7 +18,7 @@
 | C12 | Expiry/suspension/renewal | Compliance lifecycle | claim-revoke trigger; dealer active-policy/expiry reads | PARTIAL; RENEWAL_AND_PHYSICAL_INVALIDATION_UNQUALIFIED |
 | C13 | Comprehensive operating profile | Dealer operating domain | dealerOperationalDeclarationsService.js, versioned private business terms | SOURCE_IMPLEMENTED; FULL_BUSINESS_OS_NOT_CERTIFIED |
 | C14 | Multi-branch and GPS | canonical dealer_branches | dealerVerifiedWorkspaceService.js private create/edit, server-validated coordinate pair + declared hours, additive `20261103138000` migration, owner-scoped read/write, dashboard editor + candidate tests | SOURCE_CANDIDATE; REAL_POSTGRES_READBACK, PHYSICAL_BROWSER_AND_MULTISITE_RBAC_UNQUALIFIED |
-| C15 | Functional dealer dashboard | Domain read models | DealerDashboard.tsx canonical membership/tenant VIN/branch write; dealerTenantLeadReadService.js plus DealerTenantInquiries.tsx actual Marketplace leads | SOURCE_IMPLEMENTED; PERSISTENT_LEADS_STATUS_WRITES_AND_AUTH_BROWSER_UAT_UNDONE |
+| C15 | Functional dealer dashboard | canonical Dealer/Marketplace domain | Claim-linked dashboard; C14 private branches; canonical tenant VIN inventory; Marketplace inquiry inbox and bounded `new→contacted→qualified` owner-only, clear-risk atomic status/audit in `20261103139000` | SOURCE_CANDIDATE; REAL_POSTGRES_BROWSER_CONTINUITY_AND_FULL_LEAD_ASSIGNMENT_UNQUALIFIED |
 | C16 | Real staff roles and permissions | Corporate/AUTH memberships | dealerStaffMembershipService.js and staff invitations on tenant_users | SOURCE_IMPLEMENTED; PHYSICAL_RBAC_AND_BRANCH_SCOPE_UNQUALIFIED |
 | C17 | Canonical vehicle inventory | Vehicle/Seller/Marketplace | dealerTenantInventoryReadService.js, live first-100 tenant VINs | READ_ONLY; SELLER_OR_BRANCH_LISTING_AUTHORITY_NOT_INTEGRATED |
 | C18 | Populated unclaimed + approved dealer directory | Approved public projection | research reviewer queue/SQL, unclaimed directory; actual 104 SQLite audit | REVIEW_WORKFLOW_SOURCE_ONLY; 0 HUMAN_APPROVED_PUBLIC |
@@ -35,3 +35,7 @@
 
 ### LR01-R2 C14 private branch operations checkpoint — source candidate only
 The new branch editor intentionally stores **dealer-declared** coordinates and hours only in canonical `dealer_branches`; it does not grant source/public location eligibility, seller rights, new tenant membership or any legal/compliance approval. The new migration protects existing declarations from destructive rollback. Source/CI gates and authenticated browser/PostgreSQL read-back must be run at the **post-R2 exact head** before C14 can be accepted. Existing C01–C25 gaps and the 67-case independent physical programme remain open.
+
+
+### LR01-R2 C15 canonical seller follow-up checkpoint — source candidate only
+A governed database RPC now proposes seller-reported progress for the original Marketplace inquiry, with canonical legal owner/country policy/tenant validation, risk clear only, row lock, two allowed monotone transitions, and an immutable audit event. No merchant/payment/transaction state, buyer message delivery, staff assignment, close or moderation action is granted. Real browser/real PostgreSQL verification and independent review remain outstanding. The original 67 acceptance cases remain NOT independently certified.

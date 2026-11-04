@@ -34,7 +34,7 @@ import {
 } from '../services/dealer/dealerStaffMembershipService.js';
 import {getMyCanonicalDealerInventory}
   from '../services/dealer/dealerTenantInventoryReadService.js';
-import {getMyCanonicalDealerInquiries}
+import {getMyCanonicalDealerInquiries,advanceMyCanonicalDealerInquiry}
   from '../services/dealer/dealerTenantLeadReadService.js';
 import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
@@ -290,6 +290,21 @@ router.get('/api/dealer/operational-inquiries',authorizeSessionRole([]),async(re
   try{
     const inquiries=await getMyCanonicalDealerInquiries(req.userContext);
     res.set('Cache-Control','no-store').json({inquiries});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+
+// Only two bounded seller-reported transitions are permitted. Moderation,
+// assignment, Communications, financial and transaction authority remain separate.
+router.patch('/api/dealer/operational-inquiries/:inquiryId/follow-up',
+  authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const receipt=await advanceMyCanonicalDealerInquiry(
+      req.userContext,req.params.inquiryId,req.body?.next_status);
+    res.set('Cache-Control','no-store').status(200).json({receipt});
   }catch(error){
     if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
       return res.status(error.statusCode).json({error:error.message});
