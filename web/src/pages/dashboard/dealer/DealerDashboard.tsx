@@ -191,6 +191,15 @@ export default function DealerDashboard(){
           <ShieldCheck className="w-6 h-6 text-blue-700 shrink-0" aria-hidden="true"/>
           <div className="min-w-0">
             <h2 className="font-semibold text-lg">{p.trading_name||p.legal_name||'Legal company name unavailable'}</h2>
+            <p className="text-sm text-gray-800 mt-2">
+              <span className="font-medium">Registered legal entity: </span>
+              <span data-testid="dealer-canonical-registered-legal-name">{p.legal_name||'Not recorded'}</span>
+            </p>
+            {p.trading_name&&p.legal_name&&p.trading_name!==p.legal_name&&
+              <p className="text-xs text-gray-600 mt-1">
+                Trading name and registered legal identity are distinct. Legal review applies
+                to the registered entity; a trading name is not a franchise or brand licence.
+              </p>}
             <p className="text-sm text-gray-600 mt-1">
               Active canonical owner membership checked against the approved company claim,
               country policy, legal expiry and tenant status.

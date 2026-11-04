@@ -204,6 +204,27 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
 
  // The claimant still has global member role. Only actual SQL-linked
  // organization/tenant/member authority may unlock the physical workspace.
+ // Before showing the dashboard, read the actual backend tenant/identity
+ // contract. A UI-only assertion is not sufficient proof of legal entity custody.
+ const workspaceResponse=await claimant.request.get(
+   API+'/dealer/operational-workspace',{
+     headers:headers(fixture.actors.claimant),
+   })
+ expect(workspaceResponse.status()).toBe(200)
+ const workspaceReceipt=await workspaceResponse.json() as {workspace:{
+   operational:boolean;owner_membership_confirmed:boolean;
+   tenant_id:string;organization_id:string;dealer_profile_id:string;
+   profile:{legal_name:string;trading_name:string}
+ }}
+ expect(workspaceReceipt.workspace.operational).toBe(true)
+ expect(workspaceReceipt.workspace.owner_membership_confirmed).toBe(true)
+ expect(workspaceReceipt.workspace.profile.legal_name)
+  .toBe('SYNTHETIC CARUP DEALERSHIP LTD - TEST ONLY')
+ expect(workspaceReceipt.workspace.profile.trading_name)
+  .toBe('SYNTHETIC FICTIONAL CAR DEALER 1')
+ expect(workspaceReceipt.workspace.tenant_id).toBeTruthy()
+ expect(workspaceReceipt.workspace.organization_id).toBeTruthy()
+ expect(workspaceReceipt.workspace.dealer_profile_id).toBeTruthy()
  await claimant.goto('/dealer/dashboard')
  await expect(claimant.getByRole('heading',{name:'Dealership operations'}))
   .toBeVisible({timeout:30000})
