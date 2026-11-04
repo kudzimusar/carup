@@ -142,14 +142,41 @@ try{
       is_blocking BOOLEAN NOT NULL DEFAULT true,
       created_at TIMESTAMPTZ DEFAULT now(),updated_at TIMESTAMPTZ DEFAULT now()
     );
-    -- Throwaway canonical Marketplace inquiry schema: real Marketplace remains
-    -- the status authority; no second dealer lead status source is introduced.
+    -- Isolated native test baseline mirrors the existing canonical VIN read
+    -- columns (NOT a newly invented dealership inventory table). Every test
+    -- vehicle must be explicitly fictional and starts unpublished/no sale.
+    CREATE TABLE vehicles(
+      vin TEXT PRIMARY KEY,
+      tenant_id UUID REFERENCES tenants(id),
+      make TEXT NOT NULL,model TEXT NOT NULL,year INTEGER NOT NULL,
+      mileage INTEGER NOT NULL DEFAULT 0,price NUMERIC NOT NULL DEFAULT 0,
+      status TEXT DEFAULT 'Available',
+      publication_status TEXT NOT NULL DEFAULT 'draft',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    ALTER TABLE vehicles ENABLE ROW LEVEL SECURITY;
+    REVOKE ALL ON vehicles FROM PUBLIC,anon,authenticated;
+    GRANT SELECT ON vehicles TO service_role;
+    -- The isolated fixture matches canonical Marketplace inquiry read/write
+    -- columns from 20260616120000; original marketplace_inquiries remains
+    -- the ONLY lead status authority, never a dealer parallel lead table.
     CREATE TABLE marketplace_inquiries(
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      seller_tenant_id TEXT,status TEXT NOT NULL DEFAULT 'new',
+      listing_id TEXT,listing_type TEXT NOT NULL DEFAULT 'vehicle',
+      buyer_id TEXT,guest_name TEXT,guest_email TEXT,guest_phone TEXT,
+      seller_id TEXT,seller_tenant_id TEXT,
+      inquiry_type TEXT NOT NULL DEFAULT 'vehicle_purchase_interest',
+      message TEXT,source_channel TEXT NOT NULL DEFAULT 'web',
+      status TEXT NOT NULL DEFAULT 'new',
       risk_status TEXT NOT NULL DEFAULT 'clear',
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CHECK(status IN ('new','assigned','contacted','qualified','closed','spam','rejected')),
+      CHECK(risk_status IN ('clear','watch','flagged','blocked'))
     );
+    ALTER TABLE marketplace_inquiries ENABLE ROW LEVEL SECURITY;
+    REVOKE ALL ON marketplace_inquiries FROM PUBLIC,anon,authenticated;
+    GRANT SELECT,INSERT,UPDATE ON marketplace_inquiries TO service_role;
     -- Throwaway canonical transaction row-type, never a real payment.
     CREATE TABLE escrow_trust_sessions(
       id UUID PRIMARY KEY,buyer_id TEXT REFERENCES users(id),
@@ -171,6 +198,19 @@ try{
         ('activationreviewer','admin',true);
   `);
   for(const name of names){await exec(read(name).up);console.log('APPLIED',name)}
+  if(process.env.DEALER_NATIVE_SCHEMA_ONLY==='1'){
+    if(!native)throw Error('SCHEMA_ONLY_REQUIRES_GUARDED_NATIVE_LOOPBACK');
+    const fresh=await query(`SELECT
+      (SELECT count(*)::int FROM tenants) AS tenants,
+      (SELECT count(*)::int FROM organizations) AS organizations,
+      (SELECT count(*)::int FROM dealer_profiles) AS profiles,
+      (SELECT count(*)::int FROM dealer_research_seed_records) AS seeds,
+      (SELECT count(*)::int FROM dealer_research_claim_requests) AS claims`);
+    assert.deepEqual(fresh.rows[0],{
+      tenants:0,organizations:0,profiles:0,seeds:0,claims:0,
+    },'browser schema must not inherit contract-test business/tenant authority');
+    console.log('DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS: 16 exact dealership migrations applied to empty disposable PostgreSQL; 0 business/tenant/claim authorities, protected users preseeded');
+  } else {
   // Direct authenticated/PostgREST clients cannot mint their own tenant, identity,
   // compliance, activation or listing authority even if they own a dealer row.
   const authorityColumns=['tenant_id','identity_status','compliance_review_state',
@@ -862,6 +902,7 @@ try{
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
     '16 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  } // End full destructive synthetic contract suite; fresh schema mode stays empty.
 }catch(error){
   console.error(native?'DEALER_NATIVE_POSTGRES_RESULT FAIL':'DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;

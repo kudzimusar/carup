@@ -73,6 +73,19 @@ try{
   fixture.actors[label]={id:officer.id,name:officer.name,email:officer.email,
     role:'admin',token};
  }
+ // A separate existing fictional member will complete the real staff
+ // invitation/accept/revoke lifecycle AFTER independently certified activation.
+ // Verification here concerns the fictional user account only, never a dealer
+ // business licence, tenant owner role or seller entitlement.
+ const staffUser={id:'claimant2',name:'Fictional Existing Staff Account',
+  email:'fictional-staff@example.invalid',role:'member'};
+ const staffUpdate=await db.query(`UPDATE users SET name=$2,email=$3,is_verified=true
+   WHERE id=$1 AND role='member'`,[staffUser.id,staffUser.name,staffUser.email]);
+ assert.equal(staffUpdate.rowCount,1,'separate existing staff user missing');
+ const staffToken='fictional-staff-membership-session-'+randomUUID();
+ await db.query(`INSERT INTO user_sessions(token,user_id,is_valid,expires_at)
+   VALUES($1,$2,true,now()+interval '2 hours')`,[staffToken,staffUser.id]);
+ fixture.actors.staff={...staffUser,token:staffToken};
  const authority=await db.query(`SELECT id,is_verified,role FROM users WHERE id='policyreviewer'`);
  assert.deepEqual(authority.rows,[{id:'policyreviewer',is_verified:true,role:'admin'}]);
  const digest=createHash('sha256').update(

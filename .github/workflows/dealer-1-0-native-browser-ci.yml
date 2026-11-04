@@ -83,6 +83,43 @@ jobs:
           set -euo pipefail
           node database/test/dealer_1_0_pglite_check.mjs > "${RUNNER_TEMP}/native-migration.log" 2>&1
           grep -q '^DEALER_NATIVE_POSTGRES_RESULT PASS:' "${RUNNER_TEMP}/native-migration.log"
+          # IMPORTANT: the behavioural migration suite MUST NOT share business
+          # state with the physical browser. Its negative tests activate a
+          # fictional company whose stable organization ID would otherwise
+          # rightfully block the browser's independent activation as an existing
+          # organization (run 41808142464). Never weaken that production barrier.
+          # This resets ONLY the guarded disposable loopback database after
+          # SQL rollback/reapply evidence has been collected.
+          node --input-type=module <<'DEALER_RESET_DB'
+          import assert from 'node:assert/strict'
+          import pg from 'pg'
+          const dbUrl=process.env.DEALER_ISOLATED_POSTGRES_URL
+          assert.ok(dbUrl,'GUARDED_DB_URL_REQUIRED')
+          const u=new URL(dbUrl)
+          assert.equal(u.protocol,'postgresql:')
+          assert.equal(u.hostname,'127.0.0.1')
+          assert.equal(u.pathname,'/carup_dealer_isolated_ci')
+          assert.equal(u.search,'')
+          assert.equal(u.hash,'')
+          for(const key of ['SUPABASE_URL','DEALER_SEED_DATABASE_URL',
+             'CARUP_DEALER_RESEARCH_XLSX']){
+            assert.equal(process.env[key],undefined,'UNSAFE_RESET_ENV_'+key)
+          }
+          const maintenance=new pg.Client({
+            connectionString:'postgresql://postgres@127.0.0.1:5432/postgres',
+            application_name:'carup-dealer-ci-disposable-database-reset',
+          })
+          await maintenance.connect()
+          try{
+            const version=await maintenance.query('SHOW server_version_num')
+            assert.ok(Number(version.rows[0].server_version_num)>=170000)
+            await maintenance.query('DROP DATABASE carup_dealer_isolated_ci WITH (FORCE)')
+            await maintenance.query('CREATE DATABASE carup_dealer_isolated_ci')
+          }finally{await maintenance.end()}
+          console.log('DEALER_ISOLATED_DB_RESET PASS: fresh loopback database, migration tests retained in CI logs; no production or shared DB')
+          DEALER_RESET_DB
+          DEALER_NATIVE_SCHEMA_ONLY=1 node database/test/dealer_1_0_pglite_check.mjs > "${RUNNER_TEMP}/fresh-browser-schema.log" 2>&1
+          grep -q '^DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS:' "${RUNNER_TEMP}/fresh-browser-schema.log"
           node backend/scripts/dealership/proveSynthetic104NativePostgres.mjs > "${RUNNER_TEMP}/synthetic-import.log" 2>&1
           grep -q '^DEALER_SYNTHETIC_104_NATIVE_RESULT PASS:' "${RUNNER_TEMP}/synthetic-import.log"
           node backend/scripts/dealership/prepareSyntheticBrowserFixture.mjs | tee "${RUNNER_TEMP}/browser-bootstrap.log"
@@ -192,6 +229,21 @@ jobs:
           cd ..
           node backend/scripts/dealership/verifyNativeFullSyntheticGoldenCustody.mjs
           echo 'DEALER_NATIVE_BROWSER_INTEGRATION_RESULT PASS: complete FICTIONAL browser/SQL lifecycle, real Storage and ClamAV, separate test reviewers and stable URL; actual legal policy, Owner XLSX, real inventory and public release NOT CLAIMED'
+          # THIRD: only after a successful synthetic independent legal
+          # activation, seed one private DRAFT fictional VIN and one
+          # Marketplace enquiry. No real stock, money, legal licence or deal.
+          node backend/scripts/dealership/prepareSyntheticOperationsFixture.mjs
+          # Real Chromium, separate existing fictional member, original
+          # owner's invitation -> consent -> canonical grant -> revocation.
+          # Owner also reads scoped VIN and safely progresses canonical
+          # Marketplace lead. Preserve a distinct third-phase trace.
+          cd web
+          DEALER_BROWSER_PHASE=synthetic-staff npx playwright test \
+            --config playwright.dealer-native-physical.config.ts \
+            tests/dealer-native-physical/synthetic-canonical-staff.pw.ts
+          cd ..
+          node backend/scripts/dealership/verifyNativeFictionalStaffCustody.mjs
+          echo 'DEALER_NATIVE_CANONICAL_STAFF_RESULT PASS: real browser invitation/accept/revoke; member only, no seller/payment/owner escalation; fictional CI only'
       - name: Preserve screenshots, traces and physical test results
         if: always()
         uses: actions/upload-artifact@v4

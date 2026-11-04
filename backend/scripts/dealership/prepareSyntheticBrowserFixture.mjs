@@ -76,6 +76,13 @@ try{
    .every(row=>row.rolbypassrls===false));
  await db.query(`GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role`);
  await db.query(`GRANT SELECT ON users,user_sessions TO service_role`);
+ // The canonical production Supabase service_role can read tenant authority;
+ // our manually created CI service_role must have equivalent explicit SQL
+ // grants. BYPASSRLS alone does not grant table privileges. Never grant these
+ // privileges to anon or authenticated in this disposable integration runtime.
+ await db.query(`GRANT SELECT ON tenants,organizations,organization_users,
+   organization_roles,dealer_profiles,dealer_branches,tenant_users TO service_role`);
+ await db.query(`GRANT INSERT,UPDATE ON dealer_branches TO service_role`);
  await db.query(`UPDATE users SET
   name=CASE WHEN id='claimant1' THEN 'Fictional Claimant One'
        WHEN id='reviewer1' THEN 'Fictional Independent Reviewer'

@@ -269,6 +269,26 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await info.attach('fictional-stable-full-dealership-public-profile',{
   path:publicShot,contentType:'image/png',
  })
+ // The previously validated research/unclaimed URL must remain stable and
+ // show the separately reviewed FULL profile at all four required widths.
+ // Explicitly fictional approved branch display is a CI exercise only.
+ for(const width of [390,768,1920]){
+  const ctx=await browser.newContext({viewport:{width,height:900}})
+  const page=await ctx.newPage()
+  await page.goto('/dealers/'+fixture.public_slug)
+  await expect(page).toHaveURL(new RegExp('/dealers/'+fixture.public_slug+'
+   publicReviewerContext,publicContext])await context.close()
+ console.log('DEALER_FICTIONAL_COMPLETE_BROWSER_GOLDEN_RESULT PASS: separate authenticated reviewer/approver sessions; synthetic country policy only; real legal tenant and branch persisted; same public slug upgraded; zero real business/regulator authority')
+})
+))
+  await expect(page.getByRole('heading',{name:'Reviewed dealership branches'}))
+   .toBeVisible({timeout:30000})
+  const shot=info.outputPath('fictional-approved-same-slug-'+width+'px.png')
+  await page.screenshot({path:shot,fullPage:true})
+  await info.attach('fictional-approved-same-slug-'+width+'px',{
+   path:shot,contentType:'image/png'})
+  await ctx.close()
+ }
  for(const context of [claimantContext,reviewContext,legalContext,activationContext,
    publicReviewerContext,publicContext])await context.close()
  console.log('DEALER_FICTIONAL_COMPLETE_BROWSER_GOLDEN_RESULT PASS: separate authenticated reviewer/approver sessions; synthetic country policy only; real legal tenant and branch persisted; same public slug upgraded; zero real business/regulator authority')

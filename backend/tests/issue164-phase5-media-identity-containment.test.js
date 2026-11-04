@@ -180,6 +180,12 @@ function collectSourceFiles() {
   const walk = (dir) => {
     for (const entry of readdirSync(dir)) {
       if (entry === 'node_modules' || entry === 'tests') continue;
+      // Parallel mutation tests create __mutant__*.js in the service tree and
+      // delete them immediately. They are NOT shipped backend sources: racing
+      // readdir->readFile against their deletion used to fail the entire CI
+      // (observed exact-head run 41808142479), without testing the contract.
+      // Continue scanning every actual shipped source file.
+      if (/^__mutant__[^/]*\.js$/.test(entry)) continue;
       const full = join(dir, entry);
       if (statSync(full).isDirectory()) walk(full);
       else if (entry.endsWith('.js')) files.push(full);
