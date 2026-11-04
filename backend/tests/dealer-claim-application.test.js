@@ -115,3 +115,38 @@ test('raw evidence cannot be accepted without clean independent malware scanner'
     },{scan:async()=>false}),/MALWARE_SCANNER_UNAVAILABLE/);
   }finally{supabase.from=old}
 });
+
+test('approved claimant can supply later private legal originals, but revoked or rejected claims cannot',async()=>{
+  const old=supabase.from;
+  const fake=Buffer.alloc(72);
+  fake[0]=0xff;fake[1]=0xd8;fake[70]=0xff;fake[71]=0xd9;
+  const input={document_class:'SIGNATORY_MANDATE',mime_type:'image/jpeg',
+    document:'data:image/jpeg;base64,'+fake.toString('base64')};
+  let status='CLAIM_APPROVED',scanCalls=0;
+  try{
+    supabase.from=table=>{
+      if(table==='dealer_research_claim_requests')
+        return query({...claim,claim_status:status});
+      if(table==='dealer_claim_private_evidence')return query(null);
+      throw Error('Unexpected private table '+table);
+    };
+    // An APPROVED claim is not legal approval. The original is still
+    // ClamAV scanned and must not silently become verified.
+    await assert.rejects(app.uploadPrivateClaimEvidence(CLAIM_ID,claimant,input,{
+      scan:async()=>{scanCalls++;return false},
+    }),/MALWARE_SCANNER_UNAVAILABLE/);
+    assert.equal(scanCalls,1);
+    for(const closed of ['CLAIM_REJECTED','CLAIM_REVOKED']){
+      status=closed;
+      await assert.rejects(app.uploadPrivateClaimEvidence(CLAIM_ID,claimant,input,{
+        scan:async()=>{scanCalls++;return true},
+      }),/CLAIM_EVIDENCE_INTAKE_CLOSED/);
+    }
+    assert.equal(scanCalls,1,'no document scan/storage for terminated claims');
+    status='CLAIM_APPROVED';
+    await assert.rejects(app.uploadPrivateClaimEvidence(CLAIM_ID,{
+      ...claimant,userId:'another-actor',
+    },input,{scan:async()=>{scanCalls++;return true}}),/CLAIM_NOT_FOUND/);
+    assert.equal(scanCalls,1,'approved claimant remains owner-scoped');
+  }finally{supabase.from=old}
+});

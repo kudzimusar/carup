@@ -117,7 +117,13 @@ export async function uploadPrivateClaimEvidence(claimId,actor,payload,{scan=sca
   requireClaimantSession(actor);
   const claim=await loadClaim(claimId);
   assertClaimOwner(claim,actor);
-  if(!['AWAITING_DOCUMENTARY_EVIDENCE','CLAIM_DISPUTED','CLAIM_APPEALED'].includes(claim.claim_status))
+  // Claim approval grants only private applicant access; it does NOT finish
+  // company compliance. Approved representatives must still supply original
+  // incorporation, director, signatory and branch documents for separate
+  // preliminary/legal review. They remain private, malware-scanned, immutable
+  // and never become self-verified licence or tenant authority.
+  if(!['AWAITING_DOCUMENTARY_EVIDENCE','CLAIM_DISPUTED','CLAIM_APPEALED',
+    'CLAIM_APPROVED'].includes(claim.claim_status))
     throw deny('CLAIM_EVIDENCE_INTAKE_CLOSED',409);
   if(!DOCS.has(payload?.document_class))throw deny('UNKNOWN_DOCUMENT_CLASS',400);
   const bytes=decodeClaimDocument(payload?.document,payload?.mime_type);

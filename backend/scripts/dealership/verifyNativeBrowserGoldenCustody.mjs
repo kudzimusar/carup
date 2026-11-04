@@ -8,6 +8,7 @@
  * seller rights, or legal certification.
  */
 import assert from 'node:assert/strict';
+import {createHmac,timingSafeEqual} from 'node:crypto';
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {dirname,join} from 'node:path';
 import pg from 'pg';
@@ -21,9 +22,28 @@ assert.equal(parsed.search,'');
 assert.equal(parsed.hash,'');
 assert.ok(process.env.DEALER_BROWSER_FIXTURE_JSON);
 for(const name of ['CARUP_DEALER_RESEARCH_XLSX','DEALER_SEED_DATABASE_URL',
-  'SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY']){
+  'SUPABASE_URL']){
   assert.equal(process.env[name],undefined,'shared input is not permitted: '+name);
 }
+// The disposable HTTP bridge uses the locally signed Storage service JWT.
+// Reject arbitrary/shared/production credentials rather than requiring its
+// absence: the browser step must legitimately carry this ephemeral token.
+const token=process.env.SUPABASE_SERVICE_ROLE_KEY||'';
+const secret=process.env.DEALER_BROWSER_LOCAL_JWT_SECRET||'';
+assert.ok(secret.startsWith('EXPLICITLY_FAKE_EPHEMERAL_CARUP_DEALER_BROWSER_CI_KEY_'),
+  'only the synthetic test secret is accepted');
+const parts=token.split('.');
+assert.equal(parts.length,3,'ephemeral service token is required');
+const header=JSON.parse(Buffer.from(parts[0],'base64url').toString('utf8'));
+const claims=JSON.parse(Buffer.from(parts[1],'base64url').toString('utf8'));
+assert.equal(header.alg,'HS256');
+assert.equal(claims.iss,'carup-dealer-ephemeral-ci');
+assert.equal(claims.role,'service_role');
+assert.ok(Number(claims.exp)>Math.floor(Date.now()/1000));
+const actual=Buffer.from(parts[2],'base64url');
+const expected=createHmac('sha256',secret).update(parts[0]+'.'+parts[1]).digest();
+assert.ok(actual.length===expected.length&&timingSafeEqual(actual,expected),
+  'invalid or non-ephemeral Storage service credential');
 const fixture=JSON.parse(readFileSync(process.env.DEALER_BROWSER_FIXTURE_JSON,'utf8'));
 assert.equal(fixture.source_type,'EXPLICITLY_FICTIONAL_NATIVE_POSTGRES_XLSX');
 assert.equal(fixture.source_population,104);

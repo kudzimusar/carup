@@ -18,7 +18,8 @@ const API='http://127.0.0.1:3001/api'
 // unlike raising the server limit, this does NOT weaken the production policy.
 // The pause also runs after a failed case so later cases remain diagnostically
 // independent rather than inheriting a synthetic burst's HTTP 429.
-test.afterEach(async({},testInfo)=>{
+test.afterEach(async(fixtures,testInfo)=>{
+  void fixtures
   // Only pause between scenarios; after the final storage/XLSX case there
   // is no subsequent browser user for whom the shared loopback budget matters.
   if(testInfo.title.includes('Native PG + private Storage'))return
@@ -209,7 +210,7 @@ function setWorkbookField(book:ExcelJS.Workbook,tab:string,label:string,value:st
 // file bytes in a disposable Docker volume and Postgres owns document metadata.
 test('Native PG + private Storage · evidence, separate approval, claim-specific Excel and frozen application',
  async({browser},info)=>{
-  test.setTimeout(260_000)
+  test.setTimeout(360_000)
   expect(fixture.reviewer_password).toMatch(/^EXPLICITLY_FAKE_DEALER_CI_REVIEWER_STEPUP_/)
   const headers=(actor:Actor)=>({
     'x-session-token':actor.token,'x-user-id':actor.id,
@@ -360,6 +361,10 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
   await claimantPage.reload()
   await expect(claimantPage.getByRole('heading',{name:'Saved application version 1'}))
     .toBeVisible({timeout:25000})
+  // The true CarUp per-IP limit applies across seven synthetic journeys sharing
+  // 127.0.0.1; the final write must not inherit earlier windows. Preserve
+  // production security controls instead of disabling or raising their limit.
+  await claimantPage.waitForTimeout(70_000)
   const section=claimantPage.getByRole('heading',{
     name:'Submit version 1 for preliminary review',
   }).locator('..')

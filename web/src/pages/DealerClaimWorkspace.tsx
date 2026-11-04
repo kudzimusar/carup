@@ -405,9 +405,14 @@ export default function DealerClaimWorkspace() {
                     <Link className="inline-block mt-3 underline text-blue-700 text-sm"
                       to={`/dealers/${chosen.seed_dealer_id.toLowerCase()}`}>View the public research profile</Link>
                   </CardContent></Card>
-                  {['AWAITING_DOCUMENTARY_EVIDENCE','CLAIM_DISPUTED','CLAIM_APPEALED'].includes(chosen.claim_status) && (
+                  {['AWAITING_DOCUMENTARY_EVIDENCE','CLAIM_DISPUTED','CLAIM_APPEALED',
+                    'CLAIM_APPROVED'].includes(chosen.claim_status) && (
                     <Card><CardContent className="p-5 space-y-3">
-                      <h2 className="font-semibold text-lg">Original business-authority evidence</h2>
+                      <h2 className="font-semibold text-lg">
+                        {chosen.claim_status==='CLAIM_APPROVED'
+                          ?'Additional original documents for separate compliance review'
+                          :'Original business-authority evidence'}
+                      </h2>
                       <p className="text-sm text-gray-600">
                         JPEG, PNG or PDF, maximum 6MB. Only the private CarUp evidence store is used;
                         acceptance requires a real ClamAV clean scan, with manual verification afterwards.
