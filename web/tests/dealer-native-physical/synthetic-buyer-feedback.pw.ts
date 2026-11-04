@@ -107,7 +107,7 @@ test('FICTIONAL buyer private complaint → immutable canonical receipt → sepa
  })
  expect(crossWrite.status()).toBe(409)
  expect((await crossWrite.json() as {error:string}).error)
-  .toBe('DEALER_BUYER_FEEDBACK_CASE_REFUSED')
+  .toBe('PRIVATE_BUYER_CASE_REJECTED_BY_CANONICAL_AUTHORITY')
  // Before a third authenticated browser identity enters, let the real
  // production-equivalent 100/min GLOBAL loopback IP budget reset. The buyer,
  // claimant, platform shell and CSRF requests are all genuine HTTP requests;
