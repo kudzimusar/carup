@@ -993,8 +993,10 @@ try{
   // Real source contact and grouping review receipts are append-only and their
   // rollback must refuse to destroy them.
   await exec('TRUNCATE dealer_research_grouping_review_events, dealer_research_public_contact_events');
-  await exec('TRUNCATE dealer_staff_branch_scope_events, dealer_staff_branch_scopes');
-  await exec('TRUNCATE dealer_staff_invitation_events, dealer_staff_invitation_records');
+  // PostgreSQL TRUNCATE requires EVERY FK-linked table in the SAME statement,
+  // even when the child table has already been emptied. List exactly the four
+  // fictional fixture custody tables; never use CASCADE or target shared data.
+  await exec('TRUNCATE dealer_staff_branch_scope_events, dealer_staff_branch_scopes, dealer_staff_invitation_events, dealer_staff_invitation_records');
   await exec('TRUNCATE dealer_canonical_inquiry_progress_events');
   await exec('TRUNCATE dealer_full_storefront_review_events');
   await exec('TRUNCATE dealer_operational_declaration_events');
