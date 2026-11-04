@@ -91,3 +91,38 @@ test('C19 full review refuses forged reviewer, unauthorized scope and applicant 
    await assert.rejects(full.recordFullStorefrontPublication(valid,v.actor,v.payload));
  }
 });
+
+test('C19 approved storefront queue uses canonical activated_at, not missing created_at',async()=>{
+  const old=supabase.from;
+  const calls=[];
+  try{
+    supabase.from=table=>{
+      assert.equal(table,'dealer_approved_seed_links');
+      return {
+        select(fields){
+          calls.push(['select',fields]);
+          return this;
+        },
+        order(key,opts){
+          calls.push(['order',key,opts?.ascending]);
+          return this;
+        },
+        limit:async n=>{
+          assert.equal(n,100);
+          return {data:[{seed_dealer_id:'ZW-DEAL-0001',
+            link_id:'00000000-0000-4000-8000-000000000001',
+            operating_status:'ACTIVE',claimant_user_id:'claimant1',
+            activated_at:'2026-11-04T00:00:00Z'}],error:null};
+        },
+      };
+    };
+    const queue=await full.listFullStorefrontReviewQueue(reviewer);
+    assert.equal(queue.length,1);
+    assert.equal(queue[0].seed_dealer_id,'ZW-DEAL-0001');
+    assert.equal(queue[0].independent_reviewer_required,true);
+    assert.deepEqual(calls,[
+      ['select','seed_dealer_id,link_id,operating_status,activated_at,claimant_user_id'],
+      ['order','activated_at',false],
+    ]);
+  }finally{supabase.from=old}
+});

@@ -82,8 +82,18 @@ try{
        ELSE name END,
   email=CASE WHEN id='claimant1' THEN 'claimant1@example.invalid'
         WHEN id='reviewer1' THEN 'reviewer1@example.invalid'
-        ELSE email END
+        ELSE email END,
+  role=CASE WHEN id='reviewer1' THEN 'reviewer' ELSE role END
   WHERE id IN ('claimant1','reviewer1')`);
+ // The first migration harness seeds reviewer1 as admin for SQL exercising.
+ // In the physical browser fixture it MUST be a genuinely distinct,
+ // independently verified "reviewer", not an admin masquerading in UI.
+ const roleProof=await db.query(`SELECT id,role,is_verified FROM users
+   WHERE id IN('claimant1','reviewer1') ORDER BY id`);
+ assert.deepEqual(roleProof.rows,[
+   {id:'claimant1',role:'member',is_verified:false},
+   {id:'reviewer1',role:'reviewer',is_verified:true},
+ ]);
  // Password challenge uses the genuine production scrypt verification logic.
  // These bytes belong to an explicitly fictional account in this disposable DB.
  const salt=randomBytes(16).toString('hex');

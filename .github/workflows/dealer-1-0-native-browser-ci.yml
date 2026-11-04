@@ -172,11 +172,26 @@ jobs:
           console.log('NATIVE_BROWSER_API_DATA_READY: one reviewed fictional unclaimed profile; 103 still private')
           NODE
           curl -fsS http://127.0.0.1:5173/dealers >/dev/null
+          # FIRST: physical prelisting, distinct claimant/reviewer, actual private
+          # scanned document, claim approval, claim-specific XLSX and frozen draft.
           cd web
-          npx playwright test --config playwright.dealer-native-physical.config.ts
+          DEALER_BROWSER_PHASE=prelegal npx playwright test \
+            --config playwright.dealer-native-physical.config.ts \
+            tests/dealer-native-physical/fictional-dealer-native-pg.pw.ts
           cd ..
           node backend/scripts/dealership/verifyNativeBrowserGoldenCustody.mjs
-          echo 'DEALER_NATIVE_BROWSER_INTEGRATION_RESULT PASS: real CarUp UI, PostgreSQL 17, local Storage API and ClamAV; full legal/tenant authority NOT CLAIMED'
+          echo 'DEALER_NATIVE_PRELEGAL_CUSTODY PASS: verified live app and real PostgreSQL, no country legal/tenant grant'
+          # SECOND: simulate an EXPLICITLY FICTIONAL legally-approved country
+          # policy only in the guarded, disposable CI database. This is NOT
+          # a real Zimbabwe policy, legal signoff or authorized public launch.
+          node backend/scripts/dealership/prepareSyntheticLegalBrowserPhase.mjs
+          cd web
+          DEALER_BROWSER_PHASE=synthetic-legal npx playwright test \
+            --config playwright.dealer-native-physical.config.ts \
+            tests/dealer-native-physical/synthetic-legal-activation.pw.ts
+          cd ..
+          node backend/scripts/dealership/verifyNativeFullSyntheticGoldenCustody.mjs
+          echo 'DEALER_NATIVE_BROWSER_INTEGRATION_RESULT PASS: complete FICTIONAL browser/SQL lifecycle, real Storage and ClamAV, separate test reviewers and stable URL; actual legal policy, Owner XLSX, real inventory and public release NOT CLAIMED'
       - name: Preserve screenshots, traces and physical test results
         if: always()
         uses: actions/upload-artifact@v4

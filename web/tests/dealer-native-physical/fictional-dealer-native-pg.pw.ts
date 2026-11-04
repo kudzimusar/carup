@@ -18,10 +18,8 @@ const API='http://127.0.0.1:3001/api'
 // unlike raising the server limit, this does NOT weaken the production policy.
 // The pause also runs after a failed case so later cases remain diagnostically
 // independent rather than inheriting a synthetic burst's HTTP 429.
-test.afterEach(async({browser},testInfo)=>{
-  // Playwright requires a named object-destructuring fixture argument;
-  // the browser is already real and reused for every synthetic case.
-  void browser
+test.afterEach(async(fixtures,testInfo)=>{
+  void fixtures
   // Only pause between scenarios; after the final storage/XLSX case there
   // is no subsequent browser user for whom the shared loopback budget matters.
   if(testInfo.title.includes('Native PG + private Storage'))return
@@ -304,6 +302,10 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
     'SYNTHETIC CARUP DEALERSHIP LTD - TEST ONLY')
   setWorkbookField(book,'BUSINESS','Confirmed trading name',
     'SYNTHETIC FICTIONAL CAR DEALER 1')
+  setWorkbookField(book,'BUSINESS','Company registration number',
+    'SYNTHETIC-REG-001')
+  setWorkbookField(book,'BUSINESS','Company registration issuer',
+    'FICTIONAL CI REGISTRY - NOT A REAL GOVERNMENT OFFICE')
   setWorkbookField(book,'BUSINESS','Confirm researched facts: YES / CORRECT / UNKNOWN','CORRECT')
   setWorkbookField(book,'BUSINESS','Accountable authorized signatory','Fictional Test Signatory')
   setWorkbookField(book,'BRANCHES','City/town','FICTIONAL HARARE CORRECTED')

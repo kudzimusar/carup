@@ -54,8 +54,10 @@ export async function listReviewedFullStorefronts(ids){
 export async function listFullStorefrontReviewQueue(actor){
   requireIndependentReviewer(actor,'');
   const {data,error}=await supabase.from('dealer_approved_seed_links')
-    .select('seed_dealer_id,link_id,operating_status,created_at,claimant_user_id')
-    .order('created_at',{ascending:false}).limit(100);
+    // Canonical dealer_approved_seed_links contains activated_at, not created_at.
+    // Never mask a broken queue query as "zero approved dealers".
+    .select('seed_dealer_id,link_id,operating_status,activated_at,claimant_user_id')
+    .order('activated_at',{ascending:false}).limit(100);
   if(error)throw deny('PRIVATE_FULL_STOREFRONT_QUEUE_UNAVAILABLE',503);
   return (data||[]).map(x=>({
     seed_dealer_id:x.seed_dealer_id,

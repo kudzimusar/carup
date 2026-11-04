@@ -5,7 +5,14 @@ import {defineConfig,devices} from '@playwright/test'
  * These tests do not borrow staging/production, mock responses, or claim full golden
  * lifecycle authorization. Every API call is resolved by CarUp Express/PostgREST.
  */
+const phase=process.env.DEALER_BROWSER_PHASE==='synthetic-legal'
+  ?'synthetic-legal':'prelegal'
+
 export default defineConfig({
+  // Preserve both physical phases' screenshots, traces and JSON receipts.
+  // Running Playwright twice with the same output directory would otherwise
+  // delete the first phase's evidence before CI artifact upload.
+  outputDir:'test-results/'+phase,
   testDir:'./tests/dealer-native-physical',
   // Distinct browser-only filename prevents Vitest from loading this file
   // before its real PostgreSQL/Express/fixture setup exists.
@@ -16,7 +23,7 @@ export default defineConfig({
   retries:0,
   workers:1,
   timeout:120000,
-  reporter:[['list'],['json',{outputFile:'test-results/dealer-native-physical-results.json'}]],
+  reporter:[['list'],['json',{outputFile:'test-results/'+phase+'-physical-results.json'}]],
   use:{
     ...devices['Desktop Chrome'],
     baseURL:'http://127.0.0.1:5173',
