@@ -2,9 +2,9 @@ name: CarUp Dealership 1.0 — isolated native-PostgreSQL real-browser proof
 
 # An actual CarUp Express + Vite runtime on GitHub's disposable localhost
 # PostgreSQL/PostgREST plus real self-hosted Supabase Storage on a disposable
-# filesystem and real signature-backed ClamAV scanning. No mocked responses,
-# shared/production DB, Owner workbook, provider charges or real listings.
-# Country/legal compliance and activated business operation remain separate gates.
+# filesystem and real ClamAV. No mocked responses, shared/production DB,
+# Owner workbook, provider charges or real listings. Country/legal compliance
+# and activated business operation remain separate certification gates.
 on:
   push:
     branches: [feat/carup-dealer-1-0-unified-longrun]
@@ -96,7 +96,9 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq clamav clamav-freshclam
           sudo systemctl stop clamav-freshclam 2>/dev/null || true
           sudo freshclam --stdout
-          printf 'CARUP FICTIONAL SAFE SCAN CONTENT\n' | clamscan --no-summary - | grep -q 'OK
+          printf 'CARUP FICTIONAL SAFE SCAN CONTENT\\n' | clamscan --no-summary - | grep -q 'OK$'
+          echo 'DEALER_NATIVE_MALWARE_SCANNER_READY: signature-backed scan passed'
+      - name: Install headless Chromium for physical viewport and role UAT
         shell: bash
         run: |
           set -euo pipefail
@@ -173,92 +175,6 @@ jobs:
           cd web
           npx playwright test --config playwright.dealer-native-physical.config.ts
           echo 'DEALER_NATIVE_BROWSER_INTEGRATION_RESULT PASS: real CarUp UI, PostgreSQL 17, local Storage API and ClamAV; full legal/tenant authority NOT CLAIMED'
-      - name: Preserve screenshots, traces and physical test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dealer-native-physical-${{ github.sha }}
-          if-no-files-found: ignore
-          retention-days: 14
-          path: |
-            web/test-results/
-            web/playwright-report/
-
-          echo 'DEALER_NATIVE_MALWARE_SCANNER_READY: signature-backed scan passed'
-      - name: Install headless Chromium for physical viewport and role UAT
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd web
-          npx playwright install --with-deps chromium
-      - name: Boot real native PG/PostgREST, Express, Vite and run browser tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker run -d --name carup-dealer-ci-postgrest --network host \
-            -e PGRST_DB_URI=postgresql://postgres@127.0.0.1:5432/carup_dealer_isolated_ci \
-            -e PGPASSWORD="${PGPASSWORD}" \
-            -e PGRST_DB_SCHEMAS=public \
-            -e PGRST_DB_ANON_ROLE=anon \
-            -e PGRST_JWT_SECRET="${DEALER_BROWSER_LOCAL_JWT_SECRET}" \
-            -e PGRST_SERVER_HOST=127.0.0.1 \
-            -e PGRST_SERVER_PORT=3004 \
-            postgrest/postgrest:v12.2.8 >/dev/null
-          node backend/scripts/dealership/runSyntheticLocalPostgrestBridge.mjs > "${RUNNER_TEMP}/postgrest-bridge.log" 2>&1 &
-          BRIDGE_PID=$!
-          set -a
-          . "${RUNNER_TEMP}/carup-dealer-browser.env"
-          set +a
-          SUPABASE_URL=http://127.0.0.1:54321 NODE_ENV=development \
-            JWT_SECRET="${DEALER_BROWSER_LOCAL_JWT_SECRET}" \
-            CARUP_ENV=local CARUP_ALLOW_X_USER_ID_FALLBACK=false PORT=3001 \
-            node backend/server.js > "${RUNNER_TEMP}/real-dealer-api.log" 2>&1 &
-          API_PID=$!
-          (
-            cd web
-            VITE_API_URL=http://127.0.0.1:3001/api \
-              npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
-          ) > "${RUNNER_TEMP}/real-dealer-vite.log" 2>&1 &
-          WEB_PID=$!
-          cleanup(){
-            code=$?
-            if [ "${code}" -ne 0 ]; then
-              echo 'PARTIAL_NATIVE_BROWSER_GATE_FAILED: inspect backend/frontend/runtime logs and evidence'
-              for file in real-dealer-api.log real-dealer-vite.log postgrest-bridge.log; do
-                echo "== ${file} (last 80 lines) =="
-                tail -n 80 "${RUNNER_TEMP}/${file}" || true
-              done
-              docker logs --tail 80 carup-dealer-ci-postgrest || true
-            fi
-            kill "${BRIDGE_PID}" "${API_PID}" "${WEB_PID}" 2>/dev/null || true
-            docker rm -f carup-dealer-ci-postgrest >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          for attempt in $(seq 1 75); do
-            if curl -fsS 'http://127.0.0.1:3001/api/dealership/research' \
-                > "${RUNNER_TEMP}/local-directory-read.json" 2>/dev/null; then
-              break
-            fi
-            sleep 2
-          done
-          node - <<'NODE'
-          const fs=require('node:fs')
-          const directory=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/local-directory-read.json','utf8'))
-          if(directory.total!==1||directory.entries?.[0]?.seed_dealer_id!=='ZW-DEAL-0001'
-            ||directory.entries[0].business_verified!==false){
-            // Public, fictional data only: diagnostic must not dump private sources or sessions.
-            console.error('NATIVE_BROWSER_PUBLIC_RESPONSE_SHAPE',
-              JSON.stringify({total:directory.total,entries:directory.entries?.map(e=>({
-                id:e.seed_dealer_id,tier:e.tier,business_verified:e.business_verified
-              })),keys:Object.keys(directory)}))
-            throw Error('Native browser bootstrap did not return one real SQL-backed fictional prelisting')
-          }
-          console.log('NATIVE_BROWSER_API_DATA_READY: one reviewed fictional unclaimed profile; 103 still private')
-          NODE
-          curl -fsS http://127.0.0.1:5173/dealers >/dev/null
-          cd web
-          npx playwright test --config playwright.dealer-native-physical.config.ts
-          echo 'DEALER_NATIVE_BROWSER_PARTIAL_RESULT PASS: real CarUp browser, localhost PostgreSQL 17, distinct synthetic claimant/reviewer sessions; full golden approval/release NOT CLAIMED'
       - name: Preserve screenshots, traces and physical test results
         if: always()
         uses: actions/upload-artifact@v4
