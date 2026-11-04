@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname,join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
+import pg from 'pg';
 const ROOT=join(dirname(fileURLToPath(import.meta.url)),'..','migrations');
 const names=[
   '20261103120000_dealer_research_seed_candidates.sql',
@@ -36,9 +37,27 @@ const read=(name)=>{
     down:all.slice(down).replace('-- +migrate Down',''),
   };
 };
-const db=new PGlite();
+// Native PostgreSQL is permitted ONLY in a newly created disposable localhost
+// database. An arbitrary shared, staging or production connection is refused.
+const nativeUrl=process.env.DEALER_ISOLATED_POSTGRES_URL||'';
+const native=Boolean(nativeUrl);
+if(native){
+  const parsed=new URL(nativeUrl);
+  if(!['postgres:','postgresql:'].includes(parsed.protocol)||
+     !['127.0.0.1','localhost','[::1]'].includes(parsed.hostname)||
+     parsed.pathname!=='/carup_dealer_isolated_ci'||
+     parsed.search||parsed.hash){
+    throw new Error('ISOLATED_LOOPBACK_POSTGRES_CI_DATABASE_REQUIRED');
+  }
+  if(process.env.DEALER_SEED_DATABASE_URL || process.env.CARUP_DEALER_RESEARCH_XLSX)
+    throw new Error('NATIVE_SYNTHETIC_PROOF_MUST_NOT_USE_REAL_SOURCE_IMPORT_CONFIG');
+}
+const db=native?new pg.Client({
+  connectionString:nativeUrl,ssl:false,application_name:'carup-dealer-isolated-synthetic'
+}):new PGlite();
+if(native)await db.connect();
 let fatalError=null;
-async function exec(sql){return db.exec(sql)}
+async function exec(sql){return native?db.query(sql):db.exec(sql)}
 async function query(sql,args=[]){return db.query(sql,args)}
 async function fails(sql,phrase){
   let error=null;
@@ -50,6 +69,12 @@ function uuid(i){return `00000000-0000-4000-8000-${String(i).padStart(12,'0')}`;
 const reviewer='reviewer1',claimant='claimant1',outsider='claimant2';
 const sha='a'.repeat(64),workbook='b'.repeat(64),workbook2='c'.repeat(64);
 try{
+  if(native){
+    const v=await query('SHOW server_version_num');
+    const code=Number(v.rows[0].server_version_num);
+    assert.ok(code>=170000&&code<180000,'Native PostgreSQL 17 required, observed '+code);
+    console.log('DEALER_NATIVE_POSTGRES_VERSION',code);
+  }
   await exec(`
     DO $$ BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     DO $$ BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -834,10 +859,11 @@ try{
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
-  console.log('DEALER_PGLITE_RESULT PASS: 16 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
+  console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
+    '16 migration apply/rollback/reapply, no anon private read, independent review, dispute, appeal and versioned intake');
 }catch(error){
-  console.error('DEALER_PGLITE_RESULT FAIL',error);
+  console.error(native?'DEALER_NATIVE_POSTGRES_RESULT FAIL':'DEALER_PGLITE_RESULT FAIL',error);
   fatalError=error;
-}finally{await db.close()}
+}finally{if(native)await db.end();else await db.close()}
 // A caught migration error MUST terminate GitHub CI as a failing step.
 if(fatalError)throw fatalError;
