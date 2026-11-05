@@ -95,11 +95,12 @@ try{
  assert.equal(vin.rows[0].publication_status,'draft',
    'synthetic stock must remain unpublished and without seller authority');
  assert.equal(Number(vin.rows[0].price),0,'no real sale or price');
- const privateNew=await db.query(`SELECT vin,tenant_id,publication_status,
+ const privateNew=await db.query(`SELECT vin,tenant_id,status,publication_status,
     price,owner_id,current_seller_type FROM vehicles WHERE vin=$1`,
     ['TEST0000000000002']);
  assert.equal(privateNew.rowCount,1,'physical owner must create second canonical VIN');
  assert.equal(String(privateNew.rows[0].tenant_id),f.synthetic_operations.tenant_id);
+ assert.equal(privateNew.rows[0].status,'Pending');
  assert.equal(privateNew.rows[0].publication_status,'draft');
  assert.equal(Number(privateNew.rows[0].price),0);
  assert.equal(privateNew.rows[0].owner_id,null);

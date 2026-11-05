@@ -93,7 +93,7 @@ export function parseCanonicalDealerPrivateDraft(payload={}){
     throw refuse('INVALID_PRIVATE_DRAFT_SPECIFICATION',400);
   // Explicit hardcoded deny-by-default; do NOT spread untrusted payload.
   return Object.freeze({vin,make,model,year,
-    mileage:0,price:0,status:'Available',publication_status:'draft',
+    mileage:0,price:0,status:'Pending',publication_status:'draft',
     owner_id:null,current_seller_type:null,
     import_source:null,duty_paid:false,police_verified:false});
 }
@@ -107,12 +107,12 @@ export async function recordMyCanonicalDealerPrivateDraft(actor,payload={},{
   const clean=parseCanonicalDealerPrivateDraft(payload);
   const {data,error}=await db.from('vehicles')
     .insert({...clean,tenant_id:owner.tenant_id})
-    .select('vin,tenant_id,publication_status,price,owner_id,current_seller_type')
+    .select('vin,tenant_id,status,publication_status,price,owner_id,current_seller_type')
     .single();
   if(error?.code==='23505')throw refuse('CANONICAL_PRIVATE_DRAFT_VIN_ALREADY_EXISTS',409);
   if(error||!data)throw refuse('CANONICAL_PRIVATE_DRAFT_WRITE_UNCONFIRMED',503);
   if(data.tenant_id!==owner.tenant_id||data.vin!==clean.vin||
-    data.publication_status!=='draft'||Number(data.price)!==0||
+    data.status!=='Pending'||data.publication_status!=='draft'||Number(data.price)!==0||
     data.owner_id!=null||data.current_seller_type!=null)
     throw refuse('CANONICAL_PRIVATE_DRAFT_READBACK_INVARIANT_FAILED',503);
   return Object.freeze({

@@ -109,9 +109,9 @@ test('C17 a canonical owner can register PRIVATE draft stock only, without any r
   return {insert(row){
     written=row;
     return {select(cols){
-      assert.equal(cols,'vin,tenant_id,publication_status,price,owner_id,current_seller_type');
+      assert.equal(cols,'vin,tenant_id,status,publication_status,price,owner_id,current_seller_type');
       return {single:async()=>({data:{
-        vin:row.vin,tenant_id:row.tenant_id,
+        vin:row.vin,tenant_id:row.tenant_id,status:row.status,
         publication_status:row.publication_status,
         price:row.price,owner_id:row.owner_id,
         current_seller_type:row.current_seller_type,
@@ -131,6 +131,7 @@ test('C17 a canonical owner can register PRIVATE draft stock only, without any r
  assert.equal(outcome.merchant_payment_enabled,false);
  assert.equal(outcome.independent_per_vin_seller_review_required,true);
  assert.equal(written.tenant_id,tenant);
+ assert.equal(written.status,'Pending');
  assert.equal(written.publication_status,'draft');
  assert.equal(written.price,0);
  assert.equal(written.duty_paid,false);

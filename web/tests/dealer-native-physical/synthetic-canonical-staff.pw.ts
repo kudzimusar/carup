@@ -211,11 +211,13 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
     'x-session-token':f.actors.claimant.token}})
   expect(afterDraft.status()).toBe(200)
   const privateInventory=await afterDraft.json() as {inventory:{entries:Array<{
-   vin:string;recorded_marketplace_publication_state:string;
+   vin:string;recorded_lifecycle_state:string;
+   recorded_marketplace_publication_state:string;
    seller_authority:string;public_listing_approved_by_this_read:boolean}>}}
   const newlyRegistered=privateInventory.inventory.entries.find(v=>
    v.vin==='TEST0000000000002')
   expect(newlyRegistered).toBeTruthy()
+  expect(newlyRegistered?.recorded_lifecycle_state).toBe('Pending')
   expect(newlyRegistered?.recorded_marketplace_publication_state).toBe('draft')
   expect(newlyRegistered?.public_listing_approved_by_this_read).toBe(false)
   const createdShot=info.outputPath('fictional-owner-created-second-real-private-vin.png')
