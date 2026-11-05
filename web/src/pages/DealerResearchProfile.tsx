@@ -38,6 +38,37 @@ type RepresentativeRelationship =
 const API = resolveApiBaseUrl(import.meta.env.VITE_API_URL,
   typeof window === 'undefined' ? undefined : window.location.hostname)
 
+/**
+ * Stable public canonical metadata. Research prelisting is NOT business, OEM,
+ * VIN, title or payment certification. A previously claimed, currently
+ * unapproved storefront is noindex to prevent misleading stale snippets.
+ */
+function applyDealerPublicSeo(profile:ResearchProfile|null){
+ if(typeof document==='undefined')return
+ document.querySelectorAll('[data-carup-dealer-seo="true"]').forEach(node=>node.remove())
+ const robots=document.createElement('meta')
+ robots.name='robots'
+ robots.content=profile?.business_verified?'index,follow':
+  profile?.claimed?'noindex,follow':profile?'index,follow':'noindex,follow'
+ robots.setAttribute('data-carup-dealer-seo','true')
+ document.head.appendChild(robots)
+ if(!profile)return
+ const trust=profile.business_verified?
+  'Independently reviewed dealership; individual VINs, affiliations and payments remain separate':
+  profile.claimed?
+  'An approved claim exists but full public legal dealership verification is not current':
+  'Research listing only; legal ownership, operation and stock are not independently verified'
+ const description=document.createElement('meta')
+ description.name='description'
+ description.content=profile.name+' in '+profile.city+', Zimbabwe. '+trust+'. CarUp published research subject to correction.'
+ description.setAttribute('data-carup-dealer-seo','true')
+ document.head.appendChild(description)
+ const canonical=document.createElement('link')
+ canonical.rel='canonical'
+ canonical.href=window.location.origin+'/dealers/'+encodeURIComponent(profile.slug)
+ canonical.setAttribute('data-carup-dealer-seo','true')
+ document.head.appendChild(canonical)
+}
 /** The same stable URL is retained when a full approved dealer eventually upgrades this profile. */
 export default function DealerResearchProfile({ claimMode = false }: { claimMode?: boolean }) {
   const { seedId } = useParams<{seedId: string}>()
@@ -57,9 +88,18 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
   useEffect(() => {
     const key = seedId?.toUpperCase()
     let active = true
+    const originalTitle=typeof document==='undefined'?'':document.title
+    const cleanup=()=>{
+      active=false
+      if(typeof document!=='undefined'){
+        document.querySelectorAll('[data-carup-dealer-seo="true"]').forEach(node=>node.remove())
+        document.title=originalTitle
+      }
+    }
     if (!key || !/^ZW-DEAL-\d{4}$/.test(key)) {
       void Promise.resolve().then(()=>{if(active)setLoaded('missing')})
-      return()=>{active=false}
+      applyDealerPublicSeo(null)
+      return cleanup
     }
     void Promise.resolve().then(()=>{if(active)setLoaded('loading')})
     apiRequest<{profile: ResearchProfile}>({
@@ -87,14 +127,16 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
           ' · Reviewed dealer storefront · CarUp':
            result.profile.claimed?' · Claim recorded; public approval unavailable · CarUp':
            ' · Unclaimed research · CarUp dealers')
+        applyDealerPublicSeo(result.profile)
       }
     }).catch((error: unknown) => {
       if (!active) return
       const status = error && typeof error === 'object' && 'status' in error
         ? (error as {status?: number}).status : undefined
       setLoaded(status === 404 ? 'missing' : 'error')
+      applyDealerPublicSeo(null)
     })
-    return () => { active = false }
+    return cleanup
   }, [seedId])
 
   async function submitClaim(event: FormEvent<HTMLFormElement>) {
