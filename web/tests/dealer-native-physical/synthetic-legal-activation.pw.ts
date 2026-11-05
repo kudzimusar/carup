@@ -321,7 +321,8 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await expect(publicPage.locator('meta[name="description"][data-carup-dealer-seo="true"]'))
   .toHaveAttribute('content',/Independently reviewed dealership/)
  await expect(publicPage.locator('link[rel="canonical"][data-carup-dealer-seo="true"]'))
-  .toHaveAttribute('href',new RegExp('/dealers/'+fixture.public_slug+'
+  .toHaveAttribute('href',new RegExp('/dealers/'+fixture.public_slug+'$'))
+ await expect(publicPage.getByRole('heading',{name:'Reviewed dealership branches'}))
   .toBeVisible({timeout:35000})
  await expect(publicPage.getByText(
   'Legal dealership and currently active operating authority were independently reviewed.',

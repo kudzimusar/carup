@@ -81,7 +81,8 @@ test('synthetic full public retraction preserves existing corporate claim and st
  await expect(publicPage.locator('meta[name="description"][data-carup-dealer-seo="true"]'))
   .toHaveAttribute('content',/full public legal dealership verification is not current/)
  await expect(publicPage.locator('link[rel="canonical"][data-carup-dealer-seo="true"]'))
-  .toHaveAttribute('href',new RegExp('/dealers/'+f.public_slug+'
+  .toHaveAttribute('href',new RegExp('/dealers/'+f.public_slug+'$'))
+ await expect(publicPage.getByRole('heading',{name:'Reviewed dealership branches'}))
   .toHaveCount(0)
  await expect(publicPage.getByRole('heading',{name:'BUYER ASSURANCE'}))
   .toHaveCount(0)
