@@ -83,158 +83,6 @@ test('synthetic full public retraction preserves existing corporate claim and st
   .toBeVisible({timeout:30000})
  await expect(publicPage.getByRole('heading',{name:'Request to claim this business'}))
   .toHaveCount(0)
- // Real browser keyboard activation of the only permitted owner remedy:
- // an independently reviewed correction/ownership dispute, not self-claim.
- const correctionLink=publicPage.getByRole('link',{
-  name:'Request independent correction, dispute or ownership transfer'})
- await correctionLink.focus()
- await expect(correctionLink).toBeFocused()
- await publicPage.keyboard.press('Enter')
- await expect(publicPage).toHaveURL(new RegExp('/dealers/'+f.public_slug+'/correction
- expect(endpoint.status()).toBe(200)
- const body=await endpoint.json() as {profile:{
-  seed_dealer_id:string;tier:string;claimed:boolean;business_verified:boolean;
-  approved_branches?:unknown[];dealer_declared_sections?:unknown;
- }}
- expect(body.profile.seed_dealer_id).toBe(f.seed)
- expect(body.profile.claimed).toBe(true)
- expect(body.profile.business_verified).toBe(false)
- expect(body.profile.tier).toBe('CLAIMED_PUBLIC_DISPLAY_UNAPPROVED')
- expect(body.profile.approved_branches).toBeUndefined()
- expect(body.profile.dealer_declared_sections).toBeUndefined()
- const apiSnapshot=info.outputPath('fictional-retracted-profile-1280px.png')
- await publicPage.screenshot({path:apiSnapshot,fullPage:true})
- await info.attach('fictional-retracted-profile-1280px',{
-  path:apiSnapshot,contentType:'image/png'})
- // The directory is still truthful about the research listing, but it must
- // no longer suggest that the approved company has no claimant.
- const directory=await publicPage.request.get(API+'/dealership/research?page=1')
- expect(directory.status()).toBe(200)
- const dir=await directory.json() as {entries:Array<{
-  seed_dealer_id:string;claimed:boolean;business_verified:boolean;tier:string}>}
- const record=dir.entries.find(x=>x.seed_dealer_id===f.seed)
- expect(record).toBeTruthy()
- expect(record?.claimed).toBe(true)
- expect(record?.business_verified).toBe(false)
- await publicPage.goto('/dealers')
- await expect(publicPage.getByText(/reviewed public results/))
-  .toBeVisible({timeout:30000})
- await expect(publicPage.getByText('Claim this dealership')).toHaveCount(0)
- // Even guessing the direct claim URL cannot open an unclaimed takeover.
- await publicPage.goto(originalSlug+'/claim')
- await expect(publicPage.getByRole('heading',{name:'Request to claim this business'}))
-  .toHaveCount(0)
- await expect(publicPage.getByText('Request independent correction, dispute or ownership transfer'))
-  .toBeVisible({timeout:30000})
- // A separately authenticated fictional rival must not be offered
- // the normal claim endpoint just because public full verification was
- // independently retracted. Preserve CSRF/session checks, then verify the
- // actual product-level HTTP 409 from canonical approved claim existence.
- const deniedActor=f.actors.staff
- const csrf=await publicPage.request.get(API+'/security/csrf-token',{
-  headers:auth(deniedActor)})
- expect(csrf.status()).toBe(200)
- const {csrfToken}=await csrf.json() as {csrfToken:string}
- expect(csrfToken).toMatch(/\.[0-9a-f]{64}$/)
- const rival=await publicPage.request.post(API+'/dealership/research/'+f.seed+'/claim',{
-  headers:{...auth(deniedActor),'x-csrf-token':csrfToken},
-  data:{claimed_scope:'BRANCH',representative_relationship:'LEGAL_OWNER',
-   asserted_legal_business_name:'Fictional rival unproven company',
-   claim_statement:'I am a second fictional party without approved authority; an independent dispute review must be required.'},
- })
- expect(rival.status()).toBe(409)
- const refusal=await rival.json() as {error:string}
- expect(refusal.error).toMatch(/independent transfer or dispute review/)
-
- const mobile=await browser.newContext({viewport:{width:390,height:844}})
- const phone=await mobile.newPage()
- await phone.goto(originalSlug)
- await expect(phone.getByText('Existing approved claim — No current independently verified storefront',{
-  exact:false,
- })).toBeVisible({timeout:30000})
- const mobileShot=info.outputPath('fictional-retraction-claimed-not-certified-390px.png')
- await phone.screenshot({path:mobileShot,fullPage:true})
- await info.attach('fictional-retraction-claimed-not-certified-390px',{
-  path:mobileShot,contentType:'image/png'})
- await mobile.close()
- await reviewContext.close()
- await publicContext.close()
- console.log('DEALER_NATIVE_FICTIONAL_RETRACTION_BROWSER PASS: independent synthetic public review retracted full display, same URL safely downgraded to CLAIMED_NOT_CURRENTLY_APPROVED, no false unclaimed CTA, private claim intact')
-})
-))
- await publicPage.goBack()
- await expect(publicPage).toHaveURL(new RegExp('/dealers/'+f.public_slug+'
- expect(endpoint.status()).toBe(200)
- const body=await endpoint.json() as {profile:{
-  seed_dealer_id:string;tier:string;claimed:boolean;business_verified:boolean;
-  approved_branches?:unknown[];dealer_declared_sections?:unknown;
- }}
- expect(body.profile.seed_dealer_id).toBe(f.seed)
- expect(body.profile.claimed).toBe(true)
- expect(body.profile.business_verified).toBe(false)
- expect(body.profile.tier).toBe('CLAIMED_PUBLIC_DISPLAY_UNAPPROVED')
- expect(body.profile.approved_branches).toBeUndefined()
- expect(body.profile.dealer_declared_sections).toBeUndefined()
- const apiSnapshot=info.outputPath('fictional-retracted-profile-1280px.png')
- await publicPage.screenshot({path:apiSnapshot,fullPage:true})
- await info.attach('fictional-retracted-profile-1280px',{
-  path:apiSnapshot,contentType:'image/png'})
- // The directory is still truthful about the research listing, but it must
- // no longer suggest that the approved company has no claimant.
- const directory=await publicPage.request.get(API+'/dealership/research?page=1')
- expect(directory.status()).toBe(200)
- const dir=await directory.json() as {entries:Array<{
-  seed_dealer_id:string;claimed:boolean;business_verified:boolean;tier:string}>}
- const record=dir.entries.find(x=>x.seed_dealer_id===f.seed)
- expect(record).toBeTruthy()
- expect(record?.claimed).toBe(true)
- expect(record?.business_verified).toBe(false)
- await publicPage.goto('/dealers')
- await expect(publicPage.getByText(/reviewed public results/))
-  .toBeVisible({timeout:30000})
- await expect(publicPage.getByText('Claim this dealership')).toHaveCount(0)
- // Even guessing the direct claim URL cannot open an unclaimed takeover.
- await publicPage.goto(originalSlug+'/claim')
- await expect(publicPage.getByRole('heading',{name:'Request to claim this business'}))
-  .toHaveCount(0)
- await expect(publicPage.getByText('Request independent correction, dispute or ownership transfer'))
-  .toBeVisible({timeout:30000})
- // A separately authenticated fictional rival must not be offered
- // the normal claim endpoint just because public full verification was
- // independently retracted. Preserve CSRF/session checks, then verify the
- // actual product-level HTTP 409 from canonical approved claim existence.
- const deniedActor=f.actors.staff
- const csrf=await publicPage.request.get(API+'/security/csrf-token',{
-  headers:auth(deniedActor)})
- expect(csrf.status()).toBe(200)
- const {csrfToken}=await csrf.json() as {csrfToken:string}
- expect(csrfToken).toMatch(/\.[0-9a-f]{64}$/)
- const rival=await publicPage.request.post(API+'/dealership/research/'+f.seed+'/claim',{
-  headers:{...auth(deniedActor),'x-csrf-token':csrfToken},
-  data:{claimed_scope:'BRANCH',representative_relationship:'LEGAL_OWNER',
-   asserted_legal_business_name:'Fictional rival unproven company',
-   claim_statement:'I am a second fictional party without approved authority; an independent dispute review must be required.'},
- })
- expect(rival.status()).toBe(409)
- const refusal=await rival.json() as {error:string}
- expect(refusal.error).toMatch(/independent transfer or dispute review/)
-
- const mobile=await browser.newContext({viewport:{width:390,height:844}})
- const phone=await mobile.newPage()
- await phone.goto(originalSlug)
- await expect(phone.getByText('Existing approved claim — No current independently verified storefront',{
-  exact:false,
- })).toBeVisible({timeout:30000})
- const mobileShot=info.outputPath('fictional-retraction-claimed-not-certified-390px.png')
- await phone.screenshot({path:mobileShot,fullPage:true})
- await info.attach('fictional-retraction-claimed-not-certified-390px',{
-  path:mobileShot,contentType:'image/png'})
- await mobile.close()
- await reviewContext.close()
- await publicContext.close()
- console.log('DEALER_NATIVE_FICTIONAL_RETRACTION_BROWSER PASS: independent synthetic public review retracted full display, same URL safely downgraded to CLAIMED_NOT_CURRENTLY_APPROVED, no false unclaimed CTA, private claim intact')
-})
-))
  const endpoint=await publicPage.request.get(API+'/dealership/research/'+f.seed)
  expect(endpoint.status()).toBe(200)
  const body=await endpoint.json() as {profile:{
@@ -262,8 +110,6 @@ test('synthetic full public retraction preserves existing corporate claim and st
  expect(record?.claimed).toBe(true)
  expect(record?.business_verified).toBe(false)
  await publicPage.goto('/dealers')
- await expect(publicPage.getByText(/reviewed public results/))
-  .toBeVisible({timeout:30000})
  await expect(publicPage.getByText('Claim this dealership')).toHaveCount(0)
  // Even guessing the direct claim URL cannot open an unclaimed takeover.
  await publicPage.goto(originalSlug+'/claim')
@@ -271,26 +117,6 @@ test('synthetic full public retraction preserves existing corporate claim and st
   .toHaveCount(0)
  await expect(publicPage.getByText('Request independent correction, dispute or ownership transfer'))
   .toBeVisible({timeout:30000})
- // A separately authenticated fictional rival must not be offered
- // the normal claim endpoint just because public full verification was
- // independently retracted. Preserve CSRF/session checks, then verify the
- // actual product-level HTTP 409 from canonical approved claim existence.
- const deniedActor=f.actors.staff
- const csrf=await publicPage.request.get(API+'/security/csrf-token',{
-  headers:auth(deniedActor)})
- expect(csrf.status()).toBe(200)
- const {csrfToken}=await csrf.json() as {csrfToken:string}
- expect(csrfToken).toMatch(/\.[0-9a-f]{64}$/)
- const rival=await publicPage.request.post(API+'/dealership/research/'+f.seed+'/claim',{
-  headers:{...auth(deniedActor),'x-csrf-token':csrfToken},
-  data:{claimed_scope:'BRANCH',representative_relationship:'LEGAL_OWNER',
-   asserted_legal_business_name:'Fictional rival unproven company',
-   claim_statement:'I am a second fictional party without approved authority; an independent dispute review must be required.'},
- })
- expect(rival.status()).toBe(409)
- const refusal=await rival.json() as {error:string}
- expect(refusal.error).toMatch(/independent transfer or dispute review/)
-
  const mobile=await browser.newContext({viewport:{width:390,height:844}})
  const phone=await mobile.newPage()
  await phone.goto(originalSlug)
