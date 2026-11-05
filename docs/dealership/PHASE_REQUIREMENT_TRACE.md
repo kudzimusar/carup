@@ -265,74 +265,19 @@ Every phase must reread controlling plan and workbook. `NONE` and `NOT_IMPLEMENT
 | ZW-DEAL-0104 | 111 | Beitbridge | Importer / bonded / clearing claim | PENDING_REVIEW | UNREVIEWED_GROUPING | NOT_PUBLISHED |
 
 
-## Additional implementation commits — bounded current source
+## R3 governing source and release snapshot — replaces obsolete R1 gap tables
 
-- Research/public review security: `database/migrations/20261103121000_dealer_research_review_and_claim_intake.sql`;
-  `backend/services/dealer/dealerResearchService.js`;
-  `backend/routes/dealerResearchRoutes.js` mounted under the **existing** `backend/routes/dealerRoutes.js`.
-- Source-safety correction/removal queue: `database/migrations/20261103122000_dealer_research_correction_requests.sql`;
-  `web/src/pages/DealerResearchCorrection.tsx`.
-- Public UI: `web/src/pages/DealerDirectory.tsx` uses only human-reviewed safe research projection;
-  `web/src/pages/DealerResearchProfile.tsx` preserves unclaimed status and the correction and claim actions.
-  The source review function is DB-atomic and appends an immutable decision event.
-- Claim intake is **AWAITING_DOCUMENTARY_EVIDENCE ONLY**, with no path to APPROVED;
-  no new role, tenant, organization or private workbook entitlement is created.
-- Blank new-business customer XLSX generator `backend/services/dealer/dealerIntakeWorkbook.js`;
-  12 customer-facing tabs from DEV3, explicit dispositions for the 40 original Dealer Profile Intake fields,
-  and private-source/authority denial. **It is not dealer-specific prefilled export and there is no upload parser.**
-- The GitHub repository is **PUBLIC**. To prevent source-contact/privacy disclosure,
-  **the 104 raw names, ownership/principal, phone, email and website fields were NOT committed**.
-  The importer reads the original attached XLSX at execution time; no private data is put in Git history.
-- Dedicated CI is offline/synthetic, with npm CI, dealership tests, TypeScript and web build.
-  Latest exact-head success must be checked on GitHub before any certification claim.
+The previous source-only checkpoint's `NOT IMPLEMENTED` entries for claim approval, prefilled Excel, OCR, activation, the dealer dashboard, staff, canonical inventory and full storefront are superseded by the actual R3 implementation and **historical fictional browser evidence**. They must no longer appear as current statuses. Their original text remains recoverable in prior Git commits.
 
-### C01–C25 capability truth at this checkpoint
+- **Primary current phase truth:** D0–D11 rows above and the matching C01–C25 rows in `DEV4_C01_C25_ENGINEERING_COVERAGE_2026-11-04.md`.
+- **Owner's complete acceptance truth:** `DEV7_DEV10_67_CASE_ACCEPTANCE_MATRIX_2026-11-04.md` (42 T-cases, 25 S-cases, 46 NOT_RUN, 21 BLOCKED_EXTERNAL_AUTHORITY, zero independent PASS).
+- **Engineering history:** historic complete 11/11 fictional physical browser [41967595608](https://github.com/kudzimusar/carup/actions/runs/41967595608) included claim-specific prefilled XLSX, real private Storage/ClamAV, independent synthetic legal+activation, owner dashboard, branch-scoped staff, private canonical VIN and lead, transaction-linked private feedback, stable full URL and independent public retraction. That historical run used a PR-generated merge checkout; literal branch-head pinning was subsequently added and must be separately certified.
+- **Current proven source/DB:** exact branch SHA `09d27b77a0c199420c598ecb85a4edfb5e284cea`, source/contract CI [42025492827](https://github.com/kudzimusar/carup/actions/runs/42025492827), native PostgreSQL 17 CI [42025492912](https://github.com/kudzimusar/carup/actions/runs/42025492912), and main CI [42025492563](https://github.com/kudzimusar/carup/actions/runs/42025492563) PASS. Literal-head physical run [42025492515](https://github.com/kudzimusar/carup/actions/runs/42025492515) is NOT CERTIFIED by this earlier note.
+- **New further candidate, not yet accepted:** private owner-only canonical VIN corrections and explicit unverified odometer, exact-tenant and lifecycle guards, signed staff denial, public VIN non-discoverability (twelfth synthetic browser case). No buyer/public listing/title/Seller Authority/payment rights implied.
+- **Source custody blocker:** original 20-tab Owner XLSX exists by exact title in CarUp Library (175,756 bytes), but its raw bytes cannot currently be materialized into this execution environment. Expected SHA `a9a6ac6f68bed5266c6870958520105fc1c69f75dd80f7020839e8d5fdd4b137` is frozen authority, **not** reverified here. The required exact-checksum 104-real-record private PostgreSQL import remains BLOCKED_SOURCE_ACCESS; the separately re-exported Google Sheet and 104 fictional records cannot substitute.
+- **External policy gates:** independently licensed real dealer/company evidence, current jurisdiction rules, logo rights, genuine vehicle title/seller reviews, actual dealer pilot, pricing, connected PAY03B/PAY05 provider authority and any live money remain strictly blocked.
 
-| Capability | Status | Verified scope |
-|---|---|---|
-| C01 Seed discovery/claim | PARTIAL | Research source identity, unclaimed public read and pending-evidence claim, **no claim approval** |
-| C02 Prefilled claim-bound workbook | BLOCKED | Blank 12-sheet registry/template only, **no approved-claim prefill/roundtrip** |
-| C03 Existing-data migration | NOT IMPLEMENTED | Source research parser is not general XLSX/CSV migration |
-| C04 AI field mapping | NOT IMPLEMENTED | No authoritative AI mapping or human mapping gate |
-| C05 Governed OCR | NOT IMPLEMENTED | Existing Document Intelligence remains; no dealer reconnection |
-| C06 Intelligent validation | PARTIAL | Source structural validation and field registry only |
-| C07 Save/resume | NOT IMPLEMENTED | Claim interest persisted only; no full intake draft |
-| C08 Legal verification | NOT IMPLEMENTED | No independently checked company |
-| C09 Conditional regulation | NOT IMPLEMENTED | Legal jurisdiction/issuer review not integrated |
-| C10 Independent approval | PARTIAL | Research-only reviewer function; not legal ownership/compliance |
-| C11 Organization/tenant activation | NOT IMPLEMENTED | No activation authority added |
-| C12 Compliance lifecycle | PARTIAL | Existing service P0 publication/complaints gates corrected, but full event integration lacking |
-| C13 Full operating profile | NOT IMPLEMENTED | Workbook schema only |
-| C14 Multi-branch | NOT IMPLEMENTED | Branch workbook schema only, no reviewed parent/branch graph |
-| C15 Dealer dashboard | NOT IMPLEMENTED | Existing dashboard not upgraded/certified |
-| C16 Staff permissions | NOT IMPLEMENTED | Existing Corporate/AUTH untouched |
-| C17 VIN inventory | NOT IMPLEMENTED | No new dealer/vehicle integration |
-| C18 Public directory | PARTIAL | Governed unclaimed research projection + UI; no approved dealer combined results |
-| C19 Upgradeable public page | PARTIAL | Stable seed URL and unclaimed starter page; full upgrade missing |
-| C20 Buyer assurance | NOT IMPLEMENTED | Workbook candidate policy fields only |
-| C21 Finance disclosures | NOT IMPLEMENTED | Workbook candidate policy fields only |
-| C22 Warranty/after-sales | NOT IMPLEMENTED | Workbook candidate policy fields only |
-| C23 Genuine reviews/complaints | PARTIAL | Removes fabricated zero; no measured complaint data |
-| C24 Commercial subscriptions/Paynow | BLOCKED | PAY-03B and PAY-05 unchanged; unpriced/unapproved, no live charges |
-| C25 International jurisdiction | NOT IMPLEMENTED | Workbook country candidate only, no jurisdiction policy engine |
-
-**Release/merge/prices/real provider/independent certification: BLOCKED.**
-
-## Acceptance blockers
-
-- `GOVERNANCE`: no 104 human source/publication reviews. Therefore **no public profiles may be auto-created** from source ingestion.
-- `IMPLEMENTATION`: claim, prefilled workbook, OCR, independent activation, real dealer dashboard, public dual projection and services are not finished.
-- `RUNTIME`: local PostgreSQL migration, physical importer readback, node tests, exact-head CI and browser UAT not executed from this session.
-- `FINANCE`: legal CarUp merchant/prices/provider evidence unavailable; no real Paynow/Stripe action authorized.
-- `RELEASE`: never represent branch as independently certified or go-live ready.
-
-## Required continuation
-
-1. Apply SQL to **isolated local PostgreSQL only** after schema/RLS review; run importer in read-only mode with attached XLSX and match digest.
-2. Run `backend/tests/dealer-compliance.test.js` and `backend/tests/dealer-research-seed-contract.test.js` plus full existing regressions; repair any failing tests under exact-head custody.
-3. Only then execute importer with `--commit-local --expect-sha256=<attached XLSX sha256>` and explicit loopback `DEALER_SEED_DATABASE_URL`; verify 104 private rows and zero newly published profiles.
-4. Continue D2–D11 without ever treating initial research seeding or simulated payments as completion.
-
+**Release authority:** DO NOT MERGE, DEPLOY, PUBLISH REAL DEALERS OR ACTIVATE PAYMENTS. No shared/production database migrations.
 
 ## 4 November 2026 — LR01-R2 C14 engineering continuation (source-level)
 
