@@ -104,7 +104,7 @@ try{
   // New owner-only PRIVATE draft C17 write uses canonical vehicles under
   // a genuine Supabase service role. Only THIS disposable loopback DB needs
   // the production-equivalent write grant; no anon/authenticated permissions.
-  await db.query(`GRANT INSERT ON vehicles TO service_role`);
+  await db.query(`GRANT INSERT,UPDATE ON vehicles TO service_role`);
  // C23 live buyer-case candidate reads canonical escrow transactions through
  // the genuine service_role, not a fabricated frontend transaction array.
  // This is only the isolated disposable SQL harness; Supabase's production

@@ -36,7 +36,8 @@ import {
   listMyStaffBranches,listMyOwnerStaffBranchScopes,
   grantMyStaffBranchScope,revokeMyStaffBranchScope,editMyStaffBranch,
 } from '../services/dealer/dealerStaffBranchScopeService.js';
-import {getMyCanonicalDealerInventory,recordMyCanonicalDealerPrivateDraft}
+import {getMyCanonicalDealerInventory,recordMyCanonicalDealerPrivateDraft,
+  correctMyCanonicalDealerPrivateDraft}
   from '../services/dealer/dealerTenantInventoryReadService.js';
 import {getMyCanonicalDealerInquiries,advanceMyCanonicalDealerInquiry}
   from '../services/dealer/dealerTenantLeadReadService.js';
@@ -355,6 +356,22 @@ router.post('/api/dealer/operational-inventory/private-drafts',
     const draft=await recordMyCanonicalDealerPrivateDraft(
       req.userContext,req.body);
     res.set('Cache-Control','no-store').status(201).json({draft});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+
+// Correct only existing, currently non-public canonical tenant VIN draft
+// attributes. Source VIN, buyer/seller rights, payment, duty and Passport
+// authority remain outside this surface; no cross-tenant lookup is exposed.
+router.patch('/api/dealer/operational-inventory/private-drafts/:vin',
+  authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const draft=await correctMyCanonicalDealerPrivateDraft(
+      req.userContext,req.params.vin,req.body);
+    res.set('Cache-Control','no-store').json({draft});
   }catch(error){
     if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
       return res.status(error.statusCode).json({error:error.message});
