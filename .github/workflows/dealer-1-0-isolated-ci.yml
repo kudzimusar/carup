@@ -66,6 +66,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          # Pull requests normally checkout a synthetic merge SHA, which is
+          # NOT the actual branch commit. Pin the true immutable head instead.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact unmerged branch source SHA
+        env:
+          EXPECTED_DEALER_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_DEALER_SOURCE_HEAD"
+          echo "DEALER_EXACT_SOURCE_SHA PASS: $EXPECTED_DEALER_SOURCE_HEAD"
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
