@@ -135,6 +135,8 @@ jobs:
           # The job must fail if an internal harness error gets swallowed or
           # only prints FAIL; success status alone is not sufficient evidence.
           grep -q '^DEALER_PGLITE_RESULT PASS:' "${RUNNER_TEMP}/dealer-pglite-result.log"
+      - name: Verify exact 12 phases, 25 capabilities and 67 Owner acceptance outcomes
+        run: node backend/scripts/dealership/checkR3AcceptanceLedgers.mjs
       - name: Web TypeScript validation
         run: npx tsc --noEmit --project web/tsconfig.app.json
       - name: Web production build (artifact not deployed)
