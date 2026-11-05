@@ -2,6 +2,10 @@
 
 **Status: R3 INTEGRATED FICTIONAL GOLDEN JOURNEY PROVEN, FULL PRODUCT STILL INCOMPLETE — DO NOT MERGE, DEPLOY, PUBLISH REAL DEALERS OR ACTIVATE PAYMENTS.**
 
+## R3 C17 owner-managed canonical private VIN draft — pending exact-head certification
+
+The previous dealership inventory interface could read canonical tenant VIN rows but could not create them. An additive SOURCE CANDIDATE now provides signed legal-owner-only POST `/api/dealer/operational-inventory/private-drafts` and an actual web form. It inserts into existing `vehicles` only (no parallel stock system), hardcodes `publication_status=draft`, zero price, NULL owner/seller claims, unverified title/duty and no buyer/payment entitlement. Forged payload fields including publication and price are explicitly ignored, and VIN duplication, unverified owners and unknown tenants fail closed. The isolated browser scenario now plans a second fictional VIN created via the real owner UI and direct SQL readback after refresh. **This candidate is NOT yet a physically verified or independently certified inventory management capability.** Existing Marketplace/Seller Authority remains the only future source of publication/sale rights.
+
 ## R3 extended engineering custody — 5 November 2026 (unreleased candidate)
 
 - **Latest independently completed positive synthetic full journey:** exact source `1e2d4f2c665e0f00dc0ed11d2d3775b2889ed7b6`, [GitHub native-browser run 41849478579](https://github.com/kudzimusar/carup/actions/runs/41849478579), **10/10 PASS**: 7 prelegal real Chromium cases, fictional separate legal+activator and canonical tenant/owner, same stable 390/768/1280/1920 full storefront, member staff invite/accept/revoke + real private draft VIN + canonical lead, and private fictional escrow-linked buyer feedback + independent reviewer. All identities/policy/transactions are EXPLICITLY FICTIONAL and all app/database/storage/network requests genuine. This is an engineering milestone, NOT legal/provider/Owner acceptance.
