@@ -95,11 +95,15 @@ try{
  assert.equal(vin.rows[0].publication_status,'draft',
    'synthetic stock must remain unpublished and without seller authority');
  assert.equal(Number(vin.rows[0].price),0,'no real sale or price');
- const privateNew=await db.query(`SELECT vin,tenant_id,status,publication_status,
+ const privateNew=await db.query(`SELECT vin,make,model,year,mileage,tenant_id,status,publication_status,
     price,owner_id,current_seller_type FROM vehicles WHERE vin=$1`,
     ['TEST0000000000002']);
  assert.equal(privateNew.rowCount,1,'physical owner must create second canonical VIN');
  assert.equal(String(privateNew.rows[0].tenant_id),f.synthetic_operations.tenant_id);
+ assert.equal(privateNew.rows[0].make,'FICTIONAL');
+ assert.equal(privateNew.rows[0].model,'MODEL Y');
+ assert.equal(privateNew.rows[0].mileage,123999,'physical unverified odometer correction must persist');
+ assert.equal(privateNew.rows[0].year,2026);
  assert.equal(privateNew.rows[0].status,'Pending');
  assert.equal(privateNew.rows[0].publication_status,'draft');
  assert.equal(Number(privateNew.rows[0].price),0);
@@ -151,6 +155,9 @@ try{
   payments_or_seller_entitlements:false,
   owner_ui_created_second_canonical_private_draft:true,
   second_vin_persisted_and_unpublished:true,
+  owner_private_vin_correction_persisted:true,
+  dealer_declared_odometer_correction_unverified_123999km:true,
+  branch_scoped_staff_vin_correction_refused:true,
   branch_limited_staff_private_vehicle_create_refused:true,
   real_dealer_role_approval:false,
  },null,2)+'\n',{mode:0o600})

@@ -69,6 +69,11 @@ try{
   v.publication_status==='draft'&&Number(v.price)===0))
  const added=tenantVins.rows.find(v=>v.vin==='TEST0000000000002')
  assert.equal(added.status,'Pending')
+ const afterCorrection=await db.query(
+  'SELECT model,mileage FROM vehicles WHERE vin=$1',['TEST0000000000002'])
+ assert.equal(afterCorrection.rows[0].mileage,123999,'public retraction must not alter private odometer');
+ assert.equal(afterCorrection.rows[0].model,'MODEL Y',
+  'a public storefront retraction must preserve separately authorized private VIN corrections')
  assert.equal(added.owner_id,null)
  assert.equal(added.current_seller_type,null)
  assert.equal((await db.query(
