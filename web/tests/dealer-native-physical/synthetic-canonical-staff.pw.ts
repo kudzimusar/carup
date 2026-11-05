@@ -25,7 +25,7 @@ async function actorOn(page:Page,actor:Actor){
  },{user:{id:actor.id,name:actor.name,email:actor.email,role:actor.role},token:actor.token})
 }
 test('Fictional approved dealer invites, staff independently accepts, owner revokes, all survive refresh',async({browser},info)=>{
- test.setTimeout(480000)
+ test.setTimeout(720000)
  await new Promise<void>(r=>setTimeout(r,70_000))
  const ownerContext=await browser.newContext({viewport:{width:1280,height:900}})
  const owner=await ownerContext.newPage()
@@ -200,6 +200,7 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
   await owner.locator('#private-draft-make').fill('FICTIONAL')
   await owner.locator('#private-draft-model').fill('PRIVATE CI VEHICLE')
   await owner.locator('#private-draft-year').fill('2026')
+  await owner.locator('#private-draft-mileage').fill('123456')
   await owner.getByRole('button',{name:'Register private VIN draft'}).click()
   await expect(owner.getByText('Private VIN TEST0000000000002 saved',{exact:false}))
    .toBeVisible({timeout:30000})
@@ -211,20 +212,62 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
     'x-session-token':f.actors.claimant.token}})
   expect(afterDraft.status()).toBe(200)
   const privateInventory=await afterDraft.json() as {inventory:{entries:Array<{
-   vin:string;recorded_lifecycle_state:string;
+   vin:string;recorded_lifecycle_state:string;recorded_mileage:number|null;
    recorded_marketplace_publication_state:string;
    seller_authority:string;public_listing_approved_by_this_read:boolean}>}}
   const newlyRegistered=privateInventory.inventory.entries.find(v=>
    v.vin==='TEST0000000000002')
   expect(newlyRegistered).toBeTruthy()
   expect(newlyRegistered?.recorded_lifecycle_state).toBe('Pending')
+  expect(newlyRegistered?.recorded_mileage).toBe(123456)
   expect(newlyRegistered?.recorded_marketplace_publication_state).toBe('draft')
   expect(newlyRegistered?.public_listing_approved_by_this_read).toBe(false)
   const createdShot=info.outputPath('fictional-owner-created-second-real-private-vin.png')
   await owner.screenshot({path:createdShot,fullPage:true})
   await info.attach('fictional-owner-created-second-real-private-vin',{
    path:createdShot,contentType:'image/png'})
-  const stockShot=info.outputPath('fictional-canonical-draft-vin-not-published.png')
+  // Owner corrects only declared private VIN details; no seller transfer.
+ await owner.getByRole('button',{name:'Edit private draft details'}).click()
+ await owner.locator('#edit-private-model').fill('MODEL Y')
+ await owner.locator('#edit-private-mileage').fill('123999')
+ await owner.getByRole('button',{name:'Save private draft correction'}).click()
+ await expect(owner.getByText('Private VIN TEST0000000000002 corrected',{exact:false}))
+  .toBeVisible({timeout:30000})
+ await owner.reload()
+ await expect(owner.getByRole('heading',{name:'2026 FICTIONAL MODEL Y'}))
+  .toBeVisible({timeout:30000})
+ const corrected=await owner.request.get(
+  'http://127.0.0.1:3001/api/dealer/operational-inventory',
+  {headers:{'x-user-id':f.actors.claimant.id,
+   'x-session-token':f.actors.claimant.token}})
+ expect(corrected.status()).toBe(200)
+ const entries=(await corrected.json() as {inventory:{entries:Array<{
+  vin:string;model:string|null;recorded_mileage:number|null;
+  recorded_lifecycle_state:string;
+  recorded_marketplace_publication_state:string}>}}).inventory.entries
+ const edited=entries.find(v=>v.vin==='TEST0000000000002')
+ expect(edited?.model).toBe('MODEL Y')
+ expect(edited?.recorded_mileage).toBe(123999)
+ expect(edited?.recorded_lifecycle_state).toBe('Pending')
+ expect(edited?.recorded_marketplace_publication_state).toBe('draft')
+ const editShot=info.outputPath('fictional-owner-private-vin-corrected.png')
+ await owner.screenshot({path:editShot,fullPage:true})
+ await info.attach('fictional-owner-private-vin-corrected',{
+  path:editShot,contentType:'image/png'})
+ // Genuine global per-IP limiter stays active before signed staff denial.
+ await owner.waitForTimeout(70_000)
+ const staffCsrf=await staff.request.get(
+  'http://127.0.0.1:3001/api/security/csrf-token',{headers:staffHeaders})
+ expect(staffCsrf.status()).toBe(200)
+ const {csrfToken:staffEditCsrf}=await staffCsrf.json() as {csrfToken:string}
+ const forbiddenEdit=await staff.request.patch(
+  'http://127.0.0.1:3001/api/dealer/operational-inventory/private-drafts/TEST0000000000002',{
+   headers:{...staffHeaders,'x-csrf-token':staffEditCsrf},
+   data:{make:'MALICIOUS',model:'STAFF',year:2026,mileage:999999,
+    publication_status:'published',price:999999},
+  })
+ expect([403,404]).toContain(forbiddenEdit.status())
+ const stockShot=info.outputPath('fictional-canonical-draft-vin-not-published.png')
  await owner.screenshot({path:stockShot,fullPage:true})
  await info.attach('fictional-canonical-draft-vin-not-published',{
   path:stockShot,contentType:'image/png'})
@@ -266,18 +309,17 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  expect(deniedForeign.status()).toBe(409)
  expect((await deniedForeign.json() as {error:string}).error)
   .toBe('DEALER_INQUIRY_FOLLOWUP_REFUSED')
- // The page was originally loaded while the shared-IP limiter was exhausted.
- // After the enforced 70-second window, re-read the real scoped API and use
- // the product's actual Refresh enquiries control. Do NOT bypass CSRF,
- // rate limits or suppress the underlying buyer/tenant assertions.
- const inboxRecovered=await owner.request.get(
+ // The page may have rendered "unavailable" under the shared-IP rate
+ // window before this negative test. Re-read real scoped PostgreSQL through
+ // the signed API, and explicitly use the existing UI Refresh control.
+ const refreshRead=await owner.request.get(
   'http://127.0.0.1:3001/api/dealer/operational-inquiries',
   {headers:ownerHeaders})
- expect(inboxRecovered.status()).toBe(200)
- const inboxBody=await inboxRecovered.json() as {inquiries:{entries:Array<{
-  contact_name:string|null;status:string}>}}
- expect(inboxBody.inquiries.entries.some(x=>
-  x.contact_name==='FICTIONAL TEST BUYER'&&x.status==='new')).toBe(true)
+ expect(refreshRead.status()).toBe(200)
+ const ownerInbox=await refreshRead.json() as {inquiries:{
+  entries:Array<{contact_name:string|null;status:string}>}}
+ expect(ownerInbox.inquiries.entries.some(row=>
+  row.contact_name==='FICTIONAL TEST BUYER'&&row.status==='new')).toBe(true)
  await owner.getByRole('button',{name:'Refresh enquiries'}).click()
  await expect(owner.getByText('FICTIONAL TEST BUYER',{exact:false}))
   .toBeVisible({timeout:30000})
