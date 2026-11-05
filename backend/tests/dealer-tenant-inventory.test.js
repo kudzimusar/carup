@@ -98,3 +98,71 @@ test('C17 fail-closed tenant scope revalidates provider rows and rejects unavail
  assert.equal(own.entries[0].vin,'TEST0000000000001');
  assert.equal(own.owner_tenant_id,tenant);
 });
+
+test('C17 a canonical owner can register PRIVATE draft stock only, without any requested seller/finance privileges',async()=>{
+ const tenant='00000000-0000-4000-8000-000000000001';
+ const actor={userId:'approved-original-owner'};
+ const resolveOwner=async()=>({tenant_id:tenant,actor_id:actor.userId});
+ let written=null;
+ const db={from(table){
+  assert.equal(table,'vehicles');
+  return {insert(row){
+    written=row;
+    return {select(cols){
+      assert.equal(cols,'vin,tenant_id,publication_status,price,owner_id,current_seller_type');
+      return {single:async()=>({data:{
+        vin:row.vin,tenant_id:row.tenant_id,
+        publication_status:row.publication_status,
+        price:row.price,owner_id:row.owner_id,
+        current_seller_type:row.current_seller_type,
+      },error:null})};
+    }};
+  }};
+ }};
+ const outcome=await inventory.recordMyCanonicalDealerPrivateDraft(actor,{
+  vin:'test0000000000002',make:'FICTIONAL',model:'CI DRAFT',year:2026,
+  publication_status:'published',price:1000000,
+  duty_paid:true,police_verified:true,merchant_payment_enabled:true,
+  owner_id:'ATTACKER',tenant_id:'ATTACKER',current_seller_type:'Dealer',
+ },{db,resolveOwner});
+ assert.equal(outcome.vin,'TEST0000000000002');
+ assert.equal(outcome.private_tenant_draft_only,true);
+ assert.equal(outcome.seller_publish_action_enabled,false);
+ assert.equal(outcome.merchant_payment_enabled,false);
+ assert.equal(outcome.independent_per_vin_seller_review_required,true);
+ assert.equal(written.tenant_id,tenant);
+ assert.equal(written.publication_status,'draft');
+ assert.equal(written.price,0);
+ assert.equal(written.duty_paid,false);
+ assert.equal(written.police_verified,false);
+ assert.equal(written.current_seller_type,null);
+ assert.equal(written.owner_id,null);
+ assert.deepEqual(Object.keys(written).sort(),
+  ['vin','make','model','year','mileage','price','status','publication_status',
+   'owner_id','current_seller_type','import_source','duty_paid',
+   'police_verified','tenant_id'].sort());
+});
+
+test('C17 private draft VIN validation, duplicate protection and cross-owner refusal',async()=>{
+ const tenant='00000000-0000-4000-8000-000000000001';
+ for(const vin of ['SHORT','1234567890123456I','TEST000000000000O',''])assert.throws(
+  ()=>inventory.parseCanonicalDealerPrivateDraft({
+    vin,make:'TEST',model:'PRIVATE',year:2026}),/INVALID_PRIVATE_DRAFT_VIN/);
+ for(const bad of [{vin:'TEST0000000000002',make:'a',model:'TEST',year:2026},
+   {vin:'TEST0000000000002',make:'VALID',model:'TEST',year:2300},
+   {vin:'TEST0000000000002',make:'VALID',model:'TEST',year:'2026'}])
+  assert.throws(()=>inventory.parseCanonicalDealerPrivateDraft(bad),
+   /INVALID_PRIVATE_DRAFT_SPECIFICATION/);
+ const actor={userId:'claimant1'};
+ const resolveOwner=async()=>({actor_id:'OTHER_ACTOR',tenant_id:tenant});
+ await assert.rejects(inventory.recordMyCanonicalDealerPrivateDraft(
+  actor,{vin:'TEST0000000000002',make:'VALID',model:'TEST',year:2026},
+  {resolveOwner}),/CANONICAL_OWNER_TENANT_DRAFT_AUTHORITY_REQUIRED/);
+ const db={from:()=>({insert:()=>({select:()=>({
+  single:async()=>({data:null,error:{code:'23505'}}),
+ })})})};
+ await assert.rejects(inventory.recordMyCanonicalDealerPrivateDraft(
+  actor,{vin:'TEST0000000000002',make:'VALID',model:'TEST',year:2026},
+  {db,resolveOwner:async()=>({actor_id:actor.userId,tenant_id:tenant})}),
+  /CANONICAL_PRIVATE_DRAFT_VIN_ALREADY_EXISTS/);
+});

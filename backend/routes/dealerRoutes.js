@@ -36,7 +36,7 @@ import {
   listMyStaffBranches,listMyOwnerStaffBranchScopes,
   grantMyStaffBranchScope,revokeMyStaffBranchScope,editMyStaffBranch,
 } from '../services/dealer/dealerStaffBranchScopeService.js';
-import {getMyCanonicalDealerInventory}
+import {getMyCanonicalDealerInventory,recordMyCanonicalDealerPrivateDraft}
   from '../services/dealer/dealerTenantInventoryReadService.js';
 import {getMyCanonicalDealerInquiries,advanceMyCanonicalDealerInquiry}
   from '../services/dealer/dealerTenantLeadReadService.js';
@@ -339,6 +339,22 @@ router.get('/api/dealer/operational-inventory',authorizeSessionRole([]),async(re
   try{
     const inventory=await getMyCanonicalDealerInventory(req.userContext);
     res.set('Cache-Control','no-store').json({inventory});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+
+// A legally activated owner can register a private DRAFT vehicle record inside
+// the existing canonical vehicles table. No sale, seller rights, listing, trust
+// or real-vehicle title is inferred. Global member role cannot self-promote.
+router.post('/api/dealer/operational-inventory/private-drafts',
+  authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const draft=await recordMyCanonicalDealerPrivateDraft(
+      req.userContext,req.body);
+    res.set('Cache-Control','no-store').status(201).json({draft});
   }catch(error){
     if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
       return res.status(error.statusCode).json({error:error.message});
