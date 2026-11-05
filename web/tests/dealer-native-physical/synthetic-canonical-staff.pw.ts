@@ -244,6 +244,10 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  // fail CSRF first; a genuinely authenticated, CSRF-bound request must then
  // reach the SQL tenant-isolation check and receive its canonical refusal.
  // Do not bypass middleware via NODE_ENV=test or x-verify-csrf toggles.
+ // The new real VIN write and refreshes spend the genuine 100/min shared
+ // loopback IP budget; wait out the production-equivalent window BEFORE
+ // asserting the middleware's 403 and tenant SQL's 409, not an HTTP 429.
+ await owner.waitForTimeout(70_000)
  const csrfRejected=await owner.request.patch(foreignPath,{
   headers:ownerHeaders,data:{next_status:'contacted'},
  })

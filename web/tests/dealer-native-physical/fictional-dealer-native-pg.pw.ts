@@ -58,6 +58,13 @@ for(const width of [390,768,1280,1920]){
       await expect(page.getByRole('heading',{name:'SYNTHETIC FICTIONAL CAR DEALER 1'}))
         .toBeVisible()
       await expect(page.getByRole('link',{name:'Claim this dealership'})).toBeVisible()
+      await expect(page).toHaveTitle(/Unclaimed research/)
+      await expect(page.locator('meta[name="description"][data-carup-dealer-seo="true"]'))
+       .toHaveAttribute('content',/Research listing only/)
+      await expect(page.locator('meta[name="robots"][data-carup-dealer-seo="true"]'))
+       .toHaveAttribute('content','index,follow')
+      await expect(page.locator('link[rel="canonical"][data-carup-dealer-seo="true"]'))
+       .toHaveAttribute('href',/\/dealers\/zw-deal-0001$/)
       // Real DOM text, not a mocked response. A false claim of official
       // licensing must never appear on the unclaimed public profile.
       await expect.poll(async()=>page.locator('main').last().textContent())
@@ -364,6 +371,10 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
   await expect(publicPage.getByText(
     'Existing approved claim — No current independently verified storefront'))
     .toBeVisible({timeout:20000})
+  await expect(publicPage.locator('meta[name="robots"][data-carup-dealer-seo="true"]'))
+    .toHaveAttribute('content','noindex,follow')
+  await expect(publicPage.locator('link[rel="canonical"][data-carup-dealer-seo="true"]'))
+    .toHaveAttribute('href',/\/dealers\/zw-deal-0001$/)
   await expect(publicPage.getByRole('heading',{name:'Reviewed dealership branches'}))
     .toHaveCount(0)
   await expect(publicPage.getByRole('link',{name:'Claim this dealership'}))
