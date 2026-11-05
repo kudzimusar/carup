@@ -117,6 +117,24 @@ test('synthetic full public retraction preserves existing corporate claim and st
   .toHaveCount(0)
  await expect(publicPage.getByText('Request independent correction, dispute or ownership transfer'))
   .toBeVisible({timeout:30000})
+ // The distinct member retains a valid signed session but cannot take
+ // over the already approved corporate claim after display retraction.
+ const outsider=f.actors.staff
+ const csrf=await publicPage.request.get(API+'/security/csrf-token',{
+  headers:auth(outsider)})
+ expect(csrf.status()).toBe(200)
+ const {csrfToken}=await csrf.json() as {csrfToken:string}
+ expect(csrfToken).toMatch(/\.[0-9a-f]{64}$/)
+ const rival=await publicPage.request.post(API+'/dealership/research/'+f.seed+'/claim',{
+  headers:{...auth(outsider),'x-csrf-token':csrfToken},
+  data:{claimed_scope:'BRANCH',representative_relationship:'LEGAL_OWNER',
+   asserted_legal_business_name:'Fictional unapproved rival company',
+   claim_statement:'I am a second fictional party without approved authority. The independent ownership dispute procedure must be used.'},
+ })
+ expect(rival.status()).toBe(409)
+ expect((await rival.json() as {error:string}).error)
+  .toMatch(/independent transfer or dispute review/)
+
  const mobile=await browser.newContext({viewport:{width:390,height:844}})
  const phone=await mobile.newPage()
  await phone.goto(originalSlug)
