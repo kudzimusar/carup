@@ -334,6 +334,7 @@ export default function DealerTenantInventory(){
       {v.recorded_lifecycle_state==='Pending'&&
         v.recorded_marketplace_publication_state==='draft'&&
         <button type="button" onClick={()=>beginPrivateEdit(v)}
+         aria-label={'Edit private draft '+v.vin}
          className="mt-3 rounded-lg border border-slate-400 px-3 py-2 text-sm font-medium">
          Edit private draft details
         </button>}

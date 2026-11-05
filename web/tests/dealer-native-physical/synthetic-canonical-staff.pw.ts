@@ -227,7 +227,7 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
   await info.attach('fictional-owner-created-second-real-private-vin',{
    path:createdShot,contentType:'image/png'})
   // Owner corrects only declared private VIN details; no seller transfer.
- await owner.getByRole('button',{name:'Edit private draft details'}).click()
+ await owner.getByRole('button',{name:'Edit private draft TEST0000000000002'}).click()
  await owner.locator('#edit-private-model').fill('MODEL Y')
  await owner.locator('#edit-private-mileage').fill('123999')
  await owner.getByRole('button',{name:'Save private draft correction'}).click()
