@@ -143,6 +143,20 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  expect(ownerBranches.some(b=>b.id===delegated.branch_id&&
   b.opening_hours_text===staffDeclaredHours)).toBe(true)
 
+ // A separately signed-in accepted member (even with branch-only edit
+ // access) cannot register any canonical VIN, or invent seller authority.
+ const deniedCsrf=await staff.request.get(
+  'http://127.0.0.1:3001/api/security/csrf-token',{headers:staffHeaders})
+ expect(deniedCsrf.status()).toBe(200)
+ const {csrfToken:staffCsrf}=await deniedCsrf.json() as {csrfToken:string}
+ const deniedDraft=await staff.request.post(
+  'http://127.0.0.1:3001/api/dealer/operational-inventory/private-drafts',{
+   headers:{...staffHeaders,'x-csrf-token':staffCsrf},
+   data:{vin:'TEST0000000000003',make:'FICTIONAL',model:'STAFF FORBIDDEN',
+    year:2026,publication_status:'published',price:99999},
+  })
+ expect([403,404]).toContain(deniedDraft.status())
+
  // The same real owner session can read ONLY its tenant's canonical VIN
  // records and progress its CLEAR-risk Marketplace lead. These rows were
  // deliberately seeded in the isolated CI database and are NOT real stock

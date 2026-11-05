@@ -104,6 +104,10 @@ try{
  assert.equal(Number(privateNew.rows[0].price),0);
  assert.equal(privateNew.rows[0].owner_id,null);
  assert.equal(privateNew.rows[0].current_seller_type,null);
+ const deniedPrivateVin=await db.query(
+  "SELECT vin FROM vehicles WHERE vin=$1",['TEST0000000000003']);
+ assert.equal(deniedPrivateVin.rowCount,0,
+  'canonical member without owner authority must never insert private VIN');
  const lead=await db.query(`SELECT id,seller_tenant_id,status,risk_status
    FROM marketplace_inquiries WHERE id=$1`,[f.synthetic_operations.inquiry_id]);
  assert.equal(lead.rowCount,1);
@@ -146,6 +150,7 @@ try{
   payments_or_seller_entitlements:false,
   owner_ui_created_second_canonical_private_draft:true,
   second_vin_persisted_and_unpublished:true,
+  branch_limited_staff_private_vehicle_create_refused:true,
   real_dealer_role_approval:false,
  },null,2)+'\n',{mode:0o600})
  console.log('DEALER_NATIVE_FICTIONAL_STAFF_CUSTODY PASS: invited, independently accepted, scoped branch-edit persisted, owner revoked tenant/organization and branch scope atomically; owner preserved')
