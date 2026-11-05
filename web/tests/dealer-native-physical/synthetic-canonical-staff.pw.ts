@@ -179,7 +179,36 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  expect(v?.listing_structural_precheck.seller_authority_check).toBe('NOT_EVALUATED')
  expect(v?.listing_structural_precheck.human_publication_authorized).toBe(false)
  expect(v?.listing_structural_precheck.merchant_payment_authorized).toBe(false)
- const stockShot=info.outputPath('fictional-canonical-draft-vin-not-published.png')
+ // A real owner now registers a second, explicitly FICTIONAL VIN through
+  // the actual browser and authenticated canonical private draft endpoint.
+  // It must survive refresh while never obtaining seller/listing rights.
+  await owner.locator('#private-draft-vin').fill('TEST0000000000002')
+  await owner.locator('#private-draft-make').fill('FICTIONAL')
+  await owner.locator('#private-draft-model').fill('PRIVATE CI VEHICLE')
+  await owner.locator('#private-draft-year').fill('2026')
+  await owner.getByRole('button',{name:'Register private VIN draft'}).click()
+  await expect(owner.getByText('Private VIN TEST0000000000002 saved',{exact:false}))
+   .toBeVisible({timeout:30000})
+  await owner.reload()
+  await expect(owner.getByText('TEST0000000000002')).toBeVisible({timeout:30000})
+  const afterDraft=await owner.request.get(
+   'http://127.0.0.1:3001/api/dealer/operational-inventory',
+   {headers:{'x-user-id':f.actors.claimant.id,
+    'x-session-token':f.actors.claimant.token}})
+  expect(afterDraft.status()).toBe(200)
+  const privateInventory=await afterDraft.json() as {inventory:{entries:Array<{
+   vin:string;recorded_marketplace_publication_state:string;
+   seller_authority:string;public_listing_approved_by_this_read:boolean}>}}
+  const newlyRegistered=privateInventory.inventory.entries.find(v=>
+   v.vin==='TEST0000000000002')
+  expect(newlyRegistered).toBeTruthy()
+  expect(newlyRegistered?.recorded_marketplace_publication_state).toBe('draft')
+  expect(newlyRegistered?.public_listing_approved_by_this_read).toBe(false)
+  const createdShot=info.outputPath('fictional-owner-created-second-real-private-vin.png')
+  await owner.screenshot({path:createdShot,fullPage:true})
+  await info.attach('fictional-owner-created-second-real-private-vin',{
+   path:createdShot,contentType:'image/png'})
+  const stockShot=info.outputPath('fictional-canonical-draft-vin-not-published.png')
  await owner.screenshot({path:stockShot,fullPage:true})
  await info.attach('fictional-canonical-draft-vin-not-published',{
   path:stockShot,contentType:'image/png'})

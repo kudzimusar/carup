@@ -95,6 +95,15 @@ try{
  assert.equal(vin.rows[0].publication_status,'draft',
    'synthetic stock must remain unpublished and without seller authority');
  assert.equal(Number(vin.rows[0].price),0,'no real sale or price');
+ const privateNew=await db.query(`SELECT vin,tenant_id,publication_status,
+    price,owner_id,current_seller_type FROM vehicles WHERE vin=$1`,
+    ['TEST0000000000002']);
+ assert.equal(privateNew.rowCount,1,'physical owner must create second canonical VIN');
+ assert.equal(String(privateNew.rows[0].tenant_id),f.synthetic_operations.tenant_id);
+ assert.equal(privateNew.rows[0].publication_status,'draft');
+ assert.equal(Number(privateNew.rows[0].price),0);
+ assert.equal(privateNew.rows[0].owner_id,null);
+ assert.equal(privateNew.rows[0].current_seller_type,null);
  const lead=await db.query(`SELECT id,seller_tenant_id,status,risk_status
    FROM marketplace_inquiries WHERE id=$1`,[f.synthetic_operations.inquiry_id]);
  assert.equal(lead.rowCount,1);
@@ -135,6 +144,8 @@ try{
   branch_scope_audit_events:['GRANTED','BRANCH_DETAILS_EDITED','AUTO_REVOKED_ON_INVITATION'],
   active_staff_branch_rights_after_revocation:0,
   payments_or_seller_entitlements:false,
+  owner_ui_created_second_canonical_private_draft:true,
+  second_vin_persisted_and_unpublished:true,
   real_dealer_role_approval:false,
  },null,2)+'\n',{mode:0o600})
  console.log('DEALER_NATIVE_FICTIONAL_STAFF_CUSTODY PASS: invited, independently accepted, scoped branch-edit persisted, owner revoked tenant/organization and branch scope atomically; owner preserved')
