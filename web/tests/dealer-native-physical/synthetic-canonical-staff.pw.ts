@@ -266,6 +266,19 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  expect(deniedForeign.status()).toBe(409)
  expect((await deniedForeign.json() as {error:string}).error)
   .toBe('DEALER_INQUIRY_FOLLOWUP_REFUSED')
+ // The page was originally loaded while the shared-IP limiter was exhausted.
+ // After the enforced 70-second window, re-read the real scoped API and use
+ // the product's actual Refresh enquiries control. Do NOT bypass CSRF,
+ // rate limits or suppress the underlying buyer/tenant assertions.
+ const inboxRecovered=await owner.request.get(
+  'http://127.0.0.1:3001/api/dealer/operational-inquiries',
+  {headers:ownerHeaders})
+ expect(inboxRecovered.status()).toBe(200)
+ const inboxBody=await inboxRecovered.json() as {inquiries:{entries:Array<{
+  contact_name:string|null;status:string}>}}
+ expect(inboxBody.inquiries.entries.some(x=>
+  x.contact_name==='FICTIONAL TEST BUYER'&&x.status==='new')).toBe(true)
+ await owner.getByRole('button',{name:'Refresh enquiries'}).click()
  await expect(owner.getByText('FICTIONAL TEST BUYER',{exact:false}))
   .toBeVisible({timeout:30000})
  await expect(owner.getByRole('button',{name:'Record dealer-reported contact'}))

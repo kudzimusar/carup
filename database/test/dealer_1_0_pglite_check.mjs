@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname,join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
+import {PUBLIC_VEHICLE_FIELDS} from '../../backend/utils/publicVehicleProjection.js';
 const ROOT=join(dirname(fileURLToPath(import.meta.url)),'..','migrations');
 const names=[
   '20261103120000_dealer_research_seed_candidates.sql',
@@ -150,6 +151,7 @@ try{
       vin TEXT PRIMARY KEY,
       tenant_id UUID REFERENCES tenants(id),
       make TEXT NOT NULL,model TEXT NOT NULL,year INTEGER NOT NULL,
+       generation TEXT,trim TEXT,drivetrain TEXT,
       mileage INTEGER NOT NULL DEFAULT 0,price NUMERIC NOT NULL DEFAULT 0,
       status TEXT DEFAULT 'Available',
       publication_status TEXT NOT NULL DEFAULT 'draft',
@@ -162,6 +164,11 @@ try{
       color TEXT,
       fuel_type TEXT,
       transmission TEXT,
+      -- Existing canonical Seller S0 projection types, all nullable.
+      body_style TEXT,
+      seller_stated_condition TEXT,
+      seller_description TEXT,
+      seller_features TEXT[],
       import_source TEXT,
       duty_paid BOOLEAN,
       police_verified BOOLEAN,
@@ -236,6 +243,14 @@ try{
         ('policyreviewer','admin',true),('legalreviewer','admin',true),
         ('activationreviewer','admin',true);
   `);
+  // The true public vehicle allowlist must be selectable against the isolated
+  // PostgreSQL baseline, without publishing, seeding or revealing any VIN.
+  assert.ok(PUBLIC_VEHICLE_FIELDS.every(x=>/^[a-z][a-z_]*$/.test(x)),
+    'Canonical projection fields must remain safe SQL identifiers');
+  await query('SELECT '+PUBLIC_VEHICLE_FIELDS.map(x=>'"'+x+'"').join(',')+
+    ' FROM vehicles LIMIT 0');
+  console.log('DEALER_CANONICAL_PUBLIC_VEHICLE_SCHEMA_CONTRACT PASS: '+
+    PUBLIC_VEHICLE_FIELDS.length+' fields, zero public data');
   for(const name of names){await exec(read(name).up);console.log('APPLIED',name)}
   if(process.env.DEALER_NATIVE_SCHEMA_ONLY==='1'){
     if(!native)throw Error('SCHEMA_ONLY_REQUIRES_GUARDED_NATIVE_LOOPBACK');
