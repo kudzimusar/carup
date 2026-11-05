@@ -5,6 +5,7 @@ import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
 type Vehicle={
  vin:string;make:string|null;model:string|null;year:number|null;
+ recorded_mileage:number|null;
  recorded_lifecycle_state:string|null;
  recorded_marketplace_publication_state:string|null;
  seller_authority:string;legal_title_certified:false;import_duty_verified:false;
@@ -35,10 +36,19 @@ export default function DealerTenantInventory(){
  const [draftMake,setDraftMake]=useState('')
  const [draftModel,setDraftModel]=useState('')
  const [draftYear,setDraftYear]=useState(String(new Date().getFullYear()))
+ const [draftMileage,setDraftMileage]=useState('')
  const [draftSaving,setDraftSaving]=useState(false)
  const [draftNotice,setDraftNotice]=useState('')
  const [draftError,setDraftError]=useState('')
  const [draftReadWarning,setDraftReadWarning]=useState('')
+ const [editingVin,setEditingVin]=useState('')
+ const [editMake,setEditMake]=useState('')
+ const [editModel,setEditModel]=useState('')
+ const [editYear,setEditYear]=useState('')
+ const [editMileage,setEditMileage]=useState('')
+ const [editSaving,setEditSaving]=useState(false)
+ const [editNotice,setEditNotice]=useState('')
+ const [editError,setEditError]=useState('')
  useEffect(()=>{
   let live=true
   if(!user||!token){
@@ -68,12 +78,13 @@ export default function DealerTenantInventory(){
     options:{method:'POST',body:JSON.stringify({
      vin:draftVin.trim().toUpperCase(),make:draftMake.trim(),
      model:draftModel.trim(),year:Number(draftYear),
+      mileage:Number(draftMileage),
     })},authHeaders:auth(user.id,token),
    })
    if(!created.draft?.private_tenant_draft_only)throw Error('Private draft receipt unavailable')
    // Canonical write receipt is independent of subsequent list availability.
    // Never tell the owner a committed VIN was not saved when GET fails.
-   setDraftVin('');setDraftMake('');setDraftModel('')
+   setDraftVin('');setDraftMake('');setDraftModel('');setDraftMileage('')
    setDraftNotice('Private VIN '+created.draft.vin+
     ' saved to this canonical tenant. It is NOT approved for listing or sale.')
    try{
@@ -90,6 +101,47 @@ export default function DealerTenantInventory(){
    setDraftError(problem instanceof Error?problem.message:
     'Private VIN submission could not be confirmed. Check its existence before retrying.')
   }finally{setDraftSaving(false)}
+ }
+ function beginPrivateEdit(v:Vehicle){
+  setEditingVin(v.vin)
+  setEditMake(v.make||'');setEditModel(v.model||'')
+  setEditYear(v.year==null?'':String(v.year))
+  setEditMileage(v.recorded_mileage==null?'':String(v.recorded_mileage))
+  setEditNotice('');setEditError('')
+ }
+ async function savePrivateEdit(){
+  if(!user||!token||editSaving||!editingVin)return
+  setEditSaving(true);setEditError('');setEditNotice('')
+  try{
+   const receipt=await apiRequest<{draft:{
+    vin:string;make:string;model:string;year:number;
+    private_tenant_draft_only:true;seller_publish_action_enabled:false}}>({
+    baseUrl:API,path:'/dealer/operational-inventory/private-drafts/'+encodeURIComponent(editingVin),
+    options:{method:'PATCH',body:JSON.stringify({
+     make:editMake.trim(),model:editModel.trim(),year:Number(editYear),
+     mileage:Number(editMileage),
+    })},authHeaders:auth(user.id,token),
+   })
+   if(!receipt.draft?.private_tenant_draft_only||
+     receipt.draft.seller_publish_action_enabled!==false)
+    throw Error('Private VIN correction receipt unavailable')
+   setEditingVin('')
+   setEditNotice('Private VIN '+receipt.draft.vin+
+    ' corrected and still not approved for listing, sale or payment.')
+   try{
+    const after=await apiRequest<{inventory:Inventory}>({
+     baseUrl:API,path:'/dealer/operational-inventory',
+     authHeaders:auth(user.id,token),
+    })
+    setResult(after.inventory)
+   }catch{
+    setEditNotice('Private VIN correction saved, but the list did not refresh. '+
+     'Do not repeat the correction; reload after service resumes.')
+   }
+  }catch(error){
+   setEditError(error instanceof Error?error.message:
+    'Private VIN correction not confirmed; check the current data before retrying.')
+  }finally{setEditSaving(false)}
  }
  return <main className="min-h-screen bg-slate-50 px-4 py-10">
   <div className="max-w-6xl mx-auto">
@@ -156,10 +208,19 @@ export default function DealerTenantInventory(){
         Model
        </label>
        <input id="private-draft-model" className="p-3 rounded-lg border w-full"
-        required minLength={2} maxLength={100} value={draftModel}
+        required minLength={1} maxLength={100} value={draftModel}
         onChange={event=>setDraftModel(event.target.value)}/>
       </div>
-      <button type="submit" disabled={draftSaving}
+      <div>
+        <label className="text-sm block font-medium mb-1" htmlFor="private-draft-mileage">
+         Dealer-declared odometer (km) — unverified
+        </label>
+        <input id="private-draft-mileage" type="number" required min={0}
+         max={2000000} step={1} placeholder="Recorded kilometres"
+         className="p-3 rounded-lg border w-full"
+         value={draftMileage} onChange={e=>setDraftMileage(e.target.value)}/>
+       </div>
+       <button type="submit" disabled={draftSaving}
        className="rounded-lg bg-slate-900 text-white px-5 py-3 font-medium disabled:opacity-60">
        Register private VIN draft
       </button>
@@ -174,7 +235,60 @@ export default function DealerTenantInventory(){
       {draftReadWarning}
      </p>}
     </CardContent></Card>
-    <div className="mt-7 flex flex-wrap items-center gap-4">
+    {editingVin&&<Card className="mt-7"><CardContent className="p-6">
+      <h2 className="text-lg font-semibold">Correct private VIN draft</h2>
+      <p className="text-sm text-slate-600 mt-2">
+       VIN {editingVin} is immutable. Only make, model, model year and unverified odometer are
+       editable. Seller Authority, public listing, payment, title and duty
+       verification remain expressly unavailable.
+      </p>
+      <form className="grid sm:grid-cols-3 gap-3 mt-4"
+       onSubmit={e=>{e.preventDefault();void savePrivateEdit()}}>
+       <div>
+        <label htmlFor="edit-private-make" className="block text-sm font-medium mb-1">
+         Manufacturer
+        </label>
+        <input id="edit-private-make" required minLength={2} maxLength={80}
+         className="w-full border rounded-lg p-3" value={editMake}
+         onChange={e=>setEditMake(e.target.value)}/>
+       </div>
+       <div>
+        <label htmlFor="edit-private-model" className="block text-sm font-medium mb-1">
+         Model
+        </label>
+        <input id="edit-private-model" required minLength={1} maxLength={100}
+         className="w-full border rounded-lg p-3" value={editModel}
+         onChange={e=>setEditModel(e.target.value)}/>
+       </div>
+       <div>
+        <label htmlFor="edit-private-year" className="block text-sm font-medium mb-1">
+         Model year
+        </label>
+        <input id="edit-private-year" required type="number" min={1950}
+         max={new Date().getFullYear()+1}
+         className="w-full border rounded-lg p-3" value={editYear}
+         onChange={e=>setEditYear(e.target.value)}/>
+       </div>
+       <div>
+         <label htmlFor="edit-private-mileage" className="block text-sm font-medium mb-1">
+          Dealer-declared odometer (km) — unverified
+         </label>
+         <input id="edit-private-mileage" type="number" required min={0}
+          max={2000000} step={1} className="w-full border rounded-lg p-3"
+          value={editMileage} onChange={e=>setEditMileage(e.target.value)}/>
+        </div>
+        <button type="submit" disabled={editSaving}
+        className="rounded-lg bg-slate-900 p-3 text-white disabled:opacity-60">
+        Save private draft correction
+       </button>
+       <button type="button" disabled={editSaving}
+        onClick={()=>setEditingVin('')}
+        className="rounded-lg border p-3">Cancel correction</button>
+      </form>
+      {editError&&<p role="alert" className="text-amber-900 mt-3">{editError}</p>}
+     </CardContent></Card>}
+     {editNotice&&<p role="status" className="mt-4 rounded-lg bg-blue-50 p-3">{editNotice}</p>}
+     <div className="mt-7 flex flex-wrap items-center gap-4">
      <div>
       <p className="font-semibold">{result.returned_count} real tenant vehicle records in first page</p>
       <p className="text-xs text-slate-500">
@@ -212,7 +326,18 @@ export default function DealerTenantInventory(){
        <div><dt className="text-slate-500">Marketplace publication</dt>
         <dd>{v.recorded_marketplace_publication_state||'Not recorded'}</dd></div>
       </dl>
-      <section className="border-t mt-4 pt-3 space-y-2">
+      <p className="text-sm mt-3">
+       Dealer-declared odometer, not independently verified:
+       {' '}{v.recorded_mileage==null?'Not recorded':
+        v.recorded_mileage.toLocaleString('en-US')+' km'}
+      </p>
+      {v.recorded_lifecycle_state==='Pending'&&
+        v.recorded_marketplace_publication_state==='draft'&&
+        <button type="button" onClick={()=>beginPrivateEdit(v)}
+         className="mt-3 rounded-lg border border-slate-400 px-3 py-2 text-sm font-medium">
+         Edit private draft details
+        </button>}
+       <section className="border-t mt-4 pt-3 space-y-2">
        <h3 className="text-sm font-semibold">Structural listing precheck</h3>
        <p className="text-xs text-slate-600">
         {v.listing_structural_precheck.result==='DATA_PRECHECK_ONLY'
