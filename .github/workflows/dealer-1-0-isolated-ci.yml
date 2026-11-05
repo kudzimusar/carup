@@ -19,6 +19,8 @@ on:
       - 'backend/tests/differentiator-journey.test.js'
       - 'database/migrations/*dealer*.sql'
       - 'database/test/dealer_1_0_pglite_check.mjs'
+      - 'web/tests/dealer-native-physical/**'
+      - 'web/playwright.dealer-native-physical.config.ts'
       - 'docs/dealership/**'
       - '.github/workflows/dealer-1-0-isolated-ci.yml'
   pull_request:
@@ -35,6 +37,8 @@ on:
       - 'web/src/App.tsx'
       - 'database/migrations/*dealer*.sql'
       - 'database/test/dealer_1_0_pglite_check.mjs'
+      - 'web/tests/dealer-native-physical/**'
+      - 'web/playwright.dealer-native-physical.config.ts'
       - 'docs/dealership/**'
       - '.github/workflows/dealer-1-0-isolated-ci.yml'
 
@@ -70,6 +74,30 @@ jobs:
         run: npm ci
       - name: Check seed-importer syntax
         run: node --check backend/scripts/dealership/importResearchSeed.mjs
+      - name: Parse all physical Playwright files before native browser start
+        run: |
+          node --input-type=module <<'DEALER_PARSE_PHYSICAL'
+          import assert from 'node:assert/strict'
+          import {readdirSync,readFileSync} from 'node:fs'
+          import ts from 'typescript'
+          const dir='web/tests/dealer-native-physical'
+          const scripts=readdirSync(dir).filter(name=>name.endsWith('.pw.ts')).sort()
+          assert.ok(scripts.length>=5,'Mandatory physical scripts missing')
+          let count=0
+          for(const script of scripts){
+            const path=dir+'/'+script
+            const ast=ts.createSourceFile(path,readFileSync(path,'utf8'),
+              ts.ScriptTarget.Latest,true,ts.ScriptKind.TS)
+            for(const diagnostic of ast.parseDiagnostics){
+              count++
+              const pos=ast.getLineAndCharacterOfPosition(diagnostic.start||0)
+              console.error(path+':'+(pos.line+1)+':'+(pos.character+1)+': '+
+                ts.flattenDiagnosticMessageText(diagnostic.messageText,' '))
+            }
+          }
+          assert.equal(count,0,'Physical browser TypeScript syntax invalid')
+          console.log('DEALER_PHYSICAL_PARSE PASS: '+scripts.length+' browser scripts')
+          DEALER_PARSE_PHYSICAL
       - name: Run dealership compliance & seed-source negative-path contracts
         run: |
           node --test \
