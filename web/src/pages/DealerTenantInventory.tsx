@@ -31,6 +31,13 @@ export default function DealerTenantInventory(){
  const [result,setResult]=useState<Inventory|null>(null)
  const [status,setStatus]=useState<'loading'|'ready'|'denied'>('loading')
  const [search,setSearch]=useState('')
+ const [draftVin,setDraftVin]=useState('')
+ const [draftMake,setDraftMake]=useState('')
+ const [draftModel,setDraftModel]=useState('')
+ const [draftYear,setDraftYear]=useState(String(new Date().getFullYear()))
+ const [draftSaving,setDraftSaving]=useState(false)
+ const [draftNotice,setDraftNotice]=useState('')
+ const [draftError,setDraftError]=useState('')
  useEffect(()=>{
   let live=true
   if(!user||!token){
@@ -49,6 +56,31 @@ export default function DealerTenantInventory(){
  },[user,token])
  const filtered=(result?.entries||[]).filter(v=>[
   v.vin,v.make||'',v.model||''].join(' ').toLowerCase().includes(search.trim().toLowerCase()))
+ async function createPrivateDraft(){
+  if(!user||!token||draftSaving)return
+  setDraftSaving(true);setDraftError('');setDraftNotice('')
+  try{
+   const created=await apiRequest<{draft:{vin:string;private_tenant_draft_only:true}}>({
+    baseUrl:API,path:'/dealer/operational-inventory/private-drafts',
+    options:{method:'POST',body:JSON.stringify({
+     vin:draftVin.trim().toUpperCase(),make:draftMake.trim(),
+     model:draftModel.trim(),year:Number(draftYear),
+    })},authHeaders:auth(user.id,token),
+   })
+   if(!created.draft?.private_tenant_draft_only)throw Error('Private draft receipt unavailable')
+   const updated=await apiRequest<{inventory:Inventory}>({
+    baseUrl:API,path:'/dealer/operational-inventory',
+    authHeaders:auth(user.id,token),
+   })
+   setResult(updated.inventory)
+   setDraftVin('');setDraftMake('');setDraftModel('')
+   setDraftNotice('Private VIN '+created.draft.vin+
+    ' saved to this canonical tenant. It is NOT approved for listing or sale.')
+  }catch(problem){
+   setDraftError(problem instanceof Error?problem.message:
+    'Private vehicle registration could not be confirmed')
+  }finally{setDraftSaving(false)}
+ }
  return <main className="min-h-screen bg-slate-50 px-4 py-10">
   <div className="max-w-6xl mx-auto">
    <Link to="/dealers/operating-details" className="text-blue-700 text-sm underline">
@@ -69,6 +101,60 @@ export default function DealerTenantInventory(){
     An unclaimed research listing or unaudited dealer role does not grant inventory access.
    </p>}
    {status==='ready'&&result&&<>
+    <Card className="mt-7"><CardContent className="p-6">
+     <h2 className="text-xl font-semibold">Register a private vehicle draft</h2>
+     <p className="text-sm text-slate-600 mt-2">
+      This stores an unverified VIN in your actual canonical tenant only.
+      It grants no seller authority, listing approval, vehicle title, duty clearance,
+      finance, public Passport verification or merchant permission.
+     </p>
+     <form className="grid sm:grid-cols-2 gap-4 mt-5"
+      onSubmit={event=>{event.preventDefault();void createPrivateDraft()}}>
+      <div>
+       <label className="text-sm block font-medium mb-1" htmlFor="private-draft-vin">
+        VIN — 17 characters
+       </label>
+       <input id="private-draft-vin" className="p-3 rounded-lg border w-full"
+        required maxLength={17} minLength={17} pattern="[A-HJ-NPR-Z0-9]{17}"
+        autoComplete="off" value={draftVin}
+        onChange={event=>setDraftVin(event.target.value.toUpperCase())}/>
+      </div>
+      <div>
+       <label className="text-sm block font-medium mb-1" htmlFor="private-draft-year">
+        Model year
+       </label>
+       <input id="private-draft-year" className="p-3 rounded-lg border w-full"
+        required type="number" min={1950} max={new Date().getFullYear()+1}
+        value={draftYear} onChange={event=>setDraftYear(event.target.value)}/>
+      </div>
+      <div>
+       <label className="text-sm block font-medium mb-1" htmlFor="private-draft-make">
+        Manufacturer
+       </label>
+       <input id="private-draft-make" className="p-3 rounded-lg border w-full"
+        required minLength={2} maxLength={80} value={draftMake}
+        onChange={event=>setDraftMake(event.target.value)}/>
+      </div>
+      <div>
+       <label className="text-sm block font-medium mb-1" htmlFor="private-draft-model">
+        Model
+       </label>
+       <input id="private-draft-model" className="p-3 rounded-lg border w-full"
+        required minLength={2} maxLength={100} value={draftModel}
+        onChange={event=>setDraftModel(event.target.value)}/>
+      </div>
+      <button type="submit" disabled={draftSaving}
+       className="rounded-lg bg-slate-900 text-white px-5 py-3 font-medium disabled:opacity-60">
+       Register private VIN draft
+      </button>
+     </form>
+     {draftNotice&&<p role="status" className="mt-4 bg-blue-50 text-blue-900 p-3 rounded-lg">
+      {draftNotice}
+     </p>}
+     {draftError&&<p role="alert" className="mt-4 bg-amber-50 text-amber-900 p-3 rounded-lg">
+      {draftError}
+     </p>}
+    </CardContent></Card>
     <div className="mt-7 flex flex-wrap items-center gap-4">
      <div>
       <p className="font-semibold">{result.returned_count} real tenant vehicle records in first page</p>
@@ -134,7 +220,7 @@ export default function DealerTenantInventory(){
     <p className="text-xs text-slate-600 mt-6">
      Publication, ownership evidence and per-VIN checks are controlled in
      CarUp's existing Seller Authority and Marketplace programmes, not here.
-     This read-only surface cannot publish an unverified car.
+     This private draft workspace cannot publish an unverified car.
     </p>
    </>}
   </div>
