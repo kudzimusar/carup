@@ -327,7 +327,7 @@ export default function DealerTenantInventory(){
         <dd>{v.recorded_marketplace_publication_state||'Not recorded'}</dd></div>
       </dl>
       <p className="text-sm mt-3">
-       Dealer-declared odometer, not independently verified:
+       Recorded odometer (source and accuracy not independently verified):
        {' '}{v.recorded_mileage==null?'Not recorded':
         v.recorded_mileage.toLocaleString('en-US')+' km'}
       </p>
