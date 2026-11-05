@@ -29,7 +29,7 @@ const auth=(id:string,token:string):AuthHeaders=>({
 export default function DealerTenantInventory(){
  const {user,token}=useAuth()
  const [result,setResult]=useState<Inventory|null>(null)
- const [status,setStatus]=useState<'loading'|'ready'|'denied'>('loading')
+ const [status,setStatus]=useState<'loading'|'ready'|'denied'|'unavailable'>('loading')
  const [search,setSearch]=useState('')
  const [draftVin,setDraftVin]=useState('')
  const [draftMake,setDraftMake]=useState('')
@@ -38,6 +38,7 @@ export default function DealerTenantInventory(){
  const [draftSaving,setDraftSaving]=useState(false)
  const [draftNotice,setDraftNotice]=useState('')
  const [draftError,setDraftError]=useState('')
+ const [draftReadWarning,setDraftReadWarning]=useState('')
  useEffect(()=>{
   let live=true
   if(!user||!token){
@@ -49,8 +50,10 @@ export default function DealerTenantInventory(){
     authHeaders:auth(user.id,token),
   }).then(response=>{
     if(live){setResult(response.inventory);setStatus('ready')}
-  }).catch(()=>{
-    if(live){setResult(null);setStatus('denied')}
+  }).catch((error:unknown)=>{
+   const code=error&&typeof error==='object'&&'status' in error
+    ?(error as {status?:number}).status:undefined
+   if(live){setResult(null);setStatus([401,403,404].includes(code||0)?'denied':'unavailable')}
   })
   return()=>{live=false}
  },[user,token])
@@ -58,7 +61,7 @@ export default function DealerTenantInventory(){
   v.vin,v.make||'',v.model||''].join(' ').toLowerCase().includes(search.trim().toLowerCase()))
  async function createPrivateDraft(){
   if(!user||!token||draftSaving)return
-  setDraftSaving(true);setDraftError('');setDraftNotice('')
+  setDraftSaving(true);setDraftError('');setDraftNotice('');setDraftReadWarning('')
   try{
    const created=await apiRequest<{draft:{vin:string;private_tenant_draft_only:true}}>({
     baseUrl:API,path:'/dealer/operational-inventory/private-drafts',
@@ -68,17 +71,24 @@ export default function DealerTenantInventory(){
     })},authHeaders:auth(user.id,token),
    })
    if(!created.draft?.private_tenant_draft_only)throw Error('Private draft receipt unavailable')
-   const updated=await apiRequest<{inventory:Inventory}>({
-    baseUrl:API,path:'/dealer/operational-inventory',
-    authHeaders:auth(user.id,token),
-   })
-   setResult(updated.inventory)
+   // Canonical write receipt is independent of subsequent list availability.
+   // Never tell the owner a committed VIN was not saved when GET fails.
    setDraftVin('');setDraftMake('');setDraftModel('')
    setDraftNotice('Private VIN '+created.draft.vin+
     ' saved to this canonical tenant. It is NOT approved for listing or sale.')
+   try{
+    const updated=await apiRequest<{inventory:Inventory}>({
+     baseUrl:API,path:'/dealer/operational-inventory',
+     authHeaders:auth(user.id,token),
+    })
+    setResult(updated.inventory)
+   }catch{
+    setDraftReadWarning('The VIN was saved, but the inventory list could not refresh. '+
+     'Do not submit that VIN again; reload this page to verify later.')
+   }
   }catch(problem){
    setDraftError(problem instanceof Error?problem.message:
-    'Private vehicle registration could not be confirmed')
+    'Private VIN submission could not be confirmed. Check its existence before retrying.')
   }finally{setDraftSaving(false)}
  }
  return <main className="min-h-screen bg-slate-50 px-4 py-10">
@@ -99,6 +109,12 @@ export default function DealerTenantInventory(){
     className="mt-7 rounded-lg bg-amber-50 border border-amber-200 p-5">
     An active, independently approved dealership owner and tenant membership is required.
     An unclaimed research listing or unaudited dealer role does not grant inventory access.
+   </p>}
+   {status==='unavailable'&&<p role="alert"
+    className="mt-7 rounded-lg bg-amber-50 border border-amber-200 p-5">
+    The canonical inventory service could not be reached or verified. This outage
+    does not establish that your dealership or stock is inactive or empty.
+    Refresh after service is restored.
    </p>}
    {status==='ready'&&result&&<>
     <Card className="mt-7"><CardContent className="p-6">
@@ -154,6 +170,9 @@ export default function DealerTenantInventory(){
      {draftError&&<p role="alert" className="mt-4 bg-amber-50 text-amber-900 p-3 rounded-lg">
       {draftError}
      </p>}
+     {draftReadWarning&&<p role="alert" className="mt-4 bg-amber-50 text-amber-900 p-3 rounded-lg">
+      {draftReadWarning}
+     </p>
     </CardContent></Card>
     <div className="mt-7 flex flex-wrap items-center gap-4">
      <div>
