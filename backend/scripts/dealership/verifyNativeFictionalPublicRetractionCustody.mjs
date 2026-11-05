@@ -57,6 +57,23 @@ try{
   'SELECT role FROM tenant_users WHERE tenant_id=$1 AND user_id=$2',
   [owner.rows[0].tenant_id,f.actors.claimant.id])
  assert.deepEqual(members.rows,[{role:'dealer'}])
+ // Public display retraction MUST NOT silently delete or publish the
+ // legal dealer's separately stored PRIVATE inventory. Both physically
+ // created CI VIN records remain draft-only in the canonical tenant.
+ const tenantVins=await db.query(
+  'SELECT vin,status,publication_status,price,owner_id,current_seller_type FROM vehicles WHERE tenant_id=$1 ORDER BY vin',
+  [owner.rows[0].tenant_id])
+ assert.deepEqual(tenantVins.rows.map(v=>v.vin),
+  ['TEST0000000000001','TEST0000000000002'])
+ assert.ok(tenantVins.rows.every(v=>
+  v.publication_status==='draft'&&Number(v.price)===0))
+ const added=tenantVins.rows.find(v=>v.vin==='TEST0000000000002')
+ assert.equal(added.status,'Pending')
+ assert.equal(added.owner_id,null)
+ assert.equal(added.current_seller_type,null)
+ assert.equal((await db.query(
+  "SELECT count(*)::int AS n FROM vehicles WHERE tenant_id=$1 AND publication_status='published'",
+  [owner.rows[0].tenant_id])).rows[0].n,0)
  assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM dealer_research_seed_records')).rows[0].n,104)
  const receipt={
   fictional_only:true,prior_public_full_review_events:1,
@@ -66,6 +83,8 @@ try{
   canonical_prior_claim_status:'CLAIM_APPROVED',
   canonical_approved_claimant_unchanged:true,
   owner_tenant_membership_preserved:true,
+  original_and_ui_created_private_vins_preserved:2,
+  zero_public_vin_listings_after_retraction:true,
   current_public_legal_verification_not_approved:true,
   new_unclaimed_takeover_advertised:false,
   source_original_checksum_import_certified:false,
