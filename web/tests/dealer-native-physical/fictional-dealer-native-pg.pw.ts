@@ -359,8 +359,15 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
   const publicContext=await browser.newContext()
   const publicPage=await publicContext.newPage()
   await publicPage.goto('/dealers/zw-deal-0001')
-  await expect(publicPage.getByText('Unclaimed — Not independently business-verified'))
+  // Claim approval already exists, while legal/storefront approval does not:
+  // no unclaimed takeover invitation and no premature public verification.
+  await expect(publicPage.getByText(
+    'Existing approved claim — No current independently verified storefront'))
     .toBeVisible({timeout:20000})
+  await expect(publicPage.getByRole('heading',{name:'Reviewed dealership branches'}))
+    .toHaveCount(0)
+  await expect(publicPage.getByRole('link',{name:'Claim this dealership'}))
+    .toHaveCount(0)
   await publicContext.close()
   await claimantPage.reload()
   await expect(claimantPage.getByRole('heading',{name:'Saved application version 1'}))
