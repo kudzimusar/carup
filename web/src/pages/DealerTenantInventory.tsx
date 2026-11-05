@@ -172,7 +172,7 @@ export default function DealerTenantInventory(){
      </p>}
      {draftReadWarning&&<p role="alert" className="mt-4 bg-amber-50 text-amber-900 p-3 rounded-lg">
       {draftReadWarning}
-     </p>
+     </p>}
     </CardContent></Card>
     <div className="mt-7 flex flex-wrap items-center gap-4">
      <div>
