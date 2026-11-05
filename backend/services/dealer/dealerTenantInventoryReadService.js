@@ -23,6 +23,7 @@ export function projectTenantDealerVehicle(record){
   return Object.freeze({
     vin:record.vin,make:record.make??null,model:record.model??null,
     year:Number.isInteger(record.year)?record.year:null,
+    recorded_mileage:Number.isInteger(record.mileage)?record.mileage:null,
     recorded_lifecycle_state:record.status??null,
     recorded_marketplace_publication_state:record.publication_status??null,
     seller_authority:'NOT_DETERMINED_BY_TENANT_INVENTORY_READ',
@@ -50,7 +51,7 @@ export async function getMyCanonicalDealerInventory(actor,{
   if(typeof owner?.tenant_id!=='string'||!owner.tenant_id)
     throw refuse('CANONICAL_TENANT_CONTEXT_REQUIRED',403);
   const {data,error}=await db.from('vehicles')
-    .select('vin,make,model,year,price,status,publication_status,tenant_id,owner_id,current_seller_type,import_source')
+    .select('vin,make,model,year,mileage,price,status,publication_status,tenant_id,owner_id,current_seller_type,import_source')
     .eq('tenant_id',owner.tenant_id).order('created_at',{ascending:false}).limit(100);
   // A failed/malformed data response is NOT a genuine empty inventory.
   if(error||!Array.isArray(data))
@@ -80,20 +81,23 @@ export async function getMyCanonicalDealerInventory(actor,{
  * for EVERY write. Vehicle Seller Authority remains a separate programme.
  */
 const VIN17=/^[A-HJ-NPR-Z0-9]{17}$/;
-const nonempty=(x,max)=>typeof x==='string'&&x.trim().length>=2&&x.trim().length<=max
+const nonempty=(x,max,min=2)=>typeof x==='string'&&x.trim().length>=min&&x.trim().length<=max
   ?x.trim():null;
 export function parseCanonicalDealerPrivateDraft(payload={}){
   const vin=typeof payload.vin==='string'?payload.vin.trim().toUpperCase():null;
   if(!vin||!VIN17.test(vin))throw refuse('INVALID_PRIVATE_DRAFT_VIN',400);
   const make=nonempty(payload.make,80);
-  const model=nonempty(payload.model,100);
+  const model=nonempty(payload.model,100,1);
   const year=payload.year;
+  const mileage=payload.mileage;
+  if(!Number.isInteger(mileage)||mileage<0||mileage>2000000)
+    throw refuse('PRIVATE_DRAFT_MILEAGE_DECLARATION_REQUIRED',400);
   if(!make||!model||!Number.isInteger(year)||
     year<1950||year>new Date().getUTCFullYear()+1)
     throw refuse('INVALID_PRIVATE_DRAFT_SPECIFICATION',400);
   // Explicit hardcoded deny-by-default; do NOT spread untrusted payload.
   return Object.freeze({vin,make,model,year,
-    mileage:0,price:0,status:'Pending',publication_status:'draft',
+    mileage,price:0,status:'Pending',publication_status:'draft',
     owner_id:null,current_seller_type:null,
     import_source:null,duty_paid:false,police_verified:false});
 }
@@ -107,19 +111,70 @@ export async function recordMyCanonicalDealerPrivateDraft(actor,payload={},{
   const clean=parseCanonicalDealerPrivateDraft(payload);
   const {data,error}=await db.from('vehicles')
     .insert({...clean,tenant_id:owner.tenant_id})
-    .select('vin,tenant_id,status,publication_status,price,owner_id,current_seller_type')
+    .select('vin,tenant_id,mileage,status,publication_status,price,owner_id,current_seller_type')
     .single();
   if(error?.code==='23505')throw refuse('CANONICAL_PRIVATE_DRAFT_VIN_ALREADY_EXISTS',409);
   if(error||!data)throw refuse('CANONICAL_PRIVATE_DRAFT_WRITE_UNCONFIRMED',503);
   if(data.tenant_id!==owner.tenant_id||data.vin!==clean.vin||
-    data.status!=='Pending'||data.publication_status!=='draft'||Number(data.price)!==0||
+    data.mileage!==clean.mileage||data.status!=='Pending'||
+    data.publication_status!=='draft'||Number(data.price)!==0||
     data.owner_id!=null||data.current_seller_type!=null)
     throw refuse('CANONICAL_PRIVATE_DRAFT_READBACK_INVARIANT_FAILED',503);
   return Object.freeze({
-    vin:data.vin,recorded_marketplace_publication_state:'draft',
+    vin:data.vin,mileage:data.mileage,recorded_marketplace_publication_state:'draft',
     private_tenant_draft_only:true,
     legal_title_certified:false,vehicle_passport_verified:false,
     seller_publish_action_enabled:false,merchant_payment_enabled:false,
     independent_per_vin_seller_review_required:true,
   });
+}
+
+/**
+ * Privately correct the data-shape of an existing tenant-bound VIN draft.
+ * NEVER change its VIN, lifecycle/publication state, price, title, duty,
+ * owner, seller authority or payment entitlement. SQL conditions recheck
+ * the target in the SAME atomic update even after authenticated owner lookup.
+ */
+export function parseCanonicalDealerDraftCorrections(payload={}){
+  const make=nonempty(payload.make,80);
+  const model=nonempty(payload.model,100,1);
+  const year=payload.year;
+  const mileage=payload.mileage;
+  if(!Number.isInteger(mileage)||mileage<0||mileage>2000000)
+    throw refuse('PRIVATE_DRAFT_MILEAGE_DECLARATION_REQUIRED',400);
+  if(!make||!model||!Number.isInteger(year)||year<1950||
+    year>new Date().getUTCFullYear()+1)
+    throw refuse('INVALID_PRIVATE_DRAFT_SPECIFICATION',400);
+  return Object.freeze({make,model,year,mileage});
+}
+export async function correctMyCanonicalDealerPrivateDraft(actor,vin,payload={},{
+  db=supabase,resolveOwner=requireApprovedOwnerWorkspace,
+}={}){
+  if(typeof vin!=='string'||!VIN17.test(vin))
+    throw refuse('INVALID_PRIVATE_DRAFT_VIN',400);
+  const clean=parseCanonicalDealerDraftCorrections(payload);
+  const owner=await resolveOwner(actor);
+  if(!owner?.tenant_id||owner.actor_id!==actor?.userId)
+    throw refuse('CANONICAL_OWNER_TENANT_DRAFT_AUTHORITY_REQUIRED',403);
+  const {data,error}=await db.from('vehicles').update(clean)
+    .eq('vin',vin).eq('tenant_id',owner.tenant_id)
+    .eq('status','Pending').eq('publication_status','draft').eq('price',0)
+    .eq('duty_paid',false).eq('police_verified',false)
+    .is('owner_id',null).is('current_seller_type',null).is('import_source',null)
+    .select('vin,make,model,year,mileage,tenant_id,status,publication_status,price,owner_id,current_seller_type,import_source')
+    .maybeSingle();
+  if(error)throw refuse('CANONICAL_PRIVATE_DRAFT_UPDATE_UNAVAILABLE',503);
+  if(!data)throw refuse('PRIVATE_DRAFT_NOT_FOUND_OR_NOT_EDITABLE',404);
+  if(data.vin!==vin||data.tenant_id!==owner.tenant_id||
+    data.status!=='Pending'||data.publication_status!=='draft'||
+    Number(data.price)!==0||data.owner_id!=null||
+    data.current_seller_type!=null||data.import_source!=null||
+    data.make!==clean.make||data.model!==clean.model||data.year!==clean.year||
+    data.mileage!==clean.mileage)
+    throw refuse('CANONICAL_PRIVATE_DRAFT_UPDATE_READBACK_FAILED',503);
+  return Object.freeze({vin:data.vin,make:data.make,model:data.model,year:data.year,
+    mileage:data.mileage,
+    private_tenant_draft_only:true,recorded_marketplace_publication_state:'draft',
+    seller_publish_action_enabled:false,merchant_payment_enabled:false,
+    vehicle_passport_verified:false,legal_title_certified:false});
 }
