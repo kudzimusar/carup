@@ -177,7 +177,21 @@ try{
       passport_verified BOOLEAN,
       zimra_verified BOOLEAN,
       safe_pay_ready BOOLEAN,
-      inspection_ready BOOLEAN
+      inspection_ready BOOLEAN,
+      -- Existing canonical Marketplace provenance columns; their values
+      -- remain NULL for the fictional unlisted VIN in isolated PostgreSQL.
+      listing_city TEXT,
+      listing_province TEXT,
+      listing_country TEXT,
+      listing_location_source TEXT,
+      listing_location_visibility TEXT,
+      listing_location_recorded_at TIMESTAMPTZ,
+      registration_country_source TEXT,
+      registration_authority_source TEXT,
+      registration_status_source TEXT,
+      plate_status_source TEXT,
+      current_seller_type_source TEXT,
+      currency_source TEXT
     );
     ALTER TABLE vehicles ENABLE ROW LEVEL SECURITY;
     REVOKE ALL ON vehicles FROM PUBLIC,anon,authenticated;
