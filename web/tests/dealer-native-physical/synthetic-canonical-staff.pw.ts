@@ -406,3 +406,58 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  await ownerContext.close()
  console.log('DEALER_SYNTHETIC_STAFF_PHYSICAL PASS: two true authenticated people, canonical tenant member role created only on acceptance, then scoped private branch edit, and original-owner revocation atomically removed the scoped permission; zero role escalation')
 })
+
+
+/**
+ * The 12th discrete fictional physical case: the real, newly created and
+ * owner-corrected VIN must be visible in the private canonical tenant but
+ * cannot be discovered or detailed by an unauthenticated buyer. This is
+ * a separate business/security scenario, not an inflated unit-test count.
+ * Run after the preceding positive staff/owner journey, while the synthetic
+ * dealer is still legally active and before independent display retraction.
+ */
+test('Fictional publicly invisible dealer VIN: private owner inventory exists, guest Marketplace and per-VIN details never publish it',async({browser},info)=>{
+ test.setTimeout(240_000)
+ await new Promise<void>(resolve=>setTimeout(resolve,70_000))
+ const ownerContext=await browser.newContext({viewport:{width:1280,height:900}})
+ const owner=await ownerContext.newPage()
+ await actorOn(owner,f.actors.claimant)
+ await owner.goto('/dealers/inventory')
+ await expect(owner.getByRole('heading',{name:'Actual dealership vehicle inventory'}))
+  .toBeVisible({timeout:30000})
+ await expect(owner.getByText('TEST0000000000002',{exact:true}))
+  .toBeVisible({timeout:30000})
+ await expect(owner.getByRole('heading',{name:'2026 FICTIONAL MODEL Y'}))
+  .toBeVisible({timeout:30000})
+ await expect(owner.getByText('123,999 km',{exact:false}))
+  .toBeVisible({timeout:30000})
+ const privateScreenshot=info.outputPath('fictional-private-corrected-vin-exists-owner-only.png')
+ await owner.screenshot({path:privateScreenshot,fullPage:true})
+ await info.attach('fictional-private-corrected-vin-exists-owner-only',{
+  path:privateScreenshot,contentType:'image/png'})
+
+ const guestContext=await browser.newContext({viewport:{width:1280,height:900}})
+ const guest=await guestContext.newPage()
+ await guest.goto('/dealers/'+f.public_slug)
+ await expect(guest.getByRole('heading',{name:'Reviewed dealership branches'}))
+  .toBeVisible({timeout:30000})
+ for(const vin of ['TEST0000000000001','TEST0000000000002']){
+  await expect(guest.getByText(vin,{exact:false})).toHaveCount(0)
+  const direct=await guest.request.get(
+   'http://127.0.0.1:3001/api/vehicles/'+vin+'/details')
+  expect(direct.status()).toBe(404)
+  expect((await direct.json() as {error?:string}).error).toBe('Vehicle not found')
+ }
+ const nav=await guest.request.get('http://127.0.0.1:3001/api/marketplace/nav-coverage')
+ expect(nav.status()).toBe(200)
+ const searchableBody=JSON.stringify(await nav.json())
+ expect(searchableBody).not.toContain('TEST0000000000001')
+ expect(searchableBody).not.toContain('TEST0000000000002')
+ const publicScreenshot=info.outputPath('fictional-reviewed-dealer-no-private-vin-public-leak.png')
+ await guest.screenshot({path:publicScreenshot,fullPage:true})
+ await info.attach('fictional-reviewed-dealer-no-private-vin-public-leak',{
+  path:publicScreenshot,contentType:'image/png'})
+ await guestContext.close()
+ await ownerContext.close()
+ console.log('DEALER_NATIVE_SYNTHETIC_TWELFTH_CASE PASS: owner private VIN exists and corrected odometer is declared, guest per-VIN/details=404, Marketplace navigation excludes both VINs, public dealer storefront contains no private stock or inferred title')
+})
