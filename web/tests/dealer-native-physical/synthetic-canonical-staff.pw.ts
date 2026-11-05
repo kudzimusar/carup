@@ -422,7 +422,7 @@ test('Fictional publicly invisible dealer VIN: private owner inventory exists, g
  const ownerContext=await browser.newContext({viewport:{width:1280,height:900}})
  const owner=await ownerContext.newPage()
  await actorOn(owner,f.actors.claimant)
- await owner.goto('/dealers/inventory')
+ await owner.goto('/dealers/stock')
  await expect(owner.getByRole('heading',{name:'Actual dealership vehicle inventory'}))
   .toBeVisible({timeout:30000})
  await expect(owner.getByText('TEST0000000000002',{exact:true}))
