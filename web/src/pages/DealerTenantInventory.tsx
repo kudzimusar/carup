@@ -3,11 +3,14 @@ import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import DealerVinListingPanel from '@/components/dealer/DealerVinListingPanel'
 type Vehicle={
  vin:string;make:string|null;model:string|null;year:number|null;
  recorded_mileage:number|null;
  recorded_lifecycle_state:string|null;
  recorded_marketplace_publication_state:string|null;
+ governed_seller_is_approved_owner?:boolean;listing_candidate_prepared?:boolean;
+ declared_price?:number|null;declared_currency?:string|null;
  seller_authority:string;legal_title_certified:false;import_duty_verified:false;
  branch_attribution:string;public_listing_approved_by_this_read:false;
  listing_structural_precheck:{
@@ -60,6 +63,11 @@ export default function DealerTenantInventory(){
  // The PATCH reply is an authority-checked PostgreSQL readback of the saved
  // vehicle; its listing structural precheck is not refreshed by that write.
  const [pendingPrecheckVin,setPendingPrecheckVin]=useState('')
+ // R4 P0-2: one open canonical listing panel at a time, the owner's branches (read only when a
+ // panel is opened) and an explicit post-action refresh counter (one GET per user action).
+ const [openListingVin,setOpenListingVin]=useState('')
+ const [branches,setBranches]=useState<{id:string;name:string|null}[]|null>(null)
+ const [inventoryRefresh,setInventoryRefresh]=useState(0)
  useEffect(()=>{
   // Session changes must not carry draft inputs, review notices or private VIN
   // filters into a different signed-in dealership identity. Use a guarded
@@ -71,7 +79,7 @@ export default function DealerTenantInventory(){
    setSearch('');setDraftVin('');setDraftMake('');setDraftModel('')
    setDraftMileage('');setDraftNotice('');setDraftError('')
    setDraftReadWarning('');setEditNotice('');setEditError('')
-   setEditingVin('');setPendingPrecheckVin('')
+   setEditingVin('');setPendingPrecheckVin('');setOpenListingVin('');setBranches(null)
   })
   return()=>{live=false}
  },[authScope])
@@ -99,7 +107,16 @@ export default function DealerTenantInventory(){
    }
   })
   return()=>{live=false}
- },[userId,token,authScope])
+ },[userId,token,authScope,inventoryRefresh])
+ useEffect(()=>{
+  if(!openListingVin||branches!==null||!userId||!token)return
+  let live=true
+  apiRequest<{workspace:{branches?:{id:string;name:string|null}[]}}>({baseUrl:API,
+   path:'/dealer/operational-workspace',authHeaders:auth(userId,token)})
+   .then(r=>{if(live)setBranches(r.workspace?.branches||[])})
+   .catch(()=>{if(live)setBranches([])})
+  return()=>{live=false}
+ },[openListingVin,branches,userId,token])
  // Never render tenant-private data from a prior authentication identity:
  // changing accounts while staying on /dealers/stock must hide the prior
  // response BEFORE the replacement session's GET resolves (or fails).
@@ -394,6 +411,20 @@ export default function DealerTenantInventory(){
          className="mt-3 rounded-lg border border-slate-400 px-3 py-2 text-sm font-medium">
          Edit private draft details
         </button>}
+      {v.listing_candidate_prepared&&<p className="text-sm mt-3" data-testid={'dealer-declared-price-'+v.vin}>
+       Dealer-declared asking price: {v.declared_currency} {v.declared_price?.toLocaleString('en-US')}
+      </p>}
+      <button type="button" aria-expanded={openListingVin===v.vin}
+       aria-label={'Marketplace listing for '+v.vin}
+       onClick={()=>setOpenListingVin(openListingVin===v.vin?'':v.vin)}
+       className="mt-3 ml-2 rounded-lg border border-emerald-800 px-3 py-2 text-sm font-medium text-emerald-900">
+       {openListingVin===v.vin?'Close Marketplace listing':'Marketplace listing'}
+      </button>
+      {openListingVin===v.vin&&userId&&token&&(branches===null
+       ?<p role="status" className="text-sm mt-2">Loading your branches…</p>
+       :<DealerVinListingPanel vin={v.vin} tenantId={visibleResult.owner_tenant_id}
+         userId={userId} token={token} branches={branches}
+         onChanged={()=>setInventoryRefresh(n=>n+1)}/>)}
        <section className="border-t mt-4 pt-3 space-y-2">
        <h3 className="text-sm font-semibold">Structural listing precheck</h3>
        {pendingPrecheckVin===v.vin?(
@@ -415,9 +446,9 @@ export default function DealerTenantInventory(){
          </ul>}
        </>}
        <p className="text-xs text-amber-800">
-        Seller Authority and Vehicle Passport review: not evaluated.
-        This data check cannot publish, verify ownership or process a payment,
-        even when no structural issues remain.
+        This data-shape check cannot publish, verify ownership or process a payment.
+        The Marketplace listing panel shows CarUp's own publication checks, including
+        Seller Authority and independent document review.
        </p>
       </section>
       <p className="text-xs text-amber-800 mt-4">
@@ -427,9 +458,10 @@ export default function DealerTenantInventory(){
      </CardContent></Card>)}
     </div>
     <p className="text-xs text-slate-600 mt-6">
-     Publication, ownership evidence and per-VIN checks are controlled in
-     CarUp's existing Seller Authority and Marketplace programmes, not here.
-     This private draft workspace cannot publish an unverified car.
+     Publication, ownership evidence and per-VIN checks are controlled by
+     CarUp's canonical Seller Authority and Marketplace publication checks.
+     This workspace can only prepare dealer-declared listing facts; it cannot
+     publish an unverified car or verify its own documents.
     </p>
    </>}
   </div>

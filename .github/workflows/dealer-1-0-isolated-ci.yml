@@ -143,6 +143,7 @@ jobs:
             backend/tests/dealer-tenant-leads.test.js \
             backend/tests/dealer-canonical-inquiry-progress.test.js \
             backend/tests/dealer-original-source-proof-guards.test.js \
+            backend/tests/dealer-canonical-listing.test.js \
             backend/tests/differentiator-journey.test.js
       - name: Isolated PostgreSQL migration and claim authority proof (PGlite)
         run: |

@@ -1,0 +1,446 @@
+-- +migrate Up
+-- CARUP-DEALER-ONB-001-LR01-R4 P0-2 (C17 / C12 / C15): canonical dealer VIN listing authority.
+--
+-- The dealership domain NEVER publishes a vehicle and never invents a seller decision. Publication
+-- stays the canonical Seller/Marketplace action (POST /api/vehicles/:vin/publish, gated by the
+-- deterministic completeness evaluator: identity, Seller Authority, registration readiness,
+-- reconciliation, risk). This migration only:
+--  (a) lets the ACTIVE approved legal owner of a dealership-programme tenant prepare one of its own
+--      private tenant VIN drafts as a canonical seller listing candidate — owner as the governed
+--      current seller, an owned branch, and every stated fact stamped `dealer_declared`;
+--  (b) refuses, at the data layer, a seller relationship or publication for a dealership-programme
+--      VIN unless that tenant's approved operating authority is current RIGHT NOW;
+--  (c) withdraws a dealership-programme tenant's public listings the moment its operating link,
+--      tenant or dealer profile loses authority, and gives operations a sweep for time lapses;
+--  (d) refuses new inquiries routed to a dealership-programme tenant whose authority is not current;
+--  (e) refuses verification of a dealership-programme VIN's evidence by the uploader or by anyone
+--      holding membership in that dealership (no self-certification).
+-- Tenants WITHOUT a dealer_approved_seed_links row (every legacy tenant) are untouched by every
+-- trigger below: each one returns before doing anything else.
+
+CREATE TABLE dealer_listing_authority_events (
+  event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+  vin TEXT,
+  event_type TEXT NOT NULL CHECK (event_type IN (
+    'LISTING_CANDIDATE_PREPARED','PUBLIC_LISTINGS_WITHDRAWN')),
+  reason_code TEXT NOT NULL CHECK (reason_code ~ '^[A-Z][A-Z0-9_]{2,80}$'),
+  affected_listings INTEGER NOT NULL DEFAULT 0 CHECK (affected_listings >= 0),
+  actor_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX dealer_listing_authority_events_tenant ON dealer_listing_authority_events(tenant_id, created_at);
+CREATE TRIGGER dealer_listing_authority_events_no_update BEFORE UPDATE ON dealer_listing_authority_events
+  FOR EACH ROW EXECUTE FUNCTION governance_block_mutation();
+CREATE TRIGGER dealer_listing_authority_events_no_delete BEFORE DELETE ON dealer_listing_authority_events
+  FOR EACH ROW EXECUTE FUNCTION governance_block_mutation();
+ALTER TABLE dealer_listing_authority_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON dealer_listing_authority_events FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON dealer_listing_authority_events TO service_role;
+
+-- Lawful branch inventory attribution: one current branch per prepared dealership VIN, and the
+-- branch must belong to the same approved dealer profile (enforced by the preparation function).
+CREATE TABLE dealer_vehicle_branch_assignments (
+  vin TEXT PRIMARY KEY REFERENCES vehicles(vin) ON DELETE RESTRICT,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+  branch_id UUID NOT NULL REFERENCES dealer_branches(id) ON DELETE RESTRICT,
+  assigned_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX dealer_vehicle_branch_assignments_tenant ON dealer_vehicle_branch_assignments(tenant_id);
+ALTER TABLE dealer_vehicle_branch_assignments ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON dealer_vehicle_branch_assignments FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON dealer_vehicle_branch_assignments TO service_role;
+
+-- The SQL twin of readMyOperationalDealerAuthority (dealerLegalActivationService.js). Every
+-- condition is evaluated against clock_timestamp(), not now(): now() is the transaction start, so
+-- a long transaction could otherwise act on authority that has already lapsed.
+CREATE FUNCTION dealer_tenant_listing_authority_current(p_tenant_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM dealer_approved_seed_links l
+      JOIN dealer_research_claim_requests c ON c.claim_id = l.claim_id
+      JOIN tenants t ON t.id = l.tenant_id
+      JOIN tenant_users tu ON tu.tenant_id = l.tenant_id AND tu.user_id = l.claimant_user_id
+      JOIN dealer_profiles d ON d.id = l.dealer_profile_id AND d.user_id = l.claimant_user_id
+      JOIN dealer_legal_application_reviews r ON r.legal_review_id = l.legal_review_id
+      JOIN dealer_country_legal_policy_authority p
+        ON p.country_code = r.country_code AND p.policy_version = r.policy_version
+     WHERE l.tenant_id = p_tenant_id
+       AND l.operating_status = 'ACTIVE'
+       AND c.claim_status = 'CLAIM_APPROVED' AND c.claimant_user_id = l.claimant_user_id
+       AND t.type = 'dealership' AND t.status = 'active'
+       AND tu.role IN ('dealer', 'admin')
+       AND d.identity_status = 'verified' AND d.compliance_review_state = 'passed'
+       AND d.active_state = 'active' AND d.restriction_state = 'none'
+       AND d.suspension_state = 'none' AND d.investigation_state = 'none'
+       AND d.expiry_date > clock_timestamp()
+       AND p.policy_state = 'APPROVED'
+       AND p.effective_at <= clock_timestamp() AND p.expires_at > clock_timestamp()
+       AND r.legal_expires_at > clock_timestamp()
+  )
+$$;
+REVOKE ALL ON FUNCTION dealer_tenant_listing_authority_current(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION dealer_tenant_listing_authority_current(UUID) TO service_role;
+
+-- Withdraw (never delete) every PUBLIC listing of one dealership-programme tenant. 'publishable' is
+-- exactly the canonical unpublish target: off the public surface, still the seller's, availability
+-- untouched. One append-only event records how many listings left the public surface and why.
+CREATE FUNCTION dealer_withdraw_tenant_public_listings(p_tenant_id UUID, p_reason TEXT, p_actor TEXT)
+RETURNS INTEGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_count INTEGER := 0;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM dealer_approved_seed_links WHERE tenant_id = p_tenant_id) THEN
+    RAISE EXCEPTION 'NOT_A_DEALERSHIP_PROGRAMME_TENANT';
+  END IF;
+  WITH withdrawn AS (
+    UPDATE vehicles SET publication_status = 'publishable'
+     WHERE tenant_id::text = p_tenant_id::text AND publication_status = 'published'
+     RETURNING vin
+  ) SELECT count(*)::int INTO v_count FROM withdrawn;
+  IF v_count > 0 THEN
+    INSERT INTO dealer_listing_authority_events(tenant_id, event_type, reason_code, affected_listings, actor_id)
+    VALUES (p_tenant_id, 'PUBLIC_LISTINGS_WITHDRAWN', p_reason, v_count, p_actor);
+  END IF;
+  RETURN v_count;
+END;
+$$;
+REVOKE ALL ON FUNCTION dealer_withdraw_tenant_public_listings(UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION dealer_withdraw_tenant_public_listings(UUID, TEXT, TEXT) TO service_role;
+
+-- (b) Data-layer listing guard on the canonical vehicles table.
+CREATE FUNCTION dealer_guard_canonical_listing_write()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_link dealer_approved_seed_links%ROWTYPE; v_old_link BOOLEAN := false;
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.tenant_id IS NOT NULL
+     AND NEW.tenant_id IS DISTINCT FROM OLD.tenant_id THEN
+    SELECT true INTO v_old_link FROM dealer_approved_seed_links WHERE tenant_id::text = OLD.tenant_id::text;
+    IF coalesce(v_old_link, false) THEN
+      RAISE EXCEPTION 'DEALER_TENANT_INVENTORY_REASSIGNMENT_REFUSED';
+    END IF;
+  END IF;
+  IF NEW.tenant_id IS NULL THEN RETURN NEW; END IF;
+  SELECT * INTO v_link FROM dealer_approved_seed_links WHERE tenant_id::text = NEW.tenant_id::text;
+  IF NOT FOUND THEN RETURN NEW; END IF;  -- legacy tenants: untouched
+  -- A governed current-seller relationship on a dealership-programme VIN may only ever name the
+  -- approved legal owner, and only while operating authority is current. Staff never inherit it.
+  IF NEW.current_seller_id IS NOT NULL AND
+     (TG_OP = 'INSERT' OR NEW.current_seller_id IS DISTINCT FROM OLD.current_seller_id) THEN
+    IF NEW.current_seller_id <> v_link.claimant_user_id THEN
+      RAISE EXCEPTION 'DEALER_SELLER_RELATIONSHIP_REQUIRES_APPROVED_OWNER';
+    END IF;
+    IF NOT dealer_tenant_listing_authority_current(v_link.tenant_id) THEN
+      RAISE EXCEPTION 'DEALER_LISTING_AUTHORITY_NOT_CURRENT';
+    END IF;
+  END IF;
+  -- Moving INTO the public surface requires current authority and the owner as governed seller.
+  -- Moving OUT (unpublish / withdrawal) is never blocked.
+  IF NEW.publication_status = 'published' AND
+     (TG_OP = 'INSERT' OR OLD.publication_status IS DISTINCT FROM 'published') THEN
+    IF NOT dealer_tenant_listing_authority_current(v_link.tenant_id) THEN
+      RAISE EXCEPTION 'DEALER_LISTING_AUTHORITY_NOT_CURRENT';
+    END IF;
+    IF NEW.current_seller_id IS DISTINCT FROM v_link.claimant_user_id THEN
+      RAISE EXCEPTION 'DEALER_PUBLICATION_REQUIRES_APPROVED_OWNER_SELLER';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER dealer_guard_canonical_listing_write
+  BEFORE INSERT OR UPDATE OF publication_status, current_seller_id, tenant_id ON vehicles
+  FOR EACH ROW EXECUTE FUNCTION dealer_guard_canonical_listing_write();
+
+-- (c) Immediate withdrawal when authority is lost through any of the three governed records.
+CREATE FUNCTION dealer_withdraw_listings_on_link_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF OLD.operating_status = 'ACTIVE' AND NEW.operating_status <> 'ACTIVE' THEN
+    PERFORM dealer_withdraw_tenant_public_listings(NEW.tenant_id,
+      'OPERATING_LINK_' || NEW.operating_status, NULL);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER dealer_withdraw_listings_on_link_change
+  AFTER UPDATE OF operating_status ON dealer_approved_seed_links
+  FOR EACH ROW EXECUTE FUNCTION dealer_withdraw_listings_on_link_change();
+
+CREATE FUNCTION dealer_withdraw_listings_on_tenant_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF OLD.status IS NOT DISTINCT FROM 'active' AND NEW.status IS DISTINCT FROM 'active'
+     AND EXISTS (SELECT 1 FROM dealer_approved_seed_links WHERE tenant_id = NEW.id) THEN
+    PERFORM dealer_withdraw_tenant_public_listings(NEW.id,
+      'TENANT_' || upper(regexp_replace(coalesce(NEW.status, 'none'), '[^A-Za-z0-9]', '_', 'g')), NULL);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER dealer_withdraw_listings_on_tenant_change
+  AFTER UPDATE OF status ON tenants
+  FOR EACH ROW EXECUTE FUNCTION dealer_withdraw_listings_on_tenant_change();
+
+CREATE FUNCTION dealer_withdraw_listings_on_profile_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_tenant UUID;
+BEGIN
+  SELECT tenant_id INTO v_tenant FROM dealer_approved_seed_links WHERE dealer_profile_id = NEW.id;
+  IF v_tenant IS NOT NULL AND NOT dealer_tenant_listing_authority_current(v_tenant) THEN
+    PERFORM dealer_withdraw_tenant_public_listings(v_tenant, 'DEALER_PROFILE_AUTHORITY_LOST', NULL);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER dealer_withdraw_listings_on_profile_change
+  AFTER UPDATE OF identity_status, compliance_review_state, active_state, restriction_state,
+    suspension_state, investigation_state, expiry_date ON dealer_profiles
+  FOR EACH ROW EXECUTE FUNCTION dealer_withdraw_listings_on_profile_change();
+
+-- Time lapses (legal approval, country policy or profile expiry) change no row, so no trigger can
+-- see them. Operations (or the dealer's own next workspace read) runs this sweep; publication and
+-- seller-relationship writes are refused by the guard above the instant authority lapses anyway.
+CREATE FUNCTION dealer_withdraw_lapsed_listing_authority(p_actor TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v RECORD; v_tenants INTEGER := 0; v_total INTEGER := 0; v_n INTEGER;
+BEGIN
+  FOR v IN SELECT DISTINCT l.tenant_id FROM dealer_approved_seed_links l
+            JOIN vehicles x ON x.tenant_id::text = l.tenant_id::text AND x.publication_status = 'published' LOOP
+    IF NOT dealer_tenant_listing_authority_current(v.tenant_id) THEN
+      v_n := dealer_withdraw_tenant_public_listings(v.tenant_id, 'OPERATING_AUTHORITY_LAPSED', p_actor);
+      v_tenants := v_tenants + 1; v_total := v_total + v_n;
+    END IF;
+  END LOOP;
+  RETURN jsonb_build_object('tenants_withdrawn', v_tenants, 'listings_withdrawn', v_total);
+END;
+$$;
+REVOKE ALL ON FUNCTION dealer_withdraw_lapsed_listing_authority(TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION dealer_withdraw_lapsed_listing_authority(TEXT) TO service_role;
+
+-- (d) A new inquiry may reach a dealership-programme tenant only while that dealer's operating
+-- authority is current. Whether the listing itself may receive buyers is the canonical inquiry
+-- service's rule (it requires a governed current seller, which only an approved owner can hold on
+-- dealership stock — see the guard above). (Legacy tenants: untouched.)
+CREATE FUNCTION dealer_guard_marketplace_inquiry()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_link dealer_approved_seed_links%ROWTYPE;
+BEGIN
+  IF NEW.seller_tenant_id IS NULL THEN RETURN NEW; END IF;
+  SELECT * INTO v_link FROM dealer_approved_seed_links WHERE tenant_id::text = NEW.seller_tenant_id::text;
+  IF NOT FOUND THEN RETURN NEW; END IF;
+  IF NOT dealer_tenant_listing_authority_current(v_link.tenant_id) THEN
+    RAISE EXCEPTION 'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER dealer_guard_marketplace_inquiry
+  BEFORE INSERT ON marketplace_inquiries
+  FOR EACH ROW EXECUTE FUNCTION dealer_guard_marketplace_inquiry();
+
+-- (e) No self-certification of a dealership-programme VIN's evidence (a VERIFIED outcome is the
+-- only one that can unlock publication, so it is the one that must come from an independent reviewer).
+CREATE FUNCTION dealer_guard_vehicle_evidence_review()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_link dealer_approved_seed_links%ROWTYPE;
+BEGIN
+  IF NEW.verification_status IS NOT DISTINCT FROM OLD.verification_status
+     OR NEW.verification_status <> 'verified' THEN
+    RETURN NEW;
+  END IF;
+  SELECT l.* INTO v_link FROM dealer_approved_seed_links l
+    JOIN vehicles x ON x.tenant_id::text = l.tenant_id::text
+   WHERE x.vin = NEW.vin;
+  IF NOT FOUND THEN RETURN NEW; END IF;
+  IF NEW.verified_by IS NULL OR NEW.verified_by = NEW.uploaded_by
+     OR NEW.verified_by = v_link.claimant_user_id
+     OR EXISTS (SELECT 1 FROM tenant_users tu
+                 WHERE tu.tenant_id::text = v_link.tenant_id::text AND tu.user_id = NEW.verified_by) THEN
+    RAISE EXCEPTION 'DEALER_VEHICLE_EVIDENCE_REQUIRES_INDEPENDENT_REVIEWER';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER dealer_guard_vehicle_evidence_review
+  BEFORE UPDATE OF verification_status ON vehicle_evidence
+  FOR EACH ROW EXECUTE FUNCTION dealer_guard_vehicle_evidence_review();
+
+-- (a) Prepare one private tenant VIN draft as a canonical seller listing candidate. The vehicle stays
+-- unpublished; only the canonical publish route (and its completeness gate) can make it public.
+CREATE FUNCTION dealer_prepare_canonical_listing(
+  p_actor_id TEXT, p_vin TEXT, p_branch_id UUID, p_price NUMERIC, p_currency TEXT,
+  p_chassis_number TEXT, p_engine_number TEXT, p_registration_status TEXT, p_plate_number TEXT,
+  p_listing_city TEXT, p_listing_province TEXT, p_location_visibility TEXT,
+  p_public_seller_display BOOLEAN
+) RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_link dealer_approved_seed_links%ROWTYPE;
+  v_vehicle RECORD; v_country TEXT; v_plate TEXT; v_row RECORD;
+  v_chassis TEXT := upper(btrim(coalesce(p_chassis_number, '')));
+  v_engine TEXT := upper(btrim(coalesce(p_engine_number, '')));
+  v_city TEXT := btrim(coalesce(p_listing_city, ''));
+  v_province TEXT := nullif(btrim(coalesce(p_listing_province, '')), '');
+  v_currency TEXT := upper(btrim(coalesce(p_currency, '')));
+  v_status TEXT := lower(btrim(coalesce(p_registration_status, '')));
+BEGIN
+  SELECT * INTO v_link FROM dealer_approved_seed_links
+   WHERE claimant_user_id = p_actor_id AND operating_status = 'ACTIVE' FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'NO_ACTIVE_CANONICAL_DEALER_MEMBERSHIP'; END IF;
+  IF NOT dealer_tenant_listing_authority_current(v_link.tenant_id) THEN
+    RAISE EXCEPTION 'DEALER_LISTING_AUTHORITY_NOT_CURRENT';
+  END IF;
+  IF p_price IS NULL OR p_price <= 0 OR p_price > 10000000 THEN RAISE EXCEPTION 'DEALER_DECLARED_PRICE_REQUIRED'; END IF;
+  IF v_currency !~ '^[A-Z]{3}$' THEN RAISE EXCEPTION 'DEALER_DECLARED_CURRENCY_REQUIRED'; END IF;
+  IF v_chassis !~ '^[A-Z0-9-]{4,40}$' OR v_engine !~ '^[A-Z0-9-]{4,40}$' THEN
+    RAISE EXCEPTION 'DEALER_DECLARED_IDENTITY_NUMBERS_REQUIRED';
+  END IF;
+  IF v_status NOT IN ('import_in_transit','arrived_customs_pending','customs_cleared_cvr_pending',
+       'cvr_plate_pending','locally_registered','temporary_foreign_tip','reregistration_pending','unknown') THEN
+    RAISE EXCEPTION 'DEALER_DECLARED_REGISTRATION_STAGE_REQUIRED';
+  END IF;
+  v_plate := nullif(upper(btrim(coalesce(p_plate_number, ''))), '');
+  IF v_plate IS NOT NULL AND v_plate !~ '^[A-Z0-9 -]{2,16}$' THEN RAISE EXCEPTION 'INVALID_DECLARED_PLATE'; END IF;
+  IF length(v_city) NOT BETWEEN 2 AND 80 THEN RAISE EXCEPTION 'DEALER_DECLARED_LISTING_CITY_REQUIRED'; END IF;
+  IF coalesce(p_location_visibility, '') NOT IN ('public', 'province_only', 'withheld') THEN
+    RAISE EXCEPTION 'DEALER_LISTING_LOCATION_VISIBILITY_REQUIRED';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM dealer_branches b
+                  WHERE b.id = p_branch_id AND b.dealer_id = v_link.dealer_profile_id) THEN
+    RAISE EXCEPTION 'BRANCH_NOT_OWNED_BY_APPROVED_DEALER';
+  END IF;
+  SELECT r.country_code INTO v_country FROM dealer_legal_application_reviews r
+   WHERE r.legal_review_id = v_link.legal_review_id;
+  SELECT vin, tenant_id, status, publication_status, currency, current_seller_id, owner_id
+    INTO v_vehicle FROM vehicles WHERE vin = p_vin FOR UPDATE;
+  IF NOT FOUND OR v_vehicle.tenant_id::text IS DISTINCT FROM v_link.tenant_id::text THEN
+    RAISE EXCEPTION 'TENANT_VEHICLE_NOT_FOUND';
+  END IF;
+  IF v_vehicle.publication_status = 'published' THEN RAISE EXCEPTION 'LISTING_ALREADY_PUBLIC_UNPUBLISH_FIRST'; END IF;
+  IF v_vehicle.owner_id IS NOT NULL THEN RAISE EXCEPTION 'PRIVATE_OWNER_VEHICLE_NOT_DEALER_STOCK'; END IF;
+  IF v_vehicle.current_seller_id IS NOT NULL AND v_vehicle.current_seller_id <> p_actor_id THEN
+    RAISE EXCEPTION 'DEALER_SELLER_RELATIONSHIP_REQUIRES_APPROVED_OWNER';
+  END IF;
+  -- A currency is stated once. Re-preparing may restate the same one, never redenominate.
+  IF v_vehicle.currency IS NOT NULL AND v_vehicle.current_seller_id IS NOT NULL
+     AND v_vehicle.currency <> v_currency THEN
+    RAISE EXCEPTION 'CURRENCY_ALREADY_STATED';
+  END IF;
+  UPDATE vehicles SET
+    current_seller_id = p_actor_id,
+    current_seller_type = 'Dealer',
+    current_seller_type_source = 'dealer_declared',
+    status = 'Available',
+    price = p_price,
+    currency = v_currency,
+    currency_source = 'dealer_declared',
+    chassis_number = v_chassis,
+    engine_number = v_engine,
+    plate_number = v_plate,
+    registration_status = v_status,
+    registration_status_source = 'dealer_declared',
+    registration_country = v_country,
+    registration_country_source = 'dealer_declared',
+    listing_city = v_city,
+    listing_province = v_province,
+    listing_country = v_country,
+    listing_location_source = 'dealer_declared',
+    listing_location_visibility = p_location_visibility,
+    listing_location_recorded_at = clock_timestamp(),
+    public_seller_display_enabled = coalesce(p_public_seller_display, false),
+    publication_status = CASE WHEN publication_status = 'publishable' THEN 'publishable' ELSE 'draft' END
+  WHERE vin = p_vin
+  RETURNING vin, status, publication_status, price, currency, current_seller_id, current_seller_type
+    INTO v_row;
+  INSERT INTO dealer_vehicle_branch_assignments(vin, tenant_id, branch_id, assigned_by)
+  VALUES (p_vin, v_link.tenant_id, p_branch_id, p_actor_id)
+  ON CONFLICT (vin) DO UPDATE SET branch_id = EXCLUDED.branch_id,
+    assigned_by = EXCLUDED.assigned_by, assigned_at = clock_timestamp()
+  WHERE dealer_vehicle_branch_assignments.tenant_id = EXCLUDED.tenant_id;
+  INSERT INTO dealer_listing_authority_events(tenant_id, vin, event_type, reason_code, actor_id)
+  VALUES (v_link.tenant_id, p_vin, 'LISTING_CANDIDATE_PREPARED', 'OWNER_DECLARED_LISTING_FACTS', p_actor_id);
+  RETURN jsonb_build_object(
+    'vin', v_row.vin, 'status', v_row.status, 'publication_status', v_row.publication_status,
+    'price', v_row.price, 'currency', v_row.currency, 'current_seller_type', v_row.current_seller_type,
+    'governed_seller_is_approved_owner', v_row.current_seller_id = p_actor_id,
+    'branch_id', p_branch_id, 'facts_source', 'dealer_declared',
+    'published', false, 'canonical_publication_gate_required', true,
+    'independent_vehicle_review_required', true);
+END;
+$$;
+REVOKE ALL ON FUNCTION dealer_prepare_canonical_listing(TEXT, TEXT, UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, BOOLEAN)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION dealer_prepare_canonical_listing(TEXT, TEXT, UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, BOOLEAN)
+  TO service_role;
+
+-- Dealer storefront association: ONLY the VINs a currently approved full storefront may show —
+-- current storefront publication, current operating authority, published, and the approved owner as
+-- governed seller. VINs only: the caller renders each through the canonical public Marketplace
+-- detail service, so this function cannot widen what a vehicle discloses.
+CREATE FUNCTION dealer_storefront_public_listing_vins(p_seed_dealer_id TEXT, p_limit INTEGER DEFAULT 12)
+RETURNS TABLE(vin TEXT)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+  SELECT x.vin
+    FROM dealer_full_storefront_current s
+    JOIN dealer_approved_seed_links l ON l.seed_dealer_id = s.seed_dealer_id AND l.operating_status = 'ACTIVE'
+    JOIN vehicles x ON x.tenant_id::text = l.tenant_id::text
+   WHERE s.seed_dealer_id = p_seed_dealer_id
+     AND dealer_tenant_listing_authority_current(l.tenant_id)
+     AND x.publication_status = 'published'
+     AND x.current_seller_id = l.claimant_user_id
+   ORDER BY x.created_at DESC, x.vin
+   LIMIT least(greatest(coalesce(p_limit, 12), 1), 48)
+$$;
+REVOKE ALL ON FUNCTION dealer_storefront_public_listing_vins(TEXT, INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION dealer_storefront_public_listing_vins(TEXT, INTEGER) TO service_role;
+
+-- +migrate Down
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM dealer_listing_authority_events)
+     OR EXISTS (SELECT 1 FROM dealer_vehicle_branch_assignments) THEN
+    RAISE EXCEPTION 'CANNOT_ROLLBACK_WITH_DEALER_LISTING_CUSTODY';
+  END IF;
+END;
+$$;
+DROP FUNCTION IF EXISTS dealer_storefront_public_listing_vins(TEXT, INTEGER);
+DROP FUNCTION IF EXISTS dealer_prepare_canonical_listing(TEXT, TEXT, UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, BOOLEAN);
+DROP TRIGGER IF EXISTS dealer_guard_vehicle_evidence_review ON vehicle_evidence;
+DROP FUNCTION IF EXISTS dealer_guard_vehicle_evidence_review();
+DROP TRIGGER IF EXISTS dealer_guard_marketplace_inquiry ON marketplace_inquiries;
+DROP FUNCTION IF EXISTS dealer_guard_marketplace_inquiry();
+DROP FUNCTION IF EXISTS dealer_withdraw_lapsed_listing_authority(TEXT);
+DROP TRIGGER IF EXISTS dealer_withdraw_listings_on_profile_change ON dealer_profiles;
+DROP FUNCTION IF EXISTS dealer_withdraw_listings_on_profile_change();
+DROP TRIGGER IF EXISTS dealer_withdraw_listings_on_tenant_change ON tenants;
+DROP FUNCTION IF EXISTS dealer_withdraw_listings_on_tenant_change();
+DROP TRIGGER IF EXISTS dealer_withdraw_listings_on_link_change ON dealer_approved_seed_links;
+DROP FUNCTION IF EXISTS dealer_withdraw_listings_on_link_change();
+DROP TRIGGER IF EXISTS dealer_guard_canonical_listing_write ON vehicles;
+DROP FUNCTION IF EXISTS dealer_guard_canonical_listing_write();
+DROP FUNCTION IF EXISTS dealer_withdraw_tenant_public_listings(UUID, TEXT, TEXT);
+DROP FUNCTION IF EXISTS dealer_tenant_listing_authority_current(UUID);
+DROP TABLE IF EXISTS dealer_vehicle_branch_assignments;
+DROP TABLE IF EXISTS dealer_listing_authority_events;

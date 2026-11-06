@@ -6,8 +6,12 @@ import {supabase} from '../../db/supabase.js';
 import {requireApprovedOwnerWorkspace} from './dealerVerifiedWorkspaceService.js';
 import {getListingIneligibilityReasons} from '../marketplace/marketplaceListingEligibility.js';
 const refuse=(code,status=503)=>Object.assign(new Error(code),{statusCode:status});
-export function projectTenantDealerVehicle(record){
+export function projectTenantDealerVehicle(record,ownerActorId=null){
   if(!record||typeof record.vin!=='string')return null;
+  // R4 P0-2: a VIN is a prepared canonical listing candidate only when the approved owner is its
+  // governed current seller (the data layer refuses any other seller on dealership stock).
+  const prepared=typeof ownerActorId==='string'&&ownerActorId.length>0&&
+    record.current_seller_id===ownerActorId;
   // This calls the EXISTING read-only Marketplace structural rules. It is NOT
   // Seller Authority, a reviewer decision, a price/value guarantee or an
   // unlockable publish button. Never return owner_id, tenant_id or other PII.
@@ -26,6 +30,10 @@ export function projectTenantDealerVehicle(record){
     recorded_mileage:Number.isInteger(record.mileage)?record.mileage:null,
     recorded_lifecycle_state:record.status??null,
     recorded_marketplace_publication_state:record.publication_status??null,
+    governed_seller_is_approved_owner:prepared,
+    listing_candidate_prepared:prepared&&record.status==='Available',
+    declared_price:prepared&&Number.isFinite(Number(record.price))?Number(record.price):null,
+    declared_currency:prepared?record.currency??null:null,
     seller_authority:'NOT_DETERMINED_BY_TENANT_INVENTORY_READ',
     legal_title_certified:false,import_duty_verified:false,
     branch_attribution:'NOT_VERIFIED_IN_CANONICAL_STOCK',
@@ -51,7 +59,7 @@ export async function getMyCanonicalDealerInventory(actor,{
   if(typeof owner?.tenant_id!=='string'||!owner.tenant_id)
     throw refuse('CANONICAL_TENANT_CONTEXT_REQUIRED',403);
   const {data,error}=await db.from('vehicles')
-    .select('vin,make,model,year,mileage,price,status,publication_status,tenant_id,owner_id,current_seller_type,import_source')
+    .select('vin,make,model,year,mileage,price,status,publication_status,tenant_id,owner_id,current_seller_type,import_source,current_seller_id,currency')
     .eq('tenant_id',owner.tenant_id).order('created_at',{ascending:false}).limit(100);
   // A failed/malformed data response is NOT a genuine empty inventory.
   if(error||!Array.isArray(data))
@@ -60,7 +68,7 @@ export async function getMyCanonicalDealerInventory(actor,{
   // project foreign inventory merely because the query requested a filter.
   if(data.some(row=>row.tenant_id!==owner.tenant_id))
     throw refuse('CROSS_TENANT_VEHICLE_READ_REFUSED',403);
-  const entries=data.map(projectTenantDealerVehicle).filter(Boolean);
+  const entries=data.map(row=>projectTenantDealerVehicle(row,owner.actor_id)).filter(Boolean);
   return {
     owner_tenant_id:owner.tenant_id,
     entries,
@@ -69,6 +77,9 @@ export async function getMyCanonicalDealerInventory(actor,{
     actual_total:null,
     non_tenant_vehicle_visibility:false,
     seller_publish_action_enabled:false,
+    // Publication is only ever the canonical Marketplace gate; this read never decides it.
+    listing_preparation_available:true,
+    canonical_publication_gate_via_listing_readiness:true,
     vehicle_specific_seller_authority_requires_SELLER_DOMAIN:true,
     buyer_ratings_and_sales_counts:null,
   };

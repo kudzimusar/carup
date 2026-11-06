@@ -69,6 +69,8 @@ function applyDealerPublicSeo(profile:ResearchProfile|null){
  canonical.setAttribute('data-carup-dealer-seo','true')
  document.head.appendChild(canonical)
 }
+type StorefrontListing={vin:string;year?:number|null;make?:string|null;model?:string|null;
+  price?:number|null;currency?:string|null;location?:string|null}
 /** The same stable URL is retained when a full approved dealer eventually upgrades this profile. */
 export default function DealerResearchProfile({ claimMode = false }: { claimMode?: boolean }) {
   const { seedId } = useParams<{seedId: string}>()
@@ -84,6 +86,10 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
   const [submitting, setSubmitting] = useState(false)
   const [claimOutcome, setClaimOutcome] = useState<'pending-evidence' | 'failed' | null>(null)
   const [claimError, setClaimError] = useState('')
+  // R4 P0-2 (C19): canonical Marketplace stock of an APPROVED storefront only. Each entry is the
+  // canonical public Marketplace detail; nothing here is a dealership-specific vehicle projection.
+  const [stock,setStock]=useState<StorefrontListing[]|null>(null)
+  const [stockState,setStockState]=useState<'idle'|'loading'|'ready'|'unavailable'>('idle')
 
   useEffect(() => {
     const key = seedId?.toUpperCase()
@@ -122,6 +128,14 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
         setReviewedContacts(null)
         setContactAvailability('unavailable')
       })
+      setStock(null)
+      if(result.profile.business_verified){
+        setStockState('loading')
+        apiRequest<{inventory:{entries:StorefrontListing[]}}>({baseUrl:API,
+          path:'/dealership/research/'+encodeURIComponent(key)+'/inventory'})
+          .then(r=>{if(active){setStock(r.inventory.entries||[]);setStockState('ready')}})
+          .catch(()=>{if(active){setStock(null);setStockState('unavailable')}})
+      }else setStockState('idle')
       if(typeof document!=='undefined'){
         document.title=result.profile.name+(result.profile.business_verified?
           ' · Reviewed dealer storefront · CarUp':
@@ -219,6 +233,30 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                     GPS and live opening status are not verified.
                   </p>
                 </div>)}
+              </CardContent></Card>
+              <Card><CardContent className="p-6" data-testid="dealer-storefront-inventory">
+                <h2 className="text-xl font-semibold">Vehicles listed on CarUp Marketplace</h2>
+                <p className="text-sm text-gray-600 mt-2">
+                  Each vehicle passed CarUp's own Marketplace publication checks. The dealership's
+                  approval does not verify any individual car; open a listing for its own details.
+                </p>
+                {stockState==='loading'&&<p role="status" className="mt-3 text-sm">Loading listed vehicles…</p>}
+                {stockState==='unavailable'&&<p role="alert" className="mt-3 text-sm">
+                  Listed vehicles are unavailable right now. This is not a statement that the dealer has no stock.</p>}
+                {stockState==='ready'&&stock&&stock.length===0&&<p className="mt-3 text-sm text-gray-600">
+                  No vehicles from this dealership are currently published on CarUp Marketplace.</p>}
+                {stockState==='ready'&&stock&&stock.length>0&&<ul className="mt-4 space-y-3">
+                  {stock.map(item=><li key={item.vin} className="border-t pt-3">
+                    <Link className="font-semibold text-blue-700 underline underline-offset-4"
+                      to={'/marketplace/listing/'+encodeURIComponent(item.vin)}>
+                      {[item.year,item.make,item.model].filter(Boolean).join(' ')||'Listed vehicle'}
+                    </Link>
+                    <p className="text-sm text-gray-700">
+                      {item.price!=null&&item.currency?item.currency+' '+item.price.toLocaleString('en-US'):'Price not recorded'}
+                      {item.location?' · '+item.location:''}
+                    </p>
+                  </li>)}
+                </ul>}
               </CardContent></Card>
               <Card><CardContent className="p-6">
                 <h2 className="text-xl font-semibold">Dealer-declared services and buyer information</h2>

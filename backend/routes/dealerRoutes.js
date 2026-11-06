@@ -39,6 +39,8 @@ import {
 import {getMyCanonicalDealerInventory,recordMyCanonicalDealerPrivateDraft,
   correctMyCanonicalDealerPrivateDraft}
   from '../services/dealer/dealerTenantInventoryReadService.js';
+import {prepareMyDealerListing,getMyDealerListingReadiness}
+  from '../services/dealer/dealerCanonicalListingService.js';
 import {getMyCanonicalDealerInquiries,advanceMyCanonicalDealerInquiry}
   from '../services/dealer/dealerTenantLeadReadService.js';
 import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
@@ -372,6 +374,34 @@ router.patch('/api/dealer/operational-inventory/private-drafts/:vin',
     const draft=await correctMyCanonicalDealerPrivateDraft(
       req.userContext,req.params.vin,req.body);
     res.set('Cache-Control','no-store').json({draft});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+
+// R4 P0-2: turn one of the owner's private tenant VIN drafts into a canonical seller listing
+// candidate (owner = governed current seller, owned branch, dealer_declared facts). It stays
+// UNPUBLISHED: publication is only ever the canonical POST /api/vehicles/:vin/publish gate.
+router.post('/api/dealer/operational-inventory/:vin/listing-preparation',
+  authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const listing=await prepareMyDealerListing(req.userContext,req.params.vin,req.body);
+    res.set('Cache-Control','no-store').json({listing});
+  }catch(error){
+    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
+      return res.status(error.statusCode).json({error:error.message});
+    next(error);
+  }
+});
+
+// R4 P0-2: the canonical publication gate's own answer for this owner's VIN (labels/statuses only).
+router.get('/api/dealer/operational-inventory/:vin/listing-readiness',
+  authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const readiness=await getMyDealerListingReadiness(req.userContext,req.params.vin);
+    res.set('Cache-Control','no-store').json({readiness});
   }catch(error){
     if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
       return res.status(error.statusCode).json({error:error.message});

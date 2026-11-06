@@ -30,6 +30,7 @@ const names=[
   '20261103138000_dealer_branch_operating_details.sql',
   '20261103139000_dealer_canonical_inquiry_progress.sql',
   '20261103140000_dealer_staff_branch_scope.sql',
+  '20261103141000_dealer_canonical_listing_authority.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -213,11 +214,80 @@ try{
       registration_status_source TEXT,
       plate_status_source TEXT,
       current_seller_type_source TEXT,
-      currency_source TEXT
+      currency_source TEXT,
+      -- R4 P0-2: the canonical identity and governed-seller columns that the completeness gate,
+      -- the publish route and the Marketplace inquiry service read (all NULL until a seller
+      -- declares them). current_seller_id is the ONLY inquiry routing key (never owner_id).
+      current_seller_id TEXT,
+      chassis_number TEXT,
+      engine_number TEXT,
+      plate_number TEXT,
+      temp_plate_id TEXT,
+      normalized_plate_number TEXT,
+      trust_score NUMERIC
     );
     ALTER TABLE vehicles ENABLE ROW LEVEL SECURITY;
     REVOKE ALL ON vehicles FROM PUBLIC,anon,authenticated;
     GRANT SELECT ON vehicles TO service_role;
+    -- R4 P0-2: mirrors of the canonical per-VIN evidence, extraction, risk, Seller Authority and
+    -- ownership-transfer tables the canonical completeness gate reads. Columns follow
+    -- 014_passport_evidence_architecture.sql plus the later provenance columns written by
+    -- insertEvidenceFromRequest; nothing here is seeded.
+    CREATE TABLE vehicle_evidence(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      vehicle_id TEXT NOT NULL REFERENCES vehicles(vin) ON DELETE CASCADE,
+      vin TEXT NOT NULL REFERENCES vehicles(vin) ON DELETE CASCADE,
+      plate_number TEXT,normalized_plate_number TEXT,chassis_number TEXT,engine_number TEXT,
+      linked_registry_event_id TEXT,timeline_event_id TEXT,event_source TEXT,event_type TEXT,
+      evidence_type TEXT NOT NULL,file_url TEXT NOT NULL,storage_bucket TEXT NOT NULL,
+      file_path TEXT NOT NULL,mime_type TEXT NOT NULL,file_size INTEGER NOT NULL,
+      checksum TEXT,image_hash TEXT,
+      uploaded_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      uploader_role TEXT NOT NULL,tenant_id TEXT,
+      captured_at TIMESTAMPTZ NOT NULL DEFAULT now(),uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      source_name TEXT,source_reference TEXT,
+      verification_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (verification_status IN ('pending','verified','rejected','disputed','superseded')),
+      verification_notes TEXT,
+      visibility_level TEXT NOT NULL DEFAULT 'public_safe'
+        CHECK (visibility_level IN ('public_safe','restricted','private','government_only')),
+      verified_by TEXT REFERENCES users(id) ON DELETE SET NULL,verified_at TIMESTAMPTZ,
+      trust_impact NUMERIC DEFAULT 0,trust_score_impact NUMERIC DEFAULT 0,confidence_impact NUMERIC DEFAULT 0,
+      evidence_class TEXT,evidence_subtype TEXT,event_date TIMESTAMPTZ,event_date_precision TEXT,
+      capture_country TEXT,odometer_value NUMERIC,odometer_unit TEXT,component_tags JSONB,
+      declared_condition TEXT,source_id UUID,source_record_id TEXT,received_at TIMESTAMPTZ,
+      perceptual_hash TEXT,checksum_algorithm TEXT,evidence_set_id UUID,retention_class TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE vehicle_document_extractions(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),evidence_id UUID,vin TEXT NOT NULL,
+      document_type TEXT,field_name TEXT,raw_value TEXT,normalized_value TEXT,expected_value TEXT,
+      compared_vehicle_field TEXT,match_status TEXT,review_status TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE fraud_cases(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),vin TEXT,status TEXT NOT NULL DEFAULT 'open',
+      blocks_publication BOOLEAN NOT NULL DEFAULT false,created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE vehicle_seller_authority(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),vin TEXT NOT NULL,seller_user_id TEXT NOT NULL,
+      claim_type TEXT NOT NULL DEFAULT 'owner' CHECK (claim_type IN ('owner','authorised_seller','dealer')),
+      status TEXT NOT NULL DEFAULT 'evidence_submitted' CHECK (status IN (
+        'evidence_submitted','under_review','confirmed','insufficient','disputed','revoked')),
+      basis TEXT,evidence_ids UUID[],reviewer_id TEXT,decision_reason TEXT,
+      policy_version TEXT,decided_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE(vin,seller_user_id)
+    );
+    CREATE TABLE vehicle_ownership_transfers(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),vin TEXT NOT NULL,state TEXT NOT NULL,
+      previous_owner_id TEXT,new_owner_id TEXT,completed_at TIMESTAMPTZ
+    );
+    REVOKE ALL ON vehicle_evidence,vehicle_document_extractions,fraud_cases,
+      vehicle_seller_authority,vehicle_ownership_transfers FROM PUBLIC,anon,authenticated;
+    GRANT SELECT,INSERT,UPDATE ON vehicle_evidence,vehicle_document_extractions,fraud_cases,
+      vehicle_seller_authority,vehicle_ownership_transfers TO service_role;
     -- The isolated fixture matches canonical Marketplace inquiry read/write
     -- columns from 20260616120000; original marketplace_inquiries remains
     -- the ONLY lead status authority, never a dealer parallel lead table.
@@ -278,7 +348,7 @@ try{
     assert.deepEqual(fresh.rows[0],{
       tenants:0,organizations:0,profiles:0,seeds:0,claims:0,
     },'browser schema must not inherit contract-test business/tenant authority');
-    console.log('DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS: 17 exact dealership migrations applied to empty disposable PostgreSQL; 0 business/tenant/claim authorities, protected users preseeded');
+    console.log('DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS: 18 exact dealership migrations applied to empty disposable PostgreSQL; 0 business/tenant/claim authorities, protected users preseeded');
   } else {
   // Direct authenticated/PostgREST clients cannot mint their own tenant, identity,
   // compliance, activation or listing authority even if they own a dealer row.
@@ -322,7 +392,8 @@ try{
     'CANNOT_ROLLBACK_WITH_BRANCH_OPERATING_DETAILS');
   await exec("DELETE FROM dealer_branches WHERE id='"+uuid(9871)+"'");
   await exec("DELETE FROM dealer_profiles WHERE id='"+uuid(9870)+"'");
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,32);
+  // R4: +2 dealer_ tables (listing authority events, VIN branch assignments) = 34.
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,34);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -756,6 +827,86 @@ try{
     'APPEND_ONLY_LEDGER');
   await fails(read('20261103139000_dealer_canonical_inquiry_progress.sql').down,
     'CANNOT_ROLLBACK_WITH_DEALER_INQUIRY_AUDIT');
+  // ── R4 P0-2: canonical dealer VIN listing authority (fictional VIN, disposable DB only) ──
+  // The dealership domain may only PREPARE a canonical seller listing candidate; publication stays
+  // the canonical Marketplace action. The data layer refuses foreign sellers, self-verification and
+  // any publication / inquiry once authority is no longer current.
+  const listingVin='SYNTHR4P02DLR0001';
+  await query(`INSERT INTO vehicles(vin,tenant_id,make,model,year,mileage,price,status,publication_status)
+    VALUES ($1,$2,'Fictional','Listing Proof',2022,48211,0,'Pending','draft')`,[listingVin,tenant]);
+  const prepareArgs=(actor,branch,price,currency='USD')=>[actor,listingVin,branch,price,currency,
+    'FICT-CHASSIS-R4-0001','FICT-ENGINE-R4-0001','customs_cleared_cvr_pending',null,
+    'Harare','Harare Metropolitan','public',true];
+  const prepareSql='SELECT dealer_prepare_canonical_listing($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) AS receipt';
+  const refusesPrepare=async(args,phrase)=>{
+    let error=null;try{await query(prepareSql,args)}catch(e){error=e}
+    assert.ok(error,'prepare must refuse: '+phrase);assert.match(String(error.message),new RegExp(phrase));
+  };
+  await refusesPrepare(prepareArgs(outsider,branchId,18500),'NO_ACTIVE_CANONICAL_DEALER_MEMBERSHIP');
+  await refusesPrepare(prepareArgs(claimant,uuid(9999),18500),'BRANCH_NOT_OWNED_BY_APPROVED_DEALER');
+  await refusesPrepare(prepareArgs(claimant,branchId,0),'DEALER_DECLARED_PRICE_REQUIRED');
+  await refusesPrepare(prepareArgs(claimant,branchId,18500,'us'),'DEALER_DECLARED_CURRENCY_REQUIRED');
+  const listingPrepared=(await query(prepareSql,prepareArgs(claimant,branchId,18500))).rows[0].receipt;
+  assert.equal(listingPrepared.published,false);
+  assert.equal(listingPrepared.governed_seller_is_approved_owner,true);
+  assert.equal(listingPrepared.canonical_publication_gate_required,true);
+  assert.equal(listingPrepared.independent_vehicle_review_required,true);
+  const listingCandidate=(await query(`SELECT current_seller_id,current_seller_type,status,publication_status,
+    price::int AS price,currency,currency_source,registration_status_source,listing_location_source,
+    listing_country,owner_id FROM vehicles WHERE vin=$1`,[listingVin])).rows[0];
+  assert.deepEqual(listingCandidate,{current_seller_id:claimant,current_seller_type:'Dealer',status:'Available',
+    publication_status:'draft',price:18500,currency:'USD',currency_source:'dealer_declared',
+    registration_status_source:'dealer_declared',listing_location_source:'dealer_declared',
+    listing_country:'ZW',owner_id:null});
+  assert.equal((await query('SELECT branch_id::text AS b FROM dealer_vehicle_branch_assignments WHERE vin=$1',
+    [listingVin])).rows[0].b,branchId);
+  await refusesPrepare(prepareArgs(claimant,branchId,18500,'ZAR'),'CURRENCY_ALREADY_STATED');
+  // No foreign governed seller and no tenant reassignment of programme stock, even by direct SQL.
+  await fails(`UPDATE vehicles SET current_seller_id='${outsider}' WHERE vin='${listingVin}'`,
+    'DEALER_SELLER_RELATIONSHIP_REQUIRES_APPROVED_OWNER');
+  await fails(`UPDATE vehicles SET tenant_id=NULL WHERE vin='${listingVin}'`,
+    'DEALER_TENANT_INVENTORY_REASSIGNMENT_REFUSED');
+  // No self-certification of the VIN's ownership/registration evidence.
+  const evidenceId=uuid(8890);
+  await query(`INSERT INTO vehicle_evidence(id,vehicle_id,vin,evidence_type,evidence_class,evidence_subtype,
+      file_url,storage_bucket,file_path,mime_type,file_size,uploaded_by,uploader_role,tenant_id,visibility_level)
+    VALUES ($1,$2,$2,'registration_document','registration','registration_book',
+      $3,'ocr-documents',$3,'application/pdf',1024,$4,'dealer',$5,'restricted')`,
+    [evidenceId,listingVin,listingVin+'/registration_document_fixture.pdf',claimant,tenant]);
+  await fails(`UPDATE vehicle_evidence SET verification_status='verified',verified_by='${claimant}' WHERE id='${evidenceId}'`,
+    'DEALER_VEHICLE_EVIDENCE_REQUIRES_INDEPENDENT_REVIEWER');
+  await fails(`UPDATE vehicle_evidence SET verification_status='verified',verified_by=NULL WHERE id='${evidenceId}'`,
+    'DEALER_VEHICLE_EVIDENCE_REQUIRES_INDEPENDENT_REVIEWER');
+  // An independent platform reviewer can never certify an artifact they uploaded themselves either.
+  const selfUploadedId=uuid(8891);
+  await query(`INSERT INTO vehicle_evidence(id,vehicle_id,vin,evidence_type,evidence_class,evidence_subtype,
+      file_url,storage_bucket,file_path,mime_type,file_size,uploaded_by,uploader_role,tenant_id,visibility_level)
+    VALUES ($1,$2,$2,'registration_document','registration','registration_book',
+      $3,'ocr-documents',$3,'application/pdf',1024,'reviewer1','admin',$4,'restricted')`,
+    [selfUploadedId,listingVin,listingVin+'/registration_document_admin_fixture.pdf',tenant]);
+  await fails(`UPDATE vehicle_evidence SET verification_status='verified',verified_by='reviewer1' WHERE id='${selfUploadedId}'`,
+    'DEALER_VEHICLE_EVIDENCE_REQUIRES_INDEPENDENT_REVIEWER');
+  await query('DELETE FROM vehicle_evidence WHERE id=$1',[selfUploadedId]);
+  await query(`UPDATE vehicle_evidence SET verification_status='verified',verified_by='reviewer1',verified_at=now()
+    WHERE id=$1`,[evidenceId]);
+  // The canonical publish route's single write, executed here only after its JS gate would run.
+  await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`,[listingVin]);
+  assert.equal((await query('SELECT dealer_tenant_listing_authority_current($1::uuid) AS ok',[tenant])).rows[0].ok,true);
+  assert.deepEqual((await query('SELECT dealer_withdraw_lapsed_listing_authority($1) AS r',['reviewer1'])).rows[0].r,
+    {tenants_withdrawn:0,listings_withdrawn:0});
+  await refusesPrepare(prepareArgs(claimant,branchId,18500),'LISTING_ALREADY_PUBLIC_UNPUBLISH_FIRST');
+  await fails('UPDATE dealer_listing_authority_events SET reason_code=\'FORGED_REASON\'','APPEND_ONLY_LEDGER');
+  await exec('SET ROLE anon');
+  await fails('SELECT * FROM dealer_listing_authority_events','permission denied');
+  await fails('SELECT * FROM dealer_vehicle_branch_assignments','permission denied');
+  await exec('RESET ROLE');
+  await exec('SET ROLE authenticated');
+  await fails(`SELECT dealer_prepare_canonical_listing('${claimant}','${listingVin}','${branchId}',1,'USD',
+    'AAAA','BBBB','unknown',NULL,'Harare',NULL,'public',false)`,'permission denied');
+  await exec('RESET ROLE');
+  await fails(read('20261103141000_dealer_canonical_listing_authority.sql').down,
+    'CANNOT_ROLLBACK_WITH_DEALER_LISTING_CUSTODY');
+  console.log('DEALER_R4_LISTING_AUTHORITY_ACTIVE PASS: owner-only preparation, owned branch, dealer_declared provenance, no foreign seller/reassignment/self-verification');
   await exec('SET ROLE authenticated');
   await fails(`SELECT dealer_advance_marketplace_inquiry(
     '${activeProfileId}','${claimant}','${uuid(8851)}','contacted')`,
@@ -993,6 +1144,22 @@ try{
   assert.equal((await query('SELECT operating_status FROM dealer_approved_seed_links')).rows[0].operating_status,'SUSPENDED');
   assert.equal((await query('SELECT active_state FROM dealer_profiles WHERE user_id=$1',[claimant])).rows[0].active_state,'inactive');
   assert.equal((await query('SELECT status FROM tenants WHERE id=$1',[tenant])).rows[0].status,'suspended');
+  // R4 P0-2: the revocation above withdrew the dealer's public listing at the data layer, recorded
+  // why, and every path back to the public surface (republish, new seller relationship, new inquiry,
+  // re-preparation) now fails closed.
+  assert.equal((await query('SELECT publication_status FROM vehicles WHERE vin=$1',[listingVin])).rows[0].publication_status,'publishable');
+  const withdrawal=(await query(`SELECT reason_code,affected_listings FROM dealer_listing_authority_events
+    WHERE tenant_id=$1 AND event_type='PUBLIC_LISTINGS_WITHDRAWN'`,[tenant])).rows;
+  assert.deepEqual(withdrawal,[{reason_code:'OPERATING_LINK_SUSPENDED',affected_listings:1}]);
+  assert.equal((await query('SELECT dealer_tenant_listing_authority_current($1::uuid) AS ok',[tenant])).rows[0].ok,false);
+  await fails(`UPDATE vehicles SET publication_status='published' WHERE vin='${listingVin}'`,
+    'DEALER_LISTING_AUTHORITY_NOT_CURRENT');
+  await fails(`INSERT INTO marketplace_inquiries(id,listing_id,seller_tenant_id,status,risk_status)
+    VALUES ('${uuid(8899)}','${listingVin}','${tenant}','new','clear')`,'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT');
+  await fails(`SELECT dealer_prepare_canonical_listing('${claimant}','${listingVin}','${branchId}',18500,'USD',
+    'FICT-CHASSIS-R4-0001','FICT-ENGINE-R4-0001','customs_cleared_cvr_pending',NULL,'Harare',NULL,'public',true)`,
+    'NO_ACTIVE_CANONICAL_DEALER_MEMBERSHIP');
+  console.log('DEALER_R4_LISTING_AUTHORITY_REVOKED PASS: suspension withdrew 1 public listing (OPERATING_LINK_SUSPENDED); republish, inquiry and re-preparation refused');
   assert.equal((await query('SELECT count(*)::int AS n FROM dealer_full_storefront_current')).rows[0].n,0);
   // An independent reviewer can retract publication while the business is
   // suspended; never silently republish upon a later claim reinstatement.
@@ -1093,11 +1260,13 @@ try{
   await exec('TRUNCATE dealer_operational_declaration_events');
   // Dispose synthetic private feedback before isolated rollback, never on a live DB.
   await exec('TRUNCATE dealer_transaction_feedback_review_events, dealer_transaction_feedback_cases');
+  // R4: dispose the fictional listing custody first (its rollback refuses while it exists).
+  await exec('TRUNCATE dealer_listing_authority_events, dealer_vehicle_branch_assignments');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
-    '17 migration apply/rollback/reapply, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
+    '18 migration apply/rollback/reapply, canonical dealer listing authority, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
   } // End full destructive synthetic contract suite; fresh schema mode stays empty.
 }catch(error){
   console.error(native?'DEALER_NATIVE_POSTGRES_RESULT FAIL':'DEALER_PGLITE_RESULT FAIL',error);

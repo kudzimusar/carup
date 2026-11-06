@@ -30,6 +30,7 @@ import {
   recordPrivateBuyerCaseFinding,
 } from '../services/dealer/dealerBuyerFeedbackService.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
+import { getPublicDealerStorefrontInventory } from '../services/dealer/dealerCanonicalListingService.js';
 import { rateLimiter } from '../middleware/securityMiddleware.js';
 import {
   getPublicResearch,
@@ -148,6 +149,15 @@ router.get('/api/dealership/research/:seedId/contact',publicReadLimit,async(req,
     if(!contacts)return res.status(404).json({error:'Research listing unavailable'});
     res.set('Cache-Control','no-store').json({contacts});
   }catch(error){errorResponse(res,next,error)}
+});
+// R4 P0-2 (C19): the approved storefront's canonical Marketplace stock. Anonymous, but only VINs
+// that a CURRENT full storefront of a CURRENTLY authorized dealer may show, each rendered through
+// the canonical public Marketplace detail service (never a dealership-specific vehicle projection).
+router.get('/api/dealership/research/:seedId/inventory', publicReadLimit, async (req,res,next) => {
+  try {
+    const inventory = await getPublicDealerStorefrontInventory(req.params.seedId);
+    res.set('Cache-Control','no-store').json({ inventory });
+  } catch (error) { errorResponse(res,next,error); }
 });
 router.get('/api/dealership/research/:seedId', publicReadLimit, async (req,res,next) => {
   try {

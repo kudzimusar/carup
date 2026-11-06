@@ -478,6 +478,10 @@ export default function App() {
           <Route path="/admin/dealer-legal-activation" element={<DealerLegalActivationReview />} />
           <Route path="/admin/dealer-full-storefront-review" element={<DealerFullStorefrontReview />} />
           <Route path="/admin/dealer-buyer-feedback" element={<DealerBuyerFeedbackReview />} />
+          {/* R4 P0-2: the CANONICAL vehicle evidence review workbench (same component and the same
+              admin/government-only verify/reject endpoints as /admin/evidence), reachable from the
+              dealership reviewer shell. The data layer refuses self-verification of dealer stock. */}
+          <Route path="/admin/dealer-vehicle-evidence" element={<EvidenceReview />} />
         </Route>
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
