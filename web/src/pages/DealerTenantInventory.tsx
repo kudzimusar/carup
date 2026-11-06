@@ -446,7 +446,11 @@ export default function DealerTenantInventory(){
          </ul>}
        </>}
        <p className="text-xs text-amber-800">
-        This data-shape check cannot publish, verify ownership or process a payment.
+        Seller Authority and Vehicle Passport review: not evaluated.
+        This data check cannot publish, verify ownership or process a payment,
+        even when no structural issues remain.
+       </p>
+       <p className="text-xs text-slate-700">
         The Marketplace listing panel shows CarUp's own publication checks, including
         Seller Authority and independent document review.
        </p>
