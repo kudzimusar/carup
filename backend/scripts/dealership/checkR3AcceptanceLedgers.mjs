@@ -39,7 +39,8 @@ assert.deepEqual(phases,Array.from({length:12},(_,i)=>String(i)),
 const statuses={NOT_RUN:0,BLOCKED_EXTERNAL_AUTHORITY:0};
 for(const row of [...t,...s]){
   const columns=row.split('|').map(value=>value.trim()).filter(Boolean);
-  assert.ok(columns.length>=7,'Malformed acceptance case row');
+  assert.equal(columns.length,7,
+    'Seven-column case matrix required; malformed or accidentally widened acceptance row '+columns[0]);
   const result=columns.at(-1);
   assert.ok(Object.hasOwn(statuses,result),
     'No independent certification has authorized a formal PASS: '+columns[0]+' '+result);
