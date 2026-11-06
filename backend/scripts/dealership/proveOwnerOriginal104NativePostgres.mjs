@@ -58,9 +58,14 @@ export const RESTRICTED_SOURCE_FIELDS = Object.freeze([
  * its own city name) discloses nothing new and is exempt; every other value stays strict.
  * Returns the number of values checked.
  */
+// A bare generic word identifies nobody. 'private' is exactly the token the importer's own
+// grouping analysis already ignores as "not a group" (analyzeResearchIdentitySignals).
+export const GENERIC_NON_IDENTIFYING_VALUES = Object.freeze(['private']);
+
 export function assertNoRestrictedValues(outputText, records, publicSafeTokens = new Set()) {
   const haystack = String(outputText).toLocaleLowerCase('en');
-  const safe = new Set([...publicSafeTokens].map((t) => String(t).trim().toLocaleLowerCase('en')));
+  const safe = new Set([...publicSafeTokens, ...GENERIC_NON_IDENTIFYING_VALUES]
+    .map((t) => String(t).trim().toLocaleLowerCase('en')));
   let checked = 0;
   for (const record of records) {
     for (const field of RESTRICTED_SOURCE_FIELDS) {

@@ -58,6 +58,13 @@ test('privacy self-check passes aggregate-only evidence and exempts only exact p
   assert.throws(() => assertNoRestrictedValues(withName, records, new Set(['Harare'])), /Dealer \/ Company Name/);
 });
 
+test('only the bare generic ownership word "Private" is exempt; a named principal is not', () => {
+  const generic = [fictional('ZW-DEAL-0001', { 'Ownership / Parent Company / Key Principal': 'Private' })];
+  assert.ok(assertNoRestrictedValues('private evidence directory', generic) >= 0);
+  const named = [fictional('ZW-DEAL-0001', { 'Ownership / Parent Company / Key Principal': 'Private Fictional Holdings' })];
+  assert.throws(() => assertNoRestrictedValues('owned by private fictional holdings', named), /Key Principal/);
+});
+
 test('aggregate digest is order-independent and changes when any row hash changes', () => {
   const a = [fictional('ZW-DEAL-0001'), fictional('ZW-DEAL-0002')];
   assert.equal(aggregateDigest(a), aggregateDigest([...a].reverse()));
