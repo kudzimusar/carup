@@ -1,4 +1,5 @@
 import {test,expect,type Page} from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs'
 import {dirname} from 'node:path'
 
@@ -54,6 +55,19 @@ function fictionalPdf(){
   'endstream endobj','5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj',
   'trailer<</Root 1 0 R>>','%%EOF'].join('\n'))
 }
+type AxeSummary={label:string;scope:string;violations:Array<{id:string;impact:string|null;nodes:number}>}
+// T32: WCAG 2 A/AA automated scan, RECORDED (not asserted) so a finding never aborts the rest of
+// the physical journey. The receipt counts critical/serious violations inside the R4 surfaces and on
+// the full pages; T32 is classified from those recorded numbers, never assumed.
+async function axeScan(page:Page,info:import('@playwright/test').TestInfo,label:string,include?:string){
+ let builder=new AxeBuilder({page}).withTags(['wcag2a','wcag2aa'])
+ if(include)builder=builder.include(include)
+ const result=await builder.analyze()
+ const summary:AxeSummary={label,scope:include||'full page',violations:result.violations.map(v=>
+  ({id:v.id,impact:v.impact??null,nodes:v.nodes.length}))}
+ await info.attach('axe-'+label,{body:JSON.stringify(summary,null,2),contentType:'application/json'})
+ return summary
+}
 async function shot(page:Page,info:import('@playwright/test').TestInfo,name:string){
  const path=info.outputPath(name+'.png')
  await page.screenshot({path,fullPage:true})
@@ -64,6 +78,7 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  test.setTimeout(1_500_000)
  await pause(WINDOW)
  const receipt:Record<string,unknown>={fictional_only:true,vin:VIN}
+ const axe:AxeSummary[]=[]
 
  // ── 1. Owner: private draft → dealer-declared listing facts → canonical document upload ──
  const ownerContext=await browser.newContext({viewport:{width:1280,height:900}})
@@ -162,10 +177,21 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  const owner2=await ownerAgain.newPage()
  await actorOn(owner2,f.actors.claimant)
  await owner2.goto('/dealers/stock')
- await owner2.getByRole('button',{name:'Marketplace listing for '+VIN}).click()
+ // T32 keyboard: reach the per-VIN listing control with Tab only and open it with Enter.
+ const listingButton=owner2.getByRole('button',{name:'Marketplace listing for '+VIN})
+ await expect(listingButton).toBeVisible({timeout:30000})
+ let reached=false
+ for(let i=0;i<80&&!reached;i++){
+  await owner2.keyboard.press('Tab')
+  reached=await listingButton.evaluate(el=>el===document.activeElement)
+ }
+ expect(reached,'listing control reachable by keyboard').toBe(true)
+ await owner2.keyboard.press('Enter')
  const panel2=owner2.getByTestId('dealer-listing-panel-'+VIN)
  await expect(panel2.locator('[data-requirement="seller_authority"]')).toHaveAttribute('data-status','verified',{timeout:30000})
  await expect(panel2.getByRole('button',{name:'Publish on CarUp Marketplace'})).toBeEnabled({timeout:30000})
+ axe.push(await axeScan(owner2,info,'owner-listing-panel','[data-testid="dealer-listing-panel-'+VIN+'"]'))
+ axe.push(await axeScan(owner2,info,'owner-inventory-page'))
  await panel2.getByRole('button',{name:'Publish on CarUp Marketplace'}).click()
  await expect(panel2.getByText('Published through the CarUp Marketplace publication checks.')).toBeVisible({timeout:40000})
  await expect(panel2.getByTestId('dealer-listing-publication-state')).toHaveText('published',{timeout:30000})
@@ -210,10 +236,15 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
   const link=page.getByTestId('dealer-storefront-inventory').getByRole('link',{name:new RegExp(MODEL)})
   await expect(link).toBeVisible({timeout:40000})
   await shot(page,info,'r4-approved-storefront-lists-canonical-vin-'+width)
+  if(width===1280){
+   axe.push(await axeScan(page,info,'storefront-stock-card','[data-testid="dealer-storefront-inventory"]'))
+   axe.push(await axeScan(page,info,'storefront-page'))
+  }
   await link.click()
   await expect(page).toHaveURL(new RegExp('/marketplace/listing/'+VIN+'$'))
   await expect(page.getByText(MODEL).first()).toBeVisible({timeout:40000})
   await shot(page,info,'r4-public-vehicle-detail-'+width)
+  if(width===1280)axe.push(await axeScan(page,info,'canonical-vehicle-detail-page'))
   await ctx.close()
  }
  await pause(WINDOW)
@@ -264,6 +295,11 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  receipt.buyer=f.actors.vehicle_buyer.id
  receipt.dealer_inquiry_final_status='qualified'
  receipt.viewports=[390,768,1280,1920]
+ receipt.keyboard_listing_control_reachable=true
+ receipt.axe=axe
+ const severe=(xs:AxeSummary[])=>xs.reduce((n,x)=>n+x.violations.filter(v=>v.impact==='critical'||v.impact==='serious').length,0)
+ receipt.axe_r4_surface_critical_or_serious=severe(axe.filter(x=>x.scope!=='full page'))
+ receipt.axe_full_page_critical_or_serious=severe(axe.filter(x=>x.scope==='full page'))
  const out='test-results/fictional-native-vin-listing-browser-receipt.json'
  mkdirSync(dirname(out),{recursive:true})
  writeFileSync(out,JSON.stringify(receipt,null,2)+'\n',{mode:0o600})

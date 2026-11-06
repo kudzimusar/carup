@@ -97,14 +97,20 @@ try{
       tenant_id TEXT, legal_name TEXT, trading_name TEXT,
       registration_number TEXT,tax_id TEXT,physical_address TEXT,
       responsible_person TEXT,operating_country TEXT,
-      identity_status TEXT NOT NULL DEFAULT 'unverified',
-      business_evidence_status TEXT NOT NULL DEFAULT 'incomplete',
+      -- R4: the canonical CHECK vocabularies of 20260626150000 (an unchecked stub let a wrong
+      -- investigation value pass every test — independent review finding #3).
+      identity_status TEXT NOT NULL DEFAULT 'unverified'
+        CHECK (identity_status IN ('unverified','pending','verified','rejected')),
+      business_evidence_status TEXT NOT NULL DEFAULT 'incomplete'
+        CHECK (business_evidence_status IN ('incomplete','complete')),
       listing_limit INTEGER NOT NULL DEFAULT 0,
-      compliance_review_state TEXT NOT NULL DEFAULT 'not_started',
-      investigation_state TEXT NOT NULL DEFAULT 'none',
-      restriction_state TEXT NOT NULL DEFAULT 'none',
-      suspension_state TEXT NOT NULL DEFAULT 'none',
-      active_state TEXT NOT NULL DEFAULT 'inactive',
+      compliance_review_state TEXT NOT NULL DEFAULT 'not_started'
+        CHECK (compliance_review_state IN ('not_started','in_review','passed','failed')),
+      investigation_state TEXT NOT NULL DEFAULT 'none'
+        CHECK (investigation_state IN ('none','under_investigation')),
+      restriction_state TEXT NOT NULL DEFAULT 'none' CHECK (restriction_state IN ('none','restricted')),
+      suspension_state TEXT NOT NULL DEFAULT 'none' CHECK (suspension_state IN ('none','suspended')),
+      active_state TEXT NOT NULL DEFAULT 'inactive' CHECK (active_state IN ('active','inactive')),
       expiry_date TIMESTAMPTZ,updated_at TIMESTAMPTZ DEFAULT now()
     );
     ALTER TABLE dealer_profiles ENABLE ROW LEVEL SECURITY;
@@ -276,10 +282,12 @@ try{
       claim_type TEXT NOT NULL DEFAULT 'owner' CHECK (claim_type IN ('owner','authorised_seller','dealer')),
       status TEXT NOT NULL DEFAULT 'evidence_submitted' CHECK (status IN (
         'evidence_submitted','under_review','confirmed','insufficient','disputed','revoked')),
-      basis TEXT,evidence_ids UUID[],reviewer_id TEXT,decision_reason TEXT,
-      policy_version TEXT,decided_at TIMESTAMPTZ,
+      basis TEXT,evidence_ids UUID[] NOT NULL DEFAULT '{}',reason TEXT,
+      policy_version TEXT NOT NULL DEFAULT 'seller_authority.v1',
+      decided_by TEXT,decided_by_role TEXT,decided_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      UNIQUE(vin,seller_user_id)
+      UNIQUE(vin,seller_user_id),
+      CHECK (status IN ('evidence_submitted','under_review') OR (decided_by IS NOT NULL AND decided_at IS NOT NULL))
     );
     CREATE TABLE vehicle_ownership_transfers(
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),vin TEXT NOT NULL,state TEXT NOT NULL,
@@ -884,8 +892,20 @@ try{
   // No foreign governed seller and no tenant reassignment of programme stock, even by direct SQL.
   await fails(`UPDATE vehicles SET current_seller_id='${outsider}' WHERE vin='${listingVin}'`,
     'DEALER_SELLER_RELATIONSHIP_REQUIRES_APPROVED_OWNER');
-  await fails(`UPDATE vehicles SET tenant_id=NULL WHERE vin='${listingVin}'`,
+  await fails(`UPDATE vehicles SET tenant_id='${uuid(8861)}' WHERE vin='${listingVin}'`,
     'DEALER_TENANT_INVENTORY_REASSIGNMENT_REFUSED');
+  // A completed canonical ownership transfer clears tenant_id: leaving the dealer stays possible.
+  await query(`INSERT INTO vehicles(vin,tenant_id,make,model,year,mileage,price,status,publication_status)
+    VALUES ('SYNTHR4P02DLR0009',$1,'Fictional','Transfer Proof',2021,1,0,'Pending','draft')`,[tenant]);
+  await query(`UPDATE vehicles SET tenant_id=NULL WHERE vin='SYNTHR4P02DLR0009'`);
+  await query(`DELETE FROM vehicles WHERE vin='SYNTHR4P02DLR0009'`);
+  // Seller Authority 'confirmed' on programme stock needs an independent decider (finding #7).
+  await fails(`INSERT INTO vehicle_seller_authority(vin,seller_user_id,claim_type,status,decided_by,decided_at)
+    VALUES ('${listingVin}','${claimant}','dealer','confirmed','${claimant}',now())`,
+    'DEALER_SELLER_AUTHORITY_REQUIRES_INDEPENDENT_REVIEWER');
+  await fails(`INSERT INTO vehicle_seller_authority(vin,seller_user_id,claim_type,status,decided_by,decided_at)
+    VALUES ('${listingVin}','${claimant}','dealer','confirmed',NULL,NULL)`,
+    'DEALER_SELLER_AUTHORITY_REQUIRES_INDEPENDENT_REVIEWER|vehicle_seller_authority');
   // No self-certification of the VIN's ownership/registration evidence.
   const evidenceId=uuid(8890);
   await query(`INSERT INTO vehicle_evidence(id,vehicle_id,vin,evidence_type,evidence_class,evidence_subtype,
@@ -909,6 +929,11 @@ try{
   await query('DELETE FROM vehicle_evidence WHERE id=$1',[selfUploadedId]);
   await query(`UPDATE vehicle_evidence SET verification_status='verified',verified_by='reviewer1',verified_at=now()
     WHERE id=$1`,[evidenceId]);
+  for(const quarantine of ['Suspended','Banned','Flagged','Reserved','Sold']){
+    await query(`UPDATE vehicles SET status=$2 WHERE vin=$1`,[listingVin,quarantine]);
+    await refusesPrepare(prepareArgs(claimant,branchId,18500),'VEHICLE_STATUS_NOT_LISTABLE');
+  }
+  await query(`UPDATE vehicles SET status='Available' WHERE vin=$1`,[listingVin]);
   // The canonical publish route's single write, executed here only after its JS gate would run.
   await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`,[listingVin]);
   assert.equal((await query('SELECT dealer_tenant_listing_authority_current($1::uuid) AS ok',[tenant])).rows[0].ok,true);
@@ -1186,6 +1211,8 @@ try{
     lifecycleSuspended.operating_authority_current],['SUSPENDED',1,false]);
   assert.equal((await query('SELECT status FROM tenants WHERE id=$1',[tenant])).rows[0].status,'suspended');
   await fails(`UPDATE vehicles SET publication_status='published' WHERE vin='${listingVin}'`,'DEALER_LISTING_AUTHORITY_NOT_CURRENT');
+  await fails(`UPDATE dealer_profiles SET suspension_state='none',active_state='active' WHERE id='${activeProfileId}'`,
+    'DEALER_PROFILE_REINSTATEMENT_REQUIRES_LIFECYCLE_DECISION');
   await refusesLifecycle(['ZW-DEAL-0001',reviewer,'REINSTATE',lifecycleWhy,null],'REINSTATEMENT_REQUIRES_DIFFERENT_REVIEWER');
   const reinstatedDealer=await lifecycle('activationreviewer','REINSTATE');
   assert.deepEqual([reinstatedDealer.operating_status,reinstatedDealer.operating_authority_current,
@@ -1209,6 +1236,8 @@ try{
     'SELECT dealer_record_legal_application_approval($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS receipt',
     [renewalSubmission,'legalreviewer','CARUP_DEALER_ZW_DRAFT_2026_11_03',sourceRegEvidence,signerEvidence,
       'Fixture Synthetic Registry','FIXTURE-REG-001','BRANCH',renewalExpiry,testPolicyReview])).rows[0].receipt.legal_review_id;
+  await refusesLifecycle(['ZW-DEAL-0001','legalreviewer','RENEW',lifecycleWhy,renewedLegalId],'RENEWAL_REQUIRES_SEPARATE_REVIEWER');
+  await refusesLifecycle(['ZW-DEAL-0001','policyreviewer','RENEW',lifecycleWhy,renewedLegalId],'RENEWAL_REQUIRES_SEPARATE_REVIEWER');
   const renewed=await lifecycle(reviewer,'RENEW',renewedLegalId);
   assert.equal(renewed.legal_review_id,renewedLegalId);
   assert.equal(renewed.operating_authority_current,true);
@@ -1224,6 +1253,20 @@ try{
   await fails('SELECT * FROM dealer_operating_lifecycle_events','permission denied');
   await exec('RESET ROLE');
   await fails(read('20261103142000_dealer_operating_lifecycle.sql').down,'CANNOT_ROLLBACK_WITH_DEALER_LIFECYCLE_CUSTODY');
+  // Write-driven lapses outside the dealer records also withdraw stock (finding #2).
+  await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`,[listingVin]);
+  await query(`UPDATE dealer_country_legal_policy_authority SET policy_state='SUSPENDED'
+    WHERE country_code='ZW' AND policy_version='CARUP_DEALER_ZW_DRAFT_2026_11_03'`);
+  assert.equal(await listingState(),'publishable','a suspended country policy withdraws the stock');
+  await query(`UPDATE dealer_country_legal_policy_authority SET policy_state='APPROVED'
+    WHERE country_code='ZW' AND policy_version='CARUP_DEALER_ZW_DRAFT_2026_11_03'`);
+  await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`,[listingVin]);
+  await query(`UPDATE tenant_users SET role='member' WHERE tenant_id=$1 AND user_id=$2`,[tenant,claimant]);
+  assert.equal(await listingState(),'publishable','the owner losing the dealer role withdraws the stock');
+  await query(`UPDATE tenant_users SET role='dealer' WHERE tenant_id=$1 AND user_id=$2`,[tenant,claimant]);
+  const lapseReasons=(await query(`SELECT reason_code FROM dealer_listing_authority_events
+    WHERE tenant_id=$1 AND event_type='PUBLIC_LISTINGS_WITHDRAWN' ORDER BY created_at`,[tenant])).rows.map(r=>r.reason_code);
+  assert.deepEqual(lapseReasons.slice(-2),['COUNTRY_POLICY_NOT_CURRENT','OWNER_MEMBERSHIP_CHANGED']);
   // The owner republishes through the canonical gate's write so the claim revocation below is
   // proven to withdraw a live listing again.
   await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`,[listingVin]);
@@ -1241,10 +1284,8 @@ try{
   assert.equal((await query('SELECT publication_status FROM vehicles WHERE vin=$1',[listingVin])).rows[0].publication_status,'publishable');
   const withdrawal=(await query(`SELECT reason_code,affected_listings FROM dealer_listing_authority_events
     WHERE tenant_id=$1 AND event_type='PUBLIC_LISTINGS_WITHDRAWN'`,[tenant])).rows;
-  // Earlier withdrawals came from the C12 lifecycle block (investigation, suspension); the latest
-  // one is this claim revocation's.
+  // Earlier withdrawals came from the C12 lifecycle and lapse checks; the latest one is this revocation's.
   assert.deepEqual(withdrawal.at(-1),{reason_code:'OPERATING_LINK_SUSPENDED',affected_listings:1});
-  assert.equal(withdrawal.length,3);
   assert.equal((await query('SELECT dealer_tenant_listing_authority_current($1::uuid) AS ok',[tenant])).rows[0].ok,false);
   await fails(`UPDATE vehicles SET publication_status='published' WHERE vin='${listingVin}'`,
     'DEALER_LISTING_AUTHORITY_NOT_CURRENT');
@@ -1354,6 +1395,16 @@ try{
   await exec('TRUNCATE dealer_operational_declaration_events');
   // Dispose synthetic private feedback before isolated rollback, never on a live DB.
   await exec('TRUNCATE dealer_transaction_feedback_review_events, dealer_transaction_feedback_cases');
+  // R4 finding #1: WITHDRAW is terminal — a later claim dispute cannot make it reinstatable again.
+  const withdrawnDealer=(await query('SELECT dealer_record_operating_lifecycle_decision($1,$2,$3,$4,NULL) AS r',
+    ['ZW-DEAL-0001',reviewer,'WITHDRAW','Fictional CI permanent withdrawal of the synthetic dealer after its claim was revoked.'])).rows[0].r;
+  assert.equal(withdrawnDealer.operating_status,'WITHDRAWN');
+  await exec(`UPDATE dealer_research_claim_requests SET claim_status='CLAIM_DISPUTED' WHERE claim_id='${uuid(1)}'`);
+  assert.equal((await query('SELECT operating_status FROM dealer_approved_seed_links')).rows[0].operating_status,'WITHDRAWN');
+  await fails(`SELECT dealer_record_operating_lifecycle_decision('ZW-DEAL-0001','activationreviewer','REINSTATE',
+    'Fictional CI attempt to reinstate a permanently withdrawn synthetic dealer must fail.',NULL)`,
+    'ONLY_SUSPENDED_DEALER_CAN_BE_REINSTATED');
+  console.log('DEALER_R4_REVIEW_FIXES PASS: withdrawn stays terminal, legacy reinstatement refused, renewal separation, quarantine kept, seller-authority independence, transfer-out allowed, policy/membership lapses withdraw');
   // R4: dispose the fictional listing custody first (its rollback refuses while it exists).
   await exec('TRUNCATE dealer_listing_authority_events, dealer_vehicle_branch_assignments, dealer_operating_lifecycle_events');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');

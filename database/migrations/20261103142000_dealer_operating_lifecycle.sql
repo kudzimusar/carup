@@ -4,13 +4,13 @@
 -- immediate revocation". Claim revocation (dealer_suspend_revoked_seed_claim), storefront retraction,
 -- time expiry and listing withdrawal already exist. This adds the missing reviewer decisions:
 --   SUSPEND             ACTIVE → SUSPENDED (tenant + profile suspended; public stock withdrawn)
---   OPEN_INVESTIGATION  investigation flag on an ACTIVE dealer (authority not current; stock withdrawn)
+--   OPEN_INVESTIGATION  investigation_state='under_investigation' (authority not current; stock withdrawn)
 --   CLOSE_INVESTIGATION clears the flag; nothing is silently republished
 --   REINSTATE           SUSPENDED → ACTIVE, only by a DIFFERENT reviewer than the one who suspended,
 --                       only for a still-approved claim with current legal + country policy
 --   RENEW               moves the link onto a NEWER independent legal review of the same claim with a
 --                       later expiry (the legal review itself is the existing legal-approval function)
---   WITHDRAW            permanent: ACTIVE/SUSPENDED → WITHDRAWN (no reinstatement path)
+--   WITHDRAW            permanent: ACTIVE/SUSPENDED → WITHDRAWN (terminal, never reinstatable)
 -- Every decision needs a verified independent reviewer (never the claimant or a tenant member), a
 -- 40–3000 character reason, and lands in an append-only event. Amendments remain versioned
 -- operational declarations (20261103134000). No payment, verification badge or listing is granted.
@@ -58,6 +58,9 @@ DECLARE
   v_published_before INTEGER := 0;
   v_event UUID;
 BEGIN
+  -- Transaction-local marker read by dealer_guard_linked_profile_reinstatement: only this governed
+  -- function may lift a suspension/investigation/restriction on an activated dealer's profile.
+  PERFORM set_config('carup.dealer_lifecycle_decision', 'on', true);
   IF p_action NOT IN ('SUSPEND','OPEN_INVESTIGATION','CLOSE_INVESTIGATION','REINSTATE','RENEW','WITHDRAW') THEN
     RAISE EXCEPTION 'INVALID_OPERATING_LIFECYCLE_ACTION';
   END IF;
@@ -91,15 +94,25 @@ BEGIN
     IF v_link.operating_status <> 'ACTIVE' OR v_profile.investigation_state <> 'none' THEN
       RAISE EXCEPTION 'INVESTIGATION_REQUIRES_ACTIVE_UNFLAGGED_DEALER';
     END IF;
-    UPDATE dealer_profiles SET investigation_state = 'open', updated_at = now() WHERE id = v_link.dealer_profile_id;
+    UPDATE dealer_profiles SET investigation_state = 'under_investigation', updated_at = now() WHERE id = v_link.dealer_profile_id;
   ELSIF p_action = 'CLOSE_INVESTIGATION' THEN
-    IF v_profile.investigation_state <> 'open' THEN RAISE EXCEPTION 'NO_OPEN_INVESTIGATION'; END IF;
+    IF v_profile.investigation_state <> 'under_investigation' THEN RAISE EXCEPTION 'NO_OPEN_INVESTIGATION'; END IF;
     UPDATE dealer_profiles SET investigation_state = 'none', updated_at = now() WHERE id = v_link.dealer_profile_id;
   ELSIF p_action = 'REINSTATE' THEN
     IF v_link.operating_status <> 'SUSPENDED' THEN RAISE EXCEPTION 'ONLY_SUSPENDED_DEALER_CAN_BE_REINSTATED'; END IF;
     IF v_claim.claim_status <> 'CLAIM_APPROVED' THEN RAISE EXCEPTION 'REVOKED_CLAIM_REQUIRES_NEW_CLAIM'; END IF;
-    SELECT reviewer_user_id INTO v_last_suspender FROM dealer_operating_lifecycle_events
-     WHERE link_id = v_link.link_id AND action = 'SUSPEND' ORDER BY created_at DESC, event_id DESC LIMIT 1;
+    IF EXISTS (SELECT 1 FROM dealer_operating_lifecycle_events
+                WHERE link_id = v_link.link_id AND action = 'WITHDRAW') THEN
+      RAISE EXCEPTION 'WITHDRAWN_DEALER_CANNOT_BE_REINSTATED';
+    END IF;
+    -- The most recent suspending decision, whether a lifecycle SUSPEND or a claim revocation/dispute.
+    SELECT reviewer INTO v_last_suspender FROM (
+      SELECT reviewer_user_id AS reviewer, created_at FROM dealer_operating_lifecycle_events
+       WHERE link_id = v_link.link_id AND action = 'SUSPEND'
+      UNION ALL
+      SELECT reviewer_user_id, created_at FROM dealer_claim_review_events
+       WHERE claim_id = v_link.claim_id AND verdict IN ('CLAIM_REVOKED','CLAIM_DISPUTED','CLAIM_REJECTED')
+    ) suspensions ORDER BY created_at DESC LIMIT 1;
     IF v_last_suspender IS NOT NULL AND v_last_suspender = p_reviewer_id THEN
       RAISE EXCEPTION 'REINSTATEMENT_REQUIRES_DIFFERENT_REVIEWER';
     END IF;
@@ -132,6 +145,14 @@ BEGIN
     IF v_policy.policy_state IS DISTINCT FROM 'APPROVED' OR v_policy.effective_at > clock_timestamp()
        OR v_policy.expires_at <= clock_timestamp() THEN
       RAISE EXCEPTION 'RENEWAL_REQUIRES_CURRENT_COUNTRY_POLICY';
+    END IF;
+    -- The same separation as activation: the renewing reviewer is neither the legal reviewer of the
+    -- newer review nor the approver of its country policy, and the company must be the same one.
+    IF p_reviewer_id = v_new.reviewer_user_id OR p_reviewer_id IS NOT DISTINCT FROM v_policy.approved_by THEN
+      RAISE EXCEPTION 'RENEWAL_REQUIRES_SEPARATE_REVIEWER';
+    END IF;
+    IF v_new.reviewed_registration_number IS DISTINCT FROM v_current.reviewed_registration_number THEN
+      RAISE EXCEPTION 'RENEWAL_MUST_BE_SAME_REGISTERED_COMPANY';
     END IF;
     v_next_legal := v_new.legal_review_id;
     UPDATE dealer_approved_seed_links SET legal_review_id = v_new.legal_review_id,
@@ -172,6 +193,46 @@ $$;
 REVOKE ALL ON FUNCTION dealer_record_operating_lifecycle_decision(TEXT, TEXT, TEXT, TEXT, UUID) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION dealer_record_operating_lifecycle_decision(TEXT, TEXT, TEXT, TEXT, UUID) TO service_role;
 
+-- WITHDRAWN is terminal. A later claim dispute/revocation (dealer_suspend_revoked_seed_claim sets
+-- SUSPENDED unconditionally) must not turn a withdrawn dealer back into a reinstatable one.
+CREATE FUNCTION dealer_keep_withdrawn_link_terminal()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF OLD.operating_status = 'WITHDRAWN' THEN NEW.operating_status := 'WITHDRAWN'; END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER dealer_keep_withdrawn_link_terminal
+  BEFORE UPDATE OF operating_status ON dealer_approved_seed_links
+  FOR EACH ROW EXECUTE FUNCTION dealer_keep_withdrawn_link_terminal();
+
+-- The legacy single-reviewer compliance decision (20261103124000) and any direct write may still ADD
+-- restrictions to an activated dealer's profile, but only the governed lifecycle function may LIFT a
+-- suspension, investigation or restriction, or reactivate it.
+CREATE FUNCTION dealer_guard_linked_profile_reinstatement()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM dealer_approved_seed_links WHERE dealer_profile_id = NEW.id) THEN
+    RETURN NEW;  -- not (yet) an activated programme dealer: activation and legacy dealers untouched
+  END IF;
+  IF ((OLD.suspension_state <> 'none' AND NEW.suspension_state = 'none')
+      OR (OLD.investigation_state <> 'none' AND NEW.investigation_state = 'none')
+      OR (OLD.restriction_state <> 'none' AND NEW.restriction_state = 'none')
+      OR (OLD.active_state <> 'active' AND NEW.active_state = 'active'))
+     AND coalesce(current_setting('carup.dealer_lifecycle_decision', true), '') <> 'on' THEN
+    RAISE EXCEPTION 'DEALER_PROFILE_REINSTATEMENT_REQUIRES_LIFECYCLE_DECISION';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER dealer_guard_linked_profile_reinstatement
+  BEFORE UPDATE OF suspension_state, investigation_state, restriction_state, active_state ON dealer_profiles
+  FOR EACH ROW EXECUTE FUNCTION dealer_guard_linked_profile_reinstatement();
+
 -- +migrate Down
 DO $$
 BEGIN
@@ -180,5 +241,9 @@ BEGIN
   END IF;
 END;
 $$;
+DROP TRIGGER IF EXISTS dealer_guard_linked_profile_reinstatement ON dealer_profiles;
+DROP FUNCTION IF EXISTS dealer_guard_linked_profile_reinstatement();
+DROP TRIGGER IF EXISTS dealer_keep_withdrawn_link_terminal ON dealer_approved_seed_links;
+DROP FUNCTION IF EXISTS dealer_keep_withdrawn_link_terminal();
 DROP FUNCTION IF EXISTS dealer_record_operating_lifecycle_decision(TEXT, TEXT, TEXT, TEXT, UUID);
 DROP TABLE IF EXISTS dealer_operating_lifecycle_events;
