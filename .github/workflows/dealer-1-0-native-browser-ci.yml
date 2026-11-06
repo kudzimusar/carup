@@ -45,7 +45,10 @@ concurrency:
 jobs:
   native-postgres-real-browser:
     name: Genuine CarUp browser · PostgreSQL 17 · fictional dealership only
-    runs-on: ubuntu-latest
+    # Playwright 1.60 does not install Chromium on GitHub's Ubuntu 26.04
+    # latest image (unsupported OS); use officially supported Ubuntu 24.04.
+    # This changes only the isolated test runner, NOT product security or CI verdict.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     services:
       postgres:
