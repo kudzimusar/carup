@@ -62,11 +62,18 @@ export default function DealerTenantInventory(){
  const [pendingPrecheckVin,setPendingPrecheckVin]=useState('')
  useEffect(()=>{
   // Session changes must not carry draft inputs, review notices or private VIN
-  // filters into a different signed-in dealership identity.
-  setSearch('');setDraftVin('');setDraftMake('');setDraftModel('')
-  setDraftMileage('');setDraftNotice('');setDraftError('')
-  setDraftReadWarning('');setEditNotice('');setEditError('')
-  setEditingVin('');setPendingPrecheckVin('')
+  // filters into a different signed-in dealership identity. Use a guarded
+  // microtask so this reset cannot write after effect cleanup and does not
+  // synchronously cascade React state updates inside an effect.
+  let live=true
+  void Promise.resolve().then(()=>{
+   if(!live)return
+   setSearch('');setDraftVin('');setDraftMake('');setDraftModel('')
+   setDraftMileage('');setDraftNotice('');setDraftError('')
+   setDraftReadWarning('');setEditNotice('');setEditError('')
+   setEditingVin('');setPendingPrecheckVin('')
+  })
+  return()=>{live=false}
  },[authScope])
  useEffect(()=>{
   let live=true
