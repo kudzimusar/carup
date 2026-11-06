@@ -256,10 +256,10 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
   path:editShot,contentType:'image/png'})
  // Genuine global per-IP limiter stays active before signed staff denial.
  await owner.waitForTimeout(70_000)
- const staffCsrf=await staff.request.get(
+ const staffEditTokenResponse=await staff.request.get(
   'http://127.0.0.1:3001/api/security/csrf-token',{headers:staffHeaders})
- expect(staffCsrf.status()).toBe(200)
- const {csrfToken:staffEditCsrf}=await staffCsrf.json() as {csrfToken:string}
+ expect(staffEditTokenResponse.status()).toBe(200)
+ const {csrfToken:staffEditCsrf}=await staffEditTokenResponse.json() as {csrfToken:string}
  const forbiddenEdit=await staff.request.patch(
   'http://127.0.0.1:3001/api/dealer/operational-inventory/private-drafts/TEST0000000000002',{
    headers:{...staffHeaders,'x-csrf-token':staffEditCsrf},

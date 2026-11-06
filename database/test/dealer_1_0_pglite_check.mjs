@@ -169,6 +169,21 @@ try{
       seller_stated_condition TEXT,
       seller_description TEXT,
       seller_features TEXT[],
+      -- Canonical Seller S0 taxonomy optional fields are present even
+      -- when the deliberately fictional VIN has no taxonomy evidence.
+      make_taxon_id TEXT,
+      model_taxon_id TEXT,
+      color_taxon_id TEXT,
+      fuel_taxon_id TEXT,
+      transmission_taxon_id TEXT,
+      drivetrain_taxon_id TEXT,
+      body_style_taxon_id TEXT,
+      taxonomy_version TEXT,
+      -- Canonical seller-disclosure types; never infer a disclosure
+      -- merely from a private VIN draft that has NULL disclosure fields.
+      seller_accident_disclosure JSONB,
+      seller_insurance_disclosure JSONB,
+      seller_finance_disclosure JSONB,
       import_source TEXT,
       duty_paid BOOLEAN,
       police_verified BOOLEAN,

@@ -186,7 +186,7 @@ test('C17 correct an existing canonical private VIN without allowing submitted s
    async maybeSingle(){return {data:{
     vin,tenant_id:tenant,status:'Pending',publication_status:'draft',
     price:0,owner_id:null,current_seller_type:null,import_source:null,...updated,
-   },error:null}};
+   },error:null};}
   };
   return chain;
  }};

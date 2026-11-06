@@ -107,6 +107,10 @@ jobs:
           assert.equal(count,0,'Physical browser TypeScript syntax invalid')
           console.log('DEALER_PHYSICAL_PARSE PASS: '+scripts.length+' browser scripts')
           DEALER_PARSE_PHYSICAL
+      - name: Syntax check canonical inventory unit tests before full suite
+        run: |
+          node --check backend/tests/dealer-tenant-inventory.test.js
+          node --check backend/services/dealer/dealerTenantInventoryReadService.js
       - name: Run dealership compliance & seed-source negative-path contracts
         run: |
           node --test \
