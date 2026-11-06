@@ -49,6 +49,9 @@ export default function DealerTenantInventory(){
  const [editSaving,setEditSaving]=useState(false)
  const [editNotice,setEditNotice]=useState('')
  const [editError,setEditError]=useState('')
+ // The PATCH reply is an authority-checked PostgreSQL readback of the saved
+ // vehicle; its listing structural precheck is not refreshed by that write.
+ const [pendingPrecheckVin,setPendingPrecheckVin]=useState('')
  useEffect(()=>{
   let live=true
   if(!user||!token){
@@ -109,12 +112,14 @@ export default function DealerTenantInventory(){
   setEditMileage(v.recorded_mileage==null?'':String(v.recorded_mileage))
   setEditNotice('');setEditError('')
  }
+
  async function savePrivateEdit(){
   if(!user||!token||editSaving||!editingVin)return
   setEditSaving(true);setEditError('');setEditNotice('')
   try{
    const receipt=await apiRequest<{draft:{
-    vin:string;make:string;model:string;year:number;
+    vin:string;make:string;model:string;year:number;mileage:number;
+    recorded_marketplace_publication_state:'draft';
     private_tenant_draft_only:true;seller_publish_action_enabled:false}}>({
     baseUrl:API,path:'/dealer/operational-inventory/private-drafts/'+encodeURIComponent(editingVin),
     options:{method:'PATCH',body:JSON.stringify({
@@ -122,22 +127,31 @@ export default function DealerTenantInventory(){
      mileage:Number(editMileage),
     })},authHeaders:auth(user.id,token),
    })
-   if(!receipt.draft?.private_tenant_draft_only||
-     receipt.draft.seller_publish_action_enabled!==false)
+   const saved=receipt.draft
+   if(!saved?.private_tenant_draft_only||
+     saved.seller_publish_action_enabled!==false||
+     saved.recorded_marketplace_publication_state!=='draft'||
+     saved.vin!==editingVin||!Number.isInteger(saved.mileage))
     throw Error('Private VIN correction receipt unavailable')
+   // The server has ALREADY checked the canonical PostgreSQL UPDATE readback
+   // before returning this success receipt. Do not immediately issue another
+   // full inventory GET just to display this same saved make/model/odometer:
+   // a genuine shared-IP read limiter can reject that GET with 429 during
+   // busy operations, previously hiding a successful correction from users.
+   // Update only the fields verified by the server and explicitly withhold
+   // the OLD structural eligibility precheck until a fresh list is loaded.
+   setResult(previous=>previous?{
+    ...previous,
+    entries:previous.entries.map(vehicle=>vehicle.vin===saved.vin?{
+     ...vehicle,make:saved.make,model:saved.model,year:saved.year,
+     recorded_mileage:saved.mileage,
+    }:vehicle),
+   }:previous)
+   setPendingPrecheckVin(saved.vin)
    setEditingVin('')
-   setEditNotice('Private VIN '+receipt.draft.vin+
-    ' corrected and still not approved for listing, sale or payment.')
-   try{
-    const after=await apiRequest<{inventory:Inventory}>({
-     baseUrl:API,path:'/dealer/operational-inventory',
-     authHeaders:auth(user.id,token),
-    })
-    setResult(after.inventory)
-   }catch{
-    setEditNotice('Private VIN correction saved, but the list did not refresh. '+
-     'Do not repeat the correction; reload after service resumes.')
-   }
+   setEditNotice('Private VIN '+saved.vin+
+    ' corrected and persisted in CarUp\'s canonical vehicle record. '+
+    'It remains a private draft, not approved for listing, sale or payment.')
   }catch(error){
    setEditError(error instanceof Error?error.message:
     'Private VIN correction not confirmed; check the current data before retrying.')
@@ -340,16 +354,24 @@ export default function DealerTenantInventory(){
         </button>}
        <section className="border-t mt-4 pt-3 space-y-2">
        <h3 className="text-sm font-semibold">Structural listing precheck</h3>
-       <p className="text-xs text-slate-600">
-        {v.listing_structural_precheck.result==='DATA_PRECHECK_ONLY'
-         ?'Recorded fields pass the existing Marketplace data-shape precheck.'
-         :'The existing Marketplace rules identified missing or invalid listing data.'}
-       </p>
-       {v.listing_structural_precheck.blocking_reason_codes.length>0&&
-        <ul className="list-disc pl-5 text-xs text-amber-900 space-y-1">
-         {v.listing_structural_precheck.blocking_reason_codes.map(code=>
-          <li key={code}>{code.replaceAll('_',' ')}</li>)}
-        </ul>}
+       {pendingPrecheckVin===v.vin?(
+        <p className="text-xs text-amber-800" role="status">
+         The private correction has been confirmed by the server.
+         Structural listing eligibility has not been rechecked since the edit.
+         Reload when the inventory read is available; no publication rights are granted.
+        </p>
+       ):<>
+        <p className="text-xs text-slate-600">
+         {v.listing_structural_precheck.result==='DATA_PRECHECK_ONLY'
+          ?'Recorded fields pass the existing Marketplace data-shape precheck.'
+          :'The existing Marketplace rules identified missing or invalid listing data.'}
+        </p>
+        {v.listing_structural_precheck.blocking_reason_codes.length>0&&
+         <ul className="list-disc pl-5 text-xs text-amber-900 space-y-1">
+          {v.listing_structural_precheck.blocking_reason_codes.map(code=>
+           <li key={code}>{code.replaceAll('_',' ')}</li>)}
+         </ul>}
+       </>}
        <p className="text-xs text-amber-800">
         Seller Authority and Vehicle Passport review: not evaluated.
         This data check cannot publish, verify ownership or process a payment,
