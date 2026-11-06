@@ -31,6 +31,7 @@ const names=[
   '20261103139000_dealer_canonical_inquiry_progress.sql',
   '20261103140000_dealer_staff_branch_scope.sql',
   '20261103141000_dealer_canonical_listing_authority.sql',
+  '20261103142000_dealer_operating_lifecycle.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -367,7 +368,7 @@ try{
     assert.deepEqual(fresh.rows[0],{
       tenants:0,organizations:0,profiles:0,seeds:0,claims:0,
     },'browser schema must not inherit contract-test business/tenant authority');
-    console.log('DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS: 18 exact dealership migrations applied to empty disposable PostgreSQL; 0 business/tenant/claim authorities, protected users preseeded');
+    console.log('DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS: 19 exact dealership migrations applied to empty disposable PostgreSQL; 0 business/tenant/claim authorities, protected users preseeded');
   } else {
   // Direct authenticated/PostgREST clients cannot mint their own tenant, identity,
   // compliance, activation or listing authority even if they own a dealer row.
@@ -411,8 +412,8 @@ try{
     'CANNOT_ROLLBACK_WITH_BRANCH_OPERATING_DETAILS');
   await exec("DELETE FROM dealer_branches WHERE id='"+uuid(9871)+"'");
   await exec("DELETE FROM dealer_profiles WHERE id='"+uuid(9870)+"'");
-  // R4: +2 dealer_ tables (listing authority events, VIN branch assignments) = 34.
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,34);
+  // R4: +2 dealer_ tables (listing authority events, VIN branch assignments) +1 lifecycle events = 35.
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,35);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -1156,6 +1157,77 @@ try{
   await exec('SET ROLE anon');
   await fails('SELECT * FROM dealer_claim_document_ocr_events','permission denied');
   await exec('RESET ROLE');
+  // ── R4 P0-3 (C12): governed operating lifecycle on the active fictional dealer ──
+  const lifecycleSql='SELECT dealer_record_operating_lifecycle_decision($1,$2,$3,$4,$5) AS receipt';
+  const lifecycle=async(by,action,newLegal=null)=>(await query(lifecycleSql,
+    ['ZW-DEAL-0001',by,action,lifecycleWhy,newLegal])).rows[0].receipt;
+  const lifecycleWhy='Fictional CI lifecycle decision by an independent synthetic reviewer, for contract verification only.';
+  const refusesLifecycle=async(args,phrase)=>{
+    let error=null;try{await query(lifecycleSql,args)}catch(e){error=e}
+    assert.ok(error,'lifecycle must refuse: '+phrase);assert.match(String(error.message),new RegExp(phrase));
+  };
+  const listingState=async()=>(await query('SELECT publication_status FROM vehicles WHERE vin=$1',[listingVin])).rows[0].publication_status;
+  await refusesLifecycle(['ZW-DEAL-0001',claimant,'SUSPEND',lifecycleWhy,null],'INDEPENDENT_LIFECYCLE_REVIEWER_REQUIRED');
+  await refusesLifecycle(['ZW-DEAL-0001',reviewer,'SUSPEND','too short to explain anything',null],'OPERATING_LIFECYCLE_REASON_REQUIRED');
+  await refusesLifecycle(['ZW-DEAL-0001',reviewer,'APPROVE_EVERYTHING',lifecycleWhy,null],'INVALID_OPERATING_LIFECYCLE_ACTION');
+  await refusesLifecycle(['ZW-DEAL-0001',reviewer,'REINSTATE',lifecycleWhy,null],'ONLY_SUSPENDED_DEALER_CAN_BE_REINSTATED');
+  assert.equal(await listingState(),'published');
+  const investigation=await lifecycle(reviewer,'OPEN_INVESTIGATION');
+  assert.equal(investigation.operating_authority_current,false);
+  assert.equal(investigation.public_listings_withdrawn,1);
+  assert.equal(await listingState(),'publishable');
+  const closedInvestigation=await lifecycle(reviewer,'CLOSE_INVESTIGATION');
+  assert.equal(closedInvestigation.operating_authority_current,true);
+  assert.equal(closedInvestigation.listings_republished,false);
+  assert.equal(await listingState(),'publishable','closing an investigation never silently republishes');
+  await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`,[listingVin]);
+  const lifecycleSuspended=await lifecycle(reviewer,'SUSPEND');
+  assert.deepEqual([lifecycleSuspended.operating_status,lifecycleSuspended.public_listings_withdrawn,
+    lifecycleSuspended.operating_authority_current],['SUSPENDED',1,false]);
+  assert.equal((await query('SELECT status FROM tenants WHERE id=$1',[tenant])).rows[0].status,'suspended');
+  await fails(`UPDATE vehicles SET publication_status='published' WHERE vin='${listingVin}'`,'DEALER_LISTING_AUTHORITY_NOT_CURRENT');
+  await refusesLifecycle(['ZW-DEAL-0001',reviewer,'REINSTATE',lifecycleWhy,null],'REINSTATEMENT_REQUIRES_DIFFERENT_REVIEWER');
+  const reinstatedDealer=await lifecycle('activationreviewer','REINSTATE');
+  assert.deepEqual([reinstatedDealer.operating_status,reinstatedDealer.operating_authority_current,
+    reinstatedDealer.listings_republished],['ACTIVE',true,false]);
+  assert.equal(await listingState(),'publishable','reinstatement never silently republishes stock');
+  // RENEW: only onto a NEWER independent legal review of the same claim with a later expiry.
+  await refusesLifecycle(['ZW-DEAL-0001',reviewer,'RENEW',lifecycleWhy,null],'NEWER_INDEPENDENT_LEGAL_REVIEW_REQUIRED');
+  await refusesLifecycle(['ZW-DEAL-0001',reviewer,'RENEW',lifecycleWhy,legalId],'NEWER_INDEPENDENT_LEGAL_REVIEW_REQUIRED');
+  const draftVersion=(await query('SELECT submission_version FROM dealer_claim_intake_drafts WHERE claim_id=$1',
+    [uuid(1)])).rows[0].submission_version;
+  const renewalDraft=(await query(
+    'SELECT dealer_save_claim_intake_draft($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8) AS receipt',
+    [uuid(1),claimant,'CARUP_DEALER_INTAKE_1_0',sha,'9'.repeat(64),JSON.stringify(completeApplication),
+      JSON.stringify({BUSINESS:1,BRANCHES:1,CONSENTS_DECLARATIONS:1}),draftVersion])).rows[0].receipt;
+  const renewalSubmission=(await query('SELECT dealer_submit_compliance_application($1,$2,$3,$4,$5) AS receipt',
+    [uuid(1),claimant,renewalDraft.version,'CARUP_DEALER_APPLICANT_DECLARATION_1',true])).rows[0].receipt.submission_id;
+  await query('SELECT dealer_review_compliance_submission($1,$2,$3,$4)',[renewalSubmission,reviewer,
+    'READY_FOR_REGULATORY_REVIEW','Synthetic independent preliminary escalation for the renewal of a fictional fixture only.']);
+  const renewalExpiry=new Date(Date.now()+20*86400000).toISOString();
+  const renewedLegalId=(await query(
+    'SELECT dealer_record_legal_application_approval($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS receipt',
+    [renewalSubmission,'legalreviewer','CARUP_DEALER_ZW_DRAFT_2026_11_03',sourceRegEvidence,signerEvidence,
+      'Fixture Synthetic Registry','FIXTURE-REG-001','BRANCH',renewalExpiry,testPolicyReview])).rows[0].receipt.legal_review_id;
+  const renewed=await lifecycle(reviewer,'RENEW',renewedLegalId);
+  assert.equal(renewed.legal_review_id,renewedLegalId);
+  assert.equal(renewed.operating_authority_current,true);
+  const renewedLink=(await query(`SELECT l.legal_review_id::text AS legal,l.submission_id::text AS submission,
+    d.expiry_date FROM dealer_approved_seed_links l JOIN dealer_profiles d ON d.id=l.dealer_profile_id
+    WHERE l.seed_dealer_id='ZW-DEAL-0001'`)).rows[0];
+  assert.deepEqual([renewedLink.legal,renewedLink.submission],[renewedLegalId,renewalSubmission]);
+  assert.equal(new Date(renewedLink.expiry_date).toISOString(),renewalExpiry);
+  await refusesLifecycle(['ZW-DEAL-0001',reviewer,'RENEW',lifecycleWhy,legalId],'NEWER_INDEPENDENT_LEGAL_REVIEW_REQUIRED');
+  assert.equal((await query('SELECT count(*)::int AS n FROM dealer_operating_lifecycle_events')).rows[0].n,5);
+  await fails("UPDATE dealer_operating_lifecycle_events SET action='WITHDRAW'",'APPEND_ONLY_LEDGER');
+  await exec('SET ROLE anon');
+  await fails('SELECT * FROM dealer_operating_lifecycle_events','permission denied');
+  await exec('RESET ROLE');
+  await fails(read('20261103142000_dealer_operating_lifecycle.sql').down,'CANNOT_ROLLBACK_WITH_DEALER_LIFECYCLE_CUSTODY');
+  // The owner republishes through the canonical gate's write so the claim revocation below is
+  // proven to withdraw a live listing again.
+  await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`,[listingVin]);
+  console.log('DEALER_R4_OPERATING_LIFECYCLE PASS: investigate/close, suspend (stock withdrawn), dual-control reinstate, renew onto a newer independent legal review; nothing silently republished');
   // Revocation AFTER processing the original document candidate must disable
   // further access and suspend canonical operations immediately.
   await exec(`UPDATE dealer_research_claim_requests
@@ -1169,7 +1241,10 @@ try{
   assert.equal((await query('SELECT publication_status FROM vehicles WHERE vin=$1',[listingVin])).rows[0].publication_status,'publishable');
   const withdrawal=(await query(`SELECT reason_code,affected_listings FROM dealer_listing_authority_events
     WHERE tenant_id=$1 AND event_type='PUBLIC_LISTINGS_WITHDRAWN'`,[tenant])).rows;
-  assert.deepEqual(withdrawal,[{reason_code:'OPERATING_LINK_SUSPENDED',affected_listings:1}]);
+  // Earlier withdrawals came from the C12 lifecycle block (investigation, suspension); the latest
+  // one is this claim revocation's.
+  assert.deepEqual(withdrawal.at(-1),{reason_code:'OPERATING_LINK_SUSPENDED',affected_listings:1});
+  assert.equal(withdrawal.length,3);
   assert.equal((await query('SELECT dealer_tenant_listing_authority_current($1::uuid) AS ok',[tenant])).rows[0].ok,false);
   await fails(`UPDATE vehicles SET publication_status='published' WHERE vin='${listingVin}'`,
     'DEALER_LISTING_AUTHORITY_NOT_CURRENT');
@@ -1280,12 +1355,12 @@ try{
   // Dispose synthetic private feedback before isolated rollback, never on a live DB.
   await exec('TRUNCATE dealer_transaction_feedback_review_events, dealer_transaction_feedback_cases');
   // R4: dispose the fictional listing custody first (its rollback refuses while it exists).
-  await exec('TRUNCATE dealer_listing_authority_events, dealer_vehicle_branch_assignments');
+  await exec('TRUNCATE dealer_listing_authority_events, dealer_vehicle_branch_assignments, dealer_operating_lifecycle_events');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
-    '18 migration apply/rollback/reapply, canonical dealer listing authority, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
+    '19 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
   } // End full destructive synthetic contract suite; fresh schema mode stays empty.
 }catch(error){
   console.error(native?'DEALER_NATIVE_POSTGRES_RESULT FAIL':'DEALER_PGLITE_RESULT FAIL',error);

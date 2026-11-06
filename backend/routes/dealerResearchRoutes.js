@@ -31,6 +31,7 @@ import {
 } from '../services/dealer/dealerBuyerFeedbackService.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { getPublicDealerStorefrontInventory } from '../services/dealer/dealerCanonicalListingService.js';
+import { recordOperatingLifecycleDecision, readOperatingLifecycle } from '../services/dealer/dealerOperatingLifecycleService.js';
 import { rateLimiter } from '../middleware/securityMiddleware.js';
 import {
   getPublicResearch,
@@ -381,6 +382,24 @@ router.post('/api/admin/dealership/claims/:claimId/review',
     const review=await reviewDealerClaim(req.params.claimId,req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({review});
   } catch(error){errorResponse(res,next,error)}
+});
+
+// R4 P0-3 (C12): governed operating lifecycle — suspend, investigate, dual-control reinstate,
+// renew onto a newer independent legal review, withdraw. Independent reviewer + password step-up;
+// public stock is withdrawn by the data layer and never silently republished.
+router.get('/api/admin/dealership/operating-lifecycle/:seedId',
+ reviewer,async(req,res,next)=>{
+  try{
+    const lifecycle=await readOperatingLifecycle(req.params.seedId,req.userContext);
+    res.set('Cache-Control','no-store').json({lifecycle});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/admin/dealership/operating-lifecycle/:seedId',
+ reviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const decision=await recordOperatingLifecycleDecision(req.params.seedId,req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({decision});
+  }catch(error){errorResponse(res,next,error)}
 });
 
 // Independently reviewed full dealer storefront is strictly SEPARATE from

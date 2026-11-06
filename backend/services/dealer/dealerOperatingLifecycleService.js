@@ -1,0 +1,100 @@
+/**
+ * CARUP-DEALER-ONB-001-LR01-R4 P0-3 (C12): governed dealership operating lifecycle.
+ * An independent, password-stepped-up reviewer records SUSPEND / OPEN_INVESTIGATION /
+ * CLOSE_INVESTIGATION / REINSTATE / RENEW / WITHDRAW through ONE guarded SQL function
+ * (20261103142000). The service never changes listings, storefronts or payments itself; the data
+ * layer withdraws public stock whenever authority stops being current and never republishes it.
+ */
+import { supabase } from '../../db/supabase.js';
+import { requireIndependentReviewer, requireReviewerPassword } from './dealerClaimApplicationService.js';
+
+const refuse = (code, status = 400) => Object.assign(new Error(code), { statusCode: status, code });
+const SEED = /^ZW-DEAL-\d{4}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const OPERATING_LIFECYCLE_ACTIONS = Object.freeze([
+  'SUSPEND', 'OPEN_INVESTIGATION', 'CLOSE_INVESTIGATION', 'REINSTATE', 'RENEW', 'WITHDRAW',
+]);
+const SQL_REFUSALS = Object.freeze({
+  INDEPENDENT_LIFECYCLE_REVIEWER_REQUIRED: 403,
+  REINSTATEMENT_REQUIRES_DIFFERENT_REVIEWER: 403,
+  APPROVED_DEALER_LINK_REQUIRED: 404,
+  INVALID_OPERATING_LIFECYCLE_ACTION: 400,
+  OPERATING_LIFECYCLE_REASON_REQUIRED: 400,
+  ONLY_ACTIVE_DEALER_CAN_BE_SUSPENDED: 409,
+  INVESTIGATION_REQUIRES_ACTIVE_UNFLAGGED_DEALER: 409,
+  NO_OPEN_INVESTIGATION: 409,
+  ONLY_SUSPENDED_DEALER_CAN_BE_REINSTATED: 409,
+  REVOKED_CLAIM_REQUIRES_NEW_CLAIM: 409,
+  REINSTATEMENT_REQUIRES_CURRENT_LEGAL_AND_POLICY: 409,
+  WITHDRAWN_DEALER_CANNOT_RENEW: 409,
+  NEWER_INDEPENDENT_LEGAL_REVIEW_REQUIRED: 409,
+  RENEWAL_REQUIRES_CURRENT_COUNTRY_POLICY: 409,
+  DEALER_ALREADY_WITHDRAWN: 409,
+});
+
+export function mapLifecycleSqlError(error) {
+  const text = String(error?.message || '');
+  for (const [code, status] of Object.entries(SQL_REFUSALS)) if (text.includes(code)) return refuse(code, status);
+  return refuse('DEALER_OPERATING_LIFECYCLE_UNAVAILABLE', 503);
+}
+
+export function parseLifecycleDecision(body = {}) {
+  const action = typeof body.action === 'string' ? body.action.trim().toUpperCase() : '';
+  if (!OPERATING_LIFECYCLE_ACTIONS.includes(action)) throw refuse('INVALID_OPERATING_LIFECYCLE_ACTION');
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+  if (reason.length < 40 || reason.length > 3000) throw refuse('OPERATING_LIFECYCLE_REASON_REQUIRED');
+  let newLegal = null;
+  if (action === 'RENEW') {
+    newLegal = typeof body.new_legal_review_id === 'string' ? body.new_legal_review_id.trim() : '';
+    if (!UUID_RE.test(newLegal)) throw refuse('NEWER_INDEPENDENT_LEGAL_REVIEW_REQUIRED', 409);
+  }
+  return Object.freeze({ action, reason, new_legal_review_id: newLegal });
+}
+
+async function loadLink(db, seedId) {
+  if (typeof seedId !== 'string' || !SEED.test(seedId)) throw refuse('INVALID_RESEARCH_ID');
+  const { data, error } = await db.from('dealer_approved_seed_links')
+    .select('link_id,seed_dealer_id,claimant_user_id,operating_status,legal_review_id')
+    .eq('seed_dealer_id', seedId).maybeSingle();
+  if (error) throw refuse('APPROVED_DEALER_LOOKUP_UNAVAILABLE', 503);
+  if (!data) throw refuse('APPROVED_DEALER_LINK_REQUIRED', 404);
+  return data;
+}
+
+export async function recordOperatingLifecycleDecision(seedId, actor, body = {}, {
+  db = supabase, independent = requireIndependentReviewer, stepUp = requireReviewerPassword,
+} = {}) {
+  const decision = parseLifecycleDecision(body);
+  independent(actor, '');
+  const link = await loadLink(db, seedId);
+  independent(actor, link.claimant_user_id);
+  await stepUp(actor, { claimant_user_id: link.claimant_user_id }, body.reviewer_password);
+  const { data, error } = await db.rpc('dealer_record_operating_lifecycle_decision', {
+    p_seed_dealer_id: seedId, p_reviewer_id: actor.userId, p_action: decision.action,
+    p_reason: decision.reason, p_new_legal_review_id: decision.new_legal_review_id,
+  });
+  if (error) throw mapLifecycleSqlError(error);
+  if (!data || data.seed_dealer_id !== seedId || data.action !== decision.action
+      || data.listings_republished !== false || data.payment_entitlement_changed !== false) {
+    throw refuse('DEALER_OPERATING_LIFECYCLE_READBACK_FAILED', 503);
+  }
+  return Object.freeze(data);
+}
+
+export async function readOperatingLifecycle(seedId, actor, { db = supabase, independent = requireIndependentReviewer } = {}) {
+  independent(actor, '');
+  const link = await loadLink(db, seedId);
+  const { data, error } = await db.from('dealer_operating_lifecycle_events')
+    .select('event_id,action,previous_operating_status,next_operating_status,public_listings_withdrawn,created_at,reviewer_user_id')
+    .eq('link_id', link.link_id).order('created_at', { ascending: false }).limit(50);
+  if (error || !Array.isArray(data)) throw refuse('DEALER_OPERATING_LIFECYCLE_UNAVAILABLE', 503);
+  return Object.freeze({
+    seed_dealer_id: link.seed_dealer_id,
+    operating_status: link.operating_status,
+    events: data.map((e) => Object.freeze({
+      event_id: e.event_id, action: e.action, previous_operating_status: e.previous_operating_status,
+      next_operating_status: e.next_operating_status, public_listings_withdrawn: e.public_listings_withdrawn,
+      created_at: e.created_at, recorded_by_this_reviewer: e.reviewer_user_id === actor.userId,
+    })),
+  });
+}

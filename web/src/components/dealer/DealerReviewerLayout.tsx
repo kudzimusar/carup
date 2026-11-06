@@ -25,6 +25,7 @@ const reviewLinks = [
   ['/admin/dealer-full-storefront-review','Public storefront decisions'],
   ['/admin/dealer-buyer-feedback','Buyer complaints'],
   ['/admin/dealer-vehicle-evidence','Vehicle documents'],
+  ['/admin/dealer-operating-lifecycle','Operating lifecycle'],
 ] as const
 
 export default function DealerReviewerLayout() {

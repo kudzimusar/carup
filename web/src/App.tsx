@@ -28,6 +28,7 @@ import DealerResearchCorrection from './pages/DealerResearchCorrection'
 import DealerClaimWorkspace from './pages/DealerClaimWorkspace'
 import DealerClaimReview from './pages/DealerClaimReview'
 import DealerReviewerLayout from './components/dealer/DealerReviewerLayout'
+import DealerOperatingLifecycleReview from './pages/DealerOperatingLifecycleReview'
 import DealerCanonicalWorkspaceLayout from './components/dealer/DealerCanonicalWorkspaceLayout'
 import DealerResearchReview from './pages/DealerResearchReview'
 import DealerComplianceApplicationReview from './pages/DealerComplianceApplicationReview'
@@ -482,6 +483,8 @@ export default function App() {
               admin/government-only verify/reject endpoints as /admin/evidence), reachable from the
               dealership reviewer shell. The data layer refuses self-verification of dealer stock. */}
           <Route path="/admin/dealer-vehicle-evidence" element={<EvidenceReview />} />
+          {/* R4 P0-3 (C12): governed operating lifecycle decisions. */}
+          <Route path="/admin/dealer-operating-lifecycle" element={<DealerOperatingLifecycleReview />} />
         </Route>
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
