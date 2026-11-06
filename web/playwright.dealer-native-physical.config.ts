@@ -7,7 +7,7 @@ import {defineConfig,devices} from '@playwright/test'
  */
 const allowedPhases=new Set([
   'prelegal','synthetic-legal','synthetic-staff','synthetic-feedback',
-  'synthetic-retraction',
+  'synthetic-retraction','synthetic-vin-listing','synthetic-dealer-suspension',
 ])
 const phase=process.env.DEALER_BROWSER_PHASE||'prelegal'
 if(!allowedPhases.has(phase))

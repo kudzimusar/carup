@@ -49,7 +49,8 @@ jobs:
     # latest image (unsupported OS); use officially supported Ubuntu 24.04.
     # This changes only the isolated test runner, NOT product security or CI verdict.
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # R4 adds two physical phases (~20 min with real rate-limit windows) to the accepted ~27 min.
+    timeout-minutes: 75
     services:
       postgres:
         image: postgres:17-alpine
@@ -299,6 +300,28 @@ jobs:
           cd ..
           node backend/scripts/dealership/verifyNativeFictionalPublicRetractionCustody.mjs
           echo 'DEALER_NATIVE_PUBLIC_RETRACTION_RESULT PASS: same URL safely downgraded, approved corporate claim preserved, no fake unclaimed or real dealer publication'
+          # SIXTH (R4 P0-2): explicitly fictional dealer stock through CarUp's CANONICAL authority:
+          # private draft → dealer-declared listing facts on an owned branch → canonical evidence
+          # upload → independent non-member admin document review → same-URL storefront
+          # re-publication → canonical Marketplace publish gate → anonymous search/detail/storefront
+          # at 390/768/1280/1920 → separate buyer enquiry → owner new→contacted→qualified.
+          node backend/scripts/dealership/prepareSyntheticListingPhase.mjs
+          cd web
+          DEALER_BROWSER_PHASE=synthetic-vin-listing npx playwright test \
+            --config playwright.dealer-native-physical.config.ts \
+            tests/dealer-native-physical/synthetic-vin-listing.pw.ts
+          cd ..
+          node backend/scripts/dealership/verifyNativeFictionalListingCustody.mjs
+          echo 'DEALER_NATIVE_VIN_LISTING_RESULT PASS: fictional dealer VIN listed only through the canonical gate after independent document review; buyer enquiry progressed by the approved owner'
+          # SEVENTH (R4 P0-2, last): independent revocation must withdraw the listing at the data
+          # layer and close search/detail/storefront, the workspace, canonical republish and enquiries.
+          cd web
+          DEALER_BROWSER_PHASE=synthetic-dealer-suspension npx playwright test \
+            --config playwright.dealer-native-physical.config.ts \
+            tests/dealer-native-physical/synthetic-dealer-suspension.pw.ts
+          cd ..
+          node backend/scripts/dealership/verifyNativeFictionalListingCustody.mjs --after-suspension
+          echo 'DEALER_NATIVE_SUSPENSION_RESULT PASS: revocation withdrew public dealer stock and refused every path back; fictional CI only'
       - name: Preserve screenshots, traces and physical test results
         if: always()
         uses: actions/upload-artifact@v4

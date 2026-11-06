@@ -300,11 +300,30 @@ try{
       message TEXT,source_channel TEXT NOT NULL DEFAULT 'web',
       status TEXT NOT NULL DEFAULT 'new',
       risk_status TEXT NOT NULL DEFAULT 'clear',
+      -- R4 P0-2: remaining canonical 20260616120000 columns written by createInquiry.
+      referral_code TEXT,campaign_code TEXT,assigned_operator TEXT,country TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CHECK(status IN ('new','assigned','contacted','qualified','closed','spam','rejected')),
-      CHECK(risk_status IN ('clear','watch','flagged','blocked'))
+      CHECK(risk_status IN ('clear','watch','flagged','blocked')),
+      CHECK(source_channel IN ('web','mobile','whatsapp','telegram','facebook','qr','operator')),
+      CHECK(inquiry_type IN ('vehicle_purchase_interest','vehicle_inspection_request','part_quote_request',
+        'garage_service_request','import_quote_request','container_space_interest',
+        'dealer_stock_request','sell_my_car_request','trade_in_request',
+        'diaspora_vehicle_request','diaspora_parts_request','family_purchase_support'))
     );
+    -- R4 P0-2: canonical communications outbox (011 + dedupe_key, 20260623143000). createInquiry
+    -- fails closed without it. No worker or provider exists in this disposable fixture, so an event
+    -- written here is never delivered anywhere.
+    CREATE TABLE domain_events(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),event_type TEXT NOT NULL,payload JSONB NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,error_log TEXT,
+      tenant_id TEXT,dedupe_key TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX idx_domain_events_dedupe ON domain_events(dedupe_key) WHERE dedupe_key IS NOT NULL;
+    REVOKE ALL ON domain_events FROM PUBLIC,anon,authenticated;
+    GRANT SELECT,INSERT ON domain_events TO service_role;
     ALTER TABLE marketplace_inquiries ENABLE ROW LEVEL SECURITY;
     REVOKE ALL ON marketplace_inquiries FROM PUBLIC,anon,authenticated;
     GRANT SELECT,INSERT,UPDATE ON marketplace_inquiries TO service_role;
