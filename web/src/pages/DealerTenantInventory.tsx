@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react'
+import {useEffect,useRef,useState} from 'react'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {useAuth} from '@/context/AuthContext'
@@ -33,6 +33,10 @@ export default function DealerTenantInventory(){
  // identity; using that object in effect dependencies used to issue several
  // identical inventory reads on one navigation (confirmed Chromium trace).
  const userId=user?.id
+ const authScope=userId&&token ? JSON.stringify([userId,token]) : ''
+ const currentScopeRef=useRef(authScope)
+ useEffect(()=>{currentScopeRef.current=authScope},[authScope])
+ const [loadedScope,setLoadedScope]=useState('')
  const [result,setResult]=useState<Inventory|null>(null)
  const [status,setStatus]=useState<'loading'|'ready'|'denied'|'unavailable'>('loading')
  const [search,setSearch]=useState('')
@@ -57,27 +61,49 @@ export default function DealerTenantInventory(){
  // vehicle; its listing structural precheck is not refreshed by that write.
  const [pendingPrecheckVin,setPendingPrecheckVin]=useState('')
  useEffect(()=>{
+  // Session changes must not carry draft inputs, review notices or private VIN
+  // filters into a different signed-in dealership identity.
+  setSearch('');setDraftVin('');setDraftMake('');setDraftModel('')
+  setDraftMileage('');setDraftNotice('');setDraftError('')
+  setDraftReadWarning('');setEditNotice('');setEditError('')
+  setEditingVin('');setPendingPrecheckVin('')
+ },[authScope])
+ useEffect(()=>{
   let live=true
   if(!userId||!token){
-    void Promise.resolve().then(()=>{if(live)setStatus('denied')})
+    void Promise.resolve().then(()=>{if(live){
+      setResult(null);setLoadedScope('');setStatus('denied')
+    }})
     return()=>{live=false}
   }
   apiRequest<{inventory:Inventory}>({
     baseUrl:API,path:'/dealer/operational-inventory',
     authHeaders:auth(userId,token),
   }).then(response=>{
-    if(live){setResult(response.inventory);setStatus('ready')}
+    if(live&&currentScopeRef.current===authScope){
+      setResult(response.inventory);setLoadedScope(authScope);setStatus('ready')
+    }
   }).catch((error:unknown)=>{
    const code=error&&typeof error==='object'&&'status' in error
     ?(error as {status?:number}).status:undefined
-   if(live){setResult(null);setStatus([401,403,404].includes(code||0)?'denied':'unavailable')}
+   if(live&&currentScopeRef.current===authScope){
+    setResult(null);setLoadedScope(authScope)
+    setStatus([401,403,404].includes(code||0)?'denied':'unavailable')
+   }
   })
   return()=>{live=false}
- },[userId,token])
- const filtered=(result?.entries||[]).filter(v=>[
+ },[userId,token,authScope])
+ // Never render tenant-private data from a prior authentication identity:
+ // changing accounts while staying on /dealers/stock must hide the prior
+ // response BEFORE the replacement session's GET resolves (or fails).
+ const visibleResult=authScope&&loadedScope===authScope?result:null
+ const visibleStatus=!authScope?'denied':
+  loadedScope===authScope?status:'loading'
+ const filtered=(visibleResult?.entries||[]).filter(v=>[
   v.vin,v.make||'',v.model||''].join(' ').toLowerCase().includes(search.trim().toLowerCase()))
  async function createPrivateDraft(){
   if(!user||!token||draftSaving)return
+  const actionScope=authScope
   setDraftSaving(true);setDraftError('');setDraftNotice('');setDraftReadWarning('')
   try{
    const created=await apiRequest<{draft:{vin:string;private_tenant_draft_only:true}}>({
@@ -89,6 +115,7 @@ export default function DealerTenantInventory(){
     })},authHeaders:auth(user.id,token),
    })
    if(!created.draft?.private_tenant_draft_only)throw Error('Private draft receipt unavailable')
+   if(currentScopeRef.current!==actionScope)return
    // Canonical write receipt is independent of subsequent list availability.
    // Never tell the owner a committed VIN was not saved when GET fails.
    setDraftVin('');setDraftMake('');setDraftModel('');setDraftMileage('')
@@ -99,13 +126,14 @@ export default function DealerTenantInventory(){
      baseUrl:API,path:'/dealer/operational-inventory',
      authHeaders:auth(user.id,token),
     })
-    setResult(updated.inventory)
+    if(currentScopeRef.current===actionScope)setResult(updated.inventory)
    }catch{
-    setDraftReadWarning('The VIN was saved, but the inventory list could not refresh. '+
+    if(currentScopeRef.current===actionScope)setDraftReadWarning('The VIN was saved, but the inventory list could not refresh. '+
      'Do not submit that VIN again; reload this page to verify later.')
    }
   }catch(problem){
-   setDraftError(problem instanceof Error?problem.message:
+   if(currentScopeRef.current===actionScope)setDraftError(
+    problem instanceof Error?problem.message:
     'Private VIN submission could not be confirmed. Check its existence before retrying.')
   }finally{setDraftSaving(false)}
  }
@@ -119,6 +147,7 @@ export default function DealerTenantInventory(){
 
  async function savePrivateEdit(){
   if(!user||!token||editSaving||!editingVin)return
+  const actionScope=authScope
   setEditSaving(true);setEditError('');setEditNotice('')
   try{
    const receipt=await apiRequest<{draft:{
@@ -137,6 +166,7 @@ export default function DealerTenantInventory(){
      saved.recorded_marketplace_publication_state!=='draft'||
      saved.vin!==editingVin||!Number.isInteger(saved.mileage))
     throw Error('Private VIN correction receipt unavailable')
+   if(currentScopeRef.current!==actionScope)return
    // The server has ALREADY checked the canonical PostgreSQL UPDATE readback
    // before returning this success receipt. Do not immediately issue another
    // full inventory GET just to display this same saved make/model/odometer:
@@ -157,7 +187,8 @@ export default function DealerTenantInventory(){
     ' corrected and persisted in CarUp\'s canonical vehicle record. '+
     'It remains a private draft, not approved for listing, sale or payment.')
   }catch(error){
-   setEditError(error instanceof Error?error.message:
+   if(currentScopeRef.current===actionScope)setEditError(
+    error instanceof Error?error.message:
     'Private VIN correction not confirmed; check the current data before retrying.')
   }finally{setEditSaving(false)}
  }
@@ -172,21 +203,21 @@ export default function DealerTenantInventory(){
     records. The legal business, seller authority, vehicle Passport and each individual
     listing's publication eligibility remain distinct governed decisions.
    </p>
-   {status==='loading'&&<p role="status" className="mt-7">
+   {visibleStatus==='loading'&&<p role="status" className="mt-7">
     Loading tenant-scoped canonical vehicles…
    </p>}
-   {status==='denied'&&<p role="alert"
+   {visibleStatus==='denied'&&<p role="alert"
     className="mt-7 rounded-lg bg-amber-50 border border-amber-200 p-5">
     An active, independently approved dealership owner and tenant membership is required.
     An unclaimed research listing or unaudited dealer role does not grant inventory access.
    </p>}
-   {status==='unavailable'&&<p role="alert"
+   {visibleStatus==='unavailable'&&<p role="alert"
     className="mt-7 rounded-lg bg-amber-50 border border-amber-200 p-5">
     The canonical inventory service could not be reached or verified. This outage
     does not establish that your dealership or stock is inactive or empty.
     Refresh after service is restored.
    </p>}
-   {status==='ready'&&result&&<>
+   {visibleStatus==='ready'&&visibleResult&&<>
     <Card className="mt-7"><CardContent className="p-6">
      <h2 className="text-xl font-semibold">Register a private vehicle draft</h2>
      <p className="text-sm text-slate-600 mt-2">
@@ -308,7 +339,7 @@ export default function DealerTenantInventory(){
      {editNotice&&<p role="status" className="mt-4 rounded-lg bg-blue-50 p-3">{editNotice}</p>}
      <div className="mt-7 flex flex-wrap items-center gap-4">
      <div>
-      <p className="font-semibold">{result.returned_count} real tenant vehicle records in first page</p>
+      <p className="font-semibold">{visibleResult.returned_count} real tenant vehicle records in first page</p>
       <p className="text-xs text-slate-500">
        Total dealership stock is not calculated from a truncated page.
        No synthetic vehicles or branches are added.
@@ -323,11 +354,11 @@ export default function DealerTenantInventory(){
        placeholder="VIN, make or model"/>
      </div>
     </div>
-    {result.entries.length===0&&<Card className="mt-7"><CardContent className="p-6">
+    {visibleResult.entries.length===0&&<Card className="mt-7"><CardContent className="p-6">
      No vehicles are recorded for this canonical tenant in the current read.
      This does not establish that it has no stock outside CarUp.
     </CardContent></Card>}
-    {result.entries.length>0&&filtered.length===0&&<p className="mt-7 text-slate-500">
+    {visibleResult.entries.length>0&&filtered.length===0&&<p className="mt-7 text-slate-500">
      No vehicle on this loaded page matches your filter.
     </p>}
     <div className="grid md:grid-cols-2 gap-4 mt-6">

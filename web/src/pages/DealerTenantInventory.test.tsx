@@ -6,7 +6,7 @@
  * listing eligibility result after changed inventory details.
  */
 import {beforeEach,describe,expect,it,vi} from 'vitest'
-import {fireEvent,render,screen,waitFor} from '@testing-library/react'
+import {act,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {MemoryRouter} from 'react-router-dom'
 import DealerTenantInventory from './DealerTenantInventory'
 
@@ -14,19 +14,24 @@ const fixture=vi.hoisted(()=>({
  requests:[] as Array<{path:string;method:string}>,
  unsafeReceipt:false,
  failCorrection:false,
+ actorId:'fictional-owner',
+ authToken:'synthetic-session',
+ resolveOther:null as null|((value:unknown)=>void),
 }))
 const VIN='TEST0000000000002'
 vi.mock('@/context/AuthContext',()=>({
- useAuth:()=>({user:{id:'fictional-owner',role:'member'},token:'synthetic-session'}),
+ useAuth:()=>({user:{id:fixture.actorId,role:'member'},token:fixture.authToken}),
 }))
 vi.mock('@/lib/apiClient',()=>({
  resolveApiBaseUrl:()=> 'http://127.0.0.1:3001/api',
  apiRequest:async(request:{
-  path:string;options?:{method?:string};
+  path:string;options?:{method?:string};authHeaders?:Record<string,string>;
  })=>{
   const method=request.options?.method||'GET'
   fixture.requests.push({path:request.path,method})
   if(request.path==='/dealer/operational-inventory'&&method==='GET'){
+   if(request.authHeaders?.['x-user-id']==='other-owner')
+    return new Promise(resolve=>{fixture.resolveOther=resolve})
    return {inventory:{
     owner_tenant_id:'fictional-tenant',returned_count:1,entries:[{
      vin:VIN,make:'FICTIONAL',model:'OLD CI MODEL',year:2026,
@@ -77,6 +82,9 @@ beforeEach(()=>{
  fixture.requests=[]
  fixture.unsafeReceipt=false
  fixture.failCorrection=false
+ fixture.actorId='fictional-owner'
+ fixture.authToken='synthetic-session'
+ fixture.resolveOther=null
 })
 describe('private VIN correction receipt under shared-IP rate limits',()=>{
  it('uses the DB-confirmed PATCH receipt and does not issue redundant inventory GET',async()=>{
@@ -103,6 +111,29 @@ describe('private VIN correction receipt under shared-IP rate limits',()=>{
    .toBeInTheDocument()
   expect(screen.queryByText(/corrected and persisted/)).toBeNull()
   expect(screen.queryByRole('heading',{name:'2026 FICTIONAL MODEL Y'})).toBeNull()
+ })
+
+ it('never shows the prior dealer inventory when the authenticated session switches',async()=>{
+  const view=mount()
+  expect(await screen.findByText(VIN)).toBeInTheDocument()
+  // The same route and React component remain mounted while a different
+  // authenticated account becomes active. Its genuine scoped read has NOT
+  // returned. The old tenant's VIN must disappear immediately, not after GET.
+  fixture.actorId='other-owner'
+  fixture.authToken='other-session'
+  view.rerender(<MemoryRouter><DealerTenantInventory/></MemoryRouter>)
+  expect(screen.queryByText(VIN)).toBeNull()
+  expect(screen.getByText(/Loading tenant-scoped canonical vehicles/))
+   .toBeInTheDocument()
+  await waitFor(()=>expect(fixture.resolveOther).not.toBeNull())
+  await act(async()=>{
+   fixture.resolveOther!({inventory:{
+    owner_tenant_id:'other-tenant',entries:[],returned_count:0,
+   }})
+  })
+  expect(await screen.findByText(/No vehicles are recorded for this canonical tenant/))
+   .toBeInTheDocument()
+  expect(screen.queryByText(VIN)).toBeNull()
  })
  it('does not report success when the canonical PATCH is rejected',async()=>{
   fixture.failCorrection=true
