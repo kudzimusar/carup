@@ -233,6 +233,22 @@ test('Fictional approved dealer invites, staff independently accepts, owner revo
  await owner.getByRole('button',{name:'Save private draft correction'}).click()
  await expect(owner.getByText('Private VIN TEST0000000000002 corrected',{exact:false}))
   .toBeVisible({timeout:30000})
+ // After a real owner edit, a pending server GET and a page reload both
+ // consume the production-equivalent 100/min shared loopback-IP quota.
+ // The previous Playwright step observed the successful edit receipt but then
+ // did not see the vehicle after reload. Clear the window and prove canonical
+ // data with a fresh signed request BEFORE reloading, never silence failures.
+ await owner.waitForTimeout(70_000)
+ const beforeReload=await owner.request.get(
+  'http://127.0.0.1:3001/api/dealer/operational-inventory',
+  {headers:{'x-user-id':f.actors.claimant.id,
+   'x-session-token':f.actors.claimant.token}})
+ expect(beforeReload.status()).toBe(200)
+ const owned=(await beforeReload.json() as {inventory:{entries:Array<{
+  vin:string;model:string|null;recorded_mileage:number|null}>}}).inventory.entries
+ const persisted=owned.find(item=>item.vin==='TEST0000000000002')
+ expect(persisted?.model).toBe('MODEL Y')
+ expect(persisted?.recorded_mileage).toBe(123999)
  await owner.reload()
  await expect(owner.getByRole('heading',{name:'2026 FICTIONAL MODEL Y'}))
   .toBeVisible({timeout:30000})
