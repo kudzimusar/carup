@@ -29,6 +29,10 @@ const auth=(id:string,token:string):AuthHeaders=>({
 })
 export default function DealerTenantInventory(){
  const {user,token}=useAuth()
+ // AuthContext can publish a new user object with unchanged authenticated
+ // identity; using that object in effect dependencies used to issue several
+ // identical inventory reads on one navigation (confirmed Chromium trace).
+ const userId=user?.id
  const [result,setResult]=useState<Inventory|null>(null)
  const [status,setStatus]=useState<'loading'|'ready'|'denied'|'unavailable'>('loading')
  const [search,setSearch]=useState('')
@@ -54,13 +58,13 @@ export default function DealerTenantInventory(){
  const [pendingPrecheckVin,setPendingPrecheckVin]=useState('')
  useEffect(()=>{
   let live=true
-  if(!user||!token){
+  if(!userId||!token){
     void Promise.resolve().then(()=>{if(live)setStatus('denied')})
     return()=>{live=false}
   }
   apiRequest<{inventory:Inventory}>({
     baseUrl:API,path:'/dealer/operational-inventory',
-    authHeaders:auth(user.id,token),
+    authHeaders:auth(userId,token),
   }).then(response=>{
     if(live){setResult(response.inventory);setStatus('ready')}
   }).catch((error:unknown)=>{
@@ -69,7 +73,7 @@ export default function DealerTenantInventory(){
    if(live){setResult(null);setStatus([401,403,404].includes(code||0)?'denied':'unavailable')}
   })
   return()=>{live=false}
- },[user,token])
+ },[userId,token])
  const filtered=(result?.entries||[]).filter(v=>[
   v.vin,v.make||'',v.model||''].join(' ').toLowerCase().includes(search.trim().toLowerCase()))
  async function createPrivateDraft(){
