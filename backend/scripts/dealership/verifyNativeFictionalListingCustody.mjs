@@ -77,9 +77,14 @@ try {
     logo_rights_approved: false,
   }]);
   const consumedTickets = (await db.query(`SELECT operation FROM dealer_storefront_media_review_tickets
-      WHERE seed_dealer_id = $1 AND reviewer_id = $2 AND consumed_at IS NOT NULL ORDER BY operation`,
+      WHERE seed_dealer_id = $1 AND reviewer_id = $2 AND consumed_at IS NOT NULL
+        AND superseded_at IS NULL ORDER BY operation`,
     [f.seed, f.actors.reviewer.id])).rows;
   assert.deepEqual(consumedTickets.map((r) => r.operation), ['STOREFRONT_MEDIA_DECISION', 'STOREFRONT_MEDIA_PREVIEW']);
+  // R6: queue reloads supersede unused tickets; those are closed and explicitly marked, never uses.
+  const supersededTickets = (await db.query(`SELECT count(*)::int AS n FROM dealer_storefront_media_review_tickets
+      WHERE seed_dealer_id = $1 AND reviewer_id = $2 AND superseded_at IS NOT NULL AND consumed_at = superseded_at`,
+    [f.seed, f.actors.reviewer.id])).rows[0].n;
   const mediaStorage = (await db.query(`SELECT count(*)::int AS n FROM storage.objects
       WHERE bucket_id = 'ocr-documents' AND name LIKE $1`, ['dealership-media/' + link.tenant_id + '/%'])).rows[0].n;
   assert.equal(mediaStorage, 1, 'storefront media binary exists in private Storage');
@@ -102,7 +107,7 @@ try {
     fictional_only: true, vin: VIN, governed_seller: 'APPROVED_OWNER', facts_source: 'dealer_declared',
     evidence: 'registration/registration_book verified by independent non-member admin',
     storage_objects: storage, media_storage_objects: mediaStorage, media_review_events: mediaEvents.length,
-    consumed_media_tickets: consumedTickets.map((r) => r.operation),
+    consumed_media_tickets: consumedTickets.map((r) => r.operation), superseded_unused_media_tickets: supersededTickets,
     buyer_enquiries: inquiries.length, enquiry_final_status: inquiries[0].status,
     progress_events: progress.length, outbox_events_pending_undelivered: outbox.length,
     publication_status: v.publication_status, link_operating_status: link.operating_status,

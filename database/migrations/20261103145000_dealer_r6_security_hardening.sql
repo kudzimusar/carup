@@ -339,6 +339,18 @@ GRANT EXECUTE ON FUNCTION dealer_complete_reviewer_step_up(TEXT, BOOLEAN) TO ser
 -- * At most 96 outstanding (unconsumed, unexpired) tickets per reviewer (= 2 operations x a 24-item
 --   queue page x 2 pages) and at most 480 grants per reviewer per 10 minutes; serialized per reviewer
 --   with a transaction-scoped advisory lock so concurrent queue loads cannot overshoot.
+-- Supersession is recorded EXPLICITLY. A superseded ticket is closed (consumed_at set, so the
+-- single-use consume can never accept it) AND marked superseded_at, so custody can always tell a
+-- ticket that was actually USED (consumed_at NOT NULL, superseded_at NULL) from one replaced by a
+-- newer grant. Without the marker a queue reload looked like an extra use in the custody ledger.
+ALTER TABLE dealer_storefront_media_review_tickets
+  ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMPTZ;
+ALTER TABLE dealer_storefront_media_review_tickets
+  ADD CONSTRAINT dealer_media_ticket_superseded_is_closed
+  CHECK (superseded_at IS NULL OR consumed_at = superseded_at);
+COMMENT ON COLUMN dealer_storefront_media_review_tickets.superseded_at IS
+  'Set (together with consumed_at) when a newer grant for the same reviewer, item and operation replaced this UNUSED ticket. consumed_at NOT NULL with superseded_at NULL means the ticket was actually used.';
+
 CREATE OR REPLACE FUNCTION dealer_issue_storefront_media_review_ticket(
   p_ticket_jti TEXT,
   p_token_sha256 TEXT,
@@ -411,7 +423,7 @@ BEGIN
 
   -- Supersede: the newest grant for (reviewer, item, operation) is the only live one.
   UPDATE dealer_storefront_media_review_tickets
-     SET consumed_at = v_now
+     SET consumed_at = v_now, superseded_at = v_now
    WHERE reviewer_id = p_reviewer_id
      AND target_row_id = v_media.media_id
      AND operation = p_operation
@@ -768,3 +780,7 @@ REVOKE ALL ON FUNCTION dealer_consume_storefront_media_review_ticket(TEXT, TEXT,
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION dealer_consume_storefront_media_review_ticket(TEXT, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ)
   TO service_role;
+-- Restored functions no longer reference the supersession marker; drop it last.
+ALTER TABLE dealer_storefront_media_review_tickets
+  DROP CONSTRAINT IF EXISTS dealer_media_ticket_superseded_is_closed;
+ALTER TABLE dealer_storefront_media_review_tickets DROP COLUMN IF EXISTS superseded_at;

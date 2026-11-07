@@ -2107,6 +2107,15 @@ try{
     n+=1;await issue(hex(n,32),hex(n,64),reviewer,capItems[0],'STOREFRONT_MEDIA_PREVIEW',exp5);
     assert.equal((await query(`SELECT count(*)::int AS n FROM dealer_storefront_media_review_tickets
       WHERE reviewer_id=$1 AND consumed_at IS NULL`,[reviewer])).rows[0].n,96);
+    // The replaced ticket is closed AND explicitly marked superseded — never counted as a use.
+    const superseded=(await query(`SELECT count(*)::int AS n FROM dealer_storefront_media_review_tickets
+      WHERE reviewer_id=$1 AND superseded_at IS NOT NULL AND consumed_at=superseded_at`,[reviewer])).rows[0].n;
+    assert.equal(superseded,1,'exactly one superseded ticket, explicitly marked');
+    assert.equal((await query(`SELECT count(*)::int AS n FROM dealer_storefront_media_review_tickets
+      WHERE reviewer_id=$1 AND consumed_at IS NOT NULL AND superseded_at IS NULL`,[reviewer])).rows[0].n,0,
+      'a supersession is never recorded as a use');
+    await fails(`UPDATE dealer_storefront_media_review_tickets SET superseded_at=now()+interval '1 day'
+      WHERE reviewer_id='${reviewer}' AND superseded_at IS NOT NULL`,'dealer_media_ticket_superseded_is_closed');
     n+=1;
     await fails(`SELECT dealer_issue_storefront_media_review_ticket('${hex(n,32)}','${hex(n,64)}','${reviewer}','ZW-DEAL-0001',
       '${capItems[48]}'::uuid,'STOREFRONT_MEDIA_PREVIEW','${exp5}'::timestamptz)`,'MEDIA_REVIEW_TICKET_OUTSTANDING_LIMIT');
