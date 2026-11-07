@@ -63,7 +63,7 @@ test('C18 full view null means no legal verification; claim-state stays independ
  let existingApprovedClaim=false;
  try{
   supabase.from=table=>{
-    if(table==='dealer_research_public_profiles')return qb(pendingSource);
+    if(table==='dealer_research_public_profiles_current')return qb(pendingSource);
     if(table==='dealer_full_storefront_current')return qb(null);
     if(table==='dealer_research_claim_requests')return {
       select(cols){assert.equal(cols,'seed_dealer_id');return this},

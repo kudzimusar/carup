@@ -195,7 +195,7 @@ test('S08 listPublicResearch filters multiple reviewed fictional prelistings by 
   ];
   try {
     supabase.from = (table) => {
-      if (table === 'dealer_research_public_profiles') {
+      if (table === 'dealer_research_public_profiles_current') {
         let filtered = [...rows];
         return {
           select() { return this; },
@@ -379,7 +379,7 @@ test('S09 reconcileDuplicateResearchSeed and getPublicResearchDuplicateRedirect 
           },
         };
       }
-      if (table === 'dealer_research_public_profiles') {
+      if (table === 'dealer_research_public_profiles_current') {
         return {
           select() { return this; },
           eq(k, v) {

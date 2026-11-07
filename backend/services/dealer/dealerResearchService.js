@@ -18,6 +18,14 @@ import { getReviewedFullStorefront, listReviewedFullStorefronts } from './dealer
 import { mapDealerSqlRefusal } from './dealerSqlRefusalMapper.js';
 
 export const PUBLIC_STATUS = 'PRELISTED_UNCLAIMED';
+/**
+ * R6 round 2 (#2): every public research read goes through this read-time gated view
+ * (20261103146000): PRELISTED_UNCLAIMED AND (fictional CI fixture OR a live Owner O12 policy whose
+ * approver is not the publishing reviewer). A real seed prelisted before R6, or under a policy that
+ * has since been suspended or expired, is therefore not public — without mutating any row.
+ * Claims, corrections, contact display and duplicate redirects all resolve through getPublicResearch.
+ */
+export const PUBLIC_PROFILE_SOURCE = 'dealer_research_public_profiles_current';
 export const PUBLIC_COLUMNS =
   'seed_dealer_id,public_slug,public_name,public_city,public_research_category,source_attribution,publication_status,reviewed_at,revision';
 export const PUBLIC_RESEARCH_TIERS = Object.freeze([
@@ -147,7 +155,7 @@ export async function listPublicResearch({ q, city, category, tier, page = 1, li
     throw inputError('Invalid verification tier filter', 'INVALID_TIER_FILTER');
   }
 
-  let request = supabase.from('dealer_research_public_profiles')
+  let request = supabase.from(PUBLIC_PROFILE_SOURCE)
     .select(PUBLIC_COLUMNS, { count: 'exact' })
     .eq('publication_status', PUBLIC_STATUS)
     .order('public_name', { ascending: true });
@@ -206,7 +214,7 @@ export async function listPublicResearch({ q, city, category, tier, page = 1, li
 
 export async function getPublicResearch(seedId) {
   const id = normalizeSeedId(seedId);
-  const { data, error } = await supabase.from('dealer_research_public_profiles')
+  const { data, error } = await supabase.from(PUBLIC_PROFILE_SOURCE)
     .select(PUBLIC_COLUMNS).eq('seed_dealer_id', id)
     .eq('publication_status',PUBLIC_STATUS).maybeSingle();
   if (error) throw domainError(error,'research profile');

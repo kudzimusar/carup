@@ -139,7 +139,7 @@ test('S12 a second direct claim cannot replace a previously approved claimant',a
  let didInsert=false;
  try{
   supabase.from=table=>{
-   if(table==='dealer_research_public_profiles')return {
+   if(table==='dealer_research_public_profiles_current')return {
     select(){return this},eq(){return this},
     maybeSingle:async()=>({data:rawPrivate,error:null})};
    if(table==='dealer_full_storefront_current')return {
@@ -166,7 +166,7 @@ test('S11 valid claim is accepted as pending evidence only, never grants a tenan
   const fromOriginal = supabase.from;
   try {
     supabase.from = (table) => {
-      if (table === 'dealer_research_public_profiles') {
+      if (table === 'dealer_research_public_profiles_current') {
         return {
           select() { return this; },
           eq() { return this; },
