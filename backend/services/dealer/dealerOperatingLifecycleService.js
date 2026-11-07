@@ -36,6 +36,8 @@ const SQL_REFUSALS = Object.freeze({
   RENEWAL_MUST_BE_SAME_REGISTERED_COMPANY: 409,
   // R6 #7: data-layer conflict-of-interest guard (own claim on the seed / dealer tenant member).
   DEALER_REVIEWER_CONFLICT_OF_INTEREST: 403,
+  // R6 round 2: closing an investigation is dual control (never the reviewer who opened it).
+  CLOSE_INVESTIGATION_REQUIRES_DIFFERENT_REVIEWER: 403,
 });
 
 export function mapLifecycleSqlError(error) {

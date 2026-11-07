@@ -8,12 +8,15 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {installStepUpGuardModel} from './helpers/dealerStepUpGuardModel.js';
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
 
 const { supabase } = await import('../db/supabase.js');
+// R6 round 2: the legacy decision route now uses the per-reviewer step-up lockout RPCs.
+installStepUpGuardModel(supabase);
 const svc = await import('../services/dealer/dealerComplianceService.js');
 const {hashPassword}=await import('../utils/passwordAuth.js');
 const REVIEW_PASSWORD='DealerGovernanceReviewPassword39!';

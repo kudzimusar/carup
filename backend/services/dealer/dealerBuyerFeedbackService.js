@@ -5,6 +5,7 @@
  * identity; dealer_approved_seed_links owns the canonical dealer relationship.
  */
 import {supabase} from '../../db/supabase.js';
+import {throwIfDealerSecurityRefusal} from './dealerSqlRefusalMapper.js';
 import {
   requireClaimantSession,requireIndependentReviewer,requireReviewerPassword
 } from './dealerClaimApplicationService.js';
@@ -141,7 +142,7 @@ export async function recordPrivateBuyerCaseFinding(actor,caseId,payload={}, {db
     p_case_id:row.case_id,p_reviewer_id:actor.userId,
     p_finding:payload.finding,p_reason:reason,
   });
-  if(error)throw fail('INDEPENDENT_BUYER_CASE_FINDING_REFUSED',409);
+  if(error){throwIfDealerSecurityRefusal(error);throw fail('INDEPENDENT_BUYER_CASE_FINDING_REFUSED',409);}
   if(!data||!UUID.test(data.event_id)||data.public_verified_review!==false||
     data.canonical_dispute_case_modified!==false||
     data.provider_payment_status_modified!==false)

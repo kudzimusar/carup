@@ -16,7 +16,7 @@
  *     never returns private documents, contacts, internal reasons, or raw decision payloads.
  */
 import { supabase } from '../../db/supabase.js';
-import { verifyPassword } from '../../utils/passwordAuth.js';
+import { requireReviewerPassword } from './dealerClaimApplicationService.js';
 
 const PROFILES = 'dealer_profiles';
 const BRANCHES = 'dealer_branches';
@@ -52,18 +52,7 @@ export async function createOrUpdateProfile(userId, data = {}) {
     // Security review #6: once a profile is bound to an approved dealership claim, its business facts
     // change only through the canonical dealership workflows (versioned declarations, reviewed storefront),
     // never through this legacy route.
-    const { data: link, error: linkError } = await supabase.from('dealer_approved_seed_links')
-      .select('link_id').eq('dealer_profile_id', existing.id).maybeSingle();
-    if (linkError) {
-      const error = new Error('Dealer profile authority check unavailable');
-      error.statusCode = 503;
-      throw error;
-    }
-    if (link) {
-      const error = new Error('Activated dealership profiles are edited through the dealership workspace');
-      error.statusCode = 409;
-      throw error;
-    }
+    await refuseActivatedDealerProfile(existing.id);
     // The applicant must never silently rewrite an identity previously independently verified.
     // Corrections must go through governance, and only the canonical activation authority
     // may assign tenant_id (never user-supplied profile data).
@@ -114,6 +103,28 @@ export async function getProfile(dealerOrUserId) {
   return getProfileByUser(dealerOrUserId);
 }
 
+/**
+ * Security review #6 / R6 round 2: a profile bound to an approved dealership claim
+ * (dealer_approved_seed_links) is governed ONLY by the canonical dealership workspace and the
+ * dual-control C12 operating lifecycle — never by the legacy profile, branch, document or
+ * governance-decision routes. Same 409 as the legacy profile route.
+ */
+async function refuseActivatedDealerProfile(profileId) {
+  const { data: link, error: linkError } = await supabase.from('dealer_approved_seed_links')
+    .select('link_id').eq('dealer_profile_id', profileId).maybeSingle();
+  if (linkError) {
+    const error = new Error('Dealer profile authority check unavailable');
+    error.statusCode = 503;
+    throw error;
+  }
+  if (link) {
+    const error = new Error('Activated dealership profiles are edited through the dealership workspace');
+    error.statusCode = 409;
+    error.code = 'ACTIVATED_DEALER_PROFILE_LEGACY_ROUTE_REFUSED';
+    throw error;
+  }
+}
+
 async function requireProfile(dealerId) {
   const profile = await getProfileById(dealerId);
   if (!profile) throw new Error(`Dealer not found: ${dealerId}`);
@@ -133,6 +144,7 @@ export async function listProfiles({ tenantId } = {}) {
 
 export async function addBranch(dealerId, { name, address } = {}) {
   await requireProfile(dealerId);
+  await refuseActivatedDealerProfile(dealerId);
   const { data, error } = await supabase
     .from(BRANCHES).insert({ dealer_id: dealerId, name: name || null, address: address || null })
     .select().single();
@@ -188,6 +200,7 @@ export async function listRequirements(dealerId) {
 /** Record unverified document-intake metadata only; a claimant cannot set verified or select arbitrary private storage refs. */
 export async function uploadDocument(dealerId, { doc_type, expiry_date } = {}) {
   await requireProfile(dealerId);
+  await refuseActivatedDealerProfile(dealerId);
   if (!doc_type) throw new Error('uploadDocument requires a doc_type');
   const row = {
     dealer_id: dealerId,
@@ -266,14 +279,24 @@ export async function recordDecision(dealerId, { decision, requirement_key, reas
     error.statusCode = 403;
     throw error;
   }
-  const [profile, { data: reviewer, error: reviewerErr }] = await Promise.all([
-    requireProfile(dealerId),
-    supabase.from('users').select('id,role,is_verified,password_hash')
-      .eq('id',actor.id).maybeSingle(),
-  ]);
-  if (profile.user_id === actor.id || reviewerErr || !reviewer?.password_hash ||
-      !reviewer.is_verified || !['admin','reviewer','platform_admin','super_admin'].includes(reviewer.role) ||
-      !await verifyPassword(actor.reviewer_password,reviewer.password_hash)) {
+  const profile = await requireProfile(dealerId);
+  // R6 round 2: an activated dealership is governed only by the dual-control C12 lifecycle. Refuse
+  // before any step-up attempt is consumed; the database refuses independently as well.
+  await refuseActivatedDealerProfile(profile.id);
+  if (profile.user_id === actor.id) {
+    const error = new Error('Independent reviewer reauthentication failed');
+    error.statusCode = 403;
+    throw error;
+  }
+  // R6 round 2 (#5): the SAME per-reviewer step-up lockout as every dealership reviewer action
+  // (5 unsuccessful attempts / 15 min -> 429 for 15 min; guard unavailable -> 503).
+  try {
+    await requireReviewerPassword(
+      { userId: actor.id, authenticationMethod: actor.authenticationMethod,
+        isVerified: actor.isVerified, platformRole: actor.role },
+      { claimant_user_id: profile.user_id }, actor.reviewer_password);
+  } catch (stepUpError) {
+    if (stepUpError?.statusCode === 429 || stepUpError?.statusCode === 503) throw stepUpError;
     const error = new Error('Independent reviewer reauthentication failed');
     error.statusCode = 403;
     throw error;
@@ -285,6 +308,12 @@ export async function recordDecision(dealerId, { decision, requirement_key, reas
     p_requirement_key: requirement_key || null, p_reason: reason.trim(),
     p_payload: payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {},
   });
+  if (error && /ACTIVATED_DEALER_GOVERNED_BY_OPERATING_LIFECYCLE/.test(String(error.message || ''))) {
+    const refused = new Error('Activated dealerships are governed only by the dealership operating lifecycle');
+    refused.statusCode = 409;
+    refused.code = 'ACTIVATED_DEALER_GOVERNED_BY_OPERATING_LIFECYCLE';
+    throw refused;
+  }
   if (error || !data?.audit_atomic || !data?.decision || !data?.profile) {
     const refused = new Error('Atomic dealer governance decision rejected; no state change confirmed');
     refused.statusCode = 409;
