@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 D5: local OCR observations are PRIVATE APPEND-ONLY
 -- candidate evidence, never verified facts, company roles or dealer compliance.
 CREATE TABLE dealer_claim_document_ocr_events (

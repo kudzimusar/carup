@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001-LR01-R4 P0-3 (C12): governed dealership operating lifecycle.
 -- Plan v1.1 C12: "Renew, amend, suspend, reinstate, investigate, expire and withdraw public claims;
 -- immediate revocation". Claim revocation (dealer_suspend_revoked_seed_claim), storefront retraction,

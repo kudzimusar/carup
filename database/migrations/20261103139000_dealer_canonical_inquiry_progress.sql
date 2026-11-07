@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- C15 D7: dealer-reported follow-up moves canonical Marketplace inquiry status.
 -- Restrict this to NEW->CONTACTED and CONTACTED->QUALIFIED for clear-risk
 -- inquiries owned by an independently activated dealer tenant. Neither state

@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 D4/D8: business-safe research contact projection and
 -- source-grouping review. No parent legal merge, OEM authorization or tenant rights.
 CREATE TABLE dealer_research_grouping_review_events (

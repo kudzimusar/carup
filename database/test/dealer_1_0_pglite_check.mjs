@@ -1840,7 +1840,47 @@ try{
       'rollback must not re-open authenticated UPDATE of '+column);
   }
   console.log('DEALER_R6_ROLLBACK_PRIVILEGES PASS: full rollback retained the dealer_profiles self-grant barrier (0 table-wide grants, 0 authority-column grants)');
-  for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
+  // R6 DBA #7 (native only): with a concurrent writer holding ROW EXCLUSIVE on the canonical table,
+  // the migration's own lock_timeout fails it with 55P03 in ~3 s and leaves nothing behind. The
+  // session starts at lock_timeout=0; statement_timeout=15s only bounds a mutant that waits forever.
+  // Every dealership migration that locks a canonical table bounds its lock wait (the three exempt
+  // ones create only new dealer_* objects and functions, with no canonical FK, trigger or policy).
+  const noCanonicalLocks=['20261103120000','20261103122000','20261103124000'];
+  for(const name of names){
+    const bounded=/^\s*SET lock_timeout = '3s';/m.test(read(name).up);
+    assert.equal(bounded,!noCanonicalLocks.includes(name.slice(0,14)),`${name}: lock_timeout presence`);
+  }
+  const lockTimeoutProbes=native?{
+    '20261103125000_dealer_profile_self_grant_hardening.sql':'dealer_profiles',
+    '20261103138000_dealer_branch_operating_details.sql':'dealer_branches',
+    '20261103141000_dealer_canonical_listing_authority.sql':'vehicles',
+  }:{};
+  for(const name of names){
+    const table=lockTimeoutProbes[name];
+    if(table){
+      const writer=new pg.Client({connectionString:nativeUrl,ssl:false,application_name:'carup-dealer-r6-lock-timeout-writer'});
+      await writer.connect();
+      try{
+        await writer.query('BEGIN');
+        await writer.query(`LOCK TABLE ${table} IN ROW EXCLUSIVE MODE`);
+        const catalog=async()=>(await query(`SELECT (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public') AS rels,
+          (SELECT count(*)::int FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND a.attnum>0 AND NOT a.attisdropped) AS cols,
+          (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public') AS procs,
+          (SELECT count(*)::int FROM pg_policy) AS policies`)).rows[0];
+        const before=await catalog();
+        await exec("SET lock_timeout = 0; SET statement_timeout = '15s'");
+        const started=Date.now();let error=null;
+        try{await exec(read(name).up)}catch(e){error=e}
+        const elapsed=Date.now()-started;
+        await exec('RESET statement_timeout');
+        assert.equal(error?.code,'55P03',`${name}: expected lock_timeout (55P03), got ${error?.code} ${error?.message}`);
+        assert.ok(elapsed>=2500&&elapsed<10000,`${name}: lock_timeout fired after ${elapsed} ms`);
+        assert.deepEqual(await catalog(),before,`${name}: a lock-timed-out migration leaves no partial schema`);
+        console.log('DEALER_R6_LOCK_TIMEOUT PASS:',name,'refused with 55P03 after',elapsed,'ms behind a writer on',table);
+      }finally{await writer.query('ROLLBACK');await writer.end()}
+    }
+    await exec(read(name).up);console.log('REAPPLIED',name);
+  }
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
     '21 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, R5 media/corrections/redirects/concurrency, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
   } // End full destructive synthetic contract suite; fresh schema mode stays empty.

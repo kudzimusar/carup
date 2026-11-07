@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 C14 D7: private canonical branch operating declarations.
 -- No GPS coordinate or dealer-entered schedule establishes public verification.
 ALTER TABLE dealer_branches
@@ -6,6 +9,11 @@ ALTER TABLE dealer_branches
   ADD COLUMN IF NOT EXISTS longitude NUMERIC(9,6),
   ADD COLUMN IF NOT EXISTS opening_hours_text TEXT,
   ADD COLUMN IF NOT EXISTS operating_details_updated_at TIMESTAMPTZ;
+-- R6 DBA #7: these CHECKs are deliberately NOT split into NOT VALID + VALIDATE. Both constrain
+-- only the columns added just above, which are NULL on every existing row, so validation cannot
+-- fail; and ADD COLUMN already holds ACCESS EXCLUSIVE on dealer_branches until this migration's
+-- transaction commits, so an in-transaction VALIDATE would not shorten any lock (it only helps
+-- in a separate transaction). lock_timeout above bounds the wait for that lock instead.
 ALTER TABLE dealer_branches
   ADD CONSTRAINT dealer_branch_gps_pair_valid
   CHECK (

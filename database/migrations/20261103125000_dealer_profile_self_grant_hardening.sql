@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 D2 security barrier.
 -- Legacy 20260626150000_dealer_compliance.sql granted authenticated users
 -- table-wide INSERT and UPDATE of dealer_profiles. RLS checked *whose row*,

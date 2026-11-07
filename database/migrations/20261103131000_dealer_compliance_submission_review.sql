@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 D6: frozen applicant submission -> independent preliminary
 -- review, not dealer licensing, compliance approval or canonical tenant activation.
 CREATE TABLE dealer_claim_compliance_submissions (

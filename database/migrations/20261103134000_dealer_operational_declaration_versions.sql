@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP DEALERSHIP 1.0 D7 C13 C20 C21 C22: versioned private
 -- applicant/operator declarations. This is not a legal, finance, licence,
 -- public publication, warranty verification or merchant authority table.
