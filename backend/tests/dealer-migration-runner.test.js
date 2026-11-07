@@ -108,7 +108,8 @@ test('N1: connection-string query parameters cannot redirect an approved loopbac
 test('N1: the approved target is exactly what node-pg itself would connect to', () => {
   for (const url of [
     'postgresql://postgres@127.0.0.1:55482/carup_dealer_isolated_ci',
-    'postgres://u:p%40ss@localhost:55483/d%20b',
+    // Documented CR-1 placeholder credentials; the percent-encoded database name exercises decoding.
+    'postgres://user:password@localhost:55483/d%20b',
     'postgresql://postgres@[::1]:55482/db?sslmode=disable',
   ]) {
     const approved = assertSafeTarget(url);
