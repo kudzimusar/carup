@@ -1800,8 +1800,46 @@ try{
     'ONLY_SUSPENDED_DEALER_CAN_BE_REINSTATED');
   console.log('DEALER_R4_REVIEW_FIXES PASS: withdrawn stays terminal, legacy reinstatement refused, renewal separation, quarantine kept, seller-authority independence, transfer-out allowed, policy/membership lapses withdraw');
   await exec('TRUNCATE dealer_listing_authority_events, dealer_vehicle_branch_assignments, dealer_operating_lifecycle_events');
+  // ── R6 DBA #6: the three earliest Downs refuse while their custody rows exist (before any DDL) ──
+  const custodyRows=(await query(`SELECT
+    (SELECT count(*)::int FROM dealer_research_seed_records) AS seeds,
+    (SELECT count(*)::int FROM dealer_research_publication_events) AS publication_events,
+    (SELECT count(*)::int FROM dealer_research_claim_requests) AS claims,
+    (SELECT count(*)::int FROM dealer_research_correction_requests) AS corrections`)).rows[0];
+  for(const [k,n] of Object.entries(custodyRows))assert.ok(n>0,'R6 custody fixture must hold '+k+' rows (no vacuous refusal)');
+  await fails(read('20261103122000_dealer_research_correction_requests.sql').down,
+    'CANNOT_ROLLBACK_WITH_RESEARCH_CORRECTION_REQUESTS');
+  await fails(read('20261103121000_dealer_research_review_and_claim_intake.sql').down,
+    'CANNOT_ROLLBACK_WITH_DEALER_CLAIM_REQUESTS');
+  await fails(read('20261103120000_dealer_research_seed_candidates.sql').down,
+    'CANNOT_ROLLBACK_WITH_RESEARCH_SEED_CUSTODY');
+  assert.equal((await query('SELECT count(*)::int AS n FROM dealer_research_correction_requests')).rows[0].n,
+    custodyRows.corrections,'a refused Down changed nothing');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
+  await fails(read('20261103121000_dealer_research_review_and_claim_intake.sql').down,
+    'CANNOT_ROLLBACK_WITH_RESEARCH_PUBLICATION_LEDGER');
+  // The append-only ledger alone (no current public profile row) still holds custody.
+  await exec('TRUNCATE dealer_research_public_profiles CASCADE');
+  await fails(read('20261103121000_dealer_research_review_and_claim_intake.sql').down,
+    'CANNOT_ROLLBACK_WITH_RESEARCH_PUBLICATION_LEDGER');
+  await exec('TRUNCATE dealer_research_correction_requests CASCADE');
+  await exec('TRUNCATE dealer_research_publication_events CASCADE');
+  await fails(read('20261103120000_dealer_research_seed_candidates.sql').down,
+    'CANNOT_ROLLBACK_WITH_RESEARCH_SEED_CUSTODY');
+  await exec('TRUNCATE dealer_research_seed_records CASCADE');
+  console.log('DEALER_R6_ROLLBACK_CUSTODY PASS: 120000/121000/122000 Downs refuse with seed, claim, publication-ledger and correction custody ('+
+    JSON.stringify(custodyRows)+')');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
+  // R6 DBA #6: rolling back 20261103125000 must NOT restore the legacy table-wide self-grant.
+  assert.equal((await query("SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed")).rows[0].allowed,false,
+    'rollback must not re-open table-wide UPDATE on dealer_profiles');
+  assert.equal((await query("SELECT has_table_privilege('authenticated','dealer_profiles','INSERT') AS allowed")).rows[0].allowed,false,
+    'rollback must not re-open table-wide INSERT on dealer_profiles');
+  for(const column of ['tenant_id','identity_status','compliance_review_state','active_state','suspension_state']){
+    assert.equal((await query("SELECT has_column_privilege('authenticated','dealer_profiles',$1,'UPDATE') AS allowed",[column])).rows[0].allowed,false,
+      'rollback must not re-open authenticated UPDATE of '+column);
+  }
+  console.log('DEALER_R6_ROLLBACK_PRIVILEGES PASS: full rollback retained the dealer_profiles self-grant barrier (0 table-wide grants, 0 authority-column grants)');
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
     '21 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, R5 media/corrections/redirects/concurrency, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
