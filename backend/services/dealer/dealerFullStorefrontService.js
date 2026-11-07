@@ -3,6 +3,7 @@
  * publication decision, never a consequence of source or claim approval alone.
  */
 import {supabase} from '../../db/supabase.js';
+import {throwIfDealerSecurityRefusal} from './dealerSqlRefusalMapper.js';
 import {requireIndependentReviewer,requireReviewerPassword}
   from './dealerClaimApplicationService.js';
 
@@ -130,6 +131,6 @@ export async function recordFullStorefrontPublication(seed,actor,payload={}){
     p_section_keys:payload.approved_sections,
     p_reason:payload.reason.trim(),
   });
-  if(error)throw deny('INDEPENDENT_FULL_STORE_FRONT_PUBLICATION_REFUSED',409);
+  if(error){throwIfDealerSecurityRefusal(error);throw deny('INDEPENDENT_FULL_STORE_FRONT_PUBLICATION_REFUSED',409);}
   return data;
 }

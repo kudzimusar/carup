@@ -13,6 +13,7 @@ import {
 
 import {buildManualDealerWorkbook} from './dealerManualIntake.js';
 import {inspectDealerCsvImport,stageConfirmedDealerCsv} from './dealerCsvIntake.js';
+import {throwIfDealerSecurityRefusal} from './dealerSqlRefusalMapper.js';
 
 const DOCS=new Set(['COMPANY_REGISTRATION','DIRECTOR_AUTHORITY','SIGNATORY_MANDATE',
   'BRANCH_AUTHORITY','PARENT_COMPANY_AUTHORITY']);
@@ -54,18 +55,49 @@ async function loadSource(seedId){
   if(!data)throw deny('RESEARCH_SOURCE_MISSING',409);
   return data;
 }
+/**
+ * R6 security review #5: per-reviewer (per user id) step-up lockout, IN ADDITION to the per-IP
+ * sensitive route buckets. Shared across backend instances in PostgreSQL
+ * (dealer_begin/complete_reviewer_step_up, migration 20261103145000):
+ *   - at most 5 step-up attempts that do not succeed per reviewer per 15-minute window;
+ *   - the 5th failure locks that reviewer's step-up for 15 minutes (HTTP 429 REVIEWER_STEP_UP_LOCKED);
+ *   - each attempt is reserved BEFORE the password is verified, so parallel guesses cannot exceed 5;
+ *   - a successful step-up resets the window, so success paths never lock a reviewer out.
+ * The guard fails closed (503) if the shared counter is unavailable.
+ */
+export const REVIEWER_STEP_UP_LOCKOUT_POLICY=Object.freeze({
+  max_unsuccessful_attempts:5,window_minutes:15,lockout_minutes:15,scope:'per_reviewer_user_id',
+});
+async function stepUpGuardRpc(db,name,args){
+  let result;
+  try{result=await db.rpc(name,args);}catch{throw deny('REVIEWER_STEP_UP_GUARD_UNAVAILABLE',503);}
+  if(result?.error||!result?.data||typeof result.data!=='object')
+    throw deny('REVIEWER_STEP_UP_GUARD_UNAVAILABLE',503);
+  return result.data;
+}
 /** Password reauthentication is mandatory for reviewer decisions and private evidence reads.
  * Never accept CarUp's development passwordless fallback as a step-up authentication.
  */
-export async function requireReviewerPassword(actor,claim,password){
+export async function requireReviewerPassword(actor,claim,password,{db=supabase,verify=verifyPassword}={}){
   requireIndependentReviewer(actor,claim?.claimant_user_id);
   if(typeof password!=='string'||password.length<8)throw deny('REAUTHENTICATION_REQUIRED');
-  const {data:user,error}=await supabase.from('users')
-    .select('id,password_hash,is_verified,role')
-    .eq('id',actor.userId).maybeSingle();
-  if(error||!user||!user.password_hash||!user.is_verified||
-    !CAN_REVIEW.has(user.role)||!await verifyPassword(password,user.password_hash))
-    throw deny('REAUTHENTICATION_FAILED');
+  const gate=await stepUpGuardRpc(db,'dealer_begin_reviewer_step_up',{p_reviewer_id:actor.userId});
+  if(gate.allowed!==true){
+    const retry=Number.isInteger(gate.retry_after_seconds)&&gate.retry_after_seconds>0
+      ?gate.retry_after_seconds:REVIEWER_STEP_UP_LOCKOUT_POLICY.lockout_minutes*60;
+    throw Object.assign(deny('REVIEWER_STEP_UP_LOCKED',429),{retryAfterSeconds:retry});
+  }
+  let verified=false;
+  try{
+    const {data:user,error}=await db.from('users')
+      .select('id,password_hash,is_verified,role')
+      .eq('id',actor.userId).maybeSingle();
+    verified=Boolean(!error&&user&&user.password_hash&&user.is_verified&&
+      CAN_REVIEW.has(user.role)&&await verify(password,user.password_hash));
+  }catch{verified=false;}
+  await stepUpGuardRpc(db,'dealer_complete_reviewer_step_up',
+    {p_reviewer_id:actor.userId,p_succeeded:verified});
+  if(!verified)throw deny('REAUTHENTICATION_FAILED');
 }
 export function decodeClaimDocument(base64,mimeType){
   if(typeof base64!=='string'||typeof mimeType!=='string' ||
@@ -201,7 +233,7 @@ export async function reviewDealerClaim(claimId,actor,payload){
     p_reason:payload.reason,p_evidence_id:payload.evidence_id||null,
     p_issuer:payload.reviewed_issuer||null,p_scope:payload.verified_scope||null,
   });
-  if(error)throw deny('INDEPENDENT_CLAIM_REVIEW_REFUSED',409);
+  if(error){throwIfDealerSecurityRefusal(error);throw deny('INDEPENDENT_CLAIM_REVIEW_REFUSED',409);}
   return data;
 }
 export async function submitClaimAppeal(claimId,actor,reason){

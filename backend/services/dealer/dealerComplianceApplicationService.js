@@ -4,6 +4,7 @@
  * membership, licence, payment entitlement, dealer profile or public badge.
  */
 import {supabase} from '../../db/supabase.js';
+import {throwIfDealerSecurityRefusal} from './dealerSqlRefusalMapper.js';
 import {requireClaimantSession,requireIndependentReviewer,
   requireReviewerPassword} from './dealerClaimApplicationService.js';
 
@@ -105,6 +106,6 @@ export async function recordDealerPreliminaryReview(submissionId,actor,payload={
     p_submission_id:meta.submission_id,p_reviewer_id:actor.userId,
     p_verdict:payload.verdict,p_reason:payload.reason.trim(),
   });
-  if(error)throw fail('INDEPENDENT_PRELIMINARY_REVIEW_REFUSED',409);
+  if(error){throwIfDealerSecurityRefusal(error);throw fail('INDEPENDENT_PRELIMINARY_REVIEW_REFUSED',409);}
   return data;
 }
