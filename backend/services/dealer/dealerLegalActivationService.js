@@ -65,12 +65,34 @@ export async function listPendingLegalDealershipCases(actor){
   if(!(events||[]).length)return [];
   const ids=events.map(x=>x.submission_id);
   const {data:cases,error:caseError}=await supabase.from('dealer_claim_compliance_submissions')
-    .select('submission_id,claim_id,claimant_user_id,intake_version,submitted_at')
+    .select('submission_id,claim_id,claimant_user_id,intake_version,submitted_at,application_snapshot')
     .in('submission_id',ids).limit(100);
   if(caseError)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
   const preliminary=new Map(events.map(x=>[x.submission_id,x]));
+  // R6 functional: a real legal reviewer must be able to PICK the evidence records and
+  // recognise the dealership — never type a UUID shown nowhere. Reviewer-only route;
+  // no storage path, signed link or file content is returned here.
+  const claimIds=[...new Set((cases||[]).map(c=>c.claim_id))];
+  const [{data:claims,error:claimError},{data:evidence,error:evidenceError}]=claimIds.length?await Promise.all([
+    supabase.from('dealer_research_claim_requests').select('claim_id,seed_dealer_id').in('claim_id',claimIds),
+    supabase.from('dealer_claim_private_evidence')
+      .select('evidence_id,claim_id,document_class,mime_type,file_bytes,created_at')
+      .in('claim_id',claimIds).order('created_at',{ascending:true}).limit(500),
+  ]):[{data:[]},{data:[]}];
+  if(claimError||evidenceError)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
+  const seedByClaim=new Map((claims||[]).map(c=>[c.claim_id,c.seed_dealer_id]));
+  const declaredName=(snapshot)=>{
+    const v=snapshot?.tab_rows?.BUSINESS?.[0]?.legal_name;
+    return typeof v==='string'&&v.trim()?v.trim().slice(0,180):null;
+  };
   return (cases||[]).map(row=>({
     submission_id:row.submission_id,claim_id:row.claim_id,
+    seed_dealer_id:seedByClaim.get(row.claim_id)||null,
+    declared_legal_name:declaredName(row.application_snapshot),
+    evidence:(evidence||[]).filter(e=>e.claim_id===row.claim_id).map(e=>({
+      evidence_id:e.evidence_id,document_class:e.document_class,mime_type:e.mime_type,
+      file_bytes:e.file_bytes,uploaded_at:e.created_at,
+    })),
     intake_version:row.intake_version,submitted_at:row.submitted_at,
     separate_legal_reviewer_required:preliminary.get(row.submission_id)?.reviewer_user_id!==actor.userId,
     independent_legal_and_policy_evidence_required:true,
@@ -161,9 +183,22 @@ export async function readMyOperationalDealerAuthority(claimId,actor){
     .select('organization_id,tenant_id,dealer_profile_id,operating_status,legal_review_id')
     .eq('claim_id',claimId).eq('claimant_user_id',actor.userId).maybeSingle();
   if(linkError)throw deny('DEALER_LINK_LOOKUP_UNAVAILABLE',503);
-  if(!link||link.operating_status!=='ACTIVE')return {
+  if(!link)return {
     state:'NOT_YET_ACTIVATED',tenant_id:null,operational:false,
     claim_status:claim.claim_status};
+  // R6 functional: an activated dealer must SEE suspension/withdrawal and what happens next.
+  // Categories only — an independent reviewer's free-text reason is never shown to the dealer.
+  if(link.operating_status==='SUSPENDED')return {
+    state:'DEALER_OPERATIONS_SUSPENDED',tenant_id:null,operational:false,
+    claim_status:claim.claim_status,operating_status:'SUSPENDED',
+    blocking_reasons:['SUSPENDED_BY_INDEPENDENT_REVIEW'],
+    next_step:'REINSTATEMENT_BY_A_DIFFERENT_INDEPENDENT_REVIEWER',
+    public_listings_withdrawn:true};
+  if(link.operating_status==='WITHDRAWN')return {
+    state:'DEALER_OPERATIONS_WITHDRAWN',tenant_id:null,operational:false,
+    claim_status:claim.claim_status,operating_status:'WITHDRAWN',
+    blocking_reasons:['PERMANENTLY_WITHDRAWN'],next_step:'NEW_CLAIM_REQUIRED',
+    public_listings_withdrawn:true};
   const [profileResult,memberResult,tenantResult,legalResult]=await Promise.all([
     supabase.from('dealer_profiles').select('identity_status,compliance_review_state,active_state,restriction_state,suspension_state,investigation_state,expiry_date')
       .eq('id',link.dealer_profile_id).eq('user_id',actor.userId).maybeSingle(),
@@ -200,5 +235,25 @@ export async function readMyOperationalDealerAuthority(claimId,actor){
     tenant_id:link.tenant_id,dealer_profile_id:link.dealer_profile_id,
     tenant_member_role:m.role,operational:true,company_claim_verified:true,
     public_storefront_approved:false,vehicle_listing_authority_granted:false,
-  }:{state:'DEALER_AUTHORITY_BLOCKED',tenant_id:null,operational:false};
+  }:blockedAuthority({d,m,t,l,policyValid});
+}
+// Which canonical gate is not current, and the governed path back (renewal = a newer
+// application → preliminary review → separate legal review → lifecycle RENEW).
+function blockedAuthority({d,m,t,l,policyValid}){
+  const now=Date.now(),reasons=[];
+  const legalExpired=!l||new Date(l.legal_expires_at).getTime()<=now;
+  if(legalExpired)reasons.push('LEGAL_REVIEW_EXPIRED');
+  else if(!policyValid)reasons.push('COUNTRY_POLICY_NOT_CURRENT');
+  if(d?.investigation_state&&d.investigation_state!=='none')reasons.push('UNDER_INDEPENDENT_INVESTIGATION');
+  if(d?.restriction_state&&d.restriction_state!=='none')reasons.push('RESTRICTED_BY_INDEPENDENT_REVIEW');
+  if(d?.suspension_state&&d.suspension_state!=='none')reasons.push('SUSPENDED_BY_INDEPENDENT_REVIEW');
+  if(!d?.expiry_date||new Date(d.expiry_date).getTime()<=now)reasons.push('DEALER_AUTHORITY_EXPIRED');
+  if(!['dealer','admin'].includes(m?.role))reasons.push('OWNER_MEMBERSHIP_NOT_CURRENT');
+  if(t?.type!=='dealership'||t?.status!=='active')reasons.push('TENANT_NOT_ACTIVE');
+  const renewal=reasons.some(r=>r==='LEGAL_REVIEW_EXPIRED'||r==='DEALER_AUTHORITY_EXPIRED');
+  return {state:'DEALER_AUTHORITY_BLOCKED',tenant_id:null,operational:false,
+    blocking_reasons:reasons.length?reasons:['CANONICAL_AUTHORITY_NOT_CURRENT'],
+    legal_expires_at:l?.legal_expires_at??null,
+    next_step:renewal?'SUBMIT_UPDATED_APPLICATION_FOR_RENEWAL':'WAIT_FOR_INDEPENDENT_REVIEW_OUTCOME',
+    public_listings_withdrawn:true};
 }

@@ -10,10 +10,16 @@ type Policy={
   country_code:string;policy_version:string;policy_state:string;
   effective_at:string|null;expires_at:string|null;eligibility:string
 }
+type CaseEvidence={evidence_id:string;document_class:string;mime_type:string;file_bytes:number;uploaded_at:string}
 type LegalCase={
   submission_id:string;claim_id:string;intake_version:number;
+  seed_dealer_id?:string|null;declared_legal_name?:string|null;evidence?:CaseEvidence[]
   separate_legal_reviewer_required:boolean;compliance_approved:false
 }
+const evidenceLabel=(e:CaseEvidence)=>`${e.document_class.replaceAll('_',' ')} · ${e.mime_type} · `+
+  `${Math.max(1,Math.round(e.file_bytes/1024))} KB · uploaded ${new Date(e.uploaded_at).toLocaleString()} · ${e.evidence_id}`
+// A date picker is what a reviewer can actually use; the API still receives an explicit UTC instant.
+const expiryInstant=(v:string)=>/^\d{4}-\d{2}-\d{2}$/.test(v)?v+'T23:59:59.000Z':v
 type ActivationCase={
   legal_review_id:string;submission_id:string;country_code:string;
   policy_version:string;legal_expires_at:string;
@@ -90,7 +96,7 @@ export default function DealerLegalActivationReview(){
           company_registration_evidence_id:companyEvidence.trim(),
           signatory_evidence_id:signerEvidence.trim(),
           verified_issuer:issuer.trim(),reviewed_registration_number:registrationNumber.trim(),
-          approved_scope:scope,legal_expires_at:expiry,
+          approved_scope:scope,legal_expires_at:expiryInstant(expiry),
           reason:reason.trim(),
         })},authHeaders:headers(user.id,token),
       })
@@ -161,9 +167,10 @@ export default function DealerLegalActivationReview(){
             </p>
             <label htmlFor="legal-case" className="text-sm font-semibold block">Frozen application case</label>
             <select id="legal-case" className="w-full rounded-lg border p-2"
-              value={submission} onChange={e=>setSubmission(e.target.value)}>
+              value={submission} onChange={e=>{setSubmission(e.target.value);setCompanyEvidence('');setSignerEvidence('')}}>
               {legalCases.map(c=><option value={c.submission_id} key={c.submission_id}>
-                {c.submission_id} · draft {c.intake_version}
+                {(c.seed_dealer_id||'Unknown seed')+' · '+(c.declared_legal_name||'No declared legal name')+
+                  ' · application version '+c.intake_version+' · '+c.submission_id}
               </option>)}
             </select>
             {selectedLegal&&!selectedLegal.separate_legal_reviewer_required&&
@@ -178,9 +185,20 @@ export default function DealerLegalActivationReview(){
                 {p.country_code} {p.policy_version} · {p.policy_state}
               </option>)}
             </select>
+            {([
+              ['legal-company-evidence','Company registration evidence',companyEvidence,setCompanyEvidence],
+              ['legal-signatory-evidence','Independent signatory mandate evidence',signerEvidence,setSignerEvidence],
+            ] as [string,string,string,(v:string)=>void][]).map(([id,label,value,setValue])=><div key={id}>
+              <label htmlFor={id} className="text-sm font-semibold block">{label}</label>
+              <select id={id} className="w-full rounded-lg border p-2" value={value}
+                onChange={e=>setValue(e.target.value)}>
+                <option value="">{(selectedLegal?.evidence||[]).length
+                  ?'Choose the original you inspected':'No private evidence is recorded for this claim'}</option>
+                {(selectedLegal?.evidence||[]).map(e=><option key={e.evidence_id} value={e.evidence_id}>
+                  {evidenceLabel(e)}</option>)}
+              </select>
+            </div>)}
             {[
-              ['Company registration evidence ID',companyEvidence,setCompanyEvidence],
-              ['Independent signatory mandate evidence ID',signerEvidence,setSignerEvidence],
               ['Verified issuing authority',issuer,setIssuer],
               ['Reviewed company registration number',registrationNumber,setRegistrationNumber],
             ].map(([label,value,setValue],i)=><label key={i} className="text-sm font-medium block">
@@ -195,9 +213,9 @@ export default function DealerLegalActivationReview(){
               <option value="PARENT_ORGANIZATION">Parent organization — independently proven</option>
             </select>
             <label className="block text-sm font-medium" htmlFor="legal-expiry">
-              Legal proof expiry (ISO UTC timestamp)
+              Legal proof valid until (end of that day, UTC)
             </label>
-            <Input id="legal-expiry" placeholder="2027-01-01T00:00:00.000Z"
+            <Input id="legal-expiry" type="date"
               value={expiry} onChange={e=>setExpiry(e.target.value)}/>
             <label htmlFor="legal-reason" className="text-sm font-semibold block">
               Independent legal reasoning (80+ characters)

@@ -42,8 +42,27 @@ type CsvPreview = {
   allowed_targets:Array<{key:string;label:string;data_type:string;required:boolean}>;
   confirmed:false;legal_identity_verified:false;tenant_activated:false
 }
+const AUTHORITY_REASON_TEXT:Record<string,string>={
+  SUSPENDED_BY_INDEPENDENT_REVIEW:'An independent CarUp reviewer suspended your dealership operations.',
+  PERMANENTLY_WITHDRAWN:'Your dealership operations were permanently withdrawn.',
+  LEGAL_REVIEW_EXPIRED:'Your independent legal review has expired.',
+  DEALER_AUTHORITY_EXPIRED:'Your dealership authority period has expired.',
+  COUNTRY_POLICY_NOT_CURRENT:'The country compliance policy your approval relied on is no longer current.',
+  UNDER_INDEPENDENT_INVESTIGATION:'An independent investigation is open.',
+  RESTRICTED_BY_INDEPENDENT_REVIEW:'An independent reviewer restricted your dealership.',
+  OWNER_MEMBERSHIP_NOT_CURRENT:'Your owner membership of the dealership is no longer current.',
+  TENANT_NOT_ACTIVE:'Your dealership organisation is not active.',
+}
+const NEXT_STEP_TEXT:Record<string,string>={
+  REINSTATEMENT_BY_A_DIFFERENT_INDEPENDENT_REVIEWER:'a different independent CarUp reviewer must review and reinstate your dealership; contact CarUp compliance.',
+  NEW_CLAIM_REQUIRED:'a new claim and application would be required.',
+  SUBMIT_UPDATED_APPLICATION_FOR_RENEWAL:'submit an updated application below for renewal; it goes through preliminary review, a separate legal review and an independent renewal decision.',
+  WAIT_FOR_INDEPENDENT_REVIEW_OUTCOME:'wait for the independent review outcome; CarUp compliance can explain the process.',
+}
 type OperationalAuthority = {
   state:string;operational:boolean;tenant_member_role?:string;
+  blocking_reasons?:string[];next_step?:string;legal_expires_at?:string|null;
+  public_listings_withdrawn?:boolean;
   organization_id?:string;public_storefront_approved?:boolean;
   vehicle_listing_authority_granted?:boolean
 }
@@ -633,6 +652,19 @@ export default function DealerClaimWorkspace() {
                           a public verified badge. Every operation requires canonical tenant
                           membership and live country-compliance policy.
                         </p>
+                        {!operationalAuthority.operational&&(operationalAuthority.blocking_reasons||[]).length>0&&
+                          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-1"
+                            data-testid="dealer-authority-status">
+                            <p className="font-medium">Why your dealership cannot operate right now:</p>
+                            <ul className="list-disc pl-5">
+                              {(operationalAuthority.blocking_reasons||[]).map(r=><li key={r}>
+                                {AUTHORITY_REASON_TEXT[r]||r.replaceAll('_',' ').toLowerCase()}</li>)}
+                            </ul>
+                            {operationalAuthority.public_listings_withdrawn&&<p>
+                              Your vehicles are not public while this applies. Nothing is republished automatically.</p>}
+                            {operationalAuthority.next_step&&<p className="font-medium">
+                              Next step: {NEXT_STEP_TEXT[operationalAuthority.next_step]||operationalAuthority.next_step}</p>}
+                          </div>}
                         {operationalAuthority.operational&&<Link to="/dealer/dashboard"
                           className="inline-block text-blue-700 underline">
                           Open my authorized dealer workspace

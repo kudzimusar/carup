@@ -284,8 +284,14 @@ export default function DealerDashboard(){
                 Policy sections carried: {carryover.sections.length
                   ?carryover.sections.map(s=>SECTION_LABELS[s]||s).join(', '):'none'}
               </p>
+              {(carryover.counts.RETAINED_PRIVATE_NOT_CANONICAL||0)>0&&<p data-testid="dealer-carryover-retained">
+                {carryover.counts.RETAINED_PRIVATE_NOT_CANONICAL} other declared detail(s) — for example licences,
+                brand relationships, media links, branch phone numbers or extra policy wording — stay private in
+                your approved application because CarUp has no operating field for them yet. They are not lost,
+                not published and not verified.
+              </p>}
               {carryover.needs_attention.length===0
-                ?<p>Nothing from your application needs to be re-entered.</p>
+                ?<p>Every carried detail was accepted; none of it needs to be re-entered.</p>
                 :<div>
                   <p className="font-medium">Needs your attention (not carried):</p>
                   <ul className="list-disc pl-5 space-y-1">
@@ -294,6 +300,8 @@ export default function DealerDashboard(){
                         {n.tab} row {n.row} · {n.field}: {n.reason}
                       </li>)}
                   </ul>
+                  {carryover.needs_attention.length>20&&<p className="mt-1">
+                    …and {carryover.needs_attention.length-20} more not shown.</p>}
                 </div>}
             </CardContent>
           </Card>}

@@ -130,3 +130,44 @@ test('C11 separation-of-reviewer final approver and no client-granted tenant id'
     assert.equal(result.public_verified_badge_granted,false);
   }finally{done();supabase.rpc=oldRpc}
 });
+// R6 functional — the activated dealer SEES suspension, withdrawal and expiry and the
+// governed way back; reasons are categories, never a reviewer's free text.
+const activeLink={organization_id:'org-1',tenant_id:'t-1',dealer_profile_id:'p-1',
+  operating_status:'ACTIVE',legal_review_id:approved};
+test('R6 a suspended dealer is told it is suspended and who can reinstate it',async()=>{
+  const done=install({link:{...activeLink,operating_status:'SUSPENDED'}});
+  try{
+    const r=await legal.readMyOperationalDealerAuthority(submitted,claimant);
+    assert.equal(r.state,'DEALER_OPERATIONS_SUSPENDED');
+    assert.deepEqual(r.blocking_reasons,['SUSPENDED_BY_INDEPENDENT_REVIEW']);
+    assert.equal(r.next_step,'REINSTATEMENT_BY_A_DIFFERENT_INDEPENDENT_REVIEWER');
+    assert.equal(r.operational,false);assert.equal(r.tenant_id,null);
+    assert.equal(JSON.stringify(r).includes('reason":"'),false,'no reviewer free text');
+  }finally{done()}
+});
+test('R6 a withdrawn dealer is told a new claim is required',async()=>{
+  const done=install({link:{...activeLink,operating_status:'WITHDRAWN'}});
+  try{
+    const r=await legal.readMyOperationalDealerAuthority(submitted,claimant);
+    assert.equal(r.state,'DEALER_OPERATIONS_WITHDRAWN');
+    assert.equal(r.next_step,'NEW_CLAIM_REQUIRED');
+  }finally{done()}
+});
+test('R6 an expired legal review explains itself and points to renewal',async()=>{
+  const done=install({link:activeLink,
+    legalReview:{legal_review_id:approved,claimant_user_id:'customer-1',reviewer_user_id:'reviewer-legal',
+      legal_expires_at:new Date(Date.now()-86400000).toISOString(),country_code:'ZW',policy_version:'APPROVED_TEST_1'},
+    country:{policy_state:'APPROVED',effective_at:new Date(Date.now()-864e5).toISOString(),
+      expires_at:new Date(Date.now()+864e5).toISOString()},
+    member:{role:'dealer'},tenant:{type:'dealership',status:'active'},
+    profile:{identity_status:'verified',compliance_review_state:'passed',active_state:'active',
+      restriction_state:'none',suspension_state:'none',investigation_state:'open',
+      expiry_date:new Date(Date.now()+864e5).toISOString()}});
+  try{
+    const r=await legal.readMyOperationalDealerAuthority(submitted,claimant);
+    assert.equal(r.state,'DEALER_AUTHORITY_BLOCKED');
+    assert.deepEqual(r.blocking_reasons,['LEGAL_REVIEW_EXPIRED','UNDER_INDEPENDENT_INVESTIGATION']);
+    assert.equal(r.next_step,'SUBMIT_UPDATED_APPLICATION_FOR_RENEWAL');
+    assert.equal(r.operational,false);
+  }finally{done()}
+});

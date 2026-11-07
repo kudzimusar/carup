@@ -11,7 +11,7 @@ import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
  */
 type QueueCase={seed_dealer_id:string;operating_status:string}
 type LifecycleEvent={event_id:string;action:string;previous_operating_status:string;
- next_operating_status:string;public_listings_withdrawn:number;created_at:string;recorded_by_this_reviewer:boolean}
+ next_operating_status:string;public_listings_withdrawn:number;created_at:string;recorded_by_this_reviewer:boolean;reason?:string|null}
 type RenewalCandidate={legal_review_id:string;reviewed_at:string;legal_expires_at:string;approved_scope:string}
 type Lifecycle={seed_dealer_id:string;operating_status:string;events:LifecycleEvent[];renewal_candidates?:RenewalCandidate[]}
 const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
@@ -121,7 +121,8 @@ export default function DealerOperatingLifecycleReview(){
      {(lifecycle?.events||[]).map(e=><li key={e.event_id} className="rounded border border-slate-200 p-2">
       <strong>{e.action}</strong>: {e.previous_operating_status} → {e.next_operating_status} · withdrawn
       {' '}{e.public_listings_withdrawn} · {new Date(e.created_at).toLocaleString()}
-      {e.recorded_by_this_reviewer&&' · recorded by you'}</li>)}
+      {e.recorded_by_this_reviewer&&' · recorded by you'}
+      {e.reason&&<span className="block mt-1 text-slate-700 break-words">Reason: {e.reason}</span>}</li>)}
      {lifecycle&&lifecycle.events.length===0&&<li className="text-slate-600">No lifecycle decisions yet.</li>}
     </ol>
    </section>}

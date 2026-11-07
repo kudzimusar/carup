@@ -127,7 +127,7 @@ export async function readOperatingLifecycle(seedId, actor, { db = supabase, ind
   const link = await loadLink(db, seedId);
   independent(actor, link.claimant_user_id);
   const { data, error } = await db.from('dealer_operating_lifecycle_events')
-    .select('event_id,action,previous_operating_status,next_operating_status,public_listings_withdrawn,created_at,reviewer_user_id')
+    .select('event_id,action,previous_operating_status,next_operating_status,public_listings_withdrawn,created_at,reviewer_user_id,reason')
     .eq('link_id', link.link_id).order('created_at', { ascending: false }).limit(50);
   if (error || !Array.isArray(data)) throw refuse('DEALER_OPERATING_LIFECYCLE_UNAVAILABLE', 503);
   return Object.freeze({
@@ -138,6 +138,8 @@ export async function readOperatingLifecycle(seedId, actor, { db = supabase, ind
       event_id: e.event_id, action: e.action, previous_operating_status: e.previous_operating_status,
       next_operating_status: e.next_operating_status, public_listings_withdrawn: e.public_listings_withdrawn,
       created_at: e.created_at, recorded_by_this_reviewer: e.reviewer_user_id === actor.userId,
+      // R6: the next independent reviewer must see WHY (reviewer-only route; never shown to the dealer).
+      reason: typeof e.reason === 'string' ? e.reason.slice(0, 3000) : null,
     })),
   });
 }

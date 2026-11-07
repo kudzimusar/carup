@@ -78,7 +78,7 @@ test('FICTIONAL C12 workbench: suspend withdraws stock, dual-control reinstate, 
  // Dual control: the reviewer who suspended cannot reinstate.
  await decide(a,'REINSTATE',f.reviewer_password,
   'Fictional CI C12: the suspending reviewer attempts reinstatement, which dual control must refuse.')
- await expect(a.getByText(/^Not recorded:/)).toBeVisible({timeout:40000})
+ await expect(a.getByText(/^Not recorded:.*REINSTATEMENT_REQUIRES_DIFFERENT_REVIEWER/)).toBeVisible({timeout:40000})
  await expect(a.getByTestId('lifecycle-status')).toHaveText('SUSPENDED')
  await aContext.close()
  await pause(70_000)
@@ -88,6 +88,16 @@ test('FICTIONAL C12 workbench: suspend withdraws stock, dual-control reinstate, 
  const suspendedPublish=await unsafe(owner,f.actors.claimant,'POST','/vehicles/'+VIN+'/publish',{},tenantCtx)
  expect(suspendedPublish.status()).toBe(409)
  expect((await suspendedPublish.json() as {error:{code:string}}).error.code).toBe('DEALER_LISTING_AUTHORITY_NOT_CURRENT')
+ // The suspended owner is TOLD what happened and what the way back is (R6 functional).
+ await actorOn(owner,f.actors.claimant)
+ await owner.goto('/dealers/claims')
+ await expect(owner.getByTestId('dealer-authority-status'))
+  .toContainText('An independent CarUp reviewer suspended your dealership operations.',{timeout:30000})
+ await expect(owner.getByTestId('dealer-authority-status'))
+  .toContainText('a different independent CarUp reviewer must review and reinstate')
+ const ownerSuspendedShot=info.outputPath('r6-owner-sees-suspension-and-next-step-1280.png')
+ await owner.screenshot({path:ownerSuspendedShot,fullPage:true})
+ await info.attach('r6-owner-sees-suspension-and-next-step-1280',{path:ownerSuspendedShot,contentType:'image/png'})
  const buyerContext=await browser.newContext({viewport:{width:390,height:844}})
  const buyer=await buyerContext.newPage()
  const suspendedEnquiry=await unsafe(buyer,f.actors.vehicle_buyer,'POST','/marketplace/inquiries',{
@@ -104,6 +114,8 @@ test('FICTIONAL C12 workbench: suspend withdraws stock, dual-control reinstate, 
  await b.goto('/admin/dealer-operating-lifecycle')
  await b.getByRole('button',{name:new RegExp(f.seed+'.*SUSPENDED')}).click()
  await expect(b.getByTestId('lifecycle-status')).toHaveText('SUSPENDED',{timeout:30000})
+ // The reinstating reviewer sees the recorded suspension reason before deciding.
+ await expect(b.getByTestId('lifecycle-history')).toContainText('Reason: Fictional CI C12 suspension')
  await decide(b,'REINSTATE',f.activator_password,
   'Fictional CI C12 dual-control reinstatement by a different independent reviewer after the synthetic review.')
  await expect(b.getByText(/Lifecycle decision recorded: REINSTATE → ACTIVE\..*Nothing was republished\./)).toBeVisible({timeout:40000})

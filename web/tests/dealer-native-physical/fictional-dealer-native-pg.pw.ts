@@ -75,6 +75,12 @@ for(const width of [390,768,1280,1920]){
       const path=info.outputPath('native-unclaimed-'+width+'px.png')
       await page.screenshot({path,fullPage:true})
       await info.attach('native-unclaimed-'+width+'px',{path,contentType:'image/png'})
+      if(width===1280){
+        // R6 S11: a guest who wants to claim is sent to sign in and RETURNED to this claim page.
+        await page.goto('/dealers/zw-deal-0001/claim',{waitUntil:'domcontentloaded'})
+        await expect(page.getByTestId('dealer-claim-sign-in'))
+          .toHaveAttribute('href','/login?returnTo='+encodeURIComponent('/dealers/zw-deal-0001/claim'),{timeout:25000})
+      }
       expect(failures).toEqual([])
       await context.close()
     })

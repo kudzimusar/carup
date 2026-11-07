@@ -31,6 +31,7 @@ import DealerReviewerLayout from './components/dealer/DealerReviewerLayout'
 import DealerOperatingLifecycleReview from './pages/DealerOperatingLifecycleReview'
 import DealerCanonicalWorkspaceLayout from './components/dealer/DealerCanonicalWorkspaceLayout'
 import LegacyDealerRouteGate from './components/dealer/LegacyDealerRouteGate'
+import LegacyDealerDashboard from './pages/dashboard/dealer/LegacyDealerDashboard'
 import DealerResearchReview from './pages/DealerResearchReview'
 import DealerComplianceApplicationReview from './pages/DealerComplianceApplicationReview'
 import DealerLegalActivationReview from './pages/DealerLegalActivationReview'
@@ -380,7 +381,7 @@ export default function App() {
             the canonical workspace (one journey); everyone else keeps the legacy route and its
             unchanged role="dealer" boundary (R6 E). */}
         <Route element={<LegacyDealerRouteGate />}>
-          <Route path="/dealer" element={<DealerDashboard />} />
+          <Route path="/dealer" element={<LegacyDealerDashboard />} />
           <Route path="/dealer/inventory" element={<Inventory />} />
           <Route path="/dealer/leads" element={<Leads />} />
           <Route path="/dealer/promotions" element={<Promotions />} />

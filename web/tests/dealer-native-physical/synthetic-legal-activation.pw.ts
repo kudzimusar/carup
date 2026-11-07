@@ -162,12 +162,16 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
   .toHaveCount(1,{timeout:25000})
  await policy.selectOption(fixture.synthetic_legal_policy_version)
  await expect(legal.locator('#legal-case option')).toHaveCount(1,{timeout:20000})
- await legal.getByLabel('Company registration evidence ID').fill(company!.evidence_id)
- await legal.getByLabel('Independent signatory mandate evidence ID').fill(signatory!.evidence_id)
+ // R6 functional: the reviewer PICKS the inspected originals (full ids shown) — no UUID typing.
+ await expect(legal.locator('#legal-case option',{hasText:fixture.seed})).toHaveCount(1)
+ await expect(legal.locator('#legal-company-evidence option',{hasText:company!.evidence_id}))
+  .toContainText('COMPANY REGISTRATION')
+ await legal.locator('#legal-company-evidence').selectOption(company!.evidence_id)
+ await legal.locator('#legal-signatory-evidence').selectOption(signatory!.evidence_id)
  await legal.getByLabel('Verified issuing authority').fill('FICTIONAL CI DOCUMENT ISSUER - NOT REAL')
  await legal.getByLabel('Reviewed company registration number').fill('SYNTHETIC-REG-001')
  await legal.locator('#legal-scope').selectOption('BRANCH')
- await legal.locator('#legal-expiry').fill(new Date(Date.now()+10*86400000).toISOString())
+ await legal.locator('#legal-expiry').fill(new Date(Date.now()+10*86400000).toISOString().slice(0,10))
  await legal.locator('#legal-reason').fill(
   'Synthetic-only legal authority demonstration in an isolated database, based on two fake scanned documents and an explicitly fictional CI country-policy fixture. No actual regulator approved this company.')
  await legal.locator('#legal-password').fill(fixture.legal_reviewer_password)
@@ -238,6 +242,8 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await expect(carried.getByText('FICTIONAL CARRIED SECOND YARD - PRIVATE ONLY',{exact:false})).toBeVisible()
  await expect(carried.getByText(/Policy sections carried:.*Buyer assurance/)).toBeVisible()
  await expect(carried.getByText(/Policy sections carried:.*Finance terms/)).toBeVisible()
+ // Honest about what had no operating field: retained privately, never claimed as carried.
+ await expect(carried.getByTestId('dealer-carryover-retained')).toContainText('stay private in your approved application')
  await expect(claimant.getByText('Declared hours: Sat 08:00-13:00 (FICTIONAL)')).toBeVisible()
  await expect(claimant.getByText('Declared hours: Mon-Fri 09:00-16:00 (FICTIONAL)')).toBeVisible()
  const carryShot=info.outputPath('r6-c02-activation-carryover-no-retyping-1280px.png')
@@ -322,7 +328,8 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await claimant.getByRole('link',{name:'Billing readiness'}).click()
  await expect(claimant.getByRole('heading',{name:'Dealer subscriptions cannot be purchased yet'}))
   .toBeVisible({timeout:30000})
- await expect(claimant.getByText('No payment has been initiated.',{exact:false})).toBeVisible()
+ await expect(claimant.getByText('No unapproved plan, amount or merchant connection is presented as available.',{exact:false})).toBeVisible()
+ await expect(claimant.getByText('Not available — not zero').first()).toBeVisible()
 
  // Same reason: the legacy-bookmark and billing navigation shares the per-IP window.
  await claimant.waitForTimeout(65_000)

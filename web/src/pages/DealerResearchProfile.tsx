@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { MapPin, Store, AlertTriangle, ShieldAlert } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, type AuthHeaders } from '@/lib/apiClient'
+import { loginWithReturnTo } from '@/lib/routeAccess'
 
 type ResearchProfile = {
   seed_dealer_id: string
@@ -101,6 +102,7 @@ type StorefrontListing={vin:string;year?:number|null;make?:string|null;model?:st
 export default function DealerResearchProfile({ claimMode = false }: { claimMode?: boolean }) {
   const { seedId } = useParams<{seedId: string}>()
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const redirectedFrom = searchParams.get('redirected_from')
   const { user, token } = useAuth()
@@ -465,7 +467,8 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                   </p>
                   {!token || !user ? (
                     <p className="text-sm">
-                      <Link className="text-blue-700 underline" to="/login">
+                      <Link className="text-blue-700 underline" data-testid="dealer-claim-sign-in"
+                        to={loginWithReturnTo(location.pathname)}>
                         Sign in to your CarUp account
                       </Link> before requesting a business claim.
                     </p>
