@@ -16,6 +16,7 @@
 import { supabase } from '../../db/supabase.js';
 import { requireApprovedOwnerWorkspace } from './dealerVerifiedWorkspaceService.js';
 import { ZIMBABWE_REGISTRATION_STATUSES } from '../registration/zimbabweRegistrationLifecycle.js';
+import { rpcWithTransientRetry } from './dealerTransientSqlRetry.js';
 
 const refuse = (code, status = 503) => Object.assign(new Error(code), { statusCode: status, code });
 const VIN17 = /^[A-HJ-NPR-Z0-9]{17}$/;
@@ -98,7 +99,7 @@ export function parseDealerListingPreparation(payload = {}) {
 }
 
 export async function prepareMyDealerListing(actor, vin, payload = {}, {
-  db = supabase, resolveOwner = requireApprovedOwnerWorkspace,
+  db = supabase, resolveOwner = requireApprovedOwnerWorkspace, retry = {},
 } = {}) {
   if (typeof vin !== 'string' || !VIN17.test(vin)) throw refuse('INVALID_PRIVATE_DRAFT_VIN', 400);
   const clean = parseDealerListingPreparation(payload);
@@ -106,14 +107,15 @@ export async function prepareMyDealerListing(actor, vin, payload = {}, {
   if (!owner?.tenant_id || owner.actor_id !== actor?.userId) {
     throw refuse('CANONICAL_OWNER_TENANT_LISTING_AUTHORITY_REQUIRED', 403);
   }
-  const { data, error } = await db.rpc('dealer_prepare_canonical_listing', {
+  // One whole-transaction RPC: retried only if PostgreSQL rolled it back as a deadlock victim.
+  const { data, error } = await rpcWithTransientRetry(db, 'dealer_prepare_canonical_listing', {
     p_actor_id: owner.actor_id, p_vin: vin, p_branch_id: clean.branch_id, p_price: clean.price,
     p_currency: clean.currency, p_chassis_number: clean.chassis_number,
     p_engine_number: clean.engine_number, p_registration_status: clean.registration_status,
     p_plate_number: clean.plate_number, p_listing_city: clean.listing_city,
     p_listing_province: clean.listing_province, p_location_visibility: clean.location_visibility,
     p_public_seller_display: clean.public_seller_display,
-  });
+  }, retry);
   if (error) throw mapListingSqlError(error);
   if (!data || data.vin !== vin || data.published !== false || data.governed_seller_is_approved_owner !== true) {
     throw refuse('DEALER_LISTING_PREPARATION_READBACK_FAILED', 503);
