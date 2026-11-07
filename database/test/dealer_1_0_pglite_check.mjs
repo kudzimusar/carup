@@ -1258,7 +1258,7 @@ try{
   await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`,[listingVin]);
   assert.equal((await query('SELECT dealer_tenant_listing_authority_current($1::uuid) AS ok',[tenant])).rows[0].ok,true);
   assert.deepEqual((await query('SELECT dealer_withdraw_lapsed_listing_authority($1) AS r',['reviewer1'])).rows[0].r,
-    {tenants_withdrawn:0,listings_withdrawn:0});
+    {tenants_withdrawn:0,listings_withdrawn:0,tenants_skipped:0});
   await refusesPrepare(prepareArgs(claimant,branchId,18500),'LISTING_ALREADY_PUBLIC_UNPUBLISH_FIRST');
   await fails('UPDATE dealer_listing_authority_events SET reason_code=\'FORGED_REASON\'','APPEND_ONLY_LEDGER');
   await exec('SET ROLE anon');
@@ -1699,7 +1699,8 @@ try{
       await sB.query('BEGIN');
       const suspendD = settle(sB.query(lifecycleSql, ['ZW-DEAL-0001', reviewer, 'SUSPEND', suspendWhy('PROFILE'), null]));
       await blockedBy(sB.pid);
-      const profileWrite = await settle(sA.query(`UPDATE dealer_profiles SET investigation_state=investigation_state WHERE id=$1`, [activeProfileId]));
+      // A real change (review 2 #10: a no-op write no longer fires the withdrawal trigger at all).
+      const profileWrite = await settle(sA.query(`UPDATE dealer_profiles SET expiry_date=expiry_date+interval '1 second' WHERE id=$1`, [activeProfileId]));
       await settle(sA.query(profileWrite.ok ? 'COMMIT' : 'ROLLBACK'));
       const suspendedD = await suspendD;
       await settle(sB.query(suspendedD.ok ? 'COMMIT' : 'ROLLBACK'));
@@ -2365,6 +2366,172 @@ try{
     'Fictional CI attempt to reinstate a permanently withdrawn synthetic dealer must fail.',NULL)`,
     'ONLY_SUSPENDED_DEALER_CAN_BE_REINSTATED');
   console.log('DEALER_R4_REVIEW_FIXES PASS: withdrawn stays terminal, legacy reinstatement refused, renewal separation, quarantine kept, seller-authority independence, transfer-out allowed, policy/membership lapses withdraw');
+  // ── R6 DBA review 2 (#2 #3 #4 #6 #10): reproductions turned into permanent assertions ──
+  // Four synthetic programme dealers RV1..RV4 (fixture rows only; replica role bypasses FK/trigger
+  // checks for the LOAD alone — every assertion below runs with all triggers in force). VINs are
+  // named so that VIN order is the REVERSE of tenant order (RVZ… for tenant …01, RVY… for …02), which
+  // is what made a global-VIN policy pre-lock and a per-tenant sweep lock in opposite orders.
+  if (native) {
+    const rvTenant = (d) => `90000000-0000-4000-8000-00000000000${d}`;
+    const rvVin = (d, k) => 'RV' + String.fromCharCode(91 - d) + k + '000000000000' + d;
+    await exec(`
+      INSERT INTO users(id,role,is_verified) SELECT 'rv-owner-'||g,'member',true FROM generate_series(1,4) g;
+      INSERT INTO users(id,role,is_verified) VALUES ('rv-reviewer','reviewer',true),('rv-legal','reviewer',true),('rv-policy','admin',true);
+      SET session_replication_role = replica;
+      INSERT INTO dealer_country_legal_policy_authority(country_code,policy_version,policy_state,approval_evidence_sha256,effective_at,expires_at,approved_by)
+        VALUES ('ZW','RV_POLICY_1','APPROVED',repeat('e',64),now()-interval '10 days',now()+interval '300 days','rv-policy');
+      INSERT INTO tenants(id,name,type,status) SELECT ('90000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid,'RV dealer '||g,'dealership','active' FROM generate_series(1,4) g;
+      INSERT INTO tenant_users(tenant_id,user_id,role) SELECT ('90000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid,'rv-owner-'||g,'dealer' FROM generate_series(1,4) g;
+      INSERT INTO dealer_profiles(id,user_id,tenant_id,legal_name,identity_status,compliance_review_state,active_state,expiry_date)
+        SELECT ('91000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid,'rv-owner-'||g,'90000000-0000-4000-8000-'||lpad(g::text,12,'0'),'RV dealer '||g,'verified','passed','active',now()+interval '200 days' FROM generate_series(1,4) g;
+      INSERT INTO dealer_research_claim_requests(claim_id,seed_dealer_id,claimant_user_id,claimed_scope,representative_relationship,asserted_legal_business_name,claim_statement,claim_status)
+        SELECT ('92000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid,'RV-SEED-'||g,'rv-owner-'||g,'BRANCH','LEGAL_OWNER','RV dealer '||g,'Synthetic review claim statement for DBA race test','CLAIM_APPROVED' FROM generate_series(1,4) g;
+      INSERT INTO dealer_legal_application_reviews(legal_review_id,submission_id,claimant_user_id,reviewer_user_id,country_code,policy_version,company_registration_evidence_id,signatory_evidence_id,verified_issuer,reviewed_registration_number,approved_scope,legal_expires_at,legal_review_reason,verdict)
+        SELECT ('93000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid,('94000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid,'rv-owner-'||g,'rv-legal','ZW','RV_POLICY_1',gen_random_uuid(),gen_random_uuid(),'Synthetic issuer','REG-'||g,'BRANCH',now()+interval '200 days',repeat('Synthetic legal review reason for the DBA race test. ',3),'COMPLIANCE_APPROVED' FROM generate_series(1,4) g;
+      INSERT INTO organizations(id,name,type,created_at,tenant_id) SELECT 'rv-org-'||g,'RV dealer '||g,'dealership',now()::text,('90000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid FROM generate_series(1,4) g;
+      INSERT INTO dealer_approved_seed_links(seed_dealer_id,claim_id,submission_id,legal_review_id,organization_id,tenant_id,dealer_profile_id,claimant_user_id,operating_status,activated_by)
+        SELECT 'RV-SEED-'||g,('92000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid,('94000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid,('93000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid,'rv-org-'||g,
+          ('90000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid,('91000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid,'rv-owner-'||g,'ACTIVE','rv-reviewer' FROM generate_series(1,4) g;
+      INSERT INTO vehicles(vin,tenant_id,make,model,year,status,publication_status,current_seller_id)
+        SELECT 'RV'||chr(91-d)||k||'000000000000'||d,('90000000-0000-4000-8000-'||lpad(d::text,12,'0'))::uuid,'Synth','Race',2021,'Available',
+          CASE WHEN k<=2 THEN 'draft' ELSE 'published' END,'rv-owner-'||d FROM generate_series(1,4) d, generate_series(1,5) k;
+      SET session_replication_role = origin;`);
+    const rvAuthority = (await query(`SELECT count(*)::int AS n FROM generate_series(1,4) g
+      WHERE dealer_tenant_listing_authority_current(('90000000-0000-4000-8000-'||lpad(g::text,12,'0'))::uuid)`)).rows[0].n;
+    assert.equal(rvAuthority, 4, 'review-2 fixture: all four synthetic dealers hold current authority');
+    const rvPublished = async (d) => (await query(`SELECT count(*)::int AS n FROM vehicles WHERE tenant_id=$1 AND publication_status='published'`, [rvTenant(d)])).rows[0].n;
+    const rvSession = async (name) => {
+      const c = new pg.Client({ connectionString: nativeUrl, ssl: false, application_name: 'carup-dealer-r6-review2-' + name });
+      await c.connect(); c.on('error', () => {});
+      c.pid = (await c.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      return c;
+    };
+    const rvBlocked = async (pid) => {
+      for (let i = 0; i < 500; i += 1) {
+        if ((await query('SELECT cardinality(pg_blocking_pids($1)) AS n', [pid])).rows[0].n > 0) return;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error('R6_REVIEW2_SESSION_NEVER_BLOCKED pid=' + pid);
+    };
+    const rvSettle = (p) => p.then((r) => ({ ok: true, r }), (e) => ({ ok: false, e }));
+    const lapse = async (ds) => exec(`SET session_replication_role = replica;
+      UPDATE dealer_profiles SET expiry_date = now() - interval '1 day' WHERE id::text IN (${ds.map((d) => `'91000000-0000-4000-8000-00000000000${d}'`).join(',')});
+      SET session_replication_role = origin;`);
+    const republish = async (ds) => exec(`SET session_replication_role = replica;
+      UPDATE vehicles SET publication_status = CASE WHEN substr(vin,4,1) IN ('1','2') THEN 'draft' ELSE 'published' END
+       WHERE tenant_id::text IN (${ds.map((d) => `'${rvTenant(d)}'`).join(',')});
+      SET session_replication_role = origin;`);
+    const H = await rvSession('holder'); const S = await rvSession('sweep'); const P = await rvSession('policy');
+    try {
+      // #3: a dealer publishes draft VIN …1 and then edits published VIN …3 (ascending) while a lifecycle
+      // SUSPEND runs. A published-only pre-lock let the suspension take the link and deadlock on …3.
+      await H.query('BEGIN');
+      await H.query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`, [rvVin(3, 1)]);
+      await S.query('BEGIN');
+      const suspend3 = rvSettle(S.query(`SELECT dealer_record_operating_lifecycle_decision('RV-SEED-3','rv-reviewer','SUSPEND',$1,NULL) AS r`,
+        ['Synthetic DBA review 2 race: suspend the synthetic dealer while it edits two VINs in order.']));
+      await rvBlocked(S.pid);
+      const edit3 = await rvSettle(H.query('UPDATE vehicles SET price=price+1 WHERE vin=$1', [rvVin(3, 3)]));
+      await rvSettle(H.query(edit3.ok ? 'COMMIT' : 'ROLLBACK'));
+      const suspended3 = await suspend3;
+      await rvSettle(S.query(suspended3.ok ? 'COMMIT' : 'ROLLBACK'));
+      for (const o of [edit3, suspended3]) assert.ok(o.ok, `#3 multi-VIN dealer write vs SUSPEND: ${o.e?.code} ${o.e?.message}`);
+      assert.equal(suspended3.r.rows[0].r.operating_status, 'SUSPENDED');
+      assert.equal(await rvPublished(3), 0, '#3: the suspended dealer keeps zero public listings');
+
+      // #6: an enquiry under REPEATABLE READ must not use a snapshot older than a committed suspension.
+      await H.query('BEGIN ISOLATION LEVEL REPEATABLE READ'); await H.query('SELECT 1 FROM users LIMIT 1');
+      await query(`UPDATE tenants SET status='suspended' WHERE id=$1`, [rvTenant(4)]);
+      const rrInquiry = await rvSettle(H.query(`INSERT INTO marketplace_inquiries(listing_id,seller_tenant_id,status,risk_status) VALUES ($1,$2,'new','clear')`, [rvVin(4, 3), rvTenant(4)]));
+      await H.query('ROLLBACK');
+      assert.equal(rrInquiry.ok, false, '#6: REPEATABLE READ enquiry to a just-suspended dealer must be refused');
+      assert.match(String(rrInquiry.e?.message), /DEALER_INQUIRY_REQUIRES_READ_COMMITTED/);
+      await fails(`INSERT INTO marketplace_inquiries(listing_id,seller_tenant_id,status,risk_status) VALUES ('${rvVin(4, 3)}','${rvTenant(4)}','new','clear')`,
+        'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT');
+      await H.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+      const legacyRr = await rvSettle(H.query(`INSERT INTO marketplace_inquiries(listing_id,seller_tenant_id,status,risk_status) VALUES ('LEGACYRR000000001',$1,'new','clear')`,
+        ['00000000-0000-4000-8000-00000000e601']));
+      await H.query('ROLLBACK');
+      assert.ok(legacyRr.ok, '#6: a non-programme enquiry is unaffected by isolation level: ' + legacyRr.e?.message);
+
+      // #10: no-op writes do not fire the withdrawal triggers (which would lock the operating link).
+      for (const [label, noop] of [
+        ['PROFILE', `UPDATE dealer_profiles SET investigation_state=investigation_state WHERE id='91000000-0000-4000-8000-000000000001'`],
+        ['MEMBERSHIP', `UPDATE tenant_users SET role=role WHERE user_id='rv-owner-1'`],
+        ['POLICY', `UPDATE dealer_country_legal_policy_authority SET policy_state=policy_state WHERE policy_version='RV_POLICY_1'`],
+      ]) {
+        await H.query('BEGIN'); await H.query(noop);
+        const linkFree = await rvSettle(query(`SELECT 1 FROM dealer_approved_seed_links WHERE tenant_id=$1 FOR UPDATE NOWAIT`, [rvTenant(1)]));
+        await H.query('ROLLBACK');
+        assert.ok(linkFree.ok, `#10 ${label}: a no-op update must not fire the withdrawal trigger (link was locked: ${linkFree.e?.code})`);
+      }
+
+      // #4: lapse sweep (tenant order) vs country-policy suspension (same (tenant_id, vin) order).
+      await lapse([1, 2]);
+      await H.query('BEGIN'); await H.query('SELECT vin FROM vehicles WHERE vin=$1 FOR UPDATE', [rvVin(1, 3)]);
+      const sweep4 = rvSettle(S.query(`SET statement_timeout='15s'; SELECT dealer_withdraw_lapsed_listing_authority('pg_cron') AS r`));
+      await rvBlocked(S.pid);
+      await P.query('BEGIN');
+      const policy4 = rvSettle(P.query(`UPDATE dealer_country_legal_policy_authority SET policy_state='SUSPENDED' WHERE policy_version='RV_POLICY_1'`));
+      await rvBlocked(P.pid);
+      await H.query('ROLLBACK');
+      const swept4 = await sweep4; const policed4 = await policy4;
+      await rvSettle(P.query(policed4.ok ? 'COMMIT' : 'ROLLBACK'));
+      await S.query('RESET statement_timeout');
+      for (const o of [swept4, policed4]) assert.ok(o.ok, `#4 sweep vs policy: ${o.e?.code} ${o.e?.message}`);
+      const sweep4r = swept4.r[1].rows[0].r;
+      assert.deepEqual([sweep4r.tenants_withdrawn, sweep4r.tenants_skipped], [2, 0], '#4: both lapsed dealers withdrawn, none skipped: ' + JSON.stringify(sweep4r));
+      assert.equal((await rvPublished(1)) + (await rvPublished(2)), 0);
+      await exec(`SET session_replication_role = replica; UPDATE dealer_country_legal_policy_authority SET policy_state='APPROVED' WHERE policy_version='RV_POLICY_1'; SET session_replication_role = origin;`);
+
+      // #2: one dealer transaction holding one lapsed dealer's VIN skips THAT dealer only (2 s), never stalls the sweep.
+      await republish([1, 2]);
+      await H.query('BEGIN'); await H.query('SELECT vin FROM vehicles WHERE vin=$1 FOR UPDATE', [rvVin(1, 3)]);
+      const started2 = Date.now();
+      const swept2 = await rvSettle(S.query(`SET statement_timeout='15s'; SELECT dealer_withdraw_lapsed_listing_authority('pg_cron') AS r`));
+      const elapsed2 = Date.now() - started2;
+      await H.query('ROLLBACK'); await S.query('RESET statement_timeout');
+      assert.ok(swept2.ok, `#2: the sweep must not stall behind one dealer's transaction: ${swept2.e?.code} ${swept2.e?.message}`);
+      const sweep2r = swept2.r[1].rows[0].r;
+      assert.deepEqual([sweep2r.tenants_withdrawn, sweep2r.tenants_skipped], [1, 1], '#2: ' + JSON.stringify(sweep2r));
+      assert.ok(elapsed2 < 6000, `#2: sweep returned after ${elapsed2} ms`);
+      assert.deepEqual([await rvPublished(1), await rvPublished(2)], [3, 0], '#2: the other lapsed dealer was withdrawn');
+      const skipEvent = (await query(`SELECT reason_code, actor_id FROM dealer_listing_authority_events
+        WHERE tenant_id=$1 AND event_type='LAPSE_SWEEP_TENANT_SKIPPED'`, [rvTenant(1)])).rows;
+      assert.deepEqual(skipEvent, [{ reason_code: 'LOCK_NOT_AVAILABLE', actor_id: 'pg_cron' }], '#2: the skip is recorded');
+      const retry2 = (await query(`SELECT dealer_withdraw_lapsed_listing_authority('pg_cron') AS r`)).rows[0].r;
+      assert.deepEqual([retry2.tenants_withdrawn, retry2.tenants_skipped], [1, 0], '#2: the next run withdraws the skipped dealer');
+      assert.equal(await rvPublished(1), 0);
+      // The driver order is part of the lock-order contract (ascending tenant_id), not a plan accident.
+      assert.match((await query(`SELECT pg_get_functiondef('dealer_withdraw_lapsed_listing_authority(text)'::regprocedure) AS d`)).rows[0].d,
+        /JOIN vehicles x ON x\.tenant_id = l\.tenant_id AND x\.publication_status = 'published'\s+ORDER BY l\.tenant_id LOOP/);
+      // The pg_cron command bounds the whole run; it is valid SQL and keeps the session bounded.
+      const cronCommand = /cron\.schedule\('carup-dealer-listing-lapse-sweep', '\*\/10 \* \* \* \*',\s*'((?:[^']|'')*)'\)/.exec(read('20261103141000_dealer_canonical_listing_authority.sql').up);
+      assert.ok(cronCommand, 'the lapse sweep is scheduled by 141000');
+      const cronSql = cronCommand[1].replace(/''/g, "'");
+      assert.match(cronSql, /^SET statement_timeout = '300s'; SELECT public\.dealer_withdraw_lapsed_listing_authority\('pg_cron'\)$/);
+      await S.query(cronSql);
+      assert.equal((await S.query('SHOW statement_timeout')).rows[0].statement_timeout, '5min');
+      console.log(`DEALER_R6_REVIEW2_CONCURRENCY PASS: #3 multi-VIN dealer write vs SUSPEND (0 x 40P01), #6 REPEATABLE READ enquiry refused, #10 no-op profile/membership/policy writes fire nothing, #4 sweep vs policy (2 withdrawn, 0 skipped, 0 x 40P01), #2 sweep skipped the held dealer in ${elapsed2} ms and withdrew the other`);
+    } finally {
+      for (const c of [H, S, P]) { try { await c.query('ROLLBACK'); } catch {} await c.end(); }
+      await exec(`SET session_replication_role = replica;
+        DELETE FROM marketplace_inquiries WHERE listing_id LIKE 'RV%' OR listing_id LIKE 'LEGACYRR%';
+        DELETE FROM vehicles WHERE vin LIKE 'RV%';
+        DELETE FROM dealer_operating_lifecycle_events WHERE seed_dealer_id LIKE 'RV-SEED-%';
+        DELETE FROM dealer_approved_seed_links WHERE seed_dealer_id LIKE 'RV-SEED-%';
+        DELETE FROM organizations WHERE id LIKE 'rv-org-%';
+        DELETE FROM dealer_legal_application_reviews WHERE legal_review_id::text LIKE '93000000-%';
+        DELETE FROM dealer_research_claim_requests WHERE seed_dealer_id LIKE 'RV-SEED-%';
+        DELETE FROM dealer_profiles WHERE id::text LIKE '91000000-%';
+        DELETE FROM tenant_users WHERE tenant_id::text LIKE '90000000-%';
+        DELETE FROM dealer_listing_authority_events WHERE tenant_id::text LIKE '90000000-%';
+        DELETE FROM tenants WHERE id::text LIKE '90000000-%';
+        DELETE FROM dealer_country_legal_policy_authority WHERE policy_version='RV_POLICY_1';
+        DELETE FROM users WHERE id LIKE 'rv-%';
+        SET session_replication_role = origin;`);
+    }
+  }
   await exec('TRUNCATE dealer_listing_authority_events, dealer_vehicle_branch_assignments, dealer_operating_lifecycle_events');
   // ── R6 DBA #6: the three earliest Downs refuse while their custody rows exist (before any DDL) ──
   const custodyRows=(await query(`SELECT
