@@ -121,6 +121,8 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await reviewer.getByRole('button',{name:'Inspect private frozen application'}).click()
  await expect(reviewer.getByRole('heading',{name:'Declared legal identity — not verified'}))
   .toBeVisible({timeout:25000})
+ // Owner UAT: the deferred T15 OCR-vs-workbook comparison is labelled as manual for the reviewer.
+ await expect(reviewer.getByTestId('dealer-unavailable-ocr-comparison')).toContainText('Not available yet')
  await reviewer.locator('#finding').selectOption('READY_FOR_REGULATORY_REVIEW')
  await reviewer.locator('#finding-reason').fill(
   'Fictional test only: the original mandate and registered company identity were examined for branch-scoped CI contract verification. No real statutory approval is inferred.')

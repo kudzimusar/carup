@@ -169,6 +169,13 @@ export default function DealerComplianceApplicationReview(){
                     <dd className="mt-1 text-gray-600">{rows.length} candidate row(s)</dd>
                   </div>)}
               </dl>
+              {/* Owner UAT: T15 is deferred — the reviewer is told the comparison is manual. */}
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+                data-testid="dealer-unavailable-ocr-comparison">
+                Not available yet: CarUp does not automatically compare text read from the uploaded documents
+                (OCR) with the values declared in the workbook. Compare the original documents with the
+                declared legal name, registration number and expiry yourself before recording a finding.
+              </p>
               <section className="border rounded-lg p-4">
                 <h3 className="font-semibold">Declared legal identity — not verified</h3>
                 {Object.entries(preview.application_snapshot.tab_rows?.BUSINESS?.[0]||{}).

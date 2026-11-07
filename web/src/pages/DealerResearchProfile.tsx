@@ -488,6 +488,12 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                           <option value="BRANCH">This business branch</option>
                           <option value="PARENT_ORGANIZATION">Parent legal organization</option>
                         </select>
+                        {/* Owner UAT: S14 is deferred — say so instead of implying it works. */}
+                        <p className="mt-1 text-xs text-gray-600" data-testid="dealer-unavailable-multi-branch-parent">
+                          Not available yet: one claim covers this researched business only. Managing several
+                          branches or research listings under one parent organisation is planned but cannot be
+                          requested here today.
+                        </p>
                       </div>
                       <div>
                         <label htmlFor="dealer-claim-relationship" className="block text-sm font-medium mb-1">Your asserted relationship</label>

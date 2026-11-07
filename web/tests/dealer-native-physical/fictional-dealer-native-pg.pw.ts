@@ -44,6 +44,8 @@ for(const width of [390,768,1280,1920]){
       await page.goto('/dealers',{waitUntil:'domcontentloaded'})
       await expect(page.getByRole('heading',{name:'Zimbabwe Dealership Directory'}))
         .toBeVisible()
+      // Owner UAT: the deferred S24 new-business path is labelled for unlisted businesses.
+      await expect(page.getByTestId('dealer-unavailable-new-business')).toContainText('not available yet')
       await expect(page.getByRole('heading',{name:'SYNTHETIC FICTIONAL CAR DEALER 1'}))
         .toBeVisible({timeout:25000})
       await expect(page.getByText('Unclaimed — Not independently business-verified'))
@@ -101,6 +103,8 @@ test('Native PG physical browser · claimant submits real claim, sees evidence-r
   await page.goto('/dealers/zw-deal-0001/claim',{waitUntil:'domcontentloaded'})
   await expect(page.getByRole('heading',{name:'Request to claim this business'}))
     .toBeVisible({timeout:25000})
+  // Owner UAT: the deferred S14 capability is labelled, not implied.
+  await expect(page.getByTestId('dealer-unavailable-multi-branch-parent')).toContainText('Not available yet')
   // R6 E: the public blank registration workbook is reachable from the claim page.
   const template=page.getByTestId('dealer-blank-intake-template')
   await expect(template).toBeVisible()

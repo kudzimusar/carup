@@ -130,6 +130,11 @@ export default function DealerDirectory() {
             Profiles become visible only after CarUp independently reviews their public research information.
             Private research candidates remain withheld until individually reviewed.
           </p>
+          {/* Owner UAT: S24 is deferred — a business with no research listing is told plainly. */}
+          <p className="text-sm text-gray-600 mb-4 max-w-3xl" data-testid="dealer-unavailable-new-business">
+            Your dealership is not listed, or operates outside Zimbabwe? Applying as a new business without a
+            CarUp research listing is not available yet.
+          </p>
           <Link
             className="inline-flex text-sm font-medium text-blue-800 underline mb-6"
             to="/dealers/feedback"
