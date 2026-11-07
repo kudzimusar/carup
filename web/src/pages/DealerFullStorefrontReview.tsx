@@ -305,8 +305,8 @@ export default function DealerFullStorefrontReview(){
         </select>
         {currentMedia&&<div className="rounded-lg border bg-slate-50 p-3 text-sm space-y-2">
          <p><strong>Seed:</strong> {currentMedia.seed_dealer_id} · <strong>Category:</strong> {currentMedia.media_category} · <strong>Status:</strong> {currentMedia.review_status}</p>
-         <p><strong>Caption:</strong> {currentMedia.caption}</p>
-         <p><strong>Alt text:</strong> {currentMedia.alt_text}</p>
+         <p data-testid="dealer-media-review-caption"><strong>Caption:</strong> {currentMedia.caption}</p>
+         <p data-testid="dealer-media-review-alt"><strong>Alt text:</strong> {currentMedia.alt_text}</p>
          <Button variant="outline" size="sm"
           disabled={busy||password.length<8||!currentMedia.independent_reviewer_required||!currentMedia.preview_ticket}
           onClick={()=>{void inspectMedia()}}>

@@ -205,9 +205,12 @@ test('FICTIONAL revocation withdraws the dealer listing and closes every public,
  expect(hostileRedirect.status()).toBe(409)
 
  // S09 positive: independent reviewer reconciles duplicate ZW-DEAL-0004 -> canonical ZW-DEAL-0002 in the UI
- await r5Reviewer.getByRole('button',{name:/ZW-DEAL-0004/}).first().click({timeout:15000})
+ const seed4QueueBtn=r5Reviewer.getByTestId('research-queue-item-ZW-DEAL-0004')
+ await expect(seed4QueueBtn).toBeVisible({timeout:15000})
+ await seed4QueueBtn.click({timeout:15000})
  const dupPanel=r5Reviewer.getByTestId('dealer-duplicate-reconcile-panel')
  await expect(dupPanel).toBeVisible({timeout:30000})
+ await expect(dupPanel).toContainText('ZW-DEAL-0004',{timeout:15000})
  await dupPanel.locator('#duplicate-canonical-seed').fill('ZW-DEAL-0002')
  await dupPanel.locator('#duplicate-reconcile-reason').fill(
   'Independent fictional reviewer confirmed ZW-DEAL-0004 is a duplicate research entry of canonical ZW-DEAL-0002; source custody preserved.')

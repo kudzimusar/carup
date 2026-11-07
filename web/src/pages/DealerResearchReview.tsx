@@ -221,6 +221,7 @@ export default function DealerResearchReview(){
           <Button variant="outline" size="sm" className="mt-3"
             onClick={()=>{void reload()}}>Refresh</Button>
           {queue?.entries.map(entry=><button key={entry.seed_dealer_id} type="button"
+            data-testid={`research-queue-item-${entry.seed_dealer_id}`}
             onClick={()=>{setSelected(entry.seed_dealer_id);setError('');setNotice('')}}
             className={'text-left block w-full border rounded-lg p-3 mt-3 '+
               (selected===entry.seed_dealer_id?'border-blue-600 bg-blue-50':'border-gray-200')}>
