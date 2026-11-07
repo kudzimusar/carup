@@ -1501,6 +1501,141 @@ try{
     }
   }
 
+  // ── R6 DBA #4: ONE lock order (docs/dealership/R6_DBA_OPERATIONS_AND_LOCK_ORDER.md) ──
+  // tenants → dealer_profiles → programme vehicles (ascending VIN) → dealer_approved_seed_links.
+  // Each interleaving below deadlocked (SQLSTATE 40P01) before the order was established; the
+  // waiter is now always queued BEHIND the first lock holder and never holds a lock the holder needs.
+  if (native) {
+    const session = async (name) => {
+      const c = new pg.Client({ connectionString: nativeUrl, ssl: false, application_name: 'carup-dealer-r6-lock-order-' + name });
+      await c.connect();
+      c.pid = (await c.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      return c;
+    };
+    // Wait until a session is really blocked on a lock (never a fixed sleep). Bounded: 10 s.
+    const blockedBy = async (pid) => {
+      for (let i = 0; i < 500; i += 1) {
+        const r = await query('SELECT cardinality(pg_blocking_pids($1)) AS n', [pid]);
+        if (r.rows[0].n > 0) return true;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error('R6_LOCK_ORDER_SESSION_NEVER_BLOCKED pid=' + pid);
+    };
+    const settle = (p) => p.then((r) => ({ ok: true, r }), (e) => ({ ok: false, e }));
+    const noDeadlock = (label, ...outcomes) => {
+      for (const o of outcomes) {
+        assert.ok(o.ok || o.e?.code !== '40P01', `${label}: deadlock detected (40P01): ${o.e?.message}`);
+      }
+    };
+    const owner = (await query('SELECT current_seller_id FROM vehicles WHERE vin=$1', [listingVin])).rows[0].current_seller_id;
+    assert.equal(owner, claimant, 'lock-order fixture: the approved owner is the governed seller');
+    const suspendWhy = (n) => `Fictional CI R6 lock-order interleaving ${n}: independent reviewer suspends the synthetic dealer.`;
+    const sA = await session('a'); const sB = await session('b'); const sX = await session('x');
+    try {
+      const interleave = async (label, { holdSql, holderSql, expectHolder }) => {
+        await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`, [listingVin]);
+        await sA.query('BEGIN');
+        await sA.query(holdSql, [listingVin]);
+        await sB.query('BEGIN');
+        const suspend = settle(sB.query(lifecycleSql, ['ZW-DEAL-0001', reviewer, 'SUSPEND', suspendWhy(label), null]));
+        await blockedBy(sB.pid);
+        const holder = await settle(sA.query(holderSql, [listingVin]));
+        const commitA = await settle(sA.query(holder.ok ? 'COMMIT' : 'ROLLBACK'));
+        const suspended = await suspend;
+        await settle(sB.query(suspended.ok ? 'COMMIT' : 'ROLLBACK'));
+        noDeadlock(label, holder, suspended, commitA);
+        assert.ok(holder.ok, `${label}: dealer-side write must succeed: ${holder.e?.message}`);
+        assert.ok(suspended.ok, `${label}: suspension must succeed: ${suspended.e?.message}`);
+        assert.equal(suspended.r.rows[0].receipt.operating_status, 'SUSPENDED');
+        assert.equal(await listingState(), expectHolder, `${label}: final publication state`);
+        assert.equal((await query(`SELECT count(*)::int AS n FROM vehicles WHERE tenant_id=$1 AND publication_status='published'`, [tenant])).rows[0].n, 0,
+          `${label}: a suspended dealer keeps zero public listings`);
+        await lifecycle('activationreviewer', 'REINSTATE');
+      };
+      // Review T5: the dealer locked a published VIN, then unpublishes it while a suspension runs.
+      await interleave('T5', { holdSql: 'SELECT vin FROM vehicles WHERE vin=$1 FOR UPDATE',
+        holderSql: `UPDATE vehicles SET publication_status='publishable' WHERE vin=$1`, expectHolder: 'publishable' });
+      // Review T6: a price edit (no guard) then a governed-seller restatement (guard) in one transaction.
+      await interleave('T6', { holdSql: 'UPDATE vehicles SET price=price+1 WHERE vin=$1',
+        holderSql: 'UPDATE vehicles SET current_seller_id=current_seller_id WHERE vin=$1', expectHolder: 'publishable' });
+
+      // Preparation vs suspension: preparation must take the VIN before the operating link.
+      await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`, [listingVin]);
+      await sX.query('BEGIN');
+      await sX.query('SELECT vin FROM vehicles WHERE vin=$1 FOR UPDATE', [listingVin]);
+      await sB.query('BEGIN');
+      const suspendP = settle(sB.query(lifecycleSql, ['ZW-DEAL-0001', reviewer, 'SUSPEND', suspendWhy('PREPARE'), null]));
+      await blockedBy(sB.pid);
+      const prepareP = settle(sA.query(prepareSql, prepareArgs(claimant, branchId, 18500)));
+      await blockedBy(sA.pid);
+      await sX.query('COMMIT');
+      const suspendedP = await suspendP;
+      await settle(sB.query(suspendedP.ok ? 'COMMIT' : 'ROLLBACK'));
+      const prepared = await prepareP;
+      noDeadlock('PREPARE', prepared, suspendedP);
+      assert.ok(suspendedP.ok, 'PREPARE: suspension must succeed: ' + suspendedP.e?.message);
+      assert.equal(prepared.ok, false, 'PREPARE: preparation behind a suspension must be refused');
+      assert.match(String(prepared.e?.message), /NO_ACTIVE_CANONICAL_DEALER_MEMBERSHIP/);
+      assert.equal(await listingState(), 'publishable');
+      await lifecycle('activationreviewer', 'REINSTATE');
+
+      // Direct profile write (e.g. the 20261103124000 compliance decision) vs a lifecycle decision:
+      // the profile row is taken before the operating link on both paths.
+      await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`, [listingVin]);
+      await sA.query('BEGIN');
+      await sA.query('SELECT id FROM dealer_profiles WHERE id=$1 FOR UPDATE', [activeProfileId]);
+      await sB.query('BEGIN');
+      const suspendD = settle(sB.query(lifecycleSql, ['ZW-DEAL-0001', reviewer, 'SUSPEND', suspendWhy('PROFILE'), null]));
+      await blockedBy(sB.pid);
+      const profileWrite = await settle(sA.query(`UPDATE dealer_profiles SET investigation_state=investigation_state WHERE id=$1`, [activeProfileId]));
+      await settle(sA.query(profileWrite.ok ? 'COMMIT' : 'ROLLBACK'));
+      const suspendedD = await suspendD;
+      await settle(sB.query(suspendedD.ok ? 'COMMIT' : 'ROLLBACK'));
+      noDeadlock('PROFILE', profileWrite, suspendedD);
+      assert.ok(profileWrite.ok && suspendedD.ok, 'PROFILE: both transactions must commit');
+      assert.equal(await listingState(), 'publishable');
+      await lifecycle('activationreviewer', 'REINSTATE');
+      // Every other authority-loss path (claim dispute trigger, direct tenant / owner-membership /
+      // country-policy writes) against the same T5 dealer unpublish. The authority-loss transaction is
+      // inspected and then ROLLED BACK, so the fictional dealer stays ACTIVE for the tests that follow.
+      const withdrawalPaths = [
+        ['CLAIM_DISPUTE', `UPDATE dealer_research_claim_requests SET claim_status='CLAIM_DISPUTED' WHERE claim_id='${uuid(1)}'`],
+        ['TENANT_STATUS', `UPDATE tenants SET status='suspended' WHERE id='${tenant}'`],
+        ['OWNER_MEMBERSHIP', `UPDATE tenant_users SET role='member' WHERE tenant_id='${tenant}' AND user_id='${claimant}'`],
+        ['COUNTRY_POLICY', `UPDATE dealer_country_legal_policy_authority SET policy_state='SUSPENDED'
+          WHERE (country_code,policy_version)=(SELECT r.country_code,r.policy_version FROM dealer_legal_application_reviews r
+            JOIN dealer_approved_seed_links l ON l.legal_review_id=r.legal_review_id WHERE l.tenant_id='${tenant}')`],
+      ];
+      for (const [label, lossSql] of withdrawalPaths) {
+        await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`, [listingVin]);
+        await sA.query('BEGIN');
+        await sA.query('SELECT vin FROM vehicles WHERE vin=$1 FOR UPDATE', [listingVin]);
+        await sB.query('BEGIN');
+        const loss = settle(sB.query(lossSql));
+        await blockedBy(sB.pid);
+        const unpublish = await settle(sA.query(`UPDATE vehicles SET publication_status='publishable' WHERE vin=$1`, [listingVin]));
+        await settle(sA.query(unpublish.ok ? 'COMMIT' : 'ROLLBACK'));
+        const lost = await loss;
+        let insideLoss = null;
+        if (lost.ok) {
+          insideLoss = (await sB.query(`SELECT dealer_tenant_listing_authority_current($1::uuid) AS current,
+            (SELECT count(*)::int FROM vehicles WHERE tenant_id=$1::uuid AND publication_status='published') AS published,
+            (SELECT count(*)::int FROM dealer_approved_seed_links WHERE tenant_id=$1::uuid) AS linked`, [tenant])).rows[0];
+        }
+        await settle(sB.query('ROLLBACK'));
+        noDeadlock(label, unpublish, lost);
+        assert.ok(unpublish.ok && lost.ok, `${label}: both transactions must complete: ${unpublish.e?.message || lost.e?.message}`);
+        assert.deepEqual(insideLoss, { current: false, published: 0, linked: 1 }, `${label}: authority lost with zero public listings`);
+        assert.equal((await query('SELECT dealer_tenant_listing_authority_current($1::uuid) AS ok', [tenant])).rows[0].ok, true,
+          `${label}: the inspected authority-loss transaction was rolled back`);
+      }
+      assert.equal(await listingState(), 'publishable');
+      console.log('DEALER_R6_LOCK_ORDER PASS: T5 unpublish, T6 seller restatement, preparation, direct profile write, claim dispute, tenant status, owner membership and country policy each queue behind/ahead of a concurrent withdrawal with zero 40P01 and zero public listings');
+    } finally {
+      for (const c of [sA, sB, sX]) await c.end();
+    }
+  }
+
   // RENEW: only onto a NEWER independent legal review of the same claim with a later expiry.
   await refusesLifecycle(['ZW-DEAL-0001',reviewer,'RENEW',lifecycleWhy,null],'NEWER_INDEPENDENT_LEGAL_REVIEW_REQUIRED');
   await refusesLifecycle(['ZW-DEAL-0001',reviewer,'RENEW',lifecycleWhy,legalId],'NEWER_INDEPENDENT_LEGAL_REVIEW_REQUIRED');
