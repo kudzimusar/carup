@@ -71,7 +71,7 @@ BEGIN
     RAISE EXCEPTION 'OPERATING_LIFECYCLE_REASON_REQUIRED';
   END IF;
   -- R6 DBA #4 lock order (docs/dealership/R6_DBA_OPERATIONS_AND_LOCK_ORDER.md): tenants →
-  -- dealer_profiles → published programme VINs (ascending) → dealer_approved_seed_links. A dealer
+  -- dealer_profiles → ALL the tenant's VINs (ascending) → dealer_approved_seed_links. A dealer
   -- write on a VIN (vehicle, then link FOR SHARE) or a direct profile/tenant write (row, then link)
   -- therefore finishes first or queues behind this decision; neither can form a 40P01 cycle with it.
   SELECT tenant_id, dealer_profile_id INTO v_lock_tenant, v_lock_profile
@@ -79,7 +79,7 @@ BEGIN
   IF FOUND THEN
     PERFORM 1 FROM tenants WHERE id = v_lock_tenant FOR NO KEY UPDATE;
     PERFORM 1 FROM dealer_profiles WHERE id = v_lock_profile FOR UPDATE;
-    PERFORM dealer_lock_tenant_public_listings(v_lock_tenant);
+    PERFORM dealer_lock_tenant_programme_vins(v_lock_tenant);
   END IF;
   SELECT * INTO v_link FROM dealer_approved_seed_links WHERE seed_dealer_id = p_seed_dealer_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'APPROVED_DEALER_LINK_REQUIRED'; END IF;

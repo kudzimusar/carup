@@ -25,7 +25,7 @@ CREATE TABLE dealer_listing_authority_events (
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   vin TEXT,
   event_type TEXT NOT NULL CHECK (event_type IN (
-    'LISTING_CANDIDATE_PREPARED','PUBLIC_LISTINGS_WITHDRAWN')),
+    'LISTING_CANDIDATE_PREPARED','PUBLIC_LISTINGS_WITHDRAWN','LAPSE_SWEEP_TENANT_SKIPPED')),
   reason_code TEXT NOT NULL CHECK (reason_code ~ '^[A-Z][A-Z0-9_]{2,80}$'),
   affected_listings INTEGER NOT NULL DEFAULT 0 CHECK (affected_listings >= 0),
   actor_id TEXT,
@@ -88,28 +88,27 @@ $$;
 REVOKE ALL ON FUNCTION dealer_tenant_listing_authority_current(UUID) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION dealer_tenant_listing_authority_current(UUID) TO service_role;
 
--- R6 DBA #4: ONE lock order for every dealership write that touches programme stock and its
--- operating link (docs/dealership/R6_DBA_OPERATIONS_AND_LOCK_ORDER.md):
---   tenants row → dealer_profiles row → published programme vehicles (ascending VIN, FOR NO KEY
---   UPDATE) → dealer_approved_seed_links row.
+-- R6 DBA #4 (+ review 2 #3/#4): ONE lock order for every dealership write that touches programme
+-- stock and its operating link (docs/dealership/R6_DBA_OPERATIONS_AND_LOCK_ORDER.md):
+--   tenants row → dealer_profiles row → ALL the tenant's VINs (any publication status, ascending
+--   VIN; several tenants: ascending (tenant_id, vin)), FOR NO KEY UPDATE → dealer_approved_seed_links.
 -- The canonical vehicle write guard below can only ever take "vehicle, then link" (a BEFORE ROW
 -- trigger fires after its own row is locked), so every suspension/withdrawal path takes the
--- tenant's published VINs BEFORE the link. A dealer write on a VIN then either finishes first or
--- queues behind the suspension without holding anything the suspension needs: no 40P01 cycle.
+-- tenant's VINs BEFORE the link. ALL VINs, not only published ones: a dealer transaction that
+-- publishes a draft VIN holds that draft row and the link FOR SHARE, so a published-only pre-lock
+-- would skip it, take the link's turn and deadlock on the dealer's next (ascending) VIN.
 -- FOR NO KEY UPDATE is the mode the withdrawal UPDATE itself takes, so FK KEY SHARE checks
--- (e.g. a branch assignment or inquiry referencing the VIN) are never blocked by the pre-lock.
-CREATE FUNCTION dealer_lock_tenant_public_listings(p_tenant_id UUID)
+-- (e.g. a branch assignment referencing the VIN) are never blocked by the pre-lock.
+CREATE FUNCTION dealer_lock_tenant_programme_vins(p_tenant_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 BEGIN
-  PERFORM 1 FROM vehicles
-   WHERE tenant_id = p_tenant_id AND publication_status = 'published'
-   ORDER BY vin FOR NO KEY UPDATE;
+  PERFORM 1 FROM vehicles WHERE tenant_id = p_tenant_id ORDER BY vin FOR NO KEY UPDATE;
 END;
 $$;
-REVOKE ALL ON FUNCTION dealer_lock_tenant_public_listings(UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION dealer_lock_tenant_public_listings(UUID) TO service_role;
+REVOKE ALL ON FUNCTION dealer_lock_tenant_programme_vins(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION dealer_lock_tenant_programme_vins(UUID) TO service_role;
 
 -- Withdraw (never delete) every PUBLIC listing of one dealership-programme tenant. 'publishable' is
 -- exactly the canonical unpublish target: off the public surface, still the seller's, availability
@@ -128,7 +127,7 @@ BEGIN
     RAISE EXCEPTION 'DEALER_LISTING_WITHDRAWAL_REQUIRES_READ_COMMITTED';
   END IF;
   -- R6 DBA #4: concurrent withdrawals of one tenant take its VINs in the same (ascending) order.
-  PERFORM dealer_lock_tenant_public_listings(p_tenant_id);
+  PERFORM dealer_lock_tenant_programme_vins(p_tenant_id);
   WITH withdrawn AS (
     UPDATE vehicles SET publication_status = 'publishable'
      WHERE tenant_id = p_tenant_id AND publication_status = 'published'
@@ -229,9 +228,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM dealer_approved_seed_links WHERE tenant_id = NEW.id) THEN
     RETURN NEW;  -- legacy tenants: untouched
   END IF;
-  -- R6 lock order: published VINs, then the operating link (so a concurrent publish cannot slip
+  -- R6 lock order: the tenant's VINs, then the operating link (so a concurrent publish cannot slip
   -- between check and withdrawal, and a concurrent VIN write cannot deadlock against us).
-  PERFORM dealer_lock_tenant_public_listings(NEW.id);
+  PERFORM dealer_lock_tenant_programme_vins(NEW.id);
   PERFORM 1 FROM dealer_approved_seed_links WHERE tenant_id = NEW.id FOR UPDATE;
   IF FOUND AND NOT dealer_tenant_listing_authority_current(NEW.id) THEN
     PERFORM dealer_withdraw_tenant_public_listings(NEW.id,
@@ -240,9 +239,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+-- R6 DBA review 2 #10: WHEN skips no-op updates (SET status = status) before any plpgsql call.
 CREATE TRIGGER dealer_withdraw_listings_on_tenant_change
   AFTER UPDATE OF status, type ON tenants
-  FOR EACH ROW EXECUTE FUNCTION dealer_withdraw_listings_on_tenant_change();
+  FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status OR OLD.type IS DISTINCT FROM NEW.type)
+  EXECUTE FUNCTION dealer_withdraw_listings_on_tenant_change();
 
 CREATE FUNCTION dealer_withdraw_listings_on_profile_change()
 RETURNS TRIGGER
@@ -252,7 +253,7 @@ DECLARE v_tenant UUID;
 BEGIN
   SELECT tenant_id INTO v_tenant FROM dealer_approved_seed_links WHERE dealer_profile_id = NEW.id;
   IF v_tenant IS NULL THEN RETURN NEW; END IF;  -- legacy / not-yet-activated profiles: untouched
-  PERFORM dealer_lock_tenant_public_listings(v_tenant);  -- R6 lock order: VINs, then the link
+  PERFORM dealer_lock_tenant_programme_vins(v_tenant);  -- R6 lock order: VINs, then the link
   PERFORM 1 FROM dealer_approved_seed_links WHERE tenant_id = v_tenant FOR UPDATE;
   IF NOT dealer_tenant_listing_authority_current(v_tenant) THEN
     PERFORM dealer_withdraw_tenant_public_listings(v_tenant, 'DEALER_PROFILE_AUTHORITY_LOST', NULL);
@@ -263,7 +264,15 @@ $$;
 CREATE TRIGGER dealer_withdraw_listings_on_profile_change
   AFTER UPDATE OF identity_status, compliance_review_state, active_state, restriction_state,
     suspension_state, investigation_state, expiry_date, user_id ON dealer_profiles
-  FOR EACH ROW EXECUTE FUNCTION dealer_withdraw_listings_on_profile_change();
+  FOR EACH ROW WHEN (OLD.identity_status IS DISTINCT FROM NEW.identity_status
+    OR OLD.compliance_review_state IS DISTINCT FROM NEW.compliance_review_state
+    OR OLD.active_state IS DISTINCT FROM NEW.active_state
+    OR OLD.restriction_state IS DISTINCT FROM NEW.restriction_state
+    OR OLD.suspension_state IS DISTINCT FROM NEW.suspension_state
+    OR OLD.investigation_state IS DISTINCT FROM NEW.investigation_state
+    OR OLD.expiry_date IS DISTINCT FROM NEW.expiry_date
+    OR OLD.user_id IS DISTINCT FROM NEW.user_id)
+  EXECUTE FUNCTION dealer_withdraw_listings_on_profile_change();
 
 -- A country policy that stops being current (suspended, withdrawn, re-dated) withdraws the stock of
 -- every dealer whose legal review relies on it.
@@ -278,9 +287,10 @@ BEGIN
     JOIN dealer_legal_application_reviews r ON r.legal_review_id = l.legal_review_id
    WHERE r.country_code = NEW.country_code AND r.policy_version = NEW.policy_version;
   IF v_tenants IS NULL THEN RETURN NEW; END IF;
-  -- R6 lock order across several dealers: every published VIN (ascending), then links (ascending).
-  PERFORM 1 FROM vehicles WHERE tenant_id = ANY (v_tenants) AND publication_status = 'published'
-   ORDER BY vin FOR NO KEY UPDATE;
+  -- R6 lock order across several dealers: every VIN in ascending (tenant_id, vin) — the order
+  -- the lapse sweep and a single-dealer suspension also use — then links (ascending tenant_id).
+  PERFORM 1 FROM vehicles WHERE tenant_id = ANY (v_tenants)
+   ORDER BY tenant_id, vin FOR NO KEY UPDATE;
   PERFORM 1 FROM dealer_approved_seed_links WHERE tenant_id = ANY (v_tenants)
    ORDER BY tenant_id FOR UPDATE;
   FOREACH v_tenant IN ARRAY v_tenants LOOP
@@ -293,7 +303,9 @@ END;
 $$;
 CREATE TRIGGER dealer_withdraw_listings_on_policy_change
   AFTER UPDATE OF policy_state, effective_at, expires_at ON dealer_country_legal_policy_authority
-  FOR EACH ROW EXECUTE FUNCTION dealer_withdraw_listings_on_policy_change();
+  FOR EACH ROW WHEN (OLD.policy_state IS DISTINCT FROM NEW.policy_state
+    OR OLD.effective_at IS DISTINCT FROM NEW.effective_at OR OLD.expires_at IS DISTINCT FROM NEW.expires_at)
+  EXECUTE FUNCTION dealer_withdraw_listings_on_policy_change();
 
 -- The approved owner losing (or changing) their tenant membership ends authority immediately.
 CREATE FUNCTION dealer_withdraw_listings_on_owner_membership_change()
@@ -305,7 +317,7 @@ BEGIN
   SELECT l.tenant_id INTO v_tenant FROM dealer_approved_seed_links l
    WHERE l.tenant_id = OLD.tenant_id AND l.claimant_user_id = OLD.user_id;
   IF v_tenant IS NULL THEN RETURN NULL; END IF;  -- not the approved owner's membership: untouched
-  PERFORM dealer_lock_tenant_public_listings(v_tenant);  -- R6 lock order: VINs, then the link
+  PERFORM dealer_lock_tenant_programme_vins(v_tenant);  -- R6 lock order: VINs, then the link
   PERFORM 1 FROM dealer_approved_seed_links WHERE tenant_id = v_tenant FOR UPDATE;
   IF NOT dealer_tenant_listing_authority_current(v_tenant) THEN
     PERFORM dealer_withdraw_tenant_public_listings(v_tenant, 'OWNER_MEMBERSHIP_CHANGED', NULL);
@@ -313,27 +325,53 @@ BEGIN
   RETURN NULL;
 END;
 $$;
+-- Two triggers: WHEN cannot name NEW for a DELETE, and a no-op UPDATE must not fire.
 CREATE TRIGGER dealer_withdraw_listings_on_owner_membership_change
-  AFTER UPDATE OF role, tenant_id, user_id OR DELETE ON tenant_users
+  AFTER UPDATE OF role, tenant_id, user_id ON tenant_users
+  FOR EACH ROW WHEN (OLD.role IS DISTINCT FROM NEW.role OR OLD.tenant_id IS DISTINCT FROM NEW.tenant_id
+    OR OLD.user_id IS DISTINCT FROM NEW.user_id)
+  EXECUTE FUNCTION dealer_withdraw_listings_on_owner_membership_change();
+CREATE TRIGGER dealer_withdraw_listings_on_owner_membership_delete
+  AFTER DELETE ON tenant_users
   FOR EACH ROW EXECUTE FUNCTION dealer_withdraw_listings_on_owner_membership_change();
 
 -- Time lapses (legal approval, country policy or profile expiry) change no row, so no trigger can
 -- see them. Operations (or the dealer's own next workspace read) runs this sweep; publication and
 -- seller-relationship writes are refused by the guard above the instant authority lapses anyway.
+-- R6 DBA review 2 #2/#4: tenants are swept in ascending tenant_id (VINs therefore in ascending
+-- (tenant_id, vin), the policy trigger's order), each in its own subtransaction with a 2 s lock
+-- wait. A dealer transaction that holds one tenant's VIN (or a residual deadlock) skips THAT tenant
+-- only — recorded as an append-only LAPSE_SWEEP_TENANT_SKIPPED event — instead of stalling the
+-- sweep for every dealer. The next run (10 minutes) retries it; the guard keeps refusing new
+-- publication for it meanwhile.
 CREATE FUNCTION dealer_withdraw_lapsed_listing_authority(p_actor TEXT)
 RETURNS JSONB
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET lock_timeout = '2s'
 AS $$
 DECLARE v RECORD; v_tenants INTEGER := 0; v_total INTEGER := 0; v_n INTEGER;
+  v_skipped INTEGER := 0; v_reason TEXT;
 BEGIN
   FOR v IN SELECT DISTINCT l.tenant_id FROM dealer_approved_seed_links l
-            JOIN vehicles x ON x.tenant_id = l.tenant_id AND x.publication_status = 'published' LOOP
-    IF NOT dealer_tenant_listing_authority_current(v.tenant_id) THEN
-      v_n := dealer_withdraw_tenant_public_listings(v.tenant_id, 'OPERATING_AUTHORITY_LAPSED', p_actor);
-      v_tenants := v_tenants + 1; v_total := v_total + v_n;
+            JOIN vehicles x ON x.tenant_id = l.tenant_id AND x.publication_status = 'published'
+           ORDER BY l.tenant_id LOOP
+    v_reason := NULL;
+    BEGIN
+      IF NOT dealer_tenant_listing_authority_current(v.tenant_id) THEN
+        v_n := dealer_withdraw_tenant_public_listings(v.tenant_id, 'OPERATING_AUTHORITY_LAPSED', p_actor);
+        v_tenants := v_tenants + 1; v_total := v_total + v_n;
+      END IF;
+    EXCEPTION
+      WHEN lock_not_available THEN v_reason := 'LOCK_NOT_AVAILABLE';
+      WHEN deadlock_detected THEN v_reason := 'DEADLOCK_DETECTED';
+    END;
+    IF v_reason IS NOT NULL THEN
+      v_skipped := v_skipped + 1;
+      INSERT INTO dealer_listing_authority_events(tenant_id, event_type, reason_code, affected_listings, actor_id)
+      VALUES (v.tenant_id, 'LAPSE_SWEEP_TENANT_SKIPPED', v_reason, 0, p_actor);
     END IF;
   END LOOP;
-  RETURN jsonb_build_object('tenants_withdrawn', v_tenants, 'listings_withdrawn', v_total);
+  RETURN jsonb_build_object('tenants_withdrawn', v_tenants, 'listings_withdrawn', v_total,
+    'tenants_skipped', v_skipped);
 END;
 $$;
 REVOKE ALL ON FUNCTION dealer_withdraw_lapsed_listing_authority(TEXT) FROM PUBLIC, anon, authenticated;
@@ -345,8 +383,10 @@ GRANT EXECUTE ON FUNCTION dealer_withdraw_lapsed_listing_authority(TEXT) TO serv
 DO $cron$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    -- R6 DBA review 2 #2: the whole run is bounded (5 min, half the cadence; worst case is
+    -- ~104 programme dealers x 2 s lock wait); a cancelled run withdraws nothing and the next retries.
     PERFORM cron.schedule('carup-dealer-listing-lapse-sweep', '*/10 * * * *',
-      'SELECT public.dealer_withdraw_lapsed_listing_authority(''pg_cron'')');
+      'SET statement_timeout = ''300s''; SELECT public.dealer_withdraw_lapsed_listing_authority(''pg_cron'')');
   END IF;
 END
 $cron$;
@@ -374,6 +414,12 @@ BEGIN
          WHERE coalesce(NEW.listing_type,'vehicle') = 'vehicle' AND x.vin = NEW.listing_id)))
       AS c(t) WHERE t IS NOT NULL
   LOOP
+    IF current_setting('transaction_isolation') <> 'read committed'
+       AND EXISTS (SELECT 1 FROM dealer_approved_seed_links WHERE tenant_id = v_tenant) THEN
+      -- R6 DBA review 2 #6: as the vehicle guard — under REPEATABLE READ/SERIALIZABLE the authority
+      -- read could use a snapshot older than a committed suspension.
+      RAISE EXCEPTION 'DEALER_INQUIRY_REQUIRES_READ_COMMITTED';
+    END IF;
     SELECT * INTO v_link FROM dealer_approved_seed_links WHERE tenant_id = v_tenant FOR SHARE;
     IF FOUND AND NOT dealer_tenant_listing_authority_current(v_link.tenant_id) THEN
       RAISE EXCEPTION 'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT';
@@ -601,6 +647,7 @@ $cron$;
 DROP FUNCTION IF EXISTS dealer_storefront_public_listing_vins(TEXT, INTEGER);
 DROP TRIGGER IF EXISTS dealer_guard_seller_authority_decision ON vehicle_seller_authority;
 DROP FUNCTION IF EXISTS dealer_guard_seller_authority_decision();
+DROP TRIGGER IF EXISTS dealer_withdraw_listings_on_owner_membership_delete ON tenant_users;
 DROP TRIGGER IF EXISTS dealer_withdraw_listings_on_owner_membership_change ON tenant_users;
 DROP FUNCTION IF EXISTS dealer_withdraw_listings_on_owner_membership_change();
 DROP TRIGGER IF EXISTS dealer_withdraw_listings_on_policy_change ON dealer_country_legal_policy_authority;
@@ -620,7 +667,7 @@ DROP FUNCTION IF EXISTS dealer_withdraw_listings_on_link_change();
 DROP TRIGGER IF EXISTS dealer_guard_canonical_listing_write ON vehicles;
 DROP FUNCTION IF EXISTS dealer_guard_canonical_listing_write();
 DROP FUNCTION IF EXISTS dealer_withdraw_tenant_public_listings(UUID, TEXT, TEXT);
-DROP FUNCTION IF EXISTS dealer_lock_tenant_public_listings(UUID);
+DROP FUNCTION IF EXISTS dealer_lock_tenant_programme_vins(UUID);
 DROP FUNCTION IF EXISTS dealer_tenant_listing_authority_current(UUID);
 DROP TABLE IF EXISTS dealer_vehicle_branch_assignments;
 DROP TABLE IF EXISTS dealer_listing_authority_events;
