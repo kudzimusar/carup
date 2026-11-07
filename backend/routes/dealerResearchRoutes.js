@@ -476,28 +476,33 @@ router.post('/api/admin/dealership/full-storefronts/:seedId/review',
   }catch(error){errorResponse(res,next,error)}
 });
 
-// R5 T22: independent reviewer queue, password step-up preview, and disposition for
-// tenant-scoped dealership storefront media items (no OEM/logo rights approved).
+// R5 T22 + Issue #164 Phase 5 containment:
+// Independent reviewer queue, password step-up preview, and disposition for tenant-scoped
+// dealership storefront media items. Never accepts an inbound media identity parameter;
+// preview and review are scoped by `:seedId` and require a short-lived, single-use,
+// server-issued review_ticket bound to the authenticated reviewer, dealership, and operation.
 router.get('/api/admin/dealership/storefront-media/queue',
   reviewer, async (req,res,next) => {
   try {
-    const items = await listStorefrontMediaReviewQueue(req.userContext);
+    const items = await listStorefrontMediaReviewQueue(req.userContext, {
+      seedDealerId: req.query.seed_dealer_id,
+    });
     res.set('Cache-Control','no-store').json({ items });
   } catch (error) { errorResponse(res,next,error); }
 });
-router.post('/api/admin/dealership/storefront-media/:mediaId/preview',
+router.post('/api/admin/dealership/storefront-media/:seedId/preview',
   mediaReviewWriteLimit, reviewer, async (req,res,next) => {
   try {
     const preview = await previewStorefrontMediaItem(
-      req.params.mediaId, req.userContext, req.body?.reviewer_password);
+      req.params.seedId, req.userContext, req.body || {});
     res.set('Cache-Control','no-store').json({ preview });
   } catch (error) { errorResponse(res,next,error); }
 });
-router.post('/api/admin/dealership/storefront-media/:mediaId/review',
+router.post('/api/admin/dealership/storefront-media/:seedId/review',
   mediaReviewWriteLimit, reviewer, async (req,res,next) => {
   try {
     const review = await reviewStorefrontMediaItem(
-      req.params.mediaId, req.userContext, req.body || {});
+      req.params.seedId, req.userContext, req.body || {});
     res.set('Cache-Control','no-store').status(201).json({ review });
   } catch (error) { errorResponse(res,next,error); }
 });

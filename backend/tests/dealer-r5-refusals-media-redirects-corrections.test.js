@@ -4,7 +4,10 @@
  *  - S08: Multi-prelisting directory browse & filtering by category, tier, city, and query
  *  - T42: Customer/business source correction & takedown reviewer disposition
  *  - S09: Governed duplicate reconciliation, canonical URL redirect & hostile-takeover guard
- *  - T22: Tenant-scoped dealership media gallery, ClamAV scan, rights attestation & reviewer approval
+ *  - T22 + Issue #164 Phase 5 containment: Tenant-scoped dealership media gallery, ClamAV scan,
+ *    rights attestation & scope-bound, short-lived, single-use, non-enumerable reviewer tickets
+ *    (positive + negative tests for invalid, raw-UUID, expired, replayed, cross-dealership,
+ *    cross-reviewer, and cross-operation requests).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,6 +34,12 @@ const reviewerActor = {
   isVerified: true,
   platformRole: 'reviewer',
 };
+const secondReviewerActor = {
+  userId: 'reviewer-r5-second',
+  authenticationMethod: 'session',
+  isVerified: true,
+  platformRole: 'reviewer',
+};
 const ownerActor = {
   userId: 'owner-r5',
   authenticationMethod: 'session',
@@ -51,6 +60,7 @@ test('R5 API Refusal Mapper: deterministically classifies SQL exceptions into 40
     ['INVALID_CORRECTION_REVIEW_DECISION', 400],
     ['SELF_DUPLICATE_REDIRECT_REFUSED', 400],
     ['INVALID_DEALER_MEDIA_METADATA', 400],
+    ['INVALID_MEDIA_REVIEW_TICKET_GRANT', 400],
     ['INDEPENDENT_REVIEWER_AUTHORITY_REQUIRED', 403],
     ['INDEPENDENT_GROUP_REVIEWER_REQUIRED', 403],
     ['INDEPENDENT_PUBLIC_CONTACT_REVIEWER_REQUIRED', 403],
@@ -59,6 +69,7 @@ test('R5 API Refusal Mapper: deterministically classifies SQL exceptions into 40
     ['INDEPENDENT_MEDIA_REVIEWER_REQUIRED', 403],
     ['DEALER_MEDIA_UPLOAD_AUTHORITY_NOT_CURRENT', 403],
     ['REINSTATEMENT_REQUIRES_DIFFERENT_REVIEWER', 403],
+    ['STOREFRONT_MEDIA_REVIEW_TICKET_INVALID', 403],
     ['UNKNOWN_RESEARCH_SEED', 404],
     ['CORRECTION_REQUEST_NOT_FOUND', 404],
     ['STOREFRONT_MEDIA_NOT_FOUND', 404],
@@ -513,4 +524,228 @@ test('T22 dealerStorefrontMediaService validates image bytes, refuses OEM/logo c
   assert.equal(uploaded.public_display_approved, false);
   assert.equal(uploadedPaths.length, 1);
   assert.match(uploadedPaths[0], /^dealership-media\//);
+});
+
+test('Issue #164 + T22 scope-bound review tickets: positive flow and negative refusals for raw UUID, invalid, expired, replayed, cross-dealership, cross-reviewer, and cross-operation requests', async () => {
+  const TARGET_MEDIA_ID = '77777777-7777-4777-8777-777777777777';
+  const TENANT_ID = '99999999-8888-4777-8666-555555555555';
+  const CONTENT_SHA = 'a'.repeat(64);
+  const BASE_NOW = 1_762_000_000_000;
+
+  let dbQueryCount = 0;
+  const storedRow = {
+    media_id: TARGET_MEDIA_ID,
+    seed_dealer_id: 'ZW-DEAL-0001',
+    tenant_id: TENANT_ID,
+    branch_id: null,
+    uploaded_by: ownerActor.userId,
+    storage_bucket: 'ocr-documents',
+    storage_path: `dealership-media/${TENANT_ID}/${TARGET_MEDIA_ID}.png`,
+    content_sha256: CONTENT_SHA,
+    mime_type: 'image/png',
+    file_bytes: 68,
+    media_category: 'SHOWROOM_EXTERIOR',
+    caption: 'Harare showroom forecourt and customer reception',
+    alt_text: 'Exterior view of Harare dealership showroom forecourt',
+    rights_attestation: media.DEALER_MEDIA_RIGHTS_ATTESTATION,
+    review_status: 'PENDING_INDEPENDENT_REVIEW',
+    created_at: '2026-11-07T00:00:00Z',
+    updated_at: '2026-11-07T00:00:00Z',
+  };
+
+  const mockDb = {
+    from(table) {
+      assert.equal(table, 'dealer_storefront_media_items');
+      dbQueryCount += 1;
+      let rows = [storedRow];
+      const chain = {
+        select() { return chain; },
+        eq(col, val) {
+          rows = rows.filter((r) => r[col] === val);
+          return chain;
+        },
+        order() { return chain; },
+        async limit() { return { data: rows, error: null }; },
+        then(onFulfilled, onRejected) {
+          return Promise.resolve({ data: rows, error: null }).then(onFulfilled, onRejected);
+        },
+      };
+      return chain;
+    },
+    storage: {
+      from(bucket) {
+        assert.equal(bucket, 'ocr-documents');
+        return {
+          async download() {
+            return { data: Buffer.from(VALID_PNG_BASE64, 'base64'), error: null };
+          },
+          async createSignedUrl() {
+            return { data: { signedUrl: 'https://storage.example.invalid/signed' }, error: null };
+          },
+        };
+      },
+    },
+    async rpc(name, args) {
+      assert.equal(name, 'dealer_review_storefront_media_item');
+      assert.equal(args.p_media_id, TARGET_MEDIA_ID);
+      assert.equal(args.p_reviewer_id, reviewerActor.userId);
+      return {
+        data: {
+          event_id: '88888888-8888-4888-8888-888888888888',
+          media_id: TARGET_MEDIA_ID,
+          seed_dealer_id: 'ZW-DEAL-0001',
+          decision: args.p_decision,
+          public_display_approved: args.p_decision === 'APPROVED_PUBLIC_DISPLAY',
+          logo_rights_approved: false,
+        },
+        error: null,
+      };
+    },
+  };
+
+  const stepUpCalls = [];
+  const stepUp = async (actor, target, password) => {
+    assert.equal(password, REVIEWER_PW);
+    assert.notEqual(actor.userId, target.claimant_user_id);
+    stepUpCalls.push({ reviewer: actor.userId, uploadedBy: target.claimant_user_id });
+  };
+
+  // 1. Self-uploader receives null tickets when listing queue (maker-checker enforced at ticket issuance)
+  const uploaderSameAsReviewer = { ...reviewerActor, userId: ownerActor.userId };
+  const selfQueue = await media.listStorefrontMediaReviewQueue(uploaderSameAsReviewer, {
+    db: mockDb,
+    now: BASE_NOW,
+  });
+  assert.equal(selfQueue.length, 1);
+  assert.equal(selfQueue[0].independent_reviewer_required, false);
+  assert.equal(selfQueue[0].preview_ticket, null);
+  assert.equal(selfQueue[0].decision_ticket, null);
+
+  // 2. Independent reviewer receives opaque, non-UUID preview_ticket and decision_ticket
+  const queue = await media.listStorefrontMediaReviewQueue(reviewerActor, {
+    db: mockDb,
+    seedDealerId: 'ZW-DEAL-0001',
+    ticketTtlMs: 60_000,
+    now: BASE_NOW,
+  });
+  assert.equal(queue.length, 1);
+  const item = queue[0];
+  assert.equal(item.independent_reviewer_required, true);
+  assert.match(item.preview_ticket, /^rt1\./);
+  assert.match(item.decision_ticket, /^rt1\./);
+  assert.notEqual(item.preview_ticket, item.decision_ticket);
+  // Ensure the encrypted ticket never leaks the UUID in plaintext
+  assert.equal(item.preview_ticket.includes(TARGET_MEDIA_ID), false);
+  assert.equal(item.decision_ticket.includes(TARGET_MEDIA_ID), false);
+
+  // 3. Negative checks BEFORE any database lookup runs:
+  dbQueryCount = 0;
+
+  // 3a. Raw UUID (real or fabricated) supplied as review_ticket is refused without querying DB
+  for (const rawId of [TARGET_MEDIA_ID, '00000000-1111-4222-8333-444444444444', 'not-a-ticket', '']) {
+    await assert.rejects(
+      media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+        review_ticket: rawId,
+        reviewer_password: REVIEWER_PW,
+      }, { db: mockDb, stepUp, now: BASE_NOW + 1000 }),
+      (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
+    );
+  }
+  assert.equal(dbQueryCount, 0, 'raw UUIDs and malformed tickets must be refused before any DB query');
+
+  // 3b. Cross-dealership scope (`ZW-DEAL-0002` instead of `ZW-DEAL-0001`) refused without querying DB
+  await assert.rejects(
+    media.previewStorefrontMediaItem('ZW-DEAL-0002', reviewerActor, {
+      review_ticket: item.preview_ticket,
+      reviewer_password: REVIEWER_PW,
+    }, { db: mockDb, stepUp, now: BASE_NOW + 1000 }),
+    (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
+  );
+  assert.equal(dbQueryCount, 0, 'cross-dealership ticket must fail AAD verification before any DB query');
+
+  // 3c. Cross-reviewer scope (`secondReviewerActor` using `reviewerActor`'s ticket) refused without querying DB
+  await assert.rejects(
+    media.previewStorefrontMediaItem('ZW-DEAL-0001', secondReviewerActor, {
+      review_ticket: item.preview_ticket,
+      reviewer_password: REVIEWER_PW,
+    }, { db: mockDb, stepUp, now: BASE_NOW + 1000 }),
+    (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
+  );
+  assert.equal(dbQueryCount, 0, 'cross-reviewer ticket must fail AAD verification before any DB query');
+
+  // 3d. Cross-operation scope (`preview_ticket` presented to `reviewStorefrontMediaItem`, or `decision_ticket` to `previewStorefrontMediaItem`)
+  await assert.rejects(
+    media.reviewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+      review_ticket: item.preview_ticket,
+      decision: 'APPROVED_PUBLIC_DISPLAY',
+      reason: 'Attempting to use a preview ticket on the decision endpoint must fail.',
+      reviewer_password: REVIEWER_PW,
+    }, { db: mockDb, stepUp, now: BASE_NOW + 1000 }),
+    (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
+  );
+  await assert.rejects(
+    media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+      review_ticket: item.decision_ticket,
+      reviewer_password: REVIEWER_PW,
+    }, { db: mockDb, stepUp, now: BASE_NOW + 1000 }),
+    (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
+  );
+  assert.equal(dbQueryCount, 0, 'cross-operation ticket must fail AAD verification before any DB query');
+
+  // 3e. Expired ticket (`now > expiresAt`) refused without querying DB
+  await assert.rejects(
+    media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+      review_ticket: item.preview_ticket,
+      reviewer_password: REVIEWER_PW,
+    }, { db: mockDb, stepUp, now: BASE_NOW + 60_001 }),
+    (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
+  );
+  assert.equal(dbQueryCount, 0, 'expired ticket must be refused before any DB query');
+
+  // 4. Positive flow: valid preview_ticket within TTL succeeds with password step-up
+  const preview = await media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+    review_ticket: item.preview_ticket,
+    reviewer_password: REVIEWER_PW,
+  }, { db: mockDb, stepUp, now: BASE_NOW + 5000 });
+  assert.equal(preview.media_id, TARGET_MEDIA_ID);
+  assert.equal(preview.seed_dealer_id, 'ZW-DEAL-0001');
+  assert.equal(preview.logo_rights_approved, false);
+  assert.match(preview.signed_url, /^data:image\/png;base64,/);
+  assert.equal(dbQueryCount, 1);
+  assert.equal(stepUpCalls.length, 1);
+
+  // 5. Replay protection: reusing the consumed preview_ticket is refused before querying DB
+  await assert.rejects(
+    media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+      review_ticket: item.preview_ticket,
+      reviewer_password: REVIEWER_PW,
+    }, { db: mockDb, stepUp, now: BASE_NOW + 6000 }),
+    (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
+  );
+  assert.equal(dbQueryCount, 1, 'replayed preview_ticket must be refused before any DB query');
+
+  // 6. Positive flow: valid decision_ticket within TTL records immutable review decision
+  const reviewed = await media.reviewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+    review_ticket: item.decision_ticket,
+    decision: 'APPROVED_PUBLIC_DISPLAY',
+    reason: 'Independently verified Harare showroom exterior photo; descriptive alt text and caption present; zero OEM/brand logos.',
+    reviewer_password: REVIEWER_PW,
+  }, { db: mockDb, stepUp, now: BASE_NOW + 7000 });
+  assert.equal(reviewed.decision, 'APPROVED_PUBLIC_DISPLAY');
+  assert.equal(reviewed.public_display_approved, true);
+  assert.equal(reviewed.logo_rights_approved, false);
+  assert.equal(dbQueryCount, 2);
+  assert.equal(stepUpCalls.length, 2);
+
+  // 7. Replay protection: reusing the consumed decision_ticket is refused before querying DB
+  await assert.rejects(
+    media.reviewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+      review_ticket: item.decision_ticket,
+      decision: 'RETRACTED',
+      reason: 'Attempting to replay an already consumed decision ticket must fail closed.',
+      reviewer_password: REVIEWER_PW,
+    }, { db: mockDb, stepUp, now: BASE_NOW + 8000 }),
+    (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
+  );
+  assert.equal(dbQueryCount, 2, 'replayed decision_ticket must be refused before any DB query');
 });

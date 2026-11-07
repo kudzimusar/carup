@@ -1,5 +1,5 @@
 /**
- * CARUP-DEALER-ONB-001-LR01-R4 P0-2 — physical phase SIX setup (after the accepted retraction phase).
+ * CARUP-DEALER-ONB-001-LR01-R4 P0-2 / R5 — physical phase SIX setup (after the accepted retraction phase).
  *
  * Adds exactly two EXPLICITLY FICTIONAL accounts to the disposable loopback database:
  *  - an independent CarUp vehicle-document reviewer (platform admin; NOT a dealership member,
@@ -54,6 +54,16 @@ try {
   // storefront retracted, and no listing custody yet.
   assert.deepEqual(pre, { authority_current: true, published: 0, listing_vin_rows: 0,
     current_storefronts: 0, listing_events: 0 }, 'phase-six preconditions');
+
+  // Ensure disposable loopback service_role has explicit table privileges on R5 tables
+  await db.query(`GRANT SELECT, INSERT, UPDATE ON
+    dealer_storefront_media_items,
+    dealer_storefront_media_review_events,
+    dealer_research_correction_requests,
+    dealer_research_correction_review_events,
+    dealer_research_duplicate_redirects
+    TO service_role`);
+  await db.query(`GRANT SELECT ON dealer_public_storefront_media_current TO anon, authenticated, service_role`);
 
   const reviewer = { id: 'vehiclereviewer1', name: 'Fictional CarUp Vehicle Document Reviewer',
     email: 'fictional-vehicle-reviewer@example.invalid', role: 'admin' };

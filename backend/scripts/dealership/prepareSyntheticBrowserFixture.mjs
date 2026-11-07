@@ -112,6 +112,14 @@ try{
  await db.query(`GRANT SELECT ON escrow_trust_sessions,
    dealer_transaction_feedback_cases,dealer_transaction_feedback_review_events
    TO service_role`);
+ await db.query(`GRANT SELECT, INSERT, UPDATE ON
+   dealer_storefront_media_items,
+   dealer_storefront_media_review_events,
+   dealer_research_correction_requests,
+   dealer_research_correction_review_events,
+   dealer_research_duplicate_redirects
+   TO service_role`);
+ await db.query(`GRANT SELECT ON dealer_public_storefront_media_current TO anon, authenticated, service_role`);
  await db.query(`UPDATE users SET
   name=CASE WHEN id='claimant1' THEN 'Fictional Claimant One'
        WHEN id='reviewer1' THEN 'Fictional Independent Reviewer'

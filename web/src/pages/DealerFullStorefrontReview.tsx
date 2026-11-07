@@ -20,7 +20,11 @@ type MediaQueueItem={
   mime_type:string;file_bytes:number;media_category:string;
   caption:string;alt_text:string;rights_attestation:string;
   review_status:string;created_at:string;
-  independent_reviewer_required:boolean;logo_rights_approved:false;
+  independent_reviewer_required:boolean;
+  preview_ticket:string|null;
+  decision_ticket:string|null;
+  ticket_expires_at:string|null;
+  logo_rights_approved:false;
 }
 type MediaPreview={
   media_id:string;seed_dealer_id:string;mime_type:string;
@@ -42,7 +46,7 @@ export default function DealerFullStorefrontReview(){
   ['admin','reviewer','platform_admin','super_admin'].includes(String(user.role)))
  const [queue,setQueue]=useState<QueueItem[]>([])
  const [mediaQueue,setMediaQueue]=useState<MediaQueueItem[]>([])
- const [selectedMediaId,setSelectedMediaId]=useState('')
+ const [selectedMediaKey,setSelectedMediaKey]=useState('')
  const [mediaPreview,setMediaPreview]=useState<MediaPreview|null>(null)
  const [mediaDecision,setMediaDecision]=useState<MediaDecision>('APPROVED_PUBLIC_DISPLAY')
  const [mediaReason,setMediaReason]=useState('')
@@ -73,7 +77,7 @@ export default function DealerFullStorefrontReview(){
    setMediaQueue(mediaResult.items||[])
    setSeed(previous=>result.cases.some(x=>x.seed_dealer_id===previous)
     ?previous:result.cases[0]?.seed_dealer_id||'')
-   setSelectedMediaId(previous=>(mediaResult.items||[]).some(m=>m.media_id===previous)
+   setSelectedMediaKey(previous=>(mediaResult.items||[]).some(m=>m.media_id===previous)
     ?previous:mediaResult.items?.[0]?.media_id||'')
   }catch(problem){
    setQueue([])
@@ -94,6 +98,8 @@ export default function DealerFullStorefrontReview(){
   })
   return()=>{active=false}
  },[seed])
+ const item=queue.find(x=>x.seed_dealer_id===seed)
+ const currentMedia=mediaQueue.find(m=>m.media_id===selectedMediaKey)
  async function inspect(){
   if(!user||!token||busy||!seed||password.length<8)return
   setBusy(true);setError('');setStatus('')
@@ -110,12 +116,15 @@ export default function DealerFullStorefrontReview(){
   }finally{setPassword('');setBusy(false)}
  }
  async function inspectMedia(){
-  if(!user||!token||busy||!selectedMediaId||password.length<8)return
+  if(!user||!token||busy||!currentMedia?.preview_ticket||password.length<8)return
   setBusy(true);setError('');setStatus('')
   try{
    const result=await apiRequest<{preview:MediaPreview}>({
-    baseUrl:API,path:'/admin/dealership/storefront-media/'+encodeURIComponent(selectedMediaId)+'/preview',
-    options:{method:'POST',body:JSON.stringify({reviewer_password:password})},
+    baseUrl:API,path:'/admin/dealership/storefront-media/'+encodeURIComponent(currentMedia.seed_dealer_id)+'/preview',
+    options:{method:'POST',body:JSON.stringify({
+      review_ticket:currentMedia.preview_ticket,
+      reviewer_password:password,
+    })},
     authHeaders:headers(user.id,token),
    })
    setMediaPreview(result.preview)
@@ -125,12 +134,13 @@ export default function DealerFullStorefrontReview(){
   }finally{setPassword('');setBusy(false)}
  }
  async function recordMediaDecision(){
-  if(!user||!token||busy||!selectedMediaId||password.length<8||mediaReason.trim().length<40)return
+  if(!user||!token||busy||!currentMedia?.decision_ticket||password.length<8||mediaReason.trim().length<40)return
   setBusy(true);setError('');setStatus('')
   try{
    const result=await apiRequest<{review:{media_id:string;decision:string;public_display_approved:boolean}}>({
-    baseUrl:API,path:'/admin/dealership/storefront-media/'+encodeURIComponent(selectedMediaId)+'/review',
+    baseUrl:API,path:'/admin/dealership/storefront-media/'+encodeURIComponent(currentMedia.seed_dealer_id)+'/review',
     options:{method:'POST',body:JSON.stringify({
+      review_ticket:currentMedia.decision_ticket,
       decision:mediaDecision,
       reason:mediaReason.trim(),
       reviewer_password:password,
@@ -166,8 +176,6 @@ export default function DealerFullStorefrontReview(){
    setError(problem instanceof Error?problem.message:'Publication decision refused')
   }finally{setBusy(false);setPassword('')}
  }
- const item=queue.find(x=>x.seed_dealer_id===seed)
- const currentMedia=mediaQueue.find(m=>m.media_id===selectedMediaId)
  return <main className="min-h-screen bg-slate-50 px-4 py-10">
   <div className="mx-auto max-w-6xl">
    <Link to="/admin/dealer-claims" className="text-sm text-blue-700 underline">
@@ -278,8 +286,8 @@ export default function DealerFullStorefrontReview(){
       <section className="border-t pt-5 space-y-3" data-testid="dealer-media-review-section">
        <h3 className="font-semibold">Independent storefront media gallery review</h3>
        <p className="text-xs text-slate-600">
-        Review dealer-uploaded facility photographs individually. Verify descriptive accessibility
-        alt text, caption accuracy, and absence of OEM or third-party brand logos.
+        Review dealer-uploaded facility photographs individually using scope-bound reviewer tickets.
+        Verify descriptive accessibility alt text, caption accuracy, and absence of OEM or third-party brand logos.
        </p>
        {mediaQueue.length===0&&<p className="text-sm text-slate-500">
         No dealership facility media items in queue.
@@ -289,8 +297,8 @@ export default function DealerFullStorefrontReview(){
          Select dealership media item
         </label>
         <select id="storefront-media-select" className="w-full rounded-lg border p-3 text-sm bg-white"
-         value={selectedMediaId}
-         onChange={e=>{setSelectedMediaId(e.target.value);setMediaPreview(null)}}>
+         value={selectedMediaKey}
+         onChange={e=>{setSelectedMediaKey(e.target.value);setMediaPreview(null)}}>
          {mediaQueue.map(m=><option key={m.media_id} value={m.media_id}>
           {m.seed_dealer_id} · {m.media_category} · {m.caption} ({m.review_status})
          </option>)}
@@ -300,7 +308,7 @@ export default function DealerFullStorefrontReview(){
          <p><strong>Caption:</strong> {currentMedia.caption}</p>
          <p><strong>Alt text:</strong> {currentMedia.alt_text}</p>
          <Button variant="outline" size="sm"
-          disabled={busy||password.length<8||!currentMedia.independent_reviewer_required}
+          disabled={busy||password.length<8||!currentMedia.independent_reviewer_required||!currentMedia.preview_ticket}
           onClick={()=>{void inspectMedia()}}>
           Preview private media binary
          </Button>
@@ -328,7 +336,7 @@ export default function DealerFullStorefrontReview(){
           onChange={e=>setMediaReason(e.target.value)}
           className="w-full rounded-lg border p-3 min-h-24 bg-white"/>
          <Button variant="outline"
-          disabled={busy||password.length<8||mediaReason.trim().length<40||!currentMedia.independent_reviewer_required}
+          disabled={busy||password.length<8||mediaReason.trim().length<40||!currentMedia.independent_reviewer_required||!currentMedia.decision_ticket}
           onClick={()=>{void recordMediaDecision()}}>
           Record storefront media decision
          </Button>

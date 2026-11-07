@@ -1,7 +1,8 @@
 /**
- * CARUP-DEALER-ONB-001-LR01-R4 P0-2 — SQL custody for physical phase SIX (dealer VIN listing) and,
- * with --after-suspension, phase SEVEN. Read-only; disposable loopback database only.
- * Proves what the real browser wrote, not what a test asserted about itself.
+ * CARUP-DEALER-ONB-001-LR01-R4 P0-2 / R5 — SQL custody for physical phase SIX (dealer VIN listing +
+ * T22 media gallery) and, with --after-suspension, phase SEVEN (suspension/revocation + S08 + T42 + S09).
+ * Read-only; disposable loopback database only. Proves what the real browser wrote, not what a test
+ * asserted about itself.
  */
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -58,6 +59,28 @@ try {
   const storage = (await db.query(`SELECT count(*)::int AS n FROM storage.objects
       WHERE bucket_id = 'ocr-documents' AND name LIKE $1`, [VIN + '/%'])).rows[0].n;
   assert.equal(storage, 1, 'the document bytes exist in real private Storage');
+
+  // R5 T22 custody: owner-uploaded showroom photo, independent reviewer approval, and private storage object
+  const mediaItems = (await db.query(`SELECT media_id::text, seed_dealer_id, tenant_id::text, uploaded_by,
+      media_category, caption, alt_text, rights_attestation, logo_rights_approved, review_status
+      FROM dealer_storefront_media_items WHERE seed_dealer_id = $1`, [f.seed])).rows;
+  assert.equal(mediaItems.length, 1, 'one browser-uploaded storefront media item');
+  assert.equal(mediaItems[0].tenant_id, String(link.tenant_id));
+  assert.equal(mediaItems[0].uploaded_by, owner);
+  assert.equal(mediaItems[0].logo_rights_approved, false);
+  assert.equal(mediaItems[0].review_status, 'APPROVED_PUBLIC_DISPLAY');
+  const mediaEvents = (await db.query(`SELECT reviewer_id, decision, previous_status, next_status
+      FROM dealer_storefront_media_review_events WHERE seed_dealer_id = $1`, [f.seed])).rows;
+  assert.deepEqual(mediaEvents, [{
+    reviewer_id: f.actors.reviewer.id,
+    decision: 'APPROVED_PUBLIC_DISPLAY',
+    previous_status: 'PENDING_INDEPENDENT_REVIEW',
+    next_status: 'APPROVED_PUBLIC_DISPLAY',
+  }]);
+  const mediaStorage = (await db.query(`SELECT count(*)::int AS n FROM storage.objects
+      WHERE bucket_id = 'ocr-documents' AND name LIKE $1`, ['dealership-media/' + link.tenant_id + '/%'])).rows[0].n;
+  assert.equal(mediaStorage, 1, 'storefront media binary exists in private Storage');
+
   const inquiries = (await db.query(`SELECT buyer_id, seller_id, seller_tenant_id, status, risk_status
       FROM marketplace_inquiries WHERE listing_id = $1 ORDER BY created_at`, [VIN])).rows;
   assert.equal(inquiries.length, 1, 'exactly one buyer enquiry (post-suspension attempt was refused)');
@@ -75,7 +98,8 @@ try {
   const receipt = {
     fictional_only: true, vin: VIN, governed_seller: 'APPROVED_OWNER', facts_source: 'dealer_declared',
     evidence: 'registration/registration_book verified by independent non-member admin',
-    storage_objects: storage, buyer_enquiries: inquiries.length, enquiry_final_status: inquiries[0].status,
+    storage_objects: storage, media_storage_objects: mediaStorage, media_review_events: mediaEvents.length,
+    buyer_enquiries: inquiries.length, enquiry_final_status: inquiries[0].status,
     progress_events: progress.length, outbox_events_pending_undelivered: outbox.length,
     publication_status: v.publication_status, link_operating_status: link.operating_status,
   };
@@ -85,21 +109,58 @@ try {
     assert.deepEqual(withdrawal, [{ event_type: 'PUBLIC_LISTINGS_WITHDRAWN', reason_code: 'OPERATING_LINK_SUSPENDED', affected_listings: 1 }]);
     const now = (await db.query(`SELECT dealer_tenant_listing_authority_current($1::uuid) AS current,
         (SELECT count(*)::int FROM dealer_storefront_public_listing_vins($2, 12)) AS storefront_vins,
+        (SELECT count(*)::int FROM dealer_public_storefront_media_current WHERE seed_dealer_id = $2) AS public_media_items,
         (SELECT status FROM tenants WHERE id = $1::uuid) AS tenant_status`, [link.tenant_id, f.seed])).rows[0];
-    assert.deepEqual(now, { current: false, storefront_vins: 0, tenant_status: 'suspended' });
-    Object.assign(receipt, { withdrawal_event: withdrawal[0], authority_current_after: false, storefront_vins_after: 0 });
+    assert.deepEqual(now, { current: false, storefront_vins: 0, public_media_items: 0, tenant_status: 'suspended' });
+
+    // R5 T42 custody: ZW-DEAL-0003 correction resolved as RESOLVED_SUPPRESSED and withdrawn from public profiles
+    const corrReview = (await db.query(`SELECT seed_dealer_id, reviewer_id, decision, resulting_publication_status
+        FROM dealer_research_correction_review_events WHERE seed_dealer_id = 'ZW-DEAL-0003'`)).rows;
+    assert.deepEqual(corrReview, [{
+      seed_dealer_id: 'ZW-DEAL-0003',
+      reviewer_id: f.actors.reviewer.id,
+      decision: 'RESOLVED_SUPPRESSED',
+      resulting_publication_status: 'SUPPRESSED',
+    }]);
+    const suppressedPublic = (await db.query(`SELECT count(*)::int AS n FROM dealer_research_public_profiles
+        WHERE seed_dealer_id = 'ZW-DEAL-0003'`)).rows[0].n;
+    assert.equal(suppressedPublic, 0, 'T42 suppressed profile withdrawn from public profiles');
+
+    // R5 S09 custody: ZW-DEAL-0004 reconciled as duplicate of canonical ZW-DEAL-0002
+    const redirects = (await db.query(`SELECT duplicate_seed_dealer_id, canonical_seed_dealer_id, canonical_slug, reviewer_id
+        FROM dealer_research_duplicate_redirects WHERE duplicate_seed_dealer_id = 'ZW-DEAL-0004'`)).rows;
+    assert.deepEqual(redirects, [{
+      duplicate_seed_dealer_id: 'ZW-DEAL-0004',
+      canonical_seed_dealer_id: 'ZW-DEAL-0002',
+      canonical_slug: 'zw-deal-0002',
+      reviewer_id: f.actors.reviewer.id,
+    }]);
+    const dupPublic = (await db.query(`SELECT count(*)::int AS n FROM dealer_research_public_profiles
+        WHERE seed_dealer_id = 'ZW-DEAL-0004'`)).rows[0].n;
+    assert.equal(dupPublic, 0, 'S09 duplicate profile withdrawn from public profiles');
+
+    Object.assign(receipt, {
+      withdrawal_event: withdrawal[0],
+      authority_current_after: false,
+      storefront_vins_after: 0,
+      public_media_items_after: 0,
+      t42_correction_review: corrReview[0],
+      s09_duplicate_redirect: redirects[0],
+    });
   } else {
     assert.equal(link.operating_status, 'ACTIVE');
     const storefront = (await db.query(`SELECT vin FROM dealer_storefront_public_listing_vins($1, 12)`, [f.seed])).rows;
     assert.deepEqual(storefront.map((r) => r.vin), [VIN]);
+    const publicMedia = (await db.query(`SELECT count(*)::int AS n FROM dealer_public_storefront_media_current WHERE seed_dealer_id = $1`, [f.seed])).rows[0].n;
+    assert.equal(publicMedia, 1, '1 approved public media item while authority and storefront are active');
   }
   const file = afterSuspension ? 'web/test-results/fictional-native-dealer-suspension-custody.json'
     : 'web/test-results/fictional-native-vin-listing-custody.json';
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(receipt, null, 2) + '\n', { mode: 0o600 });
   console.log(afterSuspension
-    ? 'DEALER_NATIVE_FICTIONAL_SUSPENSION_CUSTODY PASS: revocation withdrew the 1 public dealer listing (OPERATING_LINK_SUSPENDED), authority not current, tenant suspended, 0 storefront VINs, no post-revocation enquiry'
-    : 'DEALER_NATIVE_FICTIONAL_LISTING_CUSTODY PASS: owner governed seller, dealer_declared facts, owned branch, independent non-member document review, real private Storage object, published, 1 buyer enquiry qualified via 2 audited transitions, outbox pending undelivered');
+    ? 'DEALER_NATIVE_FICTIONAL_SUSPENSION_CUSTODY PASS: revocation withdrew the 1 public dealer listing + media (OPERATING_LINK_SUSPENDED), authority not current, tenant suspended, 0 storefront VINs, 0 public media, T42 suppression + S09 duplicate redirect custody verified'
+    : 'DEALER_NATIVE_FICTIONAL_LISTING_CUSTODY PASS: owner governed seller, dealer_declared facts, owned branch, independent non-member document review, real private Storage objects (vehicle + media), T22 media approved, published, 1 buyer enquiry qualified via 2 audited transitions, outbox pending undelivered');
 } finally {
   await db.end();
 }

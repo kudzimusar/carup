@@ -14,20 +14,21 @@ This document is a proposal for the Owner and Moderator. Nothing in it has been 
 
 Before any integration, confirm `git merge-base --is-ancestor bb9d9900 <head>` and that `main` has not moved in a way that conflicts with the files listed in the PR. Rebase is an Owner decision; this branch has never been rebased.
 
-## 2. Database changes (19 additive migrations)
+## 2. Database changes (20 additive migrations)
 
-`20261103120000` … `20261103140000` (R1–R3, 17 migrations) plus two R4 migrations:
+`20261103120000` … `20261103140000` (R1–R3, 17 migrations) plus two R4 migrations and one R5 migration:
 
 | Migration | Adds | Touches canonical tables? | Rollback guard |
 |---|---|---|---|
 | `20261103141000_dealer_canonical_listing_authority` | listing authority events, VIN↔branch assignment, `dealer_tenant_listing_authority_current`, preparation function, storefront VIN function | **Yes — triggers on `vehicles`, `vehicle_evidence`, `marketplace_inquiries`, `tenants`, `dealer_profiles`, `dealer_approved_seed_links`.** Each trigger returns immediately for tenants without a `dealer_approved_seed_links` row (every existing tenant). | Refuses while listing custody exists |
 | `20261103142000_dealer_operating_lifecycle` | append-only lifecycle events, `dealer_record_operating_lifecycle_decision` | No (dealership tables only) | Refuses while lifecycle custody exists |
+| `20261103143000_dealer_r5_directory_media_corrections_redirects` | append-only correction review events, duplicate canonical redirects, storefront media items & review events, `dealer_public_storefront_media_current` view, `dealer_review_research_correction_request`, `dealer_reconcile_duplicate_research_seed`, `dealer_record_storefront_media_upload`, `dealer_review_storefront_media_item` | No (dealership tables only) | Refuses while R5 media/correction/redirect custody exists |
 
 **Production-impact review required before any apply:** the `20261103141000` triggers run on every write to `vehicles` / `vehicle_evidence` / `marketplace_inquiries` / `tenants`. Their cost for a non-programme tenant is one lookup on the tiny `dealer_approved_seed_links` table (compared as text so legacy non-UUID tenant ids cannot raise). This needs an independent DBA review and an EXPLAIN on staging before approval.
 
 ### Forward plan (only after separate authorization)
 1. Staging snapshot / PITR marker recorded.
-2. Apply the 19 migrations in filename order through the governed migration runner (never the dashboard SQL editor).
+2. Apply the 20 migrations in filename order through the governed migration runner (never the dashboard SQL editor).
 3. Run `database/test/dealer_1_0_pglite_check.mjs` semantics against a **staging clone**, not staging itself.
 4. Verify zero `dealer_*` business rows exist after apply (the migrations seed only the DRAFT ZW policy row).
 

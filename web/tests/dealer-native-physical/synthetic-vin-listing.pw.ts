@@ -131,6 +131,37 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  expect(selfVerify.status()).toBe(403)
  receipt.owner_publish_before_review_status=earlyPublish.status()
  receipt.owner_self_verify_status=selfVerify.status()
+
+ // T22: Owner uploads a tenant-scoped showroom facility photo on /dealers/operating-details (and OEM logo claim is 422-refused)
+ const pngBytes=Buffer.from([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,13,73,68,65,84,120,156,99,248,207,80,15,0,3,134,1,128,90,52,125,107,0,0,0,0,73,69,78,68,174,66,96,130])
+ const MEDIA_CAPTION='Harare fictional showroom forecourt'
+ const MEDIA_ALT='Exterior view of fictional Harare dealership showroom'
+ const logoRefusal=await unsafe(owner,f.actors.claimant,'POST','/dealer/operational-media',{
+  media_category:'SHOWROOM_EXTERIOR',
+  caption:MEDIA_CAPTION,
+  alt_text:MEDIA_ALT,
+  mime_type:'image/png',
+  image_data_url:'data:image/png;base64,'+pngBytes.toString('base64'),
+  rights_attestation:'DEALER_OWNED_PHOTOGRAPH_NO_OEM_OR_THIRD_PARTY_LOGO',
+  oem_or_brand_logo_claimed:true,
+ })
+ expect(logoRefusal.status()).toBe(422)
+ receipt.owner_media_oem_logo_refusal_status=logoRefusal.status()
+
+ await owner.goto('/dealers/operating-details')
+ const mediaSection=owner.getByTestId('dealer-owner-media-section')
+ await expect(mediaSection).toBeVisible({timeout:30000})
+ await mediaSection.locator('#dealer-media-category').selectOption('SHOWROOM_EXTERIOR')
+ await mediaSection.locator('#dealer-media-caption').fill(MEDIA_CAPTION)
+ await mediaSection.locator('#dealer-media-alt').fill(MEDIA_ALT)
+ await mediaSection.locator('#dealer-media-file').setInputFiles({
+  name:'fictional-harare-showroom.png',mimeType:'image/png',buffer:pngBytes})
+ await mediaSection.locator('#dealer-media-rights-attestation').check()
+ await mediaSection.getByRole('button',{name:'Upload facility photo for independent review'}).click()
+ await expect(owner.getByText('Uploaded showroom photo',{exact:false})).toBeVisible({timeout:30000})
+ await expect(mediaSection.getByText('PENDING_INDEPENDENT_REVIEW')).toBeVisible({timeout:30000})
+ axe.push(await axeScan(owner,info,'owner-media-upload-section','[data-testid="dealer-owner-media-section"]'))
+ await shot(owner,info,'r5-owner-facility-media-uploaded-1280')
  await ownerContext.close()
  await pause(WINDOW)
 
@@ -146,7 +177,7 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  await expect(reviewer.getByText('Evidence approved')).toBeVisible({timeout:30000})
  await reviewerContext.close()
 
- // ── 3. Dealership reviewer independently re-publishes the full storefront on the SAME URL ──
+ // ── 3. Dealership reviewer independently re-publishes the full storefront on the SAME URL & approves T22 media via scope-bound ticket ──
  const publicReviewerContext=await browser.newContext({viewport:{width:1280,height:900}})
  const publish=await publicReviewerContext.newPage()
  await actorOn(publish,f.actors.reviewer)
@@ -169,6 +200,32 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  await publish.getByRole('button',{name:'Record immutable publication decision'}).click()
  await expect(publish.getByText('Independent full storefront publication event recorded.',{exact:false}))
   .toBeVisible({timeout:40000})
+
+ // Issue #164 + T22 negative: raw UUID or fabricated ticket is refused with 403 STOREFRONT_MEDIA_REVIEW_TICKET_INVALID
+ const rawUuidTicketRefusal=await unsafe(publish,f.actors.reviewer,'POST',
+  '/admin/dealership/storefront-media/'+f.seed+'/preview',
+  {review_ticket:'00000000-1111-4222-8333-444444444444',reviewer_password:f.reviewer_password})
+ expect(rawUuidTicketRefusal.status()).toBe(403)
+ expect((await rawUuidTicketRefusal.json() as {code?:string}).code).toBe('STOREFRONT_MEDIA_REVIEW_TICKET_INVALID')
+ receipt.reviewer_raw_uuid_media_ticket_refusal_status=rawUuidTicketRefusal.status()
+
+ // T22 positive: independent reviewer previews and approves the showroom photo via scope-bound ticket in the UI
+ const mediaReviewSection=publish.getByTestId('dealer-media-review-section')
+ await expect(mediaReviewSection).toBeVisible({timeout:30000})
+ await expect(mediaReviewSection.getByText(MEDIA_CAPTION)).toBeVisible({timeout:30000})
+ await publish.locator('#storefront-password').fill(f.reviewer_password)
+ await mediaReviewSection.getByRole('button',{name:'Preview private media binary'}).click()
+ await expect(publish.getByText('Opened private storefront media preview',{exact:false})).toBeVisible({timeout:30000})
+ await expect(mediaReviewSection.locator('img[alt="'+MEDIA_ALT+'"]')).toBeVisible({timeout:20000})
+ await mediaReviewSection.locator('#storefront-media-decision').selectOption('APPROVED_PUBLIC_DISPLAY')
+ await mediaReviewSection.locator('#storefront-media-reason').fill(
+  'Fictional CI independent media review: verified descriptive alt text, accurate caption, and absence of OEM or brand logos.')
+ await publish.locator('#storefront-password').fill(f.reviewer_password)
+ await mediaReviewSection.getByRole('button',{name:'Record storefront media decision'}).click()
+ await expect(publish.getByText('Recorded storefront media decision APPROVED_PUBLIC_DISPLAY',{exact:false}))
+  .toBeVisible({timeout:30000})
+ axe.push(await axeScan(publish,info,'reviewer-media-review-section','[data-testid="dealer-media-review-section"]'))
+ await shot(publish,info,'r5-independent-reviewer-media-approved-1280')
  await publicReviewerContext.close()
  await pause(WINDOW)
 
@@ -199,7 +256,7 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  await ownerAgain.close()
  await pause(WINDOW)
 
- // ── 5. Anonymous: Marketplace search, canonical vehicle detail, storefront association ──
+ // ── 5. Anonymous: Marketplace search, canonical vehicle detail, storefront association & T22 media gallery ──
  const guestContext=await browser.newContext({viewport:{width:1280,height:900}})
  const guest=await guestContext.newPage()
  const search=await guest.request.get(API+'/marketplace/listings?limit=24')
@@ -214,6 +271,14 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  const inv=await inventory.json() as {inventory:{entries:Array<{vin:string}>;projection:string}}
  expect(inv.inventory.entries.map(x=>x.vin)).toEqual([VIN])
  expect(inv.inventory.projection).toBe('CANONICAL_MARKETPLACE_PUBLIC_DETAIL')
+ const publicMediaResp=await guest.request.get(API+'/dealership/research/'+f.seed+'/media')
+ expect(publicMediaResp.status()).toBe(200)
+ const publicMediaJson=await publicMediaResp.json() as {media:{items:Array<{caption:string;alt_text:string;logo_rights_approved:boolean}>;oem_badges_or_logos_shown:boolean}}
+ expect(publicMediaJson.media.items).toHaveLength(1)
+ expect(publicMediaJson.media.items[0].caption).toBe(MEDIA_CAPTION)
+ expect(publicMediaJson.media.items[0].alt_text).toBe(MEDIA_ALT)
+ expect(publicMediaJson.media.items[0].logo_rights_approved).toBe(false)
+ expect(publicMediaJson.media.oem_badges_or_logos_shown).toBe(false)
  await guestContext.close()
  for(const [width,height] of [[390,844],[768,1024]] as const){
   const ctx=await browser.newContext({viewport:{width,height}})
@@ -224,6 +289,9 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
   await page.goto('/dealers/'+f.public_slug)
   await expect(page.getByTestId('dealer-storefront-inventory').getByRole('link',{name:new RegExp(MODEL)}))
    .toBeVisible({timeout:40000})
+  const gallery=page.getByTestId('dealer-storefront-media-gallery')
+  await expect(gallery).toBeVisible({timeout:30000})
+  await expect(gallery.locator('img[alt="'+MEDIA_ALT+'"]')).toBeVisible()
   await shot(page,info,'r4-approved-storefront-lists-canonical-vin-'+width)
   await ctx.close()
  }
@@ -235,9 +303,14 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
   await expect(page).toHaveURL(new RegExp('/dealers/'+f.public_slug+'$'))
   const link=page.getByTestId('dealer-storefront-inventory').getByRole('link',{name:new RegExp(MODEL)})
   await expect(link).toBeVisible({timeout:40000})
+  const gallery=page.getByTestId('dealer-storefront-media-gallery')
+  await expect(gallery).toBeVisible({timeout:30000})
+  await expect(gallery.locator('img[alt="'+MEDIA_ALT+'"]')).toBeVisible()
+  await expect(gallery.getByText('No OEM/brand logo rights approved')).toBeVisible()
   await shot(page,info,'r4-approved-storefront-lists-canonical-vin-'+width)
   if(width===1280){
    axe.push(await axeScan(page,info,'storefront-stock-card','[data-testid="dealer-storefront-inventory"]'))
+   axe.push(await axeScan(page,info,'storefront-media-gallery','[data-testid="dealer-storefront-media-gallery"]'))
    axe.push(await axeScan(page,info,'storefront-page'))
   }
   await link.click()
@@ -292,6 +365,7 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  receipt.prepared_private_then_published_via_canonical_gate=true
  receipt.independent_vehicle_document_reviewer=f.actors.vehicle_reviewer.id
  receipt.storefront_republished_same_slug=f.public_slug
+ receipt.storefront_media_approved_and_rendered=true
  receipt.buyer=f.actors.vehicle_buyer.id
  receipt.dealer_inquiry_final_status='qualified'
  receipt.viewports=[390,768,1280,1920]
@@ -300,6 +374,8 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  const severe=(xs:AxeSummary[])=>xs.reduce((n,x)=>n+x.violations.filter(v=>v.impact==='critical'||v.impact==='serious').length,0)
  receipt.axe_r4_surface_critical_or_serious=severe(axe.filter(x=>x.scope!=='full page'))
  receipt.axe_full_page_critical_or_serious=severe(axe.filter(x=>x.scope==='full page'))
+ expect(receipt.axe_r4_surface_critical_or_serious,'T32 zero critical/serious axe violations on dealership surfaces').toBe(0)
+ expect(receipt.axe_full_page_critical_or_serious,'T32 zero critical/serious axe violations on full pages').toBe(0)
  const out='test-results/fictional-native-vin-listing-browser-receipt.json'
  mkdirSync(dirname(out),{recursive:true})
  writeFileSync(out,JSON.stringify(receipt,null,2)+'\n',{mode:0o600})
