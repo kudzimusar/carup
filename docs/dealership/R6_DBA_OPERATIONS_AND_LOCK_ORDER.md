@@ -1,9 +1,10 @@
 # CarUp Dealership 1.0 — R6 DBA operations, lock order and rollback custody
 
-Scope: the 22 dealership migrations `database/migrations/20261103120000…145000` (Draft PR #258).
-This closes the R5 advisory DBA review findings #2, #4, #6, #7 and #8, and the R6 independent DBA
-review of candidate b2da0a74 ("review 2", findings #1–#12; section 8 maps each one). #1, #3, #5
-and the first part of #7 of the R5 review were closed in 9731a20d. Every number below comes from a **disposable** local
+Scope: the 23 dealership migrations `database/migrations/20261103120000…146000` (Draft PR #258).
+This closes the R5 advisory DBA review findings #2, #4, #6, #7 and #8; the R6 independent DBA
+review of candidate b2da0a74 ("review 2", findings #1–#12; section 8 maps each one); and the
+closure re-verification of 4476e2c8 ("review 3": N1, N2, N4 and the #3/#8/#12 leftovers;
+section 9). #1, #3, #5 and the first part of #7 of the R5 review were closed in 9731a20d. Every number below comes from a **disposable** local
 PostgreSQL 17.11 cluster loaded with **synthetic** rows. No shared, staging or production
 database was read or written, and nothing here contains real data or secrets.
 
@@ -66,8 +67,10 @@ assignment). It is deliberately weaker than `FOR UPDATE`.
   `FOR SHARE`, the same way round as the guard.
 - The inquiry guard takes only the link `FOR SHARE`; it reads the listed VIN's tenant without
   locking it, so it never conflicts with rule 3.
-- The lapse sweep never locks a link. It visits dealers in ascending `tenant_id` and locks only
-  VINs, through the withdrawal function, so its order is the policy trigger's order.
+- The lapse sweep visits dealers in ascending `tenant_id`. For each one it takes rule 3 through the
+  withdrawal function, and the withdrawal `UPDATE` then fires the canonical guard, which takes the
+  link `FOR SHARE` (rule 4) — so the sweep does lock links, after the VINs, in rule order. Its
+  `(tenant_id, vin)` order is the policy trigger's order.
 - The activation carry-over trigger (20261103144000, `AFTER INSERT` on
   `dealer_approved_seed_links`) runs inside the governed activation, after the activation has
   locked the claim, policy (`FOR SHARE`), link and profile. It writes only the new dealer's
@@ -78,7 +81,22 @@ assignment). It is deliberately weaker than `FOR UPDATE`.
 ### Rules for new code and for operations
 
 1. Never lock `dealer_approved_seed_links` and then write a programme VIN in the same
-   transaction. Lock the VIN first.
+   transaction. Lock the VIN first. **This includes the two inserts that take the link through a
+   guard (review 3, #3 leftover):** an `INSERT` of a new programme VIN (the vehicle guard takes the
+   link `FOR SHARE`) and an `INSERT` of an enquiry to a programme tenant or VIN (the enquiry guard
+   takes the link `FOR SHARE`). In a multi-statement transaction such an insert must come **last**,
+   after every write to an existing programme VIN — or lock those VINs first
+   (`SELECT … WHERE tenant_id = … ORDER BY vin FOR NO KEY UPDATE`). Otherwise a concurrent
+   suspension (lifecycle decision, claim revocation, tenant/profile/policy/membership write) can
+   still deadlock with it: the suspension pre-locks the existing VINs, queues on the link behind the
+   insert's `FOR SHARE`, and the dealer's next VIN write queues behind the suspension. PostgreSQL
+   then aborts one of them with 40P01 — in practice the suspension, because it started waiting
+   first and so runs the deadlock check first. This is **fail-safe**: nothing is half-applied, the
+   dealer's transaction commits, and the backend retries the lifecycle RPC (section "Bounded
+   retry"), whose next attempt withdraws the listing. The backend itself never builds such a
+   transaction: every PostgREST insert or update is its own single-statement transaction. Behaviour
+   was deliberately not changed: pre-locking every VIN of the tenant on each programme-VIN or
+   enquiry insert would serialise all of a dealer's inserts behind each other for a fail-safe case.
 2. If one transaction writes several programme VINs, write them in ascending VIN order (several
    dealers: ascending `(tenant_id, vin)`).
 3. Suspend, withdraw or reinstate through `dealer_record_operating_lifecycle_decision`, not
@@ -144,8 +162,11 @@ So a real cycle is always found and broken first: one victim gets 40P01 after ab
 other transaction carries on. A plain long wait behind an idle or long transaction is cut at 2–3 s
 with 55P03.
 
-In the sweep, both outcomes skip only that dealer. Backend RPCs retry 40P01 after a 1–250 ms
-jitter, at most 3 calls in total, so a deadlock costs a caller about 1–2 s at worst.
+In the sweep, both outcomes skip only that dealer. Backend RPCs retry 40P01 after a 1–40 ms, then
+1–80 ms jitter, at most 3 calls in total. A deadlocked attempt has already waited about
+`deadlock_timeout` (1 s) before PostgreSQL broke the cycle, so one deadlock costs a caller about
+1 s, and a caller that is the victim three times in a row gives up after about **3 s**
+(3 × 1 s + ≤ 120 ms of jitter) with the original 40P01.
 
 If a target database sets `deadlock_timeout` to 2 s or more, keep `lock_timeout` above it.
 Otherwise a cycle is reported as 55P03, which is never retried, instead of 40P01. Check it with
@@ -181,8 +202,9 @@ Consequences:
   victim) or **40001** (serialisation failure), the whole transaction has already been rolled
   back, so calling it again cannot apply anything twice.
 - At most **3 calls in total**. The wait between calls is full jitter: up to 40 ms, then up to
-  80 ms, capped at 250 ms. A persistent conflict comes back as the original error in about
-  0.5 s.
+  80 ms, capped at 250 ms. Each deadlocked attempt has itself waited about `deadlock_timeout`
+  (1 s) before PostgreSQL chose it as the victim, so a persistent conflict comes back as the
+  original 40P01 after about **3 s** (≈ 1 s × 3 calls + ≤ 120 ms of jitter).
 - Everything else is returned after the first call:
   - business refusals (`RAISE EXCEPTION` → P0001)
   - `lock_timeout` (55P03)
@@ -195,12 +217,17 @@ Consequences:
   are killed, including: retry any error, no give-up, 40P01 only, add 55P03, 4 attempts, no
   jitter, match on message text, and swallow thrown errors.
 
+The lifecycle decision **can still be the (retried) victim** in exactly one case: the rule-1
+leftover above, where a dealer transaction inserts a programme VIN or an enquiry and only then
+writes an existing VIN. Every interleaving proved in this section ends without a 40P01.
+
 These RPCs are not wired, but could be:
 
 - `dealer_record_independent_claim_review` (claim revocation) and
   `dealer_record_atomic_compliance_decision` (profile restriction). Both are whole-transaction
-  RPCs on the suspension side. With the lock order above, neither can still be a deadlock
-  victim against the guard.
+  RPCs on the suspension side. Like the lifecycle decision, they are no deadlock victim in the
+  interleavings proved above, but can be in the rule-1 leftover case; there the caller sees a
+  503 and may simply repeat the decision.
 - The canonical publish route `backend/routes/vehiclesRoutes.js` is a single-statement
   `.update()`. It can no longer deadlock against a suspension.
 
@@ -209,7 +236,7 @@ These RPCs are not wired, but could be:
 ## 2. Rollback custody (finding #6)
 
 Every Down that would drop business or append-only rows now refuses, **before any DDL**, while
-those rows exist. 20 of the 22 migrations do this. The other two hold no rows:
+those rows exist. 21 of the 23 migrations do this. The other two hold no rows:
 - 20261103124000 only drops a function.
 - 20261103125000 is the privilege barrier described below.
 
@@ -246,7 +273,7 @@ Proof, in the harness (PGlite and native PG17):
   2 claims, 1 correction request), so none of the passes is vacuous. A refused Down changes
   nothing.
 - The ledger-only case is covered: no current public profile, events still present.
-- After the full 22-migration rollback, `authenticated` holds **0** table-wide grants and
+- After the full 23-migration rollback, `authenticated` holds **0** table-wide grants and
   **0** authority-column grants on `dealer_profiles`.
 - 6 of 6 guard mutants are killed. One of them re-adds the `GRANT` to the 125000 Down.
 - Review 2 #5 checks:
@@ -264,13 +291,13 @@ forward.
 ## 3. Migration locking (R5 finding #7; review 2 #1 and #9)
 
 - **Every Up and every Down is bounded and transaction-scoped.**
-  - `SET LOCAL lock_timeout = '3s';` follows `-- +migrate Up` in **19 of the 22** migrations:
+  - `SET LOCAL lock_timeout = '3s';` follows `-- +migrate Up` in **20 of the 23** migrations:
     every one that locks a pre-existing table. The locks come from foreign keys to `users`,
     `tenants`, `vehicles`, `dealer_profiles`, `dealer_branches`, `organizations` or
     `marketplace_inquiries`, and from triggers, policies and `ALTER TABLE`.
   - 20261103120000, 122000 and 124000 create only new `dealer_*` objects and functions, so their
     Ups have no `SET`.
-  - The same line is now the first statement of **all 22 Downs**. A Down takes ACCESS EXCLUSIVE
+  - The same line is now the first statement of **all 23 Downs**. A Down takes ACCESS EXCLUSIVE
     on canonical tables (it drops FK triggers and policies). Before this change it could wait for
     ever behind a reader, and every later reader of `vehicles` queued behind it (review 2 #1).
 - **Why `SET LOCAL`** (review 2 #9). Each migration runs in its own transaction: the runner below,
@@ -279,6 +306,23 @@ forward.
   application session. The old session-scoped `SET` did leak.
 - If a migration or rollback fails with **55P03**, its transaction was rolled back and nothing
   changed. Wait for the long transaction to finish, or stop it, then re-run.
+- **One transaction per section is enforced, not assumed** (review 3 N2). `SET LOCAL` is a silent
+  no-op outside a transaction block, so an autocommit apply (plain `psql -f`, which sends every
+  statement as its own transaction) would have lost the 3 s bound and could stop half-way.
+  Right after its `SET LOCAL lock_timeout` (at the top for the three Ups without one), every Up
+  and every Down — all 46 sections — now runs
+  `SET LOCAL carup.dealer_migration_txn = 'on'` and a guard `DO` block. If the marker is not set,
+  the statements are not sharing one transaction: the guard raises a WARNING naming
+  `DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION`, **ends its own session**
+  (`pg_terminate_backend(pg_backend_pid())`, allowed for any role on its own backend) and then
+  raises the same error. Ending the session matters: without `ON_ERROR_STOP`, psql would print
+  the error and carry on with the next statement; with the session gone it stops (exit status 2).
+  A dedicated marker is used instead of testing `lock_timeout = 0`, because a role- or
+  database-level `lock_timeout` default would make that test pass in autocommit.
+- **The only supported ways to apply a section** are the runner below, or
+  `psql -1 -v ON_ERROR_STOP=1 -f <one section>` (each file holds an Up and a Down section; apply
+  only the one you mean). The harness's multi-statement queries are also single implicit
+  transactions.
 - 20261103138000's two `CHECK` constraints stay validated inline, and the file says why:
   - They constrain only the columns added in the same migration, which are `NULL` on every
     existing row, so validation cannot fail.
@@ -301,6 +345,21 @@ forward.
   session-scoped `SET lock_timeout`.
 - **Mutants:** removing the Down's `SET LOCAL` is caught, and so is turning an Up's `SET LOCAL`
   back into `SET` (the leak check fires).
+- **One-transaction guard** (review 3 N2):
+  - The harness checks statically that all 46 sections start with the guard, before any other
+    statement.
+  - On native PG17 it replays each section's opening statements the way an autocommit client
+    does: 46/46 are refused, the session is ended, and a canary `CREATE TABLE` sent afterwards
+    never runs. The same statements inside one transaction pass.
+  - With psql 16 against PG17 (disposable cluster, 146000 Down):
+    - plain `psql -f` and `psql -v ON_ERROR_STOP=1 -f` both stop at the guard with exit status 2
+      and change nothing (71 functions, 85 triggers and 181 relations before and after);
+    - `psql -1 -v ON_ERROR_STOP=1 -f` applies the Down and then the Up, and `lock_timeout` is `0`
+      afterwards;
+    - a non-superuser login role is also stopped.
+  - Mutants killed: guard removed from a Down; the guard condition replaced; the guard made never
+    to fire (caught at runtime: autocommit no longer refused); the `pg_terminate_backend` call
+    made a no-op (caught at runtime: the canary ran).
 
 **Apply runner for a staging-clone rehearsal**: `backend/scripts/dealership/applyDealerMigrations.mjs`.
 
@@ -316,9 +375,26 @@ node backend/scripts/dealership/applyDealerMigrations.mjs --url postgresql://pos
 - It reads the target only from `--url` or `DEALER_MIGRATION_DATABASE_URL`, never from
   `DATABASE_URL`.
 - It refuses every non-loopback host unless both the flag and the exact confirmation are given.
-- Tested by `backend/tests/dealer-migration-runner.test.js`, 6 tests. It was also run against
-  native PG17: a full Down of the 22 migrations, then a full Up, each in its own transaction, with
-  `lock_timeout` still `0` afterwards.
+- **It approves the server node-pg will really reach** (review 3 N1). node-pg honours `?host=`,
+  `?port=`, `?options=`, `?user=` and `?dbname=` in a connection string. The first runner checked
+  only the WHATWG view of the URL, so
+  `postgresql://postgres@127.0.0.1:55492/postgres?host=…pooler.supabase.com&port=6543` was
+  approved as loopback. Now:
+  - every query parameter except `sslmode` is refused (`CONNECTION_QUERY_PARAMETER_REFUSED`);
+  - the target is computed with node-pg's own parser (`pg/lib/connection-parameters`, i.e.
+    `pg-connection-string`), and must equal the WHATWG view (`TARGET_PARSE_MISMATCH`, for example
+    a percent-encoded `%6c%6fcalhost` that node-pg would decode to `localhost`);
+  - the port and database must be written in the URL, so `PGPORT` / `PGDATABASE` can never choose
+    the target;
+  - after connecting and **before any migration statement**, `current_database()`,
+    `inet_server_port()` and — for a loopback target — a loopback `inet_server_addr()` must match
+    the approved target (`CONNECTED_SERVER_MISMATCH`, then the connection is closed). A tunnel, a
+    pooler, a Unix socket or a redirected session is refused even if the URL looked right.
+- Tested by `backend/tests/dealer-migration-runner.test.js`: 12 tests, including the four
+  reviewer bypass URLs and an injected client that reports a remote server. All 9 runner mutants
+  are killed. It was also run against native PG17 (all 23 migrations, Down then Up, one
+  transaction each, the server identity verified as `127.0.0.1:55483`). The bypass URLs and a URL
+  without a port are refused before connecting.
 
 ## 4. Scheduled job `carup-dealer-listing-lapse-sweep` (finding #8)
 
@@ -350,9 +426,27 @@ node backend/scripts/dealership/applyDealerMigrations.mjs --url postgresql://pos
   `{"tenants_withdrawn":0,"listings_withdrawn":0,"tenants_skipped":0}`.
 - pg_cron never runs two instances of the same job at once. A run that is due while the
   previous one is still going is queued.
-- The sweep never republishes anything. It locks only VINs, through the withdrawal function, in
-  the `(tenant_id, vin)` order that the policy trigger and the lifecycle decision also use. It
-  never locks a link.
+- The sweep never republishes anything. It locks each dealer's VINs through the withdrawal
+  function, in the `(tenant_id, vin)` order that the policy trigger and the lifecycle decision also
+  use; the withdrawal `UPDATE` then fires the canonical guard, which takes that dealer's link
+  `FOR SHARE` — after the VINs, i.e. in rule order.
+- **Lock hold (review 3 N4, accepted residual).** The whole run is one transaction, so every
+  withdrawn dealer's VIN locks and link `FOR SHARE` are held until the run commits. A dealer write,
+  lifecycle decision or policy change on an already-withdrawn dealer waits for the rest of that
+  run.
+  - A normal run takes milliseconds (0.33 ms with 100 dealers, section 5).
+  - The hold grows only with dealers skipped later in the same run: at most 2 s each.
+  - The hard bound is the command's 300 s `statement_timeout`.
+  - A waiting writer is itself bounded by its own `lock_timeout` or, for backend RPCs, by the
+    retry policy.
+  - Not converted to a procedure that commits per dealer:
+    - a `SET` clause (the function's `lock_timeout = '2s'`) forbids transaction control in a
+      procedure;
+    - the cron command is a multi-statement string (`SET statement_timeout …; …`), and an
+      implicit transaction block forbids `COMMIT` inside `CALL`;
+    - pg_cron is not in the disposable PG17 binaries, so per-dealer commits under pg_cron could not
+      be proved here.
+  - Revisit if the programme grows far beyond the 104-dealer research universe.
 - It needs READ COMMITTED (the database default). If `default_transaction_isolation` is ever
   raised, every run fails with `DEALER_LISTING_WITHDRAWAL_REQUIRES_READ_COMMITTED` and shows
   as `failed`. It fails closed: the canonical guard still refuses publication the moment
@@ -501,9 +595,13 @@ activation held its locks. It is now bounded by the intake contract:
 - **What is processed.** `dealer_intake_contract_fields()` holds the 11 contract tabs and 111
   fields; the harness pins it to `TEMPLATE_FIELD_REGISTRY`. Only those tabs and fields are noted
   cell by cell, and at most 250 rows per tab.
+- **Non-contract tabs are bounded too** (review 3, #8 leftover). One note per non-contract tab
+  had no limit: the review measured 50,000 hostile tabs → 50,002 rows in 8.9 s. Now:
+  - only the first **25** (in key order) get a note each, named `UNRECOGNISED_TAB_<10-letter hash>`
+    (names never collapse, so no note is lost to `ON CONFLICT`);
+  - every further one is only counted, in **one** `UNRECOGNISED_TABS` summary note ("N further
+    tab(s) …").
 - **One note, never one per cell**, for each of:
-  - a non-contract tab, named `UNRECOGNISED_TAB_<10-letter hash>`. Names no longer collapse, so no
-    note is lost to `ON CONFLICT`;
   - a tab that is not a row list;
   - rows beyond 250;
   - a non-object row;
@@ -511,15 +609,20 @@ activation held its locks. It is now bounded by the intake contract:
 - **Oversized values.** A value over 4 bytes × its field limit is refused by its byte size before
   any regex runs. This bound only changes cost, never the outcome: a 30 MB value takes 61 ms
   instead of 333 ms. That is why its mutant survives.
-- **Cap.** Retained-field notes are capped at **25,000** per activation, with one summary note if
-  the cap is reached. A maximal legitimate application has fewer than 23,300 contract cells.
+- **Cap.** Every section-4 note — tab, row, field and cell notes alike — counts toward a cap of
+  **25,000** per activation, with one summary note if the cap is reached. The contract alone keeps
+  the worst case below it: 26 tab notes plus, for each contract tab, 250 rows × its
+  non-structural fields plus 2 tab-level notes, which is **23,048**. The cap is therefore a
+  backstop that cannot be reached; the harness asserts that worst case from the registry.
 - **No legitimate activation fails or is truncated.** Nothing raises, and nothing legitimate is
   skipped.
 
 | Submission (sandboxed, rolled back) | Provenance rows | Time |
 |---|---|---|
-| hostile: 40 extra tabs × 250 rows × 20 keys, 3 invalid tab names, a 5 MB value, non-object rows, 260 branch rows | **298** (was about 219,000) | 0.26 s (was about 12.9 s) |
-| maximal legitimate: every contract tab with 250 rows and every field filled | 19,265, uncapped | 2.1 s native / 3.1 s PGlite |
+| hostile: 40 extra tabs × 250 rows × 20 keys, 3 invalid tab names, a 5 MB value, non-object rows, 260 branch rows | **281** (was about 219,000; 298 in review 2) | 0.18–0.31 s (was about 12.9 s) |
+| 50,000 non-contract tabs (review 3) | **27**: 25 listed, 1 summary, 1 branch (was 50,002) | 27 ms native / 50 ms PGlite (was 8.9 s) |
+| over-full: every contract tab, BUSINESS too, with 250 rows (the submission function would refuse 250 BUSINESS rows), plus 43 non-contract tabs | 18,172 section-4 rows, within the 23,048 worst case, uncapped | 2.5 s native / 3.7 s PGlite |
+| maximal legitimate: every contract tab with 250 rows and every field filled | 19,265, uncapped | 2.2 s native / 3.2 s PGlite |
 
 The `DEALER_R6_C02_CARRYOVER` block is unchanged and still passes: 3 of 5 branches, 5 sections.
 
@@ -529,7 +632,7 @@ The `DEALER_R6_C02_CARRYOVER` block is unchanged and still passes: 3 of 5 branch
 
 | # | Disposition |
 |---|---|
-| 1 | `SET LOCAL lock_timeout` first in all 22 Downs; native Down probes (section 3) |
+| 1 | `SET LOCAL lock_timeout` first in all 23 Downs; native Down probes (section 3) |
 | 2 | per-tenant subtransaction sweep, 2 s, skip events, 300 s cron bound (section 4) |
 | 3 | pre-lock ALL VINs (section 1) |
 | 4 | one `(tenant_id, vin)` order for sweep and policy trigger (section 1) |
@@ -542,9 +645,23 @@ The `DEALER_R6_C02_CARRYOVER` block is unchanged and still passes: 3 of 5 branch
 | 11 | documented, not indexed (section 5, foreign keys) |
 | 12 | this document |
 
-## 9. Verification commands
+## 9. Review 3 (closure re-verification of 4476e2c8)
+
+| Item | Disposition |
+|---|---|
+| N1 (Medium) runner target bypass via `?host=` / `?port=` | **Fixed.** node-pg's own parser; only `sslmode` allowed; explicit port and database; post-connect identity check (section 3) |
+| N2 (Low) `SET LOCAL` silently ineffective in autocommit | **Fixed.** Marker + guard in all 46 Up/Down sections; autocommit apply ends the session; `psql -1 -v ON_ERROR_STOP=1` or the runner (section 3) |
+| #8 leftover (Low) one note per non-contract tab | **Fixed.** First 25 listed, the rest counted in one summary note; every section-4 note counts toward the 25,000 cap; 50,000 tabs → 27 rows in 27–50 ms (section 7) |
+| #3 leftover (Low, fail-safe) programme-VIN or enquiry insert before a VIN write | **Documented** in rule 1 (insert last, or pre-lock); behaviour unchanged by design |
+| N4 (Low) sweep holds withdrawn dealers' locks to the end of the run | **Accepted residual**, bounded and documented (section 4) |
+| #12 doc drift | **Fixed** in this revision: 23 migrations; the sweep takes links `FOR SHARE` through the guard; retry give-up ≈ 3 s; the lifecycle decision can be a retried victim in the rule-1 case; runner claims; apply procedure |
+
+## 10. Verification commands
 
 ```bash
+# migrations: ONLY the runner, or psql in ONE transaction per section with ON_ERROR_STOP
+node backend/scripts/dealership/applyDealerMigrations.mjs --url postgresql://postgres@127.0.0.1:<port>/<db> [--direction down]
+psql -1 -v ON_ERROR_STOP=1 -f <file containing only the Up (or only the Down) section>
 # PGlite (single session)
 PATH=/opt/homebrew/bin:$PATH node database/test/dealer_1_0_pglite_check.mjs
 # native PG17 (disposable): lock-order races, lock_timeout probes, apply/rollback/reapply
