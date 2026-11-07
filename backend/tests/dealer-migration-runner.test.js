@@ -81,3 +81,91 @@ test('one transaction per migration; a failure rolls back that migration and sto
     planMigrations({ direction: 'down' }, dir), 'down', { dir, log: () => {} });
   assert.deepEqual(calls.filter((c) => c.includes('DOWN')).map((c) => c.split('\n').pop()), ['DOWN C;', 'DOWN B;', 'DOWN A;']);
 });
+
+// ── R6 DBA review 3 N1: node-pg honours ?host= / ?port= (and other) query parameters, so the
+// target the runner approved was not always the server it connected to. ──
+import ConnectionParameters from 'pg/lib/connection-parameters.js';
+import { verifyConnectedServer, runFromArgs } from '../scripts/dealership/applyDealerMigrations.mjs';
+
+test('N1: connection-string query parameters cannot redirect an approved loopback target', () => {
+  for (const url of [
+    'postgresql://postgres@127.0.0.1:55492/postgres?host=aws-0-eu-central-1.pooler.supabase.com&port=6543',
+    'postgresql://postgres@localhost:5432/postgres?host=db.abcdefghijklmnop.supabase.co',
+    'postgresql://postgres@127.0.0.1:55492/postgres?port=6543',
+    'postgresql://postgres@[::1]:55492/postgres?host=10.0.0.5&port=5432',
+    'postgresql://postgres@127.0.0.1:55492/postgres?options=-c%20search_path%3Devil',
+    'postgresql://postgres@127.0.0.1:55492/postgres?user=other',
+    'postgresql://postgres@127.0.0.1:55492/postgres?dbname=other',
+    'postgresql://postgres@127.0.0.1:55492/postgres?HOST=db.example.invalid',
+  ]) {
+    assert.throws(() => assertSafeTarget(url), /CONNECTION_QUERY_PARAMETER_REFUSED/, url);
+  }
+  const ok = assertSafeTarget('postgresql://postgres@127.0.0.1:55482/carup_dealer_isolated_ci?sslmode=disable');
+  assert.deepEqual([ok.host, ok.port, ok.database, ok.loopback], ['127.0.0.1', '55482', 'carup_dealer_isolated_ci', true]);
+});
+
+test('N1: the approved target is exactly what node-pg itself would connect to', () => {
+  for (const url of [
+    'postgresql://postgres@127.0.0.1:55482/carup_dealer_isolated_ci',
+    'postgres://u:p%40ss@localhost:55483/d%20b',
+    'postgresql://postgres@[::1]:55482/db?sslmode=disable',
+  ]) {
+    const approved = assertSafeTarget(url);
+    const pg = new ConnectionParameters({ connectionString: url });
+    assert.deepEqual([approved.host, approved.port, approved.database], [pg.host, String(pg.port), pg.database], url);
+  }
+});
+
+test('N1: where node-pg and the WHATWG parser disagree, the target is refused', () => {
+  // node-pg percent-decodes the host (this reaches localhost) and keeps %2F in the database name.
+  assert.throws(() => assertSafeTarget('postgresql://u@%6c%6fcalhost:55482/db'), /TARGET_PARSE_MISMATCH/);
+  assert.throws(() => assertSafeTarget('postgresql://u@127.0.0.1:55482/d%2Fx'), /TARGET_PARSE_MISMATCH/);
+});
+
+test('N1: an implicit port or database is refused, so PGPORT / PGDATABASE can never pick the target', () => {
+  assert.throws(() => assertSafeTarget('postgresql://u@127.0.0.1/db'), /EXPLICIT_PORT_REQUIRED/);
+  assert.throws(() => assertSafeTarget('postgresql://u@127.0.0.1:55482'), /DATABASE_NAME_REQUIRED/);
+  assert.throws(() => assertSafeTarget('postgresql://u@127.0.0.1:55482/'), /DATABASE_NAME_REQUIRED/);
+  assert.throws(() => assertSafeTarget('postgresql://u@%2Ftmp%2Fsock:55482/db'), /NON_LOOPBACK_TARGET_REFUSED|INVALID_TARGET_URL/);
+});
+
+test('N1: after connecting, the server itself must be the approved target', () => {
+  const loop = assertSafeTarget('postgresql://postgres@127.0.0.1:55482/carup_dealer_isolated_ci');
+  assert.doesNotThrow(() => verifyConnectedServer(loop, { addr: '127.0.0.1', port: 55482, db: 'carup_dealer_isolated_ci' }));
+  assert.doesNotThrow(() => verifyConnectedServer(loop, { addr: '::1', port: 55482, db: 'carup_dealer_isolated_ci' }));
+  for (const [row, why] of [
+    [{ addr: '10.0.0.5', port: 55482, db: 'carup_dealer_isolated_ci' }, 'a loopback URL that reached a remote server'],
+    [{ addr: '127.0.0.1', port: 6543, db: 'carup_dealer_isolated_ci' }, 'another port (pooler / tunnel)'],
+    [{ addr: '127.0.0.1', port: 55482, db: 'postgres' }, 'another database'],
+    [{ addr: null, port: 55482, db: 'carup_dealer_isolated_ci' }, 'a Unix-socket session'],
+  ]) {
+    assert.throws(() => verifyConnectedServer(loop, row), /CONNECTED_SERVER_MISMATCH/, why);
+  }
+  const remote = assertSafeTarget('postgresql://postgres@clone.example.invalid:5432/rehearsal',
+    { allowNonLoopback: true, confirmTarget: 'clone.example.invalid:5432/rehearsal' });
+  assert.doesNotThrow(() => verifyConnectedServer(remote, { addr: '10.20.30.40', port: 5432, db: 'rehearsal' }));
+  assert.throws(() => verifyConnectedServer(remote, { addr: '10.20.30.40', port: 6432, db: 'rehearsal' }), /CONNECTED_SERVER_MISMATCH/);
+  assert.throws(() => verifyConnectedServer(remote, { addr: '10.20.30.40', port: 5432, db: 'postgres' }), /CONNECTED_SERVER_MISMATCH/);
+});
+
+test('N1: the runner checks the connected server BEFORE any migration statement and then disconnects', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'dealer-runner-n1-'));
+  writeFileSync(path.join(dir, '20261103000001_dealer_a.sql'), '-- +migrate Up\nUP A;\n-- +migrate Down\nDOWN A;\n');
+  const fake = (identity) => {
+    const seen = { sql: [], ended: false, config: null };
+    return { seen, createClient: (config) => { seen.config = config; return {
+      async connect() {}, async end() { seen.ended = true; },
+      async query(sql) { seen.sql.push(sql.trim()); return { rows: [identity] }; } }; } };
+  };
+  const url = 'postgresql://postgres@127.0.0.1:55482/carup_dealer_isolated_ci';
+  const bad = fake({ addr: '10.0.0.5', port: 55482, db: 'carup_dealer_isolated_ci', usr: 'postgres', v: '17' });
+  await assert.rejects(runFromArgs(['--url', url], {}, { createClient: bad.createClient, dir, log: () => {} }), /CONNECTED_SERVER_MISMATCH/);
+  assert.equal(bad.seen.sql.some((s) => s === 'BEGIN' || s.includes('UP A')), false, 'no migration statement after a mismatch');
+  assert.equal(bad.seen.ended, true, 'the refused connection is closed');
+  const good = fake({ addr: '127.0.0.1', port: 55482, db: 'carup_dealer_isolated_ci', usr: 'postgres', v: '17' });
+  await runFromArgs(['--url', url], {}, { createClient: good.createClient, dir, log: () => {} });
+  assert.ok(good.seen.sql.includes('BEGIN') && good.seen.sql.some((s) => s.includes('UP A')) && good.seen.ended);
+  assert.equal(good.seen.config.connectionString, url, 'the client connects with the validated URL');
+  await assert.rejects(runFromArgs(['--url', url + '?port=55483'], {}, { createClient: good.createClient, dir, log: () => {} }),
+    /CONNECTION_QUERY_PARAMETER_REFUSED/);
+});
