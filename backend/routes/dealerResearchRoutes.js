@@ -32,32 +32,45 @@ import {
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { getPublicDealerStorefrontInventory } from '../services/dealer/dealerCanonicalListingService.js';
 import { recordOperatingLifecycleDecision, readOperatingLifecycle } from '../services/dealer/dealerOperatingLifecycleService.js';
+import {
+  listStorefrontMediaReviewQueue,
+  previewStorefrontMediaItem,
+  reviewStorefrontMediaItem,
+  getPublicDealerStorefrontMedia,
+} from '../services/dealer/dealerStorefrontMediaService.js';
+import { sendDealerRouteError } from '../services/dealer/dealerSqlRefusalMapper.js';
 import { rateLimiter } from '../middleware/securityMiddleware.js';
 import {
   getPublicResearch,
+  getPublicResearchDuplicateRedirect,
   listPublicResearch,
   reviewResearchSeed,
   listResearchReviewQueue,
   recordResearchGroupingReview,recordResearchContactReview,getReviewedPublicResearchContacts,
+  reconcileDuplicateResearchSeed,
   submitResearchClaim,
   listOwnResearchClaims,
   requestResearchCorrection,
   listResearchCorrectionsForReviewer,
+  reviewResearchCorrectionRequest,
 } from '../services/dealer/dealerResearchService.js';
 
 const router = express.Router();
 const publicReadLimit = rateLimiter({ max: 40, windowMs: 60 * 1000, isSensitive: false });
 // A legitimate complete application needs claim + originals + spreadsheet +
- // immutable submission. Keep each class at four sensitive operations/hour/IP,
- // AND retain an eight-write/hour/IP total claimant safety ceiling. Unlike the
- // former single four-write budget, independent evidence and intake steps cannot
- // silently make an otherwise valid submission impossible. Every write remains
- // authenticated and independently authorized by its existing service.
- const claimWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-claim-control'});
- const evidenceWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-private-evidence'});
- const applicationWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-application-intake'});
- const claimantAggregateLimit = rateLimiter({max:8,windowMs:3600000,isSensitive:true,bucket:'dealer-claimant-total'});
+// immutable submission. Keep each class at four sensitive operations/hour/IP,
+// AND retain an eight-write/hour/IP total claimant safety ceiling. Unlike the
+// former single four-write budget, independent evidence and intake steps cannot
+// silently make an otherwise valid submission impossible. Every write remains
+// authenticated and independently authorized by its existing service.
+const claimWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-claim-control'});
+const evidenceWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-private-evidence'});
+const applicationWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-application-intake'});
+const claimantAggregateLimit = rateLimiter({max:8,windowMs:3600000,isSensitive:true,bucket:'dealer-claimant-total'});
+const correctionWriteLimit = rateLimiter({max:6,windowMs:3600000,isSensitive:true,bucket:'dealer-research-corrections'});
 const reviewWriteLimit = rateLimiter({ max: 15, windowMs: 60 * 60 * 1000, isSensitive: true });
+const mediaReviewWriteLimit = rateLimiter({ max: 15, windowMs: 60 * 60 * 1000, isSensitive: true, bucket: 'dealer-media-review' });
+const researchGovernanceWriteLimit = rateLimiter({ max: 20, windowMs: 60 * 60 * 1000, isSensitive: true, bucket: 'dealer-research-governance' });
 const buyerCaseWriteLimit = rateLimiter({max:4,windowMs:3600000,
   isSensitive:true,bucket:'dealer-buyer-feedback'});
 const buyerReviewWriteLimit = rateLimiter({max:12,windowMs:3600000,
@@ -66,11 +79,7 @@ const session = authorizeSessionRole([]);
 const reviewer = authorizeSessionRole(['admin','reviewer']);
 
 function errorResponse(res, next, error) {
-  if (error.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
-    res.status(error.statusCode).json({ error: error.message });
-    return;
-  }
-  next(error);
+  sendDealerRouteError(res, next, error);
 }
 
 // C08–C12: separate legal and final canonical activation authorities.
@@ -137,7 +146,12 @@ router.get('/api/dealership/intake/template', publicReadLimit, async (_req,res,n
 router.get('/api/dealership/research', publicReadLimit, async (req,res,next) => {
   try {
     const output = await listPublicResearch({
-      q: req.query.q, city: req.query.city, page: req.query.page, limit: req.query.limit,
+      q: req.query.q,
+      city: req.query.city,
+      category: req.query.category,
+      tier: req.query.tier,
+      page: req.query.page,
+      limit: req.query.limit,
     });
     res.set('Cache-Control','no-store').json(output);
   } catch (error) { errorResponse(res,next,error); }
@@ -160,17 +174,31 @@ router.get('/api/dealership/research/:seedId/inventory', publicReadLimit, async 
     res.set('Cache-Control','no-store').json({ inventory });
   } catch (error) { errorResponse(res,next,error); }
 });
+// R5 T22: approved dealership facility/showroom gallery media (never OEM/brand logos).
+// Automatically withdrawn when dealer operating authority or full storefront lapses.
+router.get('/api/dealership/research/:seedId/media', publicReadLimit, async (req,res,next) => {
+  try {
+    const media = await getPublicDealerStorefrontMedia(req.params.seedId);
+    res.set('Cache-Control','no-store').json({ media });
+  } catch (error) { errorResponse(res,next,error); }
+});
 router.get('/api/dealership/research/:seedId', publicReadLimit, async (req,res,next) => {
   try {
     const profile = await getPublicResearch(req.params.seedId);
-    if (!profile) return res.status(404).json({ error:'Research listing not published' });
+    if (!profile) {
+      const redirect = await getPublicResearchDuplicateRedirect(req.params.seedId);
+      if (redirect) {
+        return res.set('Cache-Control','no-store').status(200).json({ profile: null, redirect });
+      }
+      return res.status(404).json({ error:'Research listing not published' });
+    }
     res.set('Cache-Control','no-store').json({ profile });
   } catch (error) { errorResponse(res,next,error); }
 });
 
 // Correction or removal concerns are queued privately; no unreviewed request can
 // hide, reassign or alter another dealership's public listing.
-router.post('/api/dealership/research/:seedId/corrections', claimantAggregateLimit,claimWriteLimit, async (req,res,next) => {
+router.post('/api/dealership/research/:seedId/corrections', correctionWriteLimit, async (req,res,next) => {
   try {
     const request = await requestResearchCorrection(req.params.seedId,req.body || {});
     res.set('Cache-Control','no-store').status(202).json({ request });
@@ -182,6 +210,26 @@ router.get('/api/admin/dealership/research/corrections', reviewer, async (req,re
     res.set('Cache-Control','no-store').json({
       requests: await listResearchCorrectionsForReviewer(req.userContext),
     });
+  } catch (error) { errorResponse(res,next,error); }
+});
+
+// R5 T42: independent reviewer disposition for a source correction or takedown request.
+router.post('/api/admin/dealership/research/corrections/:requestId/review',
+  researchGovernanceWriteLimit, reviewer, async (req,res,next) => {
+  try {
+    const review = await reviewResearchCorrectionRequest(
+      req.params.requestId, req.userContext, req.body || {});
+    res.set('Cache-Control','no-store').status(201).json({ review });
+  } catch (error) { errorResponse(res,next,error); }
+});
+
+// R5 S09: governed duplicate research reconciliation and canonical URL redirect.
+router.post('/api/admin/dealership/research/:seedId/duplicate-redirect',
+  researchGovernanceWriteLimit, reviewer, async (req,res,next) => {
+  try {
+    const redirect = await reconcileDuplicateResearchSeed(
+      req.params.seedId, req.userContext, req.body || {});
+    res.set('Cache-Control','no-store').status(201).json({ redirect });
   } catch (error) { errorResponse(res,next,error); }
 });
 
@@ -428,11 +476,37 @@ router.post('/api/admin/dealership/full-storefronts/:seedId/review',
   }catch(error){errorResponse(res,next,error)}
 });
 
+// R5 T22: independent reviewer queue, password step-up preview, and disposition for
+// tenant-scoped dealership storefront media items (no OEM/logo rights approved).
+router.get('/api/admin/dealership/storefront-media/queue',
+  reviewer, async (req,res,next) => {
+  try {
+    const items = await listStorefrontMediaReviewQueue(req.userContext);
+    res.set('Cache-Control','no-store').json({ items });
+  } catch (error) { errorResponse(res,next,error); }
+});
+router.post('/api/admin/dealership/storefront-media/:mediaId/preview',
+  mediaReviewWriteLimit, reviewer, async (req,res,next) => {
+  try {
+    const preview = await previewStorefrontMediaItem(
+      req.params.mediaId, req.userContext, req.body?.reviewer_password);
+    res.set('Cache-Control','no-store').json({ preview });
+  } catch (error) { errorResponse(res,next,error); }
+});
+router.post('/api/admin/dealership/storefront-media/:mediaId/review',
+  mediaReviewWriteLimit, reviewer, async (req,res,next) => {
+  try {
+    const review = await reviewStorefrontMediaItem(
+      req.params.mediaId, req.userContext, req.body || {});
+    res.set('Cache-Control','no-store').status(201).json({ review });
+  } catch (error) { errorResponse(res,next,error); }
+});
+
 // Each private research candidate requires an individual source/public-interest
 // decision; this queue never leaks contact-rich research and has no bulk publish.
 // Parent/branch research associations remain unverified and create no legal role.
 router.post('/api/admin/dealership/research/:seedId/grouping-review',
- reviewWriteLimit,reviewer,async(req,res,next)=>{
+ researchGovernanceWriteLimit,reviewer,async(req,res,next)=>{
   try{
     const review=await recordResearchGroupingReview(req.params.seedId,
       req.userContext,req.body||{});
@@ -441,7 +515,7 @@ router.post('/api/admin/dealership/research/:seedId/grouping-review',
 });
 // Field-by-field address/site/phone review, never raw private source person/email.
 router.post('/api/admin/dealership/research/:seedId/contact-review',
- reviewWriteLimit,reviewer,async(req,res,next)=>{
+ researchGovernanceWriteLimit,reviewer,async(req,res,next)=>{
   try{
     const review=await recordResearchContactReview(req.params.seedId,
       req.userContext,req.body||{});
@@ -460,7 +534,7 @@ router.get('/api/admin/dealership/research/queue',reviewer,async(req,res,next)=>
 // Research source eligibility must be independently reviewed with a valid session,
 // verified platform reviewer role and per-source, documented case reasons. DB RPC
 // appends immutable decision and writes safe public projection in one transaction.
-router.post('/api/admin/dealership/research/:seedId/review', reviewWriteLimit, reviewer, async (req,res,next) => {
+router.post('/api/admin/dealership/research/:seedId/review', researchGovernanceWriteLimit, reviewer, async (req,res,next) => {
   try {
     const review = await reviewResearchSeed(req.params.seedId,req.userContext,req.body || {});
     res.set('Cache-Control','no-store').status(201).json({ review });

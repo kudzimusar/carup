@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useState} from 'react'
+import {useCallback,useEffect,useState,type ChangeEvent} from 'react'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
@@ -15,6 +15,19 @@ type Versioned={version:number;values:Record<string,string>;recorded_at:string;
 type ReadModel={sections:Section[];latest:Partial<Record<Section,Versioned>>;
   owner_scope:string;publication_approval:false;verified_complaint_count:null;
   measured_sales_revenue:null}
+type MediaCategory='SHOWROOM_EXTERIOR'|'SHOWROOM_INTERIOR'|'BRANCH_FACILITY'|'SERVICE_BAY'
+type StorefrontMediaItem={
+  media_id:string;seed_dealer_id:string;branch_id:string|null;mime_type:string;
+  file_bytes:number;media_category:MediaCategory;caption:string;alt_text:string;
+  rights_attestation:string;logo_rights_approved:false;review_status:string;
+  public_display_approved:boolean;created_at:string;
+}
+type MediaReadModel={
+  seed_dealer_id:string;tenant_id:string;items:StorefrontMediaItem[];
+  categories:MediaCategory[];required_rights_attestation:string;
+  oem_or_brand_logo_uploads_permitted:false;
+}
+const RIGHTS_ATTESTATION='DEALER_OWNED_PHOTOGRAPH_NO_OEM_OR_THIRD_PARTY_LOGO'
 const sections:Record<Section,{heading:string;help:string;fields:Array<[string,string]>}>={
   BUSINESS_OVERVIEW:{heading:'Business overview',help:'These are private operator statements, not approved published corporate facts.',fields:[
     ['public_description','Proposed business description'],
@@ -60,10 +73,18 @@ export default function DealerOperatingDetails(){
   const {user,token}=useAuth()
   const [read,setRead]=useState<ReadModel|null>(null)
   const [workspace,setWorkspace]=useState<Workspace|null>(null)
+  const [mediaModel,setMediaModel]=useState<MediaReadModel|null>(null)
   const [branchName,setBranchName]=useState('')
   const [branchAddress,setBranchAddress]=useState('')
   const [selected,setSelected]=useState<Section>('BUSINESS_OVERVIEW')
   const [draft,setDraft]=useState<Record<string,string>>({})
+  const [mediaCategory,setMediaCategory]=useState<MediaCategory>('SHOWROOM_EXTERIOR')
+  const [mediaBranchId,setMediaBranchId]=useState('')
+  const [mediaCaption,setMediaCaption]=useState('')
+  const [mediaAltText,setMediaAltText]=useState('')
+  const [mediaDataUrl,setMediaDataUrl]=useState('')
+  const [mediaMimeType,setMediaMimeType]=useState<'image/png'|'image/jpeg'>('image/png')
+  const [mediaAttested,setMediaAttested]=useState(false)
   const [status,setStatus]=useState<'loading'|'ready'|'denied'>('loading')
   const [busy,setBusy]=useState(false)
   const [notice,setNotice]=useState('')
@@ -71,19 +92,23 @@ export default function DealerOperatingDetails(){
   const reload=useCallback(async()=>{
     if(!user||!token){setStatus('denied');return}
     try{
-      const [result,member]=await Promise.all([
+      const [result,member,mediaResult]=await Promise.all([
         apiRequest<{declarations:ReadModel}>({
           baseUrl:API,path:'/dealer/operational-declarations',authHeaders:header(user.id,token),
         }),
         apiRequest<{workspace:Workspace}>({
           baseUrl:API,path:'/dealer/operational-workspace',authHeaders:header(user.id,token),
         }),
+        apiRequest<{media:MediaReadModel}>({
+          baseUrl:API,path:'/dealer/operational-media',authHeaders:header(user.id,token),
+        }).catch(()=>({media:null})),
       ])
       if(!member.workspace.operational)throw new Error('Operational dealer tenant authority is not active')
-      setRead(result.declarations);setWorkspace(member.workspace);setStatus('ready')
+      setRead(result.declarations);setWorkspace(member.workspace)
+      setMediaModel(mediaResult.media);setStatus('ready')
       setError('')
     }catch(problem){
-      setRead(null);setWorkspace(null);setStatus('denied')
+      setRead(null);setWorkspace(null);setMediaModel(null);setStatus('denied')
       setError(problem instanceof Error?problem.message:'Dealer authority not active')
     }
   },[user,token])
@@ -118,6 +143,47 @@ export default function DealerOperatingDetails(){
       await reload()
     }catch(problem){
       setError(problem instanceof Error?problem.message:'Could not persist dealership branch')
+    }finally{setBusy(false)}
+  }
+  function onSelectMediaFile(event:ChangeEvent<HTMLInputElement>){
+    const file=event.target.files?.[0]
+    if(!file){setMediaDataUrl('');return}
+    if(file.type!=='image/png'&&file.type!=='image/jpeg'){
+      setError('Only PNG and JPEG dealership photographs are accepted.')
+      setMediaDataUrl('')
+      return
+    }
+    setMediaMimeType(file.type)
+    const reader=new FileReader()
+    reader.onload=()=>{
+      if(typeof reader.result==='string')setMediaDataUrl(reader.result)
+    }
+    reader.readAsDataURL(file)
+  }
+  async function uploadMedia(){
+    if(!user||!token||busy||!mediaDataUrl||!mediaAttested||
+      mediaCaption.trim().length<5||mediaAltText.trim().length<5)return
+    setBusy(true);setError('');setNotice('')
+    try{
+      const result=await apiRequest<{receipt:{media_id:string;review_status:string}}>({
+        baseUrl:API,path:'/dealer/operational-media',
+        options:{method:'POST',body:JSON.stringify({
+          media_category:mediaCategory,
+          branch_id:mediaBranchId||null,
+          caption:mediaCaption.trim(),
+          alt_text:mediaAltText.trim(),
+          mime_type:mediaMimeType,
+          image_data_url:mediaDataUrl,
+          rights_attestation:RIGHTS_ATTESTATION,
+          oem_or_brand_logo_claimed:false,
+        })},authHeaders:header(user.id,token),
+      })
+      setNotice('Uploaded dealership facility photo ('+result.receipt.media_id+
+        ') · status '+result.receipt.review_status+'. Independent reviewer approval is required before public display.')
+      setMediaCaption('');setMediaAltText('');setMediaDataUrl('');setMediaAttested(false)
+      await reload()
+    }catch(problem){
+      setError(problem instanceof Error?problem.message:'Could not upload dealership facility photo')
     }finally{setBusy(false)}
   }
   async function save(){
@@ -203,6 +269,96 @@ export default function DealerOperatingDetails(){
           Recorded tenant memberships: {workspace.recorded_tenant_member_count}.
           Staff headcount, individual licence validity and sales revenue are not inferred.
         </p>
+      </section>}
+      {status==='ready'&&workspace&&<section
+        data-testid="dealer-owner-media-section"
+        className="mt-8 border border-slate-200 bg-white rounded-xl p-6 space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold">Dealership facility &amp; showroom media gallery</h2>
+          <p className="text-sm text-slate-600 mt-1">
+            Upload dealer-owned facility or showroom photographs (JPEG/PNG, ClamAV-scanned into private
+            storage). OEM and third-party brand logos are not permitted. Every photo requires descriptive
+            accessible alt text and independent reviewer approval before public storefront display.
+          </p>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="dealer-media-category" className="block text-sm font-medium mb-1">
+              Facility media category
+            </label>
+            <select id="dealer-media-category" className="w-full border rounded-lg p-3 bg-white"
+              value={mediaCategory} onChange={e=>setMediaCategory(e.target.value as MediaCategory)}>
+              <option value="SHOWROOM_EXTERIOR">Showroom exterior</option>
+              <option value="SHOWROOM_INTERIOR">Showroom interior</option>
+              <option value="BRANCH_FACILITY">Branch facility</option>
+              <option value="SERVICE_BAY">Service bay / workshop</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="dealer-media-branch" className="block text-sm font-medium mb-1">
+              Associated branch (optional)
+            </label>
+            <select id="dealer-media-branch" className="w-full border rounded-lg p-3 bg-white"
+              value={mediaBranchId} onChange={e=>setMediaBranchId(e.target.value)}>
+              <option value="">General dealership facility</option>
+              {workspace.branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="dealer-media-caption" className="block text-sm font-medium mb-1">
+              Public caption (5–240 characters)
+            </label>
+            <input id="dealer-media-caption" maxLength={240}
+              className="w-full border rounded-lg p-3"
+              value={mediaCaption} onChange={e=>setMediaCaption(e.target.value)}
+              placeholder="e.g. Main Harare showroom forecourt and customer reception"/>
+          </div>
+          <div>
+            <label htmlFor="dealer-media-alt" className="block text-sm font-medium mb-1">
+              Accessible image alt text (5–240 characters, required)
+            </label>
+            <input id="dealer-media-alt" maxLength={240}
+              className="w-full border rounded-lg p-3"
+              value={mediaAltText} onChange={e=>setMediaAltText(e.target.value)}
+              placeholder="Describe the scene clearly for screen-reader users"/>
+          </div>
+        </div>
+        <div>
+          <label htmlFor="dealer-media-file" className="block text-sm font-medium mb-1">
+            Select photograph file (PNG or JPEG)
+          </label>
+          <input id="dealer-media-file" type="file" accept="image/png,image/jpeg"
+            onChange={onSelectMediaFile} className="block text-sm text-slate-700"/>
+        </div>
+        <label htmlFor="dealer-media-rights-attestation" className="flex items-start gap-2 text-sm">
+          <input id="dealer-media-rights-attestation" type="checkbox"
+            checked={mediaAttested} onChange={e=>setMediaAttested(e.target.checked)}/>
+          <span>
+            I attest that this photograph is owned by our dealership and contains no OEM or
+            third-party brand logo rights claim ({RIGHTS_ATTESTATION}).
+          </span>
+        </label>
+        <Button variant="outline" disabled={busy||!mediaDataUrl||!mediaAttested||
+          mediaCaption.trim().length<5||mediaAltText.trim().length<5}
+          onClick={()=>{void uploadMedia()}}>
+          Upload dealership facility photo for independent review
+        </Button>
+        {mediaModel&&mediaModel.items.length>0&&<div className="border-t pt-4 space-y-2">
+          <h3 className="font-semibold text-sm">Recorded tenant media items ({mediaModel.items.length})</h3>
+          {mediaModel.items.map(item=><div key={item.media_id}
+            data-testid={`dealer-owner-media-item-${item.media_id}`}
+            className="rounded-lg border p-3 text-sm flex flex-wrap justify-between gap-2">
+            <div>
+              <strong>{item.caption}</strong>
+              <span className="block text-xs text-slate-600">
+                Alt: {item.alt_text} · {item.media_category.replaceAll('_',' ')}
+              </span>
+            </div>
+            <span className="text-xs font-medium text-slate-700">
+              {item.review_status} · Logo rights approved: false
+            </span>
+          </div>)}
+        </div>}
       </section>}
       {status==='ready'&&read&&<div className="grid lg:grid-cols-[260px_minmax(0,1fr)] gap-6 mt-8">
         <nav aria-label="Dealer operating sections" className="space-y-2">

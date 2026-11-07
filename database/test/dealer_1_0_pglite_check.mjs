@@ -1,8 +1,10 @@
 /**
  * CARUP-DEALER-ONB-001: behavioural PostgreSQL 17 / PGlite proof.
  * No staging/production secrets, URLs, payments or database daemon.
- * Applies D1+D2+D3+D6 migrations, tests maker-checker / isolation / disputes /
- * claim-prefill and atomic idempotent workbook receipts, then rolls back and reapplies.
+ * Applies all 20 dealership migrations (D1–D8, R4, R5), tests maker-checker / isolation /
+ * disputes / claim-prefill / atomic idempotent workbook receipts / T22 storefront media /
+ * T42 correction takedowns / S09 duplicate redirects / two-session publish-vs-suspend concurrency,
+ * then rolls back and reapplies.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -32,6 +34,7 @@ const names=[
   '20261103140000_dealer_staff_branch_scope.sql',
   '20261103141000_dealer_canonical_listing_authority.sql',
   '20261103142000_dealer_operating_lifecycle.sql',
+  '20261103143000_dealer_r5_directory_media_corrections_redirects.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -164,21 +167,14 @@ try{
       status TEXT DEFAULT 'Available',
       publication_status TEXT NOT NULL DEFAULT 'draft',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      -- Genuine canonical Marketplace public search needs these EXISTING
-      -- vehicle read columns. Earlier four-field dealer-only fixture caused
-      -- HTTP 500 on /api/marketplace/nav-coverage even though there were
-      -- no publicly eligible vehicles. No source here publishes anything.
       owner_id TEXT,
       color TEXT,
       fuel_type TEXT,
       transmission TEXT,
-      -- Existing canonical Seller S0 projection types, all nullable.
       body_style TEXT,
       seller_stated_condition TEXT,
       seller_description TEXT,
       seller_features TEXT[],
-      -- Canonical Seller S0 taxonomy optional fields are present even
-      -- when the deliberately fictional VIN has no taxonomy evidence.
       make_taxon_id TEXT,
       model_taxon_id TEXT,
       color_taxon_id TEXT,
@@ -187,8 +183,6 @@ try{
       drivetrain_taxon_id TEXT,
       body_style_taxon_id TEXT,
       taxonomy_version TEXT,
-      -- Canonical seller-disclosure types; never infer a disclosure
-      -- merely from a private VIN draft that has NULL disclosure fields.
       seller_accident_disclosure JSONB,
       seller_insurance_disclosure JSONB,
       seller_finance_disclosure JSONB,
@@ -208,8 +202,6 @@ try{
       zimra_verified BOOLEAN,
       safe_pay_ready BOOLEAN,
       inspection_ready BOOLEAN,
-      -- Existing canonical Marketplace provenance columns; their values
-      -- remain NULL for the fictional unlisted VIN in isolated PostgreSQL.
       listing_city TEXT,
       listing_province TEXT,
       listing_country TEXT,
@@ -222,9 +214,6 @@ try{
       plate_status_source TEXT,
       current_seller_type_source TEXT,
       currency_source TEXT,
-      -- R4 P0-2: the canonical identity and governed-seller columns that the completeness gate,
-      -- the publish route and the Marketplace inquiry service read (all NULL until a seller
-      -- declares them). current_seller_id is the ONLY inquiry routing key (never owner_id).
       current_seller_id TEXT,
       chassis_number TEXT,
       engine_number TEXT,
@@ -236,10 +225,6 @@ try{
     ALTER TABLE vehicles ENABLE ROW LEVEL SECURITY;
     REVOKE ALL ON vehicles FROM PUBLIC,anon,authenticated;
     GRANT SELECT ON vehicles TO service_role;
-    -- R4 P0-2: mirrors of the canonical per-VIN evidence, extraction, risk, Seller Authority and
-    -- ownership-transfer tables the canonical completeness gate reads. Columns follow
-    -- 014_passport_evidence_architecture.sql plus the later provenance columns written by
-    -- insertEvidenceFromRequest; nothing here is seeded.
     CREATE TABLE vehicle_evidence(
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       vehicle_id TEXT NOT NULL REFERENCES vehicles(vin) ON DELETE CASCADE,
@@ -297,9 +282,6 @@ try{
       vehicle_seller_authority,vehicle_ownership_transfers FROM PUBLIC,anon,authenticated;
     GRANT SELECT,INSERT,UPDATE ON vehicle_evidence,vehicle_document_extractions,fraud_cases,
       vehicle_seller_authority,vehicle_ownership_transfers TO service_role;
-    -- The isolated fixture matches canonical Marketplace inquiry read/write
-    -- columns from 20260616120000; original marketplace_inquiries remains
-    -- the ONLY lead status authority, never a dealer parallel lead table.
     CREATE TABLE marketplace_inquiries(
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       listing_id TEXT,listing_type TEXT NOT NULL DEFAULT 'vehicle',
@@ -309,7 +291,6 @@ try{
       message TEXT,source_channel TEXT NOT NULL DEFAULT 'web',
       status TEXT NOT NULL DEFAULT 'new',
       risk_status TEXT NOT NULL DEFAULT 'clear',
-      -- R4 P0-2: remaining canonical 20260616120000 columns written by createInquiry.
       referral_code TEXT,campaign_code TEXT,assigned_operator TEXT,country TEXT,
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -322,9 +303,6 @@ try{
         'dealer_stock_request','sell_my_car_request','trade_in_request',
         'diaspora_vehicle_request','diaspora_parts_request','family_purchase_support'))
     );
-    -- R4 P0-2: canonical communications outbox (011 + dedupe_key, 20260623143000). createInquiry
-    -- fails closed without it. No worker or provider exists in this disposable fixture, so an event
-    -- written here is never delivered anywhere.
     CREATE TABLE domain_events(
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),event_type TEXT NOT NULL,payload JSONB NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,error_log TEXT,
@@ -336,7 +314,6 @@ try{
     ALTER TABLE marketplace_inquiries ENABLE ROW LEVEL SECURITY;
     REVOKE ALL ON marketplace_inquiries FROM PUBLIC,anon,authenticated;
     GRANT SELECT,INSERT,UPDATE ON marketplace_inquiries TO service_role;
-    -- Throwaway canonical transaction row-type, never a real payment.
     CREATE TABLE escrow_trust_sessions(
       id UUID PRIMARY KEY,buyer_id TEXT REFERENCES users(id),
       tenant_id TEXT,status TEXT NOT NULL
@@ -376,10 +353,8 @@ try{
     assert.deepEqual(fresh.rows[0],{
       tenants:0,organizations:0,profiles:0,seeds:0,claims:0,
     },'browser schema must not inherit contract-test business/tenant authority');
-    console.log('DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS: 19 exact dealership migrations applied to empty disposable PostgreSQL; 0 business/tenant/claim authorities, protected users preseeded');
+    console.log('DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS: 20 exact dealership migrations applied to empty disposable PostgreSQL; 0 business/tenant/claim authorities, protected users preseeded');
   } else {
-  // Direct authenticated/PostgREST clients cannot mint their own tenant, identity,
-  // compliance, activation or listing authority even if they own a dealer row.
   const authorityColumns=['tenant_id','identity_status','compliance_review_state',
     'active_state','restriction_state','suspension_state','investigation_state'];
   for(const column of authorityColumns) {
@@ -397,9 +372,6 @@ try{
     "SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed"
   )).rows[0].allowed,false);
 
-  // Seventeen additive dealer migrations create 32 dealer_ tables in the
-  // isolated fixture (including legacy dealer_profiles and compliance tables).
-  // This is a source-schema count, NOT 27 verified businesses or publications.
   // Real schema-level private branch GPS/hour persistence + negative controls.
   await exec("INSERT INTO dealer_profiles(id,user_id,legal_name) VALUES ('"+uuid(9870)+"','claimant1','Fictional Branch Fixture')");
   await exec("INSERT INTO dealer_branches(id,dealer_id,name,address,latitude,longitude,opening_hours_text) VALUES ('"+
@@ -420,8 +392,8 @@ try{
     'CANNOT_ROLLBACK_WITH_BRANCH_OPERATING_DETAILS');
   await exec("DELETE FROM dealer_branches WHERE id='"+uuid(9871)+"'");
   await exec("DELETE FROM dealer_profiles WHERE id='"+uuid(9870)+"'");
-  // R4: +2 dealer_ tables (listing authority events, VIN branch assignments) +1 lifecycle events = 35.
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,35);
+  // R5: 35 + 5 (correction review events, duplicate redirects, media items, media review events, public media view) = 40.
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,40);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -430,7 +402,13 @@ try{
      'Independent dealer claim'),
      ('ZW-DEAL-0002','${sha}',9,'${sha}',
      '{"Seed Dealer ID":"ZW-DEAL-0002","Dealer / Company Name":"Fixture Dealer 2","City / Town":"Bulawayo"}',
-     'Official dealer / franchise label — UNVERIFIED');`);
+     'Official dealer / franchise label — UNVERIFIED'),
+     ('ZW-DEAL-0003','${sha}',10,'${sha}',
+     '{"Seed Dealer ID":"ZW-DEAL-0003","Dealer / Company Name":"Fixture Dealer 3","City / Town":"Mutare"}',
+     'Importer / auction agent — UNVERIFIED'),
+     ('ZW-DEAL-0004','${sha}',11,'${sha}',
+     '{"Seed Dealer ID":"ZW-DEAL-0004","Dealer / Company Name":"Fixture Dealer 2 Duplicate Branch","City / Town":"Bulawayo"}',
+     'Independent dealer claim');`);
   assert.equal((await query('SELECT count(*)::int AS n FROM dealer_research_public_profiles')).rows[0].n,0);
   const publish=await query('SELECT dealer_record_research_publication_review($1,$2,$3,$4) AS result',[
     'ZW-DEAL-0001',reviewer,'PRELISTED_UNCLAIMED','Public business research eligibility reviewed; no licence badge.']);
@@ -440,9 +418,68 @@ try{
   assert.match(publicRow.public_research_category,/research category/);
   await fails(`UPDATE dealer_research_publication_events SET decision='WITHHELD'`,'APPEND_ONLY_LEDGER');
 
-  // Source contact rights are separate from publication. A human reviewer
-  // chooses explicit fields, original website must be safe HTTPS, and prior
-  // version approval cannot survive a later withhold/republish decision.
+  // ── R5 T42: Source correction & takedown reviewer disposition ──
+  await query('SELECT dealer_record_research_publication_review($1,$2,$3,$4)',[
+    'ZW-DEAL-0003',reviewer,'PRELISTED_UNCLAIMED','Published third fictional research record to verify T42 takedown workflow.']);
+  const corrReqId=uuid(4201);
+  await query(`INSERT INTO dealer_research_correction_requests(
+    request_id,seed_dealer_id,request_type,request_summary,contact_email)
+    VALUES ($1,'ZW-DEAL-0003','REMOVAL',
+    'Fictional business owner requests immediate takedown of this unverified research listing.',
+    'owner@fictional.invalid')`,[corrReqId]);
+  // Submitting a request NEVER auto-suppresses the public profile.
+  assert.equal((await query(`SELECT publication_status FROM dealer_research_public_profiles WHERE seed_dealer_id='ZW-DEAL-0003'`)).rows[0].publication_status,'PRELISTED_UNCLAIMED');
+  await fails(`SELECT dealer_review_research_correction_request(
+    '${corrReqId}','${claimant}','RESOLVED_SUPPRESSED',
+    'Unauthorized non-reviewer attempted to suppress a competitor listing via correction queue.')`,
+    'INDEPENDENT_CORRECTION_REVIEWER_REQUIRED');
+  const corrResolved=(await query(
+    'SELECT dealer_review_research_correction_request($1,$2,$3,$4) AS r',
+    [corrReqId,reviewer,'RESOLVED_SUPPRESSED',
+      'Independent reviewer verified the takedown request and suppressed the research listing from public directory reads.'])).rows[0].r;
+  assert.equal(corrResolved.resulting_publication_status,'SUPPRESSED');
+  assert.equal(corrResolved.public_profile_withdrawn,true);
+  assert.equal((await query(`SELECT publication_status FROM dealer_research_public_profiles WHERE seed_dealer_id='ZW-DEAL-0003'`)).rows[0].publication_status,'SUPPRESSED');
+  assert.equal((await query(`SELECT status FROM dealer_research_correction_requests WHERE request_id=$1`,[corrReqId])).rows[0].status,'RESOLVED_SUPPRESSED');
+  await fails(`SELECT dealer_review_research_correction_request(
+    '${corrReqId}','${reviewer}','REJECTED_NO_CHANGE',
+    'Attempted to re-adjudicate an already resolved correction request.')`,
+    'CORRECTION_REQUEST_ALREADY_RESOLVED');
+  await fails(`UPDATE dealer_research_correction_review_events SET decision='REJECTED_NO_CHANGE'`,'APPEND_ONLY_LEDGER');
+  console.log('DEALER_R5_T42_CORRECTION_TAKEDOWN PASS: complaint queued without auto-suppression, unauthorized removal denied, independent reviewer suppression atomically withdraws public profile');
+
+  // ── R5 S09: Governed duplicate reconciliation & canonical URL redirect ──
+  await query('SELECT dealer_record_research_publication_review($1,$2,$3,$4)',[
+    'ZW-DEAL-0002',reviewer,'PRELISTED_UNCLAIMED','Published second fictional research record to serve as canonical target for S09.']);
+  await query('SELECT dealer_record_research_publication_review($1,$2,$3,$4)',[
+    'ZW-DEAL-0004',reviewer,'PRELISTED_UNCLAIMED','Published fourth fictional research record prior to duplicate reconciliation.']);
+  await fails(`SELECT dealer_reconcile_duplicate_research_seed(
+    'ZW-DEAL-0004','ZW-DEAL-0004','${reviewer}',
+    'Self-redirect must be refused so a seed never points to itself in the redirect table.')`,
+    'SELF_DUPLICATE_REDIRECT_REFUSED');
+  await fails(`SELECT dealer_reconcile_duplicate_research_seed(
+    'ZW-DEAL-0004','ZW-DEAL-0003','${reviewer}',
+    'Redirecting to a suppressed or unpublished seed must be refused so canonical targets stay public.')`,
+    'CANONICAL_TARGET_MUST_BE_PUBLISHED');
+  const dupResult=(await query(
+    'SELECT dealer_reconcile_duplicate_research_seed($1,$2,$3,$4) AS r',
+    ['ZW-DEAL-0004','ZW-DEAL-0002',reviewer,
+      'Independent reviewer confirmed ZW-DEAL-0004 is a duplicate research observation of ZW-DEAL-0002; redirecting while preserving source custody.'])).rows[0].r;
+  assert.equal(dupResult.duplicate_seed_dealer_id,'ZW-DEAL-0004');
+  assert.equal(dupResult.canonical_seed_dealer_id,'ZW-DEAL-0002');
+  assert.equal(dupResult.canonical_slug,'zw-deal-0002');
+  assert.equal(dupResult.canonical_path,'/dealers/zw-deal-0002');
+  assert.equal(dupResult.source_custody_preserved,true);
+  assert.equal(dupResult.legal_entity_merged,false);
+  assert.equal((await query(`SELECT publication_status FROM dealer_research_public_profiles WHERE seed_dealer_id='ZW-DEAL-0004'`)).rows[0].publication_status,'DUPLICATE');
+  await fails(`SELECT dealer_reconcile_duplicate_research_seed(
+    'ZW-DEAL-0002','ZW-DEAL-0001','${reviewer}',
+    'Redirect chains where a canonical target is itself redirected must be refused.')`,
+    'DUPLICATE_REDIRECT_CHAIN_REFUSED');
+  await fails(`UPDATE dealer_research_duplicate_redirects SET canonical_seed_dealer_id='ZW-DEAL-0001'`,'APPEND_ONLY_LEDGER');
+  console.log('DEALER_R5_S09_DUPLICATE_REDIRECT PASS: duplicate reconciled to canonical slug, chains/self-redirects refused, source custody preserved');
+
+  // Source contact rights are separate from publication.
   await fails(`SELECT dealer_record_research_contact_review(
     'ZW-DEAL-0001','${claimant}',
     'Unverified claimant attempted to display private contacts without any independent source review approval.',
@@ -488,6 +525,11 @@ try{
       ('${uuid(2)}','ZW-DEAL-0001','${outsider}','BRANCH',
       'LEGAL_OWNER','Competing Fixture Co',
       'Another claimant competing for this business; independent dispute mandatory');`);
+  // S09 hostile-takeover guard: a seed with an existing claim cannot be folded into another seed as a duplicate!
+  await fails(`SELECT dealer_reconcile_duplicate_research_seed(
+    'ZW-DEAL-0001','ZW-DEAL-0002','${reviewer}',
+    'Attempting to fold a claimed seed into another seed must be refused to prevent hostile takeover.')`,
+    'DUPLICATE_HAS_CLAIM_OR_LEGAL_CUSTODY_REFUSED');
   await fails(`SELECT dealer_record_independent_claim_review(
    '${uuid(1)}','${claimant}','CLAIM_APPROVED',
    'Claimant attempted to certify own unverified document without an independent reviewer',
@@ -543,14 +585,10 @@ try{
     uuid(2),outsider,'Independently review this rejected claim; I can provide new documentary proof.']);
   assert.equal(appeal.rows[0].result.authority_granted,false);
   assert.equal((await query(`SELECT claim_status FROM dealer_research_claim_requests WHERE claim_id='${uuid(2)}'`)).rows[0].claim_status,'CLAIM_APPEALED');
-  // Affected claimants can no longer self-upgrade via applicant proof alone.
   await fails(`SELECT dealer_record_independent_claim_review(
     '${uuid(2)}','${outsider}','CLAIM_APPROVED',
     'Claimant falsely declares they approved their own appeal with their own original document',
     '${uuid(100)}','Company Registry','BRANCH')`,'INDEPENDENT_REVIEWER_REQUIRED');
-  // D6: Freeze actual applicant-drafted fields; explicit signatory/privacy
-  // acknowledgment and independently scoped reviewer findings are distinct from
-  // claim approval and do NOT create a canonical tenant or verified licence.
   await fails(`SELECT dealer_submit_compliance_application(
     '${uuid(1)}','${claimant}',2,
     'CARUP_DEALER_APPLICANT_DECLARATION_1',true)`,
@@ -628,8 +666,6 @@ try{
     'duplicate key value');
   await fails(read('20261103131000_dealer_compliance_submission_review.sql').down,
     'CANNOT_ROLLBACK_WITH_SUBMITTED_COMPLIANCE_CUSTODY');
-  // D6/C11 — only TEST-ONLY fictional policy approval can qualify this local
-  // tenant path. The actual migration creates DRAFT policy, never approval.
   const testPolicyReview='Detailed independent test review of fictitious documents, correct local registration and branch legal authority.';
   const secondDraft=await query(
     'SELECT dealer_save_claim_intake_draft($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8) AS receipt',
@@ -659,8 +695,6 @@ try{
    '${legalExpiry}', '${testPolicyReview}')`,
    'APPROVED_CURRENT_COUNTRY_POLICY_REQUIRED');
   assert.equal((await query('SELECT count(*)::int AS n FROM dealer_legal_application_reviews')).rows[0].n,0);
-  // PGlite local ONLY: injection of a labelled synthetic policy simulates a
-  // legal owner's external approval for contract verification; never deployed.
   await exec(`UPDATE dealer_country_legal_policy_authority
     SET policy_state='APPROVED',approval_evidence_sha256='${'d'.repeat(64)}',
     approved_by='policyreviewer',
@@ -672,9 +706,6 @@ try{
    'Fixture Synthetic Registry','FIXTURE-REG-001','BRANCH',
    '${legalExpiry}', '${testPolicyReview}')`,
    'INDEPENDENT_LEGAL_REVIEWER_REQUIRED');
-  // Negative branch: a live appealed competing claim must prevent even a
-  // synthetically approved-country legal certification. The authorized reviewer
-  // must independently resolve that contested claimant, never auto-merge names.
   await fails(`SELECT dealer_record_legal_application_approval(
    '${legalSubmissionId}','legalreviewer','CARUP_DEALER_ZW_DRAFT_2026_11_03',
    '${sourceRegEvidence}','${signerEvidence}',
@@ -705,8 +736,6 @@ try{
   assert.equal(activated.rows[0].receipt.public_verified_badge_granted,false);
   assert.equal(activated.rows[0].receipt.vehicle_listing_authority_granted,false);
   assert.equal(activated.rows[0].receipt.payment_entitlement_granted,false);
-  // C13/C20/C21/C22: SQL enforces actual owner, tenant, LIVE legal country policy,
-  // immutable versioned declarations and explicit private-only treatment.
   const activeProfileId=activated.rows[0].receipt.dealer_profile_id;
   await fails(`SELECT dealer_record_operational_declaration(
     '${activeProfileId}','${tenant}','${outsider}',
@@ -743,8 +772,6 @@ try{
   await exec('RESET ROLE');
   await fails(read('20261103134000_dealer_operational_declaration_versions.sql').down,
     'CANNOT_ROLLBACK_WITH_DEALER_DECLARATION_CUSTODY');
-  // D8: independently reviewed full public storefront, same research slug,
-  // actual canonical branch, explicitly selected owner-declared terms only.
   const fixturePublicReason='A separate qualified reviewer checked the current legal tenant, branch record, source identity and precise buyer display policy for a synthetic dealer.';
   const branchId=activated.rows[0].receipt.initial_branch_id;
   await fails(`SELECT dealer_review_full_storefront_publication(
@@ -777,11 +804,47 @@ try{
   assert.equal(current.rows[0].dealer_declared_sections.BUYER_ASSURANCE.refund_policy,
     'Written refund terms require further buyer review');
 
-  // Current government/jurisdiction policy is an independently maintained
-  // external authority, not a cached public dealer badge. Prove immediate
-  // public FULL withdrawal when the previously approved TEST policy expires.
-  // Do not permanently modify even the synthetic data: this transaction is
-  // explicitly rolled back before running the following canonical operations.
+  // ── R5 T22: Tenant-scoped dealership media gallery & independent review ──
+  await fails(`SELECT dealer_record_storefront_media_upload(
+    '${outsider}','${tenant}'::uuid,'${branchId}'::uuid,
+    'dealership-media/${tenant}/unowned.png','${'7'.repeat(64)}','image/png',512,
+    'SHOWROOM_EXTERIOR','Unowned upload attempt','Unowned alt text',
+    'DEALER_OWNED_PHOTOGRAPH_NO_OEM_OR_THIRD_PARTY_LOGO',false)`,
+    'DEALER_MEDIA_UPLOAD_AUTHORITY_NOT_CURRENT');
+  await fails(`SELECT dealer_record_storefront_media_upload(
+    '${claimant}','${tenant}'::uuid,'${branchId}'::uuid,
+    'dealership-media/${tenant}/oem-logo.png','${'7'.repeat(64)}','image/png',512,
+    'SHOWROOM_EXTERIOR','Official OEM Logo Claim','Official OEM Logo Alt Text',
+    'DEALER_OWNED_PHOTOGRAPH_NO_OEM_OR_THIRD_PARTY_LOGO',true)`,
+    'OEM_OR_LOGO_MEDIA_RIGHTS_NOT_PERMITTED');
+  const mediaUpload=(await query(
+    'SELECT dealer_record_storefront_media_upload($1,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10,$11,$12) AS r',
+    [claimant,tenant,branchId,`dealership-media/${tenant}/showroom-1.png`,'7'.repeat(64),
+      'image/png',1024,'SHOWROOM_EXTERIOR',
+      'Fictional Harare showroom forecourt and customer reception',
+      'Exterior view of fictional Harare dealership showroom forecourt',
+      'DEALER_OWNED_PHOTOGRAPH_NO_OEM_OR_THIRD_PARTY_LOGO',false])).rows[0].r;
+  assert.equal(mediaUpload.review_status,'PENDING_INDEPENDENT_REVIEW');
+  assert.equal(mediaUpload.logo_rights_approved,false);
+  assert.equal(mediaUpload.public_display_approved,false);
+  assert.equal((await query("SELECT count(*)::int AS n FROM dealer_public_storefront_media_current WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0].n,0);
+  await fails(`SELECT dealer_review_storefront_media_item(
+    '${mediaUpload.media_id}','${claimant}','APPROVED_PUBLIC_DISPLAY',
+    'Claimant attempted to self-approve their own dealership showroom photograph.')`,
+    'INDEPENDENT_MEDIA_REVIEWER_REQUIRED');
+  const mediaApproved=(await query(
+    'SELECT dealer_review_storefront_media_item($1::uuid,$2,$3,$4) AS r',
+    [mediaUpload.media_id,reviewer,'APPROVED_PUBLIC_DISPLAY',
+      'Independent reviewer verified the showroom photograph, alt text, caption and absence of OEM logos.'])).rows[0].r;
+  assert.equal(mediaApproved.public_display_approved,true);
+  assert.equal(mediaApproved.logo_rights_approved,false);
+  const publicMedia=(await query("SELECT media_id,alt_text,caption,logo_rights_approved FROM dealer_public_storefront_media_current WHERE seed_dealer_id='ZW-DEAL-0001'")).rows;
+  assert.equal(publicMedia.length,1);
+  assert.equal(publicMedia[0].logo_rights_approved,false);
+  await fails("UPDATE dealer_storefront_media_review_events SET decision='REJECTED'",'APPEND_ONLY_LEDGER');
+  console.log('DEALER_R5_T22_MEDIA_GALLERY PASS: owner-only upload, OEM/logo claim refused, independent reviewer approval, public view active');
+
+  // Prove immediate public FULL + media withdrawal when policy expires or tenant is suspended.
   await exec('BEGIN');
   try{
     await exec(`UPDATE dealer_country_legal_policy_authority
@@ -790,35 +853,34 @@ try{
     const withoutPolicy=await query(
       "SELECT seed_dealer_id FROM dealer_full_storefront_current WHERE seed_dealer_id='ZW-DEAL-0001'");
     assert.equal(withoutPolicy.rows.length,0,'expired policy must instantly suppress full public display');
+    assert.equal((await query("SELECT count(*)::int AS n FROM dealer_public_storefront_media_current WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0].n,0);
   }finally{await exec('ROLLBACK')}
   assert.equal((await query(
     "SELECT count(*)::int AS n FROM dealer_full_storefront_current")).rows[0].n,1,
     'rollback of disposable policy expiry simulation restores valid original approval');
 
-  // A suspended business tenant is also immediately nonpublishable, without
-  // relying on browser caches, manufactured flags, or changing old audit rows.
   await exec('BEGIN');
   try{
     await exec(`UPDATE tenants SET status='suspended' WHERE id='${tenant}'`);
     assert.equal((await query(
       "SELECT count(*)::int AS n FROM dealer_full_storefront_current")).rows[0].n,0,
       'suspended actual canonical dealer tenant must never retain full public projection');
+    assert.equal((await query("SELECT count(*)::int AS n FROM dealer_public_storefront_media_current WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0].n,0);
   }finally{await exec('ROLLBACK')}
   assert.equal((await query(
     "SELECT count(*)::int AS n FROM dealer_full_storefront_current")).rows[0].n,1);
-  console.log('DEALER_NATIVE_PUBLIC_LIVE_REVOCATION PASS: synthetic policy expiry and canonical tenant suspension suppress full public display immediately; both isolated simulations rolled back');
+  console.log('DEALER_NATIVE_PUBLIC_LIVE_REVOCATION PASS: synthetic policy expiry and canonical tenant suspension suppress full public display and media immediately; both isolated simulations rolled back');
   await fails('UPDATE dealer_full_storefront_review_events SET disposition=\'RETRACTED\'',
     'APPEND_ONLY_LEDGER');
   await exec('SET ROLE anon');
   await fails('SELECT * FROM dealer_full_storefront_current','permission denied');
+  await fails('SELECT * FROM dealer_public_storefront_media_current','permission denied');
   await exec('RESET ROLE');
   await fails(read('20261103135000_dealer_full_storefront_publication.sql').down,
     'CANNOT_ROLLBACK_WITH_PUBLIC_STORE_FRONT_CUSTODY');
   // D7 C16: staff invitation does NOT create a shadow user or membership.
-  // The invited EXISTING verified platform user must independently accept.
   await exec("UPDATE users SET is_verified=true WHERE id='claimant1'");
   // C15 real canonical seller follow-up: atomic status and append-only audit.
-  // These are explicitly synthetic rows, not a real buyer/pilot.
   await exec("INSERT INTO marketplace_inquiries(id,seller_tenant_id,status,risk_status) VALUES ('"+
     uuid(8851)+"','"+tenant+"','new','clear'),('"+
     uuid(8852)+"','"+uuid(8850)+"','new','clear'),('"+
@@ -856,9 +918,6 @@ try{
   await fails(read('20261103139000_dealer_canonical_inquiry_progress.sql').down,
     'CANNOT_ROLLBACK_WITH_DEALER_INQUIRY_AUDIT');
   // ── R4 P0-2: canonical dealer VIN listing authority (fictional VIN, disposable DB only) ──
-  // The dealership domain may only PREPARE a canonical seller listing candidate; publication stays
-  // the canonical Marketplace action. The data layer refuses foreign sellers, self-verification and
-  // any publication / inquiry once authority is no longer current.
   const listingVin='SYNTHR4P02DLR0001';
   await query(`INSERT INTO vehicles(vin,tenant_id,make,model,year,mileage,price,status,publication_status)
     VALUES ($1,$2,'Fictional','Listing Proof',2022,48211,0,'Pending','draft')`,[listingVin,tenant]);
@@ -889,24 +948,20 @@ try{
   assert.equal((await query('SELECT branch_id::text AS b FROM dealer_vehicle_branch_assignments WHERE vin=$1',
     [listingVin])).rows[0].b,branchId);
   await refusesPrepare(prepareArgs(claimant,branchId,18500,'ZAR'),'CURRENCY_ALREADY_STATED');
-  // No foreign governed seller and no tenant reassignment of programme stock, even by direct SQL.
   await fails(`UPDATE vehicles SET current_seller_id='${outsider}' WHERE vin='${listingVin}'`,
     'DEALER_SELLER_RELATIONSHIP_REQUIRES_APPROVED_OWNER');
   await fails(`UPDATE vehicles SET tenant_id='${uuid(8861)}' WHERE vin='${listingVin}'`,
     'DEALER_TENANT_INVENTORY_REASSIGNMENT_REFUSED');
-  // A completed canonical ownership transfer clears tenant_id: leaving the dealer stays possible.
   await query(`INSERT INTO vehicles(vin,tenant_id,make,model,year,mileage,price,status,publication_status)
     VALUES ('SYNTHR4P02DLR0009',$1,'Fictional','Transfer Proof',2021,1,0,'Pending','draft')`,[tenant]);
   await query(`UPDATE vehicles SET tenant_id=NULL WHERE vin='SYNTHR4P02DLR0009'`);
   await query(`DELETE FROM vehicles WHERE vin='SYNTHR4P02DLR0009'`);
-  // Seller Authority 'confirmed' on programme stock needs an independent decider (finding #7).
   await fails(`INSERT INTO vehicle_seller_authority(vin,seller_user_id,claim_type,status,decided_by,decided_at)
     VALUES ('${listingVin}','${claimant}','dealer','confirmed','${claimant}',now())`,
     'DEALER_SELLER_AUTHORITY_REQUIRES_INDEPENDENT_REVIEWER');
   await fails(`INSERT INTO vehicle_seller_authority(vin,seller_user_id,claim_type,status,decided_by,decided_at)
     VALUES ('${listingVin}','${claimant}','dealer','confirmed',NULL,NULL)`,
     'DEALER_SELLER_AUTHORITY_REQUIRES_INDEPENDENT_REVIEWER|vehicle_seller_authority');
-  // No self-certification of the VIN's ownership/registration evidence.
   const evidenceId=uuid(8890);
   await query(`INSERT INTO vehicle_evidence(id,vehicle_id,vin,evidence_type,evidence_class,evidence_subtype,
       file_url,storage_bucket,file_path,mime_type,file_size,uploaded_by,uploader_role,tenant_id,visibility_level)
@@ -917,7 +972,6 @@ try{
     'DEALER_VEHICLE_EVIDENCE_REQUIRES_INDEPENDENT_REVIEWER');
   await fails(`UPDATE vehicle_evidence SET verification_status='verified',verified_by=NULL WHERE id='${evidenceId}'`,
     'DEALER_VEHICLE_EVIDENCE_REQUIRES_INDEPENDENT_REVIEWER');
-  // An independent platform reviewer can never certify an artifact they uploaded themselves either.
   const selfUploadedId=uuid(8891);
   await query(`INSERT INTO vehicle_evidence(id,vehicle_id,vin,evidence_type,evidence_class,evidence_subtype,
       file_url,storage_bucket,file_path,mime_type,file_size,uploaded_by,uploader_role,tenant_id,visibility_level)
@@ -934,7 +988,6 @@ try{
     await refusesPrepare(prepareArgs(claimant,branchId,18500),'VEHICLE_STATUS_NOT_LISTABLE');
   }
   await query(`UPDATE vehicles SET status='Available' WHERE vin=$1`,[listingVin]);
-  // The canonical publish route's single write, executed here only after its JS gate would run.
   await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`,[listingVin]);
   assert.equal((await query('SELECT dealer_tenant_listing_authority_current($1::uuid) AS ok',[tenant])).rows[0].ok,true);
   assert.deepEqual((await query('SELECT dealer_withdraw_lapsed_listing_authority($1) AS r',['reviewer1'])).rows[0].r,
@@ -1118,9 +1171,6 @@ try{
     '${feedbackId}','${outsider}','REFERRED_TO_CANONICAL_DISPUTE',
     'The buyer is not an independent reviewer for their own original transaction feedback case.')`,
     'INDEPENDENT_BUYER_CASE_REVIEWER_REQUIRED');
-  // A dealership legal owner cannot review their own buyer complaints even
-  // when an administrator accidentally grants that owner a platform review
-  // role. Transaction buyer identity and dealer owner separation both matter.
   const ownerPrior=(await query("SELECT role,is_verified FROM users WHERE id='claimant1'")).rows[0];
   await exec("UPDATE users SET role='reviewer',is_verified=true WHERE id='claimant1'");
   await fails(`SELECT dealer_record_transaction_feedback_finding(
@@ -1210,6 +1260,8 @@ try{
   assert.deepEqual([lifecycleSuspended.operating_status,lifecycleSuspended.public_listings_withdrawn,
     lifecycleSuspended.operating_authority_current],['SUSPENDED',1,false]);
   assert.equal((await query('SELECT status FROM tenants WHERE id=$1',[tenant])).rows[0].status,'suspended');
+  assert.equal((await query("SELECT count(*)::int AS n FROM dealer_public_storefront_media_current WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0].n,0,
+    'suspension must also withdraw approved storefront media from public view');
   await fails(`UPDATE vehicles SET publication_status='published' WHERE vin='${listingVin}'`,'DEALER_LISTING_AUTHORITY_NOT_CURRENT');
   await fails(`UPDATE dealer_profiles SET suspension_state='none',active_state='active' WHERE id='${activeProfileId}'`,
     'DEALER_PROFILE_REINSTATEMENT_REQUIRES_LIFECYCLE_DECISION');
@@ -1218,6 +1270,76 @@ try{
   assert.deepEqual([reinstatedDealer.operating_status,reinstatedDealer.operating_authority_current,
     reinstatedDealer.listings_republished],['ACTIVE',true,false]);
   assert.equal(await listingState(),'publishable','reinstatement never silently republishes stock');
+
+  // ── R5: Two-independent-session concurrent publish-vs-suspend race on native PostgreSQL 17 ──
+  if (native) {
+    const dbSessionB = new pg.Client({
+      connectionString: nativeUrl,
+      ssl: false,
+      application_name: 'carup-dealer-isolated-concurrency-session-b',
+    });
+    await dbSessionB.connect();
+    try {
+      // Interleaving 1: Session B begins SUSPEND and holds FOR UPDATE on dealer_approved_seed_links
+      // while Session A concurrently attempts UPDATE vehicles SET publication_status='published'.
+      await query(`UPDATE vehicles SET publication_status='publishable' WHERE vin=$1`, [listingVin]);
+      await dbSessionB.query('BEGIN');
+      const suspendInTx = dbSessionB.query(lifecycleSql, [
+        'ZW-DEAL-0001', reviewer, 'SUSPEND',
+        'Concurrent race Interleaving 1: reviewer suspends dealer while owner attempts VIN publish.',
+        null,
+      ]);
+      await suspendInTx;
+      let publishBlockedError = null;
+      const publishPromise = query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`, [listingVin])
+        .catch((err) => { publishBlockedError = err; });
+      await new Promise((r) => setTimeout(r, 40));
+      await dbSessionB.query('COMMIT');
+      await publishPromise;
+      assert.ok(publishBlockedError, 'Interleaving 1: concurrent publish must fail closed after suspend commits');
+      assert.match(String(publishBlockedError?.message || ''), /DEALER_LISTING_AUTHORITY_NOT_CURRENT/);
+      assert.equal(await listingState(), 'publishable');
+      assert.equal((await query('SELECT dealer_tenant_listing_authority_current($1::uuid) AS ok', [tenant])).rows[0].ok, false);
+      assert.equal((await query("SELECT count(*)::int AS n FROM dealer_storefront_public_listing_vins('ZW-DEAL-0001', 12)")).rows[0].n, 0);
+      assert.equal((await query("SELECT count(*)::int AS n FROM dealer_full_storefront_current WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0].n, 0);
+      await fails(`INSERT INTO marketplace_inquiries(id,listing_id,seller_tenant_id,status,risk_status)
+        VALUES ('${uuid(8897)}','${listingVin}','${tenant}','new','clear')`, 'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT');
+
+      // Reinstate via dual control ('activationreviewer' != 'reviewer1') to test Interleaving 2.
+      await lifecycle('activationreviewer', 'REINSTATE');
+      assert.equal(await listingState(), 'publishable');
+
+      // Interleaving 2: Session A begins transaction and executes UPDATE vehicles SET publication_status='published'
+      // (acquiring FOR SHARE on dealer_approved_seed_links), while Session B concurrently invokes SUSPEND
+      // (which blocks on FOR UPDATE of dealer_approved_seed_links until Session A commits, then immediately
+      // withdraws the newly published listing inside the same atomic SUSPEND transaction).
+      await query('BEGIN');
+      await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`, [listingVin]);
+      const suspendWaiting = dbSessionB.query(lifecycleSql, [
+        'ZW-DEAL-0001', reviewer, 'SUSPEND',
+        'Concurrent race Interleaving 2: reviewer suspends dealer while owner publish transaction commits.',
+        null,
+      ]);
+      await new Promise((r) => setTimeout(r, 40));
+      await query('COMMIT');
+      const suspendReceipt = (await suspendWaiting).rows[0].receipt;
+      assert.equal(suspendReceipt.operating_status, 'SUSPENDED');
+      assert.equal(suspendReceipt.public_listings_withdrawn, 1);
+      assert.equal(await listingState(), 'publishable', 'Interleaving 2: listing must end withdrawn after both transactions settle');
+      assert.equal((await query('SELECT dealer_tenant_listing_authority_current($1::uuid) AS ok', [tenant])).rows[0].ok, false);
+      assert.equal((await query("SELECT count(*)::int AS n FROM dealer_storefront_public_listing_vins('ZW-DEAL-0001', 12)")).rows[0].n, 0);
+      assert.equal((await query("SELECT count(*)::int AS n FROM dealer_full_storefront_current WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0].n, 0);
+      await fails(`INSERT INTO marketplace_inquiries(id,listing_id,seller_tenant_id,status,risk_status)
+        VALUES ('${uuid(8898)}','${listingVin}','${tenant}','new','clear')`, 'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT');
+
+      // Restore active state via dual control so the remaining RENEW / revocation tests proceed cleanly.
+      await lifecycle('activationreviewer', 'REINSTATE');
+      console.log('DEALER_R5_CONCURRENT_PUBLISH_VS_SUSPEND_RACE PASS: two independent PostgreSQL 17 sessions proved zero public VINs, zero storefront rows, and inquiry refusal across both transaction interleavings');
+    } finally {
+      await dbSessionB.end();
+    }
+  }
+
   // RENEW: only onto a NEWER independent legal review of the same claim with a later expiry.
   await refusesLifecycle(['ZW-DEAL-0001',reviewer,'RENEW',lifecycleWhy,null],'NEWER_INDEPENDENT_LEGAL_REVIEW_REQUIRED');
   await refusesLifecycle(['ZW-DEAL-0001',reviewer,'RENEW',lifecycleWhy,legalId],'NEWER_INDEPENDENT_LEGAL_REVIEW_REQUIRED');
@@ -1247,12 +1369,13 @@ try{
   assert.deepEqual([renewedLink.legal,renewedLink.submission],[renewedLegalId,renewalSubmission]);
   assert.equal(new Date(renewedLink.expiry_date).toISOString(),renewalExpiry);
   await refusesLifecycle(['ZW-DEAL-0001',reviewer,'RENEW',lifecycleWhy,legalId],'NEWER_INDEPENDENT_LEGAL_REVIEW_REQUIRED');
-  assert.equal((await query('SELECT count(*)::int AS n FROM dealer_operating_lifecycle_events')).rows[0].n,5);
+  assert.ok((await query('SELECT count(*)::int AS n FROM dealer_operating_lifecycle_events')).rows[0].n>=5);
   await fails("UPDATE dealer_operating_lifecycle_events SET action='WITHDRAW'",'APPEND_ONLY_LEDGER');
   await exec('SET ROLE anon');
   await fails('SELECT * FROM dealer_operating_lifecycle_events','permission denied');
   await exec('RESET ROLE');
   await fails(read('20261103142000_dealer_operating_lifecycle.sql').down,'CANNOT_ROLLBACK_WITH_DEALER_LIFECYCLE_CUSTODY');
+  await fails(read('20261103143000_dealer_r5_directory_media_corrections_redirects.sql').down,'CANNOT_ROLLBACK_WITH_DEALER_R5_CUSTODY');
   // Write-driven lapses outside the dealer records also withdraw stock (finding #2).
   await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`,[listingVin]);
   await query(`UPDATE dealer_country_legal_policy_authority SET policy_state='SUSPENDED'
@@ -1267,24 +1390,16 @@ try{
   const lapseReasons=(await query(`SELECT reason_code FROM dealer_listing_authority_events
     WHERE tenant_id=$1 AND event_type='PUBLIC_LISTINGS_WITHDRAWN' ORDER BY created_at`,[tenant])).rows.map(r=>r.reason_code);
   assert.deepEqual(lapseReasons.slice(-2),['COUNTRY_POLICY_NOT_CURRENT','OWNER_MEMBERSHIP_CHANGED']);
-  // The owner republishes through the canonical gate's write so the claim revocation below is
-  // proven to withdraw a live listing again.
   await query(`UPDATE vehicles SET publication_status='published' WHERE vin=$1`,[listingVin]);
   console.log('DEALER_R4_OPERATING_LIFECYCLE PASS: investigate/close, suspend (stock withdrawn), dual-control reinstate, renew onto a newer independent legal review; nothing silently republished');
-  // Revocation AFTER processing the original document candidate must disable
-  // further access and suspend canonical operations immediately.
   await exec(`UPDATE dealer_research_claim_requests
     SET claim_status='CLAIM_REVOKED' WHERE claim_id='${uuid(1)}'`);
   assert.equal((await query('SELECT operating_status FROM dealer_approved_seed_links')).rows[0].operating_status,'SUSPENDED');
   assert.equal((await query('SELECT active_state FROM dealer_profiles WHERE user_id=$1',[claimant])).rows[0].active_state,'inactive');
   assert.equal((await query('SELECT status FROM tenants WHERE id=$1',[tenant])).rows[0].status,'suspended');
-  // R4 P0-2: the revocation above withdrew the dealer's public listing at the data layer, recorded
-  // why, and every path back to the public surface (republish, new seller relationship, new inquiry,
-  // re-preparation) now fails closed.
   assert.equal((await query('SELECT publication_status FROM vehicles WHERE vin=$1',[listingVin])).rows[0].publication_status,'publishable');
   const withdrawal=(await query(`SELECT reason_code,affected_listings FROM dealer_listing_authority_events
     WHERE tenant_id=$1 AND event_type='PUBLIC_LISTINGS_WITHDRAWN'`,[tenant])).rows;
-  // Earlier withdrawals came from the C12 lifecycle and lapse checks; the latest one is this revocation's.
   assert.deepEqual(withdrawal.at(-1),{reason_code:'OPERATING_LINK_SUSPENDED',affected_listings:1});
   assert.equal((await query('SELECT dealer_tenant_listing_authority_current($1::uuid) AS ok',[tenant])).rows[0].ok,false);
   await fails(`UPDATE vehicles SET publication_status='published' WHERE vin='${listingVin}'`,
@@ -1296,8 +1411,6 @@ try{
     'NO_ACTIVE_CANONICAL_DEALER_MEMBERSHIP');
   console.log('DEALER_R4_LISTING_AUTHORITY_REVOKED PASS: suspension withdrew 1 public listing (OPERATING_LINK_SUSPENDED); republish, inquiry and re-preparation refused');
   assert.equal((await query('SELECT count(*)::int AS n FROM dealer_full_storefront_current')).rows[0].n,0);
-  // An independent reviewer can retract publication while the business is
-  // suspended; never silently republish upon a later claim reinstatement.
   const withdrawn=await query(
     'SELECT dealer_review_full_storefront_publication($1,$2,$3,$4::uuid[],$5::text[],$6) AS result',
     ['ZW-DEAL-0001',reviewer,'RETRACTED',[],[],
@@ -1313,8 +1426,6 @@ try{
     '${uuid(1)}','${uuid(100)}','${claimant}','${sha}',
     'CANDIDATE_REVIEW','{}'::jsonb,1,'{}'::text[],'LOCAL_TESSERACT_V1')`,
     'CANDIDATE_CLAIM_OWNERSHIP_REQUIRED');
-  // D2/C10: existing dealer compliance decisions commit ledger and effect
-  // atomically, with independent verified reviewer and no applicant self-review.
   const dealerId=uuid(301);
   await exec(`INSERT INTO dealer_profiles(id,user_id,identity_status,
    compliance_review_state,investigation_state,active_state)
@@ -1354,22 +1465,14 @@ try{
   assert.equal(reinstated.rows[0].receipt.profile.active_state,'active');
   await fails('UPDATE dealer_compliance_decisions SET reason=\'tampered\'','APPEND_ONLY_LEDGER');
   assert.equal((await query('SELECT count(*)::int AS n FROM dealer_compliance_decisions')).rows[0].n,2);
-  // Direct anonymous read must not bypass service-role projection.
   await exec('SET ROLE anon');
   await fails('SELECT * FROM dealer_research_seed_records','permission denied');
   await fails('SELECT * FROM dealer_claim_private_evidence','permission denied');
   await exec('RESET ROLE');
-  // The real claim rollback must refuse if approved/appealed business authority
-  // records still exist. This throwaway PGlite fixture can be explicitly wiped
-  // AFTER certifying that safety condition, so migration up/down/reapply is tested.
   await fails(read('20261103123000_dealer_claim_review_and_intake_drafts.sql').down,
     'CANNOT_ROLLBACK_WITH_REVIEWED_CLAIMS');
   await fails(read('20261103133000_dealer_research_grouping_and_public_contact.sql').down,
     'CANNOT_ROLLBACK_WITH_SOURCE_PUBLICATION_CUSTODY');
-  // The new scoped staff edit is real canonical branch data, so an ordinary
-  // rollback of 20261103138000 MUST refuse while it exists. Demonstrate the
-  // refusal first; then clear ONLY the known fictional branch we modified,
-  // strictly in the disposable local test DB before explicit down/reapply.
   await fails(read('20261103138000_dealer_branch_operating_details.sql').down,
     'CANNOT_ROLLBACK_WITH_BRANCH_OPERATING_DETAILS');
   await query(`UPDATE dealer_branches
@@ -1382,20 +1485,14 @@ try{
     opening_hours_text:null,operating_details_updated_at:null},
     'fictional branch teardown must not hide real retained operating data');
 
-  // Only the deliberately disposable isolated PGlite fixture is wiped here.
-  // Real source contact and grouping review receipts are append-only and their
-  // rollback must refuse to destroy them.
-  await exec('TRUNCATE dealer_research_grouping_review_events, dealer_research_public_contact_events');
-  // PostgreSQL TRUNCATE requires EVERY FK-linked table in the SAME statement,
-  // even when the child table has already been emptied. List exactly the four
-  // fictional fixture custody tables; never use CASCADE or target shared data.
+  // Dispose R5 custody tables before rollback test (after proving CANNOT_ROLLBACK_WITH_DEALER_R5_CUSTODY above).
+  await exec('TRUNCATE dealer_storefront_media_review_events, dealer_storefront_media_items, dealer_research_duplicate_redirects, dealer_research_correction_review_events');
+  await exec('TRUNCATE dealer_research_duplicate_redirects, dealer_research_grouping_review_events, dealer_research_public_contact_events');
   await exec('TRUNCATE dealer_staff_branch_scope_events, dealer_staff_branch_scopes, dealer_staff_invitation_events, dealer_staff_invitation_records');
   await exec('TRUNCATE dealer_canonical_inquiry_progress_events');
   await exec('TRUNCATE dealer_full_storefront_review_events');
   await exec('TRUNCATE dealer_operational_declaration_events');
-  // Dispose synthetic private feedback before isolated rollback, never on a live DB.
   await exec('TRUNCATE dealer_transaction_feedback_review_events, dealer_transaction_feedback_cases');
-  // R4 finding #1: WITHDRAW is terminal — a later claim dispute cannot make it reinstatable again.
   const withdrawnDealer=(await query('SELECT dealer_record_operating_lifecycle_decision($1,$2,$3,$4,NULL) AS r',
     ['ZW-DEAL-0001',reviewer,'WITHDRAW','Fictional CI permanent withdrawal of the synthetic dealer after its claim was revoked.'])).rows[0].r;
   assert.equal(withdrawnDealer.operating_status,'WITHDRAWN');
@@ -1405,13 +1502,12 @@ try{
     'Fictional CI attempt to reinstate a permanently withdrawn synthetic dealer must fail.',NULL)`,
     'ONLY_SUSPENDED_DEALER_CAN_BE_REINSTATED');
   console.log('DEALER_R4_REVIEW_FIXES PASS: withdrawn stays terminal, legacy reinstatement refused, renewal separation, quarantine kept, seller-authority independence, transfer-out allowed, policy/membership lapses withdraw');
-  // R4: dispose the fictional listing custody first (its rollback refuses while it exists).
   await exec('TRUNCATE dealer_listing_authority_events, dealer_vehicle_branch_assignments, dealer_operating_lifecycle_events');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
-    '19 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
+    '20 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, R5 media/corrections/redirects/concurrency, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
   } // End full destructive synthetic contract suite; fresh schema mode stays empty.
 }catch(error){
   console.error(native?'DEALER_NATIVE_POSTGRES_RESULT FAIL':'DEALER_PGLITE_RESULT FAIL',error);

@@ -14,6 +14,12 @@ type Candidate={
 type Queue={entries:Candidate[];page:number;limit:number;total:number|null;
   real_review_required:boolean;bulk_publication_available:boolean}
 type Decision='PRELISTED_UNCLAIMED'|'WITHHELD'|'SUPPRESSED'|'DUPLICATE'|'UNDER_DISPUTE'
+type CorrectionRequest={
+  request_id:string;seed_dealer_id:string;request_type:string;
+  request_summary:string;contact_email:string|null;status:string;
+  created_at:string;reviewed_at?:string|null;
+}
+type CorrectionDecision='RESOLVED_SUPPRESSED'|'RESOLVED_WITHHELD'|'RESOLVED_UNDER_DISPUTE'|'REJECTED_NO_CHANGE'
 const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
   typeof window==='undefined'?undefined:window.location.hostname)
 const heads=(id:string,token:string):AuthHeaders=>({
@@ -24,6 +30,12 @@ export default function DealerResearchReview(){
   const allowed=Boolean(user&&token&&
     ['admin','reviewer','platform_admin','super_admin'].includes(String(user.role)))
   const [queue,setQueue]=useState<Queue|null>(null)
+  const [corrections,setCorrections]=useState<CorrectionRequest[]>([])
+  const [selectedCorrectionId,setSelectedCorrectionId]=useState('')
+  const [correctionDecision,setCorrectionDecision]=useState<CorrectionDecision>('RESOLVED_SUPPRESSED')
+  const [correctionReason,setCorrectionReason]=useState('')
+  const [canonicalTargetSeed,setCanonicalTargetSeed]=useState('')
+  const [duplicateReason,setDuplicateReason]=useState('')
   const [page,setPage]=useState(1)
   const [selected,setSelected]=useState('')
   const [decision,setDecision]=useState<Decision>('WITHHELD')
@@ -43,14 +55,25 @@ export default function DealerResearchReview(){
   const reload=useCallback(async()=>{
     if(!user||!token||!allowed)return
     try{
-      const result=await apiRequest<Queue>({
-        baseUrl:API,
-        path:'/admin/dealership/research/queue?page='+page+'&limit=20',
-        authHeaders:heads(user.id,token),
-      })
+      const [result,corrResult]=await Promise.all([
+        apiRequest<Queue>({
+          baseUrl:API,
+          path:'/admin/dealership/research/queue?page='+page+'&limit=20',
+          authHeaders:heads(user.id,token),
+        }),
+        apiRequest<{requests:CorrectionRequest[]}>({
+          baseUrl:API,
+          path:'/admin/dealership/research/corrections',
+          authHeaders:heads(user.id,token),
+        }),
+      ])
       setQueue(result)
+      setCorrections(corrResult.requests||[])
       setSelected(prior=>result.entries.some(e=>e.seed_dealer_id===prior)?
         prior:result.entries[0]?.seed_dealer_id||'')
+      const pending=(corrResult.requests||[]).filter(r=>r.status==='PENDING_HUMAN_REVIEW')
+      setSelectedCorrectionId(prior=>pending.some(r=>r.request_id===prior)?
+        prior:pending[0]?.request_id||'')
       setError('')
     }catch(problem){
       setQueue(null)
@@ -65,6 +88,7 @@ export default function DealerResearchReview(){
     return()=>{mounted=false}
   },[reload])
   const current=queue?.entries.find(e=>e.seed_dealer_id===selected)
+  const currentCorrection=corrections.find(r=>r.request_id===selectedCorrectionId)
   const minimum=decision==='PRELISTED_UNCLAIMED'?80:25
   async function record(){
     if(!user||!token||!current||busy||reason.trim().length<minimum||
@@ -108,6 +132,50 @@ export default function DealerResearchReview(){
         '. This did not verify a legal parent, merge organizations or assign membership.')
       setGroupReason('');await reload()
     }catch(problem){setError(problem instanceof Error?problem.message:'Grouping review refused')}
+    finally{setPassword('');setBusy(false)}
+  }
+  async function recordDuplicateRedirect(){
+    if(!user||!token||!current||busy||password.length<8||
+      duplicateReason.trim().length<60||!/^ZW-DEAL-\d{4}$/.test(canonicalTargetSeed.trim()))return
+    setBusy(true);setError('');setNotice('')
+    try{
+      const result=await apiRequest<{redirect:{duplicate_seed_dealer_id:string;
+        canonical_seed_dealer_id:string;canonical_path:string}}>({
+        baseUrl:API,path:'/admin/dealership/research/'+
+          encodeURIComponent(current.seed_dealer_id)+'/duplicate-redirect',
+        options:{method:'POST',body:JSON.stringify({
+          canonical_seed_dealer_id:canonicalTargetSeed.trim().toUpperCase(),
+          reason:duplicateReason.trim(),
+          reviewer_password:password,
+        })},authHeaders:heads(user.id,token),
+      })
+      setNotice('Reconciled duplicate research seed '+result.redirect.duplicate_seed_dealer_id+
+        ' -> canonical '+result.redirect.canonical_seed_dealer_id+
+        ' ('+result.redirect.canonical_path+'). Source and claim custody preserved.')
+      setDuplicateReason('');setCanonicalTargetSeed('');await reload()
+    }catch(problem){setError(problem instanceof Error?problem.message:'Duplicate reconciliation refused')}
+    finally{setPassword('');setBusy(false)}
+  }
+  async function recordCorrectionDisposition(){
+    if(!user||!token||!currentCorrection||busy||password.length<8||
+      correctionReason.trim().length<60)return
+    setBusy(true);setError('');setNotice('')
+    try{
+      const result=await apiRequest<{review:{decision:string;seed_dealer_id:string;
+        resulting_publication_status:string;public_profile_withdrawn:boolean}}>({
+        baseUrl:API,path:'/admin/dealership/research/corrections/'+
+          encodeURIComponent(currentCorrection.request_id)+'/review',
+        options:{method:'POST',body:JSON.stringify({
+          decision:correctionDecision,
+          reason:correctionReason.trim(),
+          reviewer_password:password,
+        })},authHeaders:heads(user.id,token),
+      })
+      setNotice('Correction/takedown request resolved for '+result.review.seed_dealer_id+
+        ': '+result.review.decision+' (resulting public status: '+
+        result.review.resulting_publication_status+').')
+      setCorrectionReason('');await reload()
+    }catch(problem){setError(problem instanceof Error?problem.message:'Correction review refused')}
     finally{setPassword('');setBusy(false)}
   }
   async function recordContacts(){
@@ -258,6 +326,81 @@ export default function DealerResearchReview(){
                 groupReason.trim().length<60} onClick={()=>{void recordGrouping()}}>
                 Record nonlegal grouping observation
               </Button>
+            </section>
+            <section className="pt-5 border-t space-y-3" data-testid="dealer-duplicate-reconcile-panel">
+              <h3 className="font-semibold">Reconcile duplicate research seed &amp; canonical redirect</h3>
+              <p className="text-xs text-gray-600">
+                Redirects an unclaimed duplicate research record ({current.seed_dealer_id}) to a published
+                canonical research seed while preserving original source, claim and legal custody.
+                Seeds with any existing claim or approved legal custody cannot be redirected.
+              </p>
+              <label className="block text-sm font-semibold" htmlFor="duplicate-canonical-seed">
+                Published canonical target seed ID
+              </label>
+              <Input id="duplicate-canonical-seed" value={canonicalTargetSeed} maxLength={12}
+                placeholder="ZW-DEAL-0001"
+                onChange={e=>setCanonicalTargetSeed(e.target.value.toUpperCase())}/>
+              <label className="block text-sm font-semibold" htmlFor="duplicate-reconcile-reason">
+                Duplicate reconciliation rationale (60+ characters)
+              </label>
+              <textarea id="duplicate-reconcile-reason" value={duplicateReason} minLength={60}
+                maxLength={3000} onChange={e=>setDuplicateReason(e.target.value)}
+                className="border rounded-lg w-full p-3 min-h-24"/>
+              <Button variant="outline" disabled={busy||password.length<8||
+                duplicateReason.trim().length<60||!/^ZW-DEAL-\d{4}$/.test(canonicalTargetSeed.trim())}
+                onClick={()=>{void recordDuplicateRedirect()}}>
+                Reconcile duplicate &amp; activate canonical redirect
+              </Button>
+            </section>
+            <section className="pt-5 border-t space-y-3" data-testid="dealer-correction-review-panel">
+              <h3 className="font-semibold">Source correction &amp; takedown requests queue</h3>
+              <p className="text-xs text-gray-600">
+                Public correction and removal submissions never auto-suppress a profile. An independent
+                reviewer must evaluate the request and record a disposition with password step-up.
+              </p>
+              {corrections.length===0&&<p className="text-sm text-gray-600">
+                No correction or takedown requests recorded.
+              </p>}
+              {corrections.length>0&&<>
+                <label htmlFor="correction-request-select" className="block text-sm font-semibold">
+                  Select correction or takedown request
+                </label>
+                <select id="correction-request-select" className="w-full border rounded-lg p-2 text-sm"
+                  value={selectedCorrectionId}
+                  onChange={e=>setSelectedCorrectionId(e.target.value)}>
+                  {corrections.map(req=><option key={req.request_id} value={req.request_id}>
+                    {req.seed_dealer_id} · {req.request_type} · {req.status}
+                  </option>)}
+                </select>
+                {currentCorrection&&<div className="rounded-lg border bg-slate-50 p-3 text-sm space-y-2">
+                  <p><strong>Seed:</strong> {currentCorrection.seed_dealer_id} · <strong>Type:</strong> {currentCorrection.request_type} · <strong>Status:</strong> {currentCorrection.status}</p>
+                  <p className="text-gray-800 break-words">{currentCorrection.request_summary}</p>
+                  {currentCorrection.status==='PENDING_HUMAN_REVIEW'&&<>
+                    <label htmlFor="correction-disposition" className="block text-sm font-semibold">
+                      Independent correction disposition
+                    </label>
+                    <select id="correction-disposition" className="w-full border rounded-lg p-2"
+                      value={correctionDecision}
+                      onChange={e=>setCorrectionDecision(e.target.value as CorrectionDecision)}>
+                      <option value="RESOLVED_SUPPRESSED">Suppress public profile (takedown / privacy)</option>
+                      <option value="RESOLVED_WITHHELD">Withhold public profile pending source correction</option>
+                      <option value="RESOLVED_UNDER_DISPUTE">Place under identity dispute (withdraw public display)</option>
+                      <option value="REJECTED_NO_CHANGE">Reject unsubstantiated request (keep current state)</option>
+                    </select>
+                    <label htmlFor="correction-review-reason" className="block text-sm font-semibold">
+                      Correction review rationale (60+ characters)
+                    </label>
+                    <textarea id="correction-review-reason" value={correctionReason} minLength={60}
+                      maxLength={3000} onChange={e=>setCorrectionReason(e.target.value)}
+                      className="border rounded-lg w-full p-3 min-h-24 bg-white"/>
+                    <Button variant="outline" disabled={busy||password.length<8||
+                      correctionReason.trim().length<60}
+                      onClick={()=>{void recordCorrectionDisposition()}}>
+                      Record correction/takedown disposition
+                    </Button>
+                  </>}
+                </div>}
+              </>}
             </section>
             <section className="pt-5 border-t space-y-3">
               <h3 className="font-semibold">Field-level public contact eligibility</h3>

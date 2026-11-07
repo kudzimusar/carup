@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,6 +25,32 @@ type ResearchProfile = {
   dealer_declared_sections?: Record<string,Record<string,string>>
   disclosure?: string
   publication_event_id?: string
+}
+type DuplicateRedirectEnvelope = {
+  redirect_id: string
+  duplicate_seed_dealer_id: string
+  canonical_seed_dealer_id: string
+  canonical_slug: string
+  canonical_path: string
+  canonical_name: string
+  canonical_city: string
+  source_custody_preserved: true
+  legal_entity_merged: false
+}
+type StorefrontMediaItem = {
+  media_id: string
+  seed_dealer_id: string
+  branch_id: string | null
+  branch_name: string | null
+  mime_type: string
+  media_category: string
+  caption: string
+  alt_text: string
+  image_url: string
+  thumbnail_url: string
+  rights_attestation: string
+  logo_rights_approved: false
+  approved_at: string
 }
 type ReviewedResearchContacts={
   seed_dealer_id:string;reviewed_public_address:string|null;
@@ -74,6 +100,9 @@ type StorefrontListing={vin:string;year?:number|null;make?:string|null;model?:st
 /** The same stable URL is retained when a full approved dealer eventually upgrades this profile. */
 export default function DealerResearchProfile({ claimMode = false }: { claimMode?: boolean }) {
   const { seedId } = useParams<{seedId: string}>()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const redirectedFrom = searchParams.get('redirected_from')
   const { user, token } = useAuth()
   const [profile, setProfile] = useState<ResearchProfile | null>(null)
   const [reviewedContacts,setReviewedContacts]=useState<ReviewedResearchContacts|null>(null)
@@ -90,6 +119,9 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
   // canonical public Marketplace detail; nothing here is a dealership-specific vehicle projection.
   const [stock,setStock]=useState<StorefrontListing[]|null>(null)
   const [stockState,setStockState]=useState<'idle'|'loading'|'ready'|'unavailable'>('idle')
+  // R5 T22: independently approved dealership facility/showroom gallery media (no OEM/logo rights).
+  const [mediaItems,setMediaItems]=useState<StorefrontMediaItem[]|null>(null)
+  const [mediaState,setMediaState]=useState<'idle'|'loading'|'ready'|'unavailable'>('idle')
 
   useEffect(() => {
     const key = seedId?.toUpperCase()
@@ -108,10 +140,22 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
       return cleanup
     }
     void Promise.resolve().then(()=>{if(active)setLoaded('loading')})
-    apiRequest<{profile: ResearchProfile}>({
+    apiRequest<{profile: ResearchProfile | null; redirect?: DuplicateRedirectEnvelope}>({
       baseUrl: API, path: '/dealership/research/' + encodeURIComponent(key),
     }).then(result => {
       if (!active) return
+      if (!result.profile && result.redirect?.canonical_slug) {
+        navigate(
+          `/dealers/${encodeURIComponent(result.redirect.canonical_slug)}?redirected_from=${encodeURIComponent(result.redirect.duplicate_seed_dealer_id)}`,
+          { replace: true },
+        )
+        return
+      }
+      if (!result.profile) {
+        setLoaded('missing')
+        applyDealerPublicSeo(null)
+        return
+      }
       setProfile(result.profile)
       setLoaded('ready')
       setReviewedContacts(null)
@@ -129,13 +173,22 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
         setContactAvailability('unavailable')
       })
       setStock(null)
+      setMediaItems(null)
       if(result.profile.business_verified){
         setStockState('loading')
         apiRequest<{inventory:{entries:StorefrontListing[]}}>({baseUrl:API,
           path:'/dealership/research/'+encodeURIComponent(key)+'/inventory'})
           .then(r=>{if(active){setStock(r.inventory.entries||[]);setStockState('ready')}})
           .catch(()=>{if(active){setStock(null);setStockState('unavailable')}})
-      }else setStockState('idle')
+        setMediaState('loading')
+        apiRequest<{media:{items:StorefrontMediaItem[]}}>({baseUrl:API,
+          path:'/dealership/research/'+encodeURIComponent(key)+'/media'})
+          .then(r=>{if(active){setMediaItems(r.media.items||[]);setMediaState('ready')}})
+          .catch(()=>{if(active){setMediaItems(null);setMediaState('unavailable')}})
+      }else{
+        setStockState('idle')
+        setMediaState('idle')
+      }
       if(typeof document!=='undefined'){
         document.title=result.profile.name+(result.profile.business_verified?
           ' · Reviewed dealer storefront · CarUp':
@@ -151,7 +204,7 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
       applyDealerPublicSeo(null)
     })
     return cleanup
-  }, [seedId])
+  }, [seedId, navigate])
 
   async function submitClaim(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -188,6 +241,18 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
         </p>}
         {loaded === 'ready' && profile && (
           <>
+            {redirectedFrom && /^ZW-DEAL-\d{4}$/i.test(redirectedFrom) && (
+              <div
+                role="status"
+                data-testid="dealer-duplicate-redirect-banner"
+                className="mt-6 rounded-xl border border-blue-300 bg-blue-50 p-4 text-sm text-blue-900"
+              >
+                Redirected from reconciled duplicate research record{' '}
+                <strong>{redirectedFrom.toUpperCase()}</strong> to canonical profile{' '}
+                <strong>{profile.seed_dealer_id}</strong>. Original source and claim custody remain
+                preserved without merging legal entities.
+              </div>
+            )}
             <div className="mt-8 flex items-start gap-4">
               <div className="w-16 h-16 rounded-xl bg-slate-800 text-white flex items-center justify-center"
                 aria-hidden="true"><Store className="w-8 h-8" /></div>
@@ -233,6 +298,41 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                     GPS and live opening status are not verified.
                   </p>
                 </div>)}
+              </CardContent></Card>
+              <Card><CardContent className="p-6" data-testid="dealer-storefront-media-gallery">
+                <h2 className="text-xl font-semibold">Reviewed dealership facility &amp; showroom photos</h2>
+                <p className="text-sm text-gray-600 mt-2">
+                  Dealer-owned facility photographs independently reviewed for public storefront display.
+                  No OEM or third-party brand logo rights are approved.
+                </p>
+                {mediaState==='loading'&&<p role="status" className="mt-3 text-sm">Loading facility photos…</p>}
+                {mediaState==='unavailable'&&<p role="alert" className="mt-3 text-sm">
+                  Reviewed dealership facility photos are temporarily unavailable.
+                </p>}
+                {mediaState==='ready'&&mediaItems&&mediaItems.length===0&&<p className="mt-3 text-sm text-gray-600">
+                  No reviewed dealership facility photographs are currently published.
+                </p>}
+                {mediaState==='ready'&&mediaItems&&mediaItems.length>0&&<div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  {mediaItems.map(item=><figure key={item.media_id}
+                    data-testid={`dealer-storefront-media-item-${item.media_id}`}
+                    className="rounded-lg border border-gray-200 bg-white p-3">
+                    <img
+                      src={item.thumbnail_url}
+                      alt={item.alt_text}
+                      className="h-44 w-full rounded-md object-cover bg-slate-100"
+                    />
+                    <figcaption className="mt-2 space-y-1">
+                      <p className="text-sm font-medium text-gray-900">{item.caption}</p>
+                      <p className="text-xs text-gray-600">
+                        {item.media_category.replaceAll('_',' ')}
+                        {item.branch_name?` · ${item.branch_name}`:''}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Reviewed dealer-owned photo · No OEM/brand logo rights approved
+                      </p>
+                    </figcaption>
+                  </figure>)}
+                </div>}
               </CardContent></Card>
               <Card><CardContent className="p-6" data-testid="dealer-storefront-inventory">
                 <h2 className="text-xl font-semibold">Vehicles listed on CarUp Marketplace</h2>

@@ -1,38 +1,73 @@
 /**
- * CARUP-DEALER-ONB-001 D1/D2/D4 — research prelisting (not dealer compliance).
+ * CARUP-DEALER-ONB-001 D1/D2/D4/R5 — research prelisting (not dealer compliance).
  * A private research row is never a company/tenant, dealer stock, role or verification.
  * Public response is an explicit allowlist. No raw source_snapshot or private contacts.
+ *
+ * R5 additions:
+ *  - S08: directory multi-record browse & filtering by category, verification tier, city, and query,
+ *    with truthful counts, empty states, and explicit non-publication of the 104 real records.
+ *  - T42: customer/business source correction & takedown reviewer disposition with atomic
+ *    publication withdrawal (`dealer_review_research_correction_request`).
+ *  - S09: governed duplicate research reconciliation & stable canonical URL redirect
+ *    (`dealer_reconcile_duplicate_research_seed` + `getPublicResearchDuplicateRedirect`),
+ *    preserving source/claim/legal custody and blocking hostile takeover.
  */
 import { supabase } from '../../db/supabase.js';
-import {requireReviewerPassword} from './dealerClaimApplicationService.js';
-import {getReviewedFullStorefront,listReviewedFullStorefronts} from './dealerFullStorefrontService.js';
+import { requireReviewerPassword } from './dealerClaimApplicationService.js';
+import { getReviewedFullStorefront, listReviewedFullStorefronts } from './dealerFullStorefrontService.js';
+import { mapDealerSqlRefusal } from './dealerSqlRefusalMapper.js';
 
 export const PUBLIC_STATUS = 'PRELISTED_UNCLAIMED';
 export const PUBLIC_COLUMNS =
   'seed_dealer_id,public_slug,public_name,public_city,public_research_category,source_attribution,publication_status,reviewed_at,revision';
+export const PUBLIC_RESEARCH_TIERS = Object.freeze([
+  'PRELISTED_UNCLAIMED',
+  'CLAIMED_PUBLIC_DISPLAY_UNAPPROVED',
+  'FULL_DEALER_APPROVED',
+]);
+export const PUBLIC_RESEARCH_CATEGORIES = Object.freeze([
+  'Vehicle sales (research category)',
+  'Vehicle imports (research category)',
+  'Vehicle sales and services (research category)',
+  'Commercial vehicles (research category)',
+  'Automotive marketplace (research category)',
+  'Automotive assembly (research category)',
+  'Compliance-approved dealership (no OEM affiliation implied)',
+]);
+
 const DECISIONS = new Set([PUBLIC_STATUS, 'WITHHELD', 'SUPPRESSED', 'DUPLICATE', 'UNDER_DISPUTE']);
+const CORRECTION_DECISIONS = new Set([
+  'RESOLVED_SUPPRESSED',
+  'RESOLVED_WITHHELD',
+  'RESOLVED_UNDER_DISPUTE',
+  'REJECTED_NO_CHANGE',
+]);
 const RELATIONSHIPS = new Set([
   'LEGAL_OWNER','DIRECTOR','AUTHORIZED_REPRESENTATIVE','BRANCH_MANAGER','PARENT_DELEGATE',
 ]);
 const SCOPES = new Set(['BRANCH','PARENT_ORGANIZATION']);
 const SEED_ID = /^ZW-DEAL-\d{4}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function normalizeSeedId(value) {
   if (typeof value !== 'string' || !SEED_ID.test(value)) {
     const error = new Error('Invalid research seed reference');
     error.statusCode = 400;
+    error.code = 'INVALID_RESEARCH_SEED_ID';
     throw error;
   }
   return value;
 }
-function inputError(message) {
+function inputError(message, code = 'INVALID_RESEARCH_INPUT') {
   const error = new Error(message);
   error.statusCode = 400;
+  error.code = code;
   return error;
 }
 function domainError(error, operation) {
   const result = new Error(operation + ' unavailable; no state change is confirmed');
   result.statusCode = 503;
+  result.code = 'DEALER_RESEARCH_UNAVAILABLE';
   result.cause = error;
   return result;
 }
@@ -93,25 +128,42 @@ export async function approvedResearchClaimIds(ids,{db=supabase}={}){
   return new Set(data.map(row=>row.seed_dealer_id).filter(id=>ids.includes(id)));
 }
 
-export async function listPublicResearch({ q, city, page = 1, limit = 30 } = {}) {
-  const offset = (Math.max(1,Math.min(Number(page)||1,100)) - 1)
-    * Math.max(1,Math.min(Number(limit)||30,50));
-  const pageSize = Math.max(1,Math.min(Number(limit)||30,50));
+export async function listPublicResearch({ q, city, category, tier, page = 1, limit = 30 } = {}) {
+  const pageNumber = Math.max(1, Math.min(Number(page) || 1, 100));
+  const pageSize = Math.max(1, Math.min(Number(limit) || 30, 50));
+  const offset = (pageNumber - 1) * pageSize;
+
+  const cityFilter = city ? trim(city, 80, 1) : null;
+  if (city && !cityFilter) throw inputError('Invalid city search', 'INVALID_CITY_FILTER');
+
+  const query = q ? trim(q, 80, 1) : null;
+  if (q && !query) throw inputError('Invalid search term', 'INVALID_SEARCH_QUERY');
+
+  const categoryFilter = category ? trim(category, 120, 2) : null;
+  if (category && !categoryFilter) throw inputError('Invalid category filter', 'INVALID_CATEGORY_FILTER');
+
+  const tierFilter = tier ? trim(tier, 64, 2) : null;
+  if (tier && (!tierFilter || !PUBLIC_RESEARCH_TIERS.includes(tierFilter))) {
+    throw inputError('Invalid verification tier filter', 'INVALID_TIER_FILTER');
+  }
+
   let request = supabase.from('dealer_research_public_profiles')
     .select(PUBLIC_COLUMNS, { count: 'exact' })
     .eq('publication_status', PUBLIC_STATUS)
-    .order('public_name', { ascending: true })
-    .range(offset, offset + pageSize - 1);
-  const cityFilter = trim(city, 80);
-  if (city && !cityFilter) throw inputError('Invalid city search');
+    .order('public_name', { ascending: true });
+
   if (cityFilter) request = request.eq('public_city', cityFilter);
-  const query = trim(q, 80);
-  if (q && !query) throw inputError('Invalid search term');
   if (query) {
     // Escape PostgREST LIKE wildcards so a visitor cannot change query semantics.
     const escaped = query.replace(/[\\%_]/g, '\\$&');
     request = request.ilike('public_name', '%' + escaped + '%');
   }
+  if (categoryFilter && categoryFilter !== 'Compliance-approved dealership (no OEM affiliation implied)'
+      && typeof request.eq === 'function') {
+    request = request.eq('public_research_category', categoryFilter);
+  }
+  request = request.range(offset, offset + pageSize - 1);
+
   const { data, count, error } = await request;
   if (error) throw domainError(error,'research directory');
   // A full storefront is visible ONLY through the live legal/tenant/policy-safe
@@ -119,10 +171,37 @@ export async function listPublicResearch({ q, city, page = 1, limit = 30 } = {})
   const ids=(data||[]).map(r=>r.seed_dealer_id);
   const [approved,claimed]=await Promise.all([
     listReviewedFullStorefronts(ids),approvedResearchClaimIds(ids)]);
-  return { entries: (data||[]).map(row=>publicResearchProjection(
+  let entries = (data||[]).map(row=>publicResearchProjection(
     row,approved.get(row.seed_dealer_id)||null,claimed.has(row.seed_dealer_id)))
-    .filter(Boolean),
-    total: Number.isInteger(count) ? count : null, page: Math.floor(offset / pageSize) + 1, limit: pageSize };
+    .filter(Boolean);
+
+  if (tierFilter) {
+    entries = entries.filter((item) => item.tier === tierFilter);
+  }
+  if (categoryFilter) {
+    entries = entries.filter((item) =>
+      item.category === categoryFilter || item.source_research_category === categoryFilter);
+  }
+
+  const computedTotal = (tierFilter || categoryFilter === 'Compliance-approved dealership (no OEM affiliation implied)')
+    ? entries.length
+    : (Number.isInteger(count) ? count : entries.length);
+
+  return {
+    entries,
+    total: computedTotal,
+    page: pageNumber,
+    limit: pageSize,
+    filters_applied: {
+      q: query,
+      city: cityFilter,
+      category: categoryFilter,
+      tier: tierFilter,
+    },
+    available_tiers: PUBLIC_RESEARCH_TIERS,
+    available_categories: PUBLIC_RESEARCH_CATEGORIES,
+    real_104_records_published_claim: false,
+  };
 }
 
 export async function getPublicResearch(seedId) {
@@ -135,6 +214,49 @@ export async function getPublicResearch(seedId) {
   const [full,claimed]=await Promise.all([
     getReviewedFullStorefront(id),approvedResearchClaimIds([id])]);
   return publicResearchProjection(data,full,claimed.has(id));
+}
+
+/**
+ * S09: Resolve a governed duplicate research seed redirect only when the canonical target
+ * is currently published. Never merges legal entities or transfers claims.
+ */
+export async function getPublicResearchDuplicateRedirect(seedId, {
+  db = supabase,
+  silentOnMissingTable = false,
+} = {}) {
+  const id = normalizeSeedId(seedId);
+  let redirectRow = null;
+  try {
+    const { data, error } = await db.from('dealer_research_duplicate_redirects')
+      .select('redirect_id,duplicate_seed_dealer_id,canonical_seed_dealer_id,canonical_slug,reconciled_at,source_custody_preserved,legal_entity_merged')
+      .eq('duplicate_seed_dealer_id', id)
+      .maybeSingle();
+    if (error) {
+      if (silentOnMissingTable) return null;
+      throw domainError(error, 'duplicate redirect lookup');
+    }
+    redirectRow = data;
+  } catch (err) {
+    if (silentOnMissingTable) return null;
+    throw err;
+  }
+  if (!redirectRow) return null;
+  const canonicalProfile = await getPublicResearch(redirectRow.canonical_seed_dealer_id);
+  if (!canonicalProfile) return null;
+  return Object.freeze({
+    redirect_id: redirectRow.redirect_id,
+    duplicate_seed_dealer_id: redirectRow.duplicate_seed_dealer_id,
+    canonical_seed_dealer_id: redirectRow.canonical_seed_dealer_id,
+    canonical_slug: redirectRow.canonical_slug,
+    canonical_path: `/dealers/${redirectRow.canonical_slug}`,
+    canonical_name: canonicalProfile.name,
+    canonical_city: canonicalProfile.city,
+    canonical_tier: canonicalProfile.tier,
+    reconciled_at: redirectRow.reconciled_at,
+    source_custody_preserved: true,
+    legal_entity_merged: false,
+    reason_code: 'RECONCILED_DUPLICATE_RESEARCH_RECORD',
+  });
 }
 
 /** Private allowlisted research queue; no source contacts, ownership PII or raw rows. */
@@ -206,7 +328,7 @@ export async function reviewResearchSeed(seedId, actor, data) {
     p_decision: data.decision,
     p_reason: reason,
   });
-  if (error) throw domainError(error,'research review');
+  if (error) throw mapDealerSqlRefusal(error, 'research review');
   return recorded;
 }
 
@@ -228,8 +350,40 @@ export async function recordResearchGroupingReview(seedId,actor,payload={}){
     p_seed_id:id,p_related_seed_id:related,p_reviewer_id:actor.userId,
     p_state:payload.review_state,p_reason:payload.reason.trim(),
   });
-  if(error)throw domainError(error,'source grouping review');
+  if(error)throw mapDealerSqlRefusal(error,'source grouping review');
   return data;
+}
+
+/**
+ * S09: Governed duplicate research reconciliation & canonical URL redirect.
+ * Marks the duplicate seed as DUPLICATE, records the redirect to the published canonical seed,
+ * preserves source/claim/legal custody on both seeds, and refuses if the duplicate seed has
+ * any existing claim or approved legal custody.
+ */
+export async function reconcileDuplicateResearchSeed(seedId, actor, payload = {}) {
+  const duplicateId = normalizeSeedId(seedId);
+  if (!actor?.userId || actor.authenticationMethod !== 'session' || !actor.isVerified
+      || !['admin', 'reviewer', 'platform_admin', 'super_admin'].includes(actor.platformRole)) {
+    throw Object.assign(new Error('Independent verified reviewer required'), { statusCode: 403 });
+  }
+  const canonicalId = normalizeSeedId(payload?.canonical_seed_dealer_id);
+  if (duplicateId === canonicalId) {
+    throw inputError('Duplicate seed cannot redirect to itself', 'SELF_DUPLICATE_REDIRECT_REFUSED');
+  }
+  const reason = trim(payload?.reason, 3000, 60);
+  if (!reason) {
+    throw inputError('Documented duplicate reconciliation rationale (60–3000 characters) required',
+      'DUPLICATE_RECONCILIATION_REASON_REQUIRED');
+  }
+  await requireReviewerPassword(actor, null, payload?.reviewer_password);
+  const { data, error } = await supabase.rpc('dealer_reconcile_duplicate_research_seed', {
+    p_duplicate_seed_id: duplicateId,
+    p_canonical_seed_id: canonicalId,
+    p_reviewer_id: actor.userId,
+    p_reason: reason,
+  });
+  if (error) throw mapDealerSqlRefusal(error, 'duplicate research reconciliation');
+  return Object.freeze(data);
 }
 
 /** Decide precisely which original business-source contact fields can be shown. */
@@ -250,7 +404,7 @@ export async function recordResearchContactReview(seedId,actor,payload={}){
     p_display_address:payload.display_address,p_display_phone:payload.display_phone,
     p_display_website:payload.display_website,p_retract:payload.retract,
   });
-  if(error)throw domainError(error,'source contact review');
+  if(error)throw mapDealerSqlRefusal(error,'source contact review');
   return data;
 }
 
@@ -301,6 +455,15 @@ export async function submitResearchClaim(seedId, actor, payload = {}) {
   }
   const listed = await getPublicResearch(id);
   if (!listed) {
+    const redirect = await getPublicResearchDuplicateRedirect(id, { silentOnMissingTable: true });
+    if (redirect) {
+      const dupErr = new Error(
+        `Research record reconciled as a duplicate of ${redirect.canonical_seed_dealer_id}; submit claims on the canonical profile`
+      );
+      dupErr.statusCode = 409;
+      dupErr.code = 'DUPLICATE_SEED_REDIRECTED_TO_CANONICAL';
+      throw dupErr;
+    }
     const error = new Error('Research listing unavailable or withheld');
     error.statusCode = 404;
     throw error;
@@ -353,7 +516,7 @@ export async function requestResearchCorrection(seedId, payload = {}) {
   if (!CORRECTION_TYPES.has(kind) || !reason) {
     throw inputError('Correction requests require a valid request type and a factual explanation');
   }
-  if (email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw inputError('Invalid correction contact email');
   }
   if (payload.contact_email && !email) throw inputError('Invalid correction contact email');
@@ -378,8 +541,45 @@ export async function listResearchCorrectionsForReviewer(actor) {
     throw error;
   }
   const { data, error } = await supabase.from('dealer_research_correction_requests')
-    .select('request_id,seed_dealer_id,request_type,request_summary,contact_email,status,created_at')
+    .select('request_id,seed_dealer_id,request_type,request_summary,contact_email,status,created_at,reviewed_at,reviewed_by,resolution_event_id')
     .order('created_at',{ ascending:false }).limit(100);
   if (error) throw domainError(error,'correction queue');
   return data || [];
+}
+
+/**
+ * T42: Independent reviewer disposition for a source correction or takedown request.
+ * Requires verified platform reviewer + password step-up + 60–3000 character rationale.
+ * When RESOLVED_SUPPRESSED / RESOLVED_WITHHELD / RESOLVED_UNDER_DISPUTE is chosen,
+ * the SQL RPC atomically updates `dealer_research_public_profiles.publication_status`,
+ * immediately withdrawing the record from public directory and profile reads.
+ */
+export async function reviewResearchCorrectionRequest(requestId, actor, payload = {}) {
+  if (typeof requestId !== 'string' || !UUID_RE.test(requestId)) {
+    throw inputError('Invalid correction request reference', 'INVALID_CORRECTION_REQUEST_ID');
+  }
+  if (!actor?.userId || actor.authenticationMethod !== 'session' || !actor.isVerified
+      || !['admin', 'reviewer', 'platform_admin', 'super_admin'].includes(actor.platformRole)) {
+    const error = new Error('Independent session-verified reviewer required');
+    error.statusCode = 403;
+    error.code = 'INDEPENDENT_CORRECTION_REVIEWER_REQUIRED';
+    throw error;
+  }
+  if (!CORRECTION_DECISIONS.has(payload?.decision)) {
+    throw inputError('Unsupported correction review decision', 'INVALID_CORRECTION_REVIEW_DECISION');
+  }
+  const reason = trim(payload?.reason, 3000, 60);
+  if (!reason) {
+    throw inputError('A documented correction/takedown review rationale (60–3000 characters) is required',
+      'CORRECTION_REVIEW_REASON_REQUIRED');
+  }
+  await requireReviewerPassword(actor, null, payload?.reviewer_password);
+  const { data, error } = await supabase.rpc('dealer_review_research_correction_request', {
+    p_request_id: requestId,
+    p_reviewer_id: actor.userId,
+    p_decision: payload.decision,
+    p_reason: reason,
+  });
+  if (error) throw mapDealerSqlRefusal(error, 'correction request review');
+  return Object.freeze(data);
 }

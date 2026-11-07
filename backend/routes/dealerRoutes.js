@@ -26,6 +26,10 @@ import {getMyVerifiedDealerWorkspace,addDeclaredDealerBranch,updateDeclaredDeale
   from '../services/dealer/dealerVerifiedWorkspaceService.js';
 import {listMyOperationalDeclarations,recordMyOperationalDeclaration}
   from '../services/dealer/dealerOperationalDeclarationsService.js';
+import {listMyStorefrontMedia,uploadMyStorefrontMedia}
+  from '../services/dealer/dealerStorefrontMediaService.js';
+import {sendDealerRouteError}
+  from '../services/dealer/dealerSqlRefusalMapper.js';
 import {getDealerCommercialReadiness}
   from '../services/dealer/dealerCommercialReadinessService.js';
 import {
@@ -83,9 +87,7 @@ router.get('/api/dealer/operational-workspace',
     const workspace=await getMyVerifiedDealerWorkspace(req.userContext);
     res.set('Cache-Control','no-store').json({workspace});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 router.post('/api/dealer/operational-branches',
@@ -94,9 +96,7 @@ router.post('/api/dealer/operational-branches',
     const branch=await addDeclaredDealerBranch(req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({branch});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 router.patch('/api/dealer/operational-branches/:branchId',
@@ -105,9 +105,7 @@ router.patch('/api/dealer/operational-branches/:branchId',
     const branch=await updateDeclaredDealerBranch(req.userContext,req.params.branchId,req.body||{});
     res.set('Cache-Control','no-store').status(200).json({branch});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -119,9 +117,7 @@ router.get('/api/dealer/operational-declarations',authorizeSessionRole([]),async
     const declarations=await listMyOperationalDeclarations(req.userContext);
     res.set('Cache-Control','no-store').json({declarations});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 router.post('/api/dealer/operational-declarations/:section',
@@ -131,9 +127,26 @@ router.post('/api/dealer/operational-declarations/:section',
       req.userContext,req.params.section,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({receipt});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
+  }
+});
+
+// R5 T22: tenant-scoped dealership photo/media gallery for the approved active owner.
+// ClamAV-scanned private storage; requires mandatory alt_text/caption and no OEM/logo rights claim.
+router.get('/api/dealer/operational-media',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const media=await listMyStorefrontMedia(req.userContext);
+    res.set('Cache-Control','no-store').json({media});
+  }catch(error){
+    sendDealerRouteError(res,next,error);
+  }
+});
+router.post('/api/dealer/operational-media',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const receipt=await uploadMyStorefrontMedia(req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({receipt});
+  }catch(error){
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -142,7 +155,7 @@ router.post('/api/dealer/profile', authorizeSessionRole(DEALER_ROLES), async (re
     const profile = await createOrUpdateProfile(req.userContext?.userId, req.body || {});
     res.status(201).json({ profile });
   } catch (err) {
-    next(err);
+    sendDealerRouteError(res, next, err);
   }
 });
 
@@ -152,7 +165,7 @@ router.get('/api/dealer/profile', authorizeSessionRole(DEALER_ROLES), async (req
     if (!profile) return;
     res.json({ profile });
   } catch (err) {
-    next(err);
+    sendDealerRouteError(res, next, err);
   }
 });
 
@@ -162,7 +175,7 @@ router.get('/api/dealer/branches', authorizeSessionRole(DEALER_ROLES), async (re
     if (!profile) return;
     const branches = await listBranches(profile.id);
     res.set('Cache-Control', 'no-store').json({ branches });
-  } catch (error) { next(error); }
+  } catch (error) { sendDealerRouteError(res, next, error); }
 });
 
 router.post('/api/dealer/branches', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
@@ -172,7 +185,7 @@ router.post('/api/dealer/branches', authorizeSessionRole(DEALER_ROLES), async (r
     const branch = await addBranch(profile.id, req.body || {});
     res.status(201).json({ branch });
   } catch (err) {
-    next(err);
+    sendDealerRouteError(res, next, err);
   }
 });
 
@@ -183,7 +196,7 @@ router.get('/api/dealer/requirements', authorizeSessionRole(DEALER_ROLES), async
     const requirements = await listRequirements(profile.id);
     res.json({ requirements });
   } catch (err) {
-    next(err);
+    sendDealerRouteError(res, next, err);
   }
 });
 
@@ -195,7 +208,7 @@ router.post('/api/dealer/documents', authorizeSessionRole(DEALER_ROLES), async (
     res.status(201).json({ document });
   } catch (err) {
     if (/requires a doc_type/.test(err.message)) return res.status(400).json({ error: err.message });
-    next(err);
+    sendDealerRouteError(res, next, err);
   }
 });
 
@@ -206,9 +219,7 @@ router.get('/api/dealer/operations/membership-summary',
     const summary=await getMyDealerMembershipSummary(req.userContext);
     res.set('Cache-Control','no-store').json({summary});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -219,9 +230,7 @@ router.get('/api/dealer/commercial-readiness',authorizeSessionRole([]),async(req
     const readiness=await getDealerCommercialReadiness(req.userContext);
     res.set('Cache-Control','no-store').json({readiness});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -232,9 +241,7 @@ router.get('/api/dealer/operational-staff',authorizeSessionRole([]),async(req,re
     const staff=await listCanonicalDealerStaff(req.userContext);
     res.set('Cache-Control','no-store').json({staff});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 router.post('/api/dealer/staff-invitations',authorizeSessionRole([]),async(req,res,next)=>{
@@ -242,9 +249,7 @@ router.post('/api/dealer/staff-invitations',authorizeSessionRole([]),async(req,r
     const receipt=await inviteDealerStaff(req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(202).json({receipt});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 router.get('/api/dealer/staff-invitations/mine',authorizeSessionRole([]),async(req,res,next)=>{
@@ -252,9 +257,7 @@ router.get('/api/dealer/staff-invitations/mine',authorizeSessionRole([]),async(r
     const invitations=await listOwnDealerStaffInvitations(req.userContext);
     res.set('Cache-Control','no-store').json({invitations});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 router.post('/api/dealer/staff-invitations/:id/accept',authorizeSessionRole([]),async(req,res,next)=>{
@@ -262,9 +265,7 @@ router.post('/api/dealer/staff-invitations/:id/accept',authorizeSessionRole([]),
     const receipt=await acceptDealerStaffInvitation(req.userContext,req.params.id);
     res.set('Cache-Control','no-store').status(201).json({receipt});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 router.post('/api/dealer/staff-invitations/:id/revoke',authorizeSessionRole([]),async(req,res,next)=>{
@@ -272,9 +273,7 @@ router.post('/api/dealer/staff-invitations/:id/revoke',authorizeSessionRole([]),
     const receipt=await revokeDealerStaffInvitation(req.userContext,req.params.id);
     res.set('Cache-Control','no-store').status(200).json({receipt});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -287,9 +286,7 @@ router.get('/api/dealer/staff-branches/mine',authorizeSessionRole([]),async(req,
     const scopes=await listMyStaffBranches(req.userContext);
     res.set('Cache-Control','no-store').json({scopes});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 router.get('/api/dealer/staff-branch-scopes/owner',authorizeSessionRole([]),async(req,res,next)=>{
@@ -297,9 +294,7 @@ router.get('/api/dealer/staff-branch-scopes/owner',authorizeSessionRole([]),asyn
     const ledger=await listMyOwnerStaffBranchScopes(req.userContext);
     res.set('Cache-Control','no-store').json({ledger});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 router.post('/api/dealer/staff-branch-scopes',authorizeSessionRole([]),async(req,res,next)=>{
@@ -307,9 +302,7 @@ router.post('/api/dealer/staff-branch-scopes',authorizeSessionRole([]),async(req
     const receipt=await grantMyStaffBranchScope(req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({receipt});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 router.post('/api/dealer/staff-branch-scopes/:id/revoke',
@@ -318,9 +311,7 @@ router.post('/api/dealer/staff-branch-scopes/:id/revoke',
     const receipt=await revokeMyStaffBranchScope(req.userContext,req.params.id);
     res.set('Cache-Control','no-store').json({receipt});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 router.patch('/api/dealer/staff-branches/:scopeId',
@@ -330,9 +321,7 @@ router.patch('/api/dealer/staff-branches/:scopeId',
       req.userContext,req.params.scopeId,req.body||{});
     res.set('Cache-Control','no-store').json({receipt});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -343,9 +332,7 @@ router.get('/api/dealer/operational-inventory',authorizeSessionRole([]),async(re
     const inventory=await getMyCanonicalDealerInventory(req.userContext);
     res.set('Cache-Control','no-store').json({inventory});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -359,9 +346,7 @@ router.post('/api/dealer/operational-inventory/private-drafts',
       req.userContext,req.body);
     res.set('Cache-Control','no-store').status(201).json({draft});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -375,9 +360,7 @@ router.patch('/api/dealer/operational-inventory/private-drafts/:vin',
       req.userContext,req.params.vin,req.body);
     res.set('Cache-Control','no-store').json({draft});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -390,9 +373,7 @@ router.post('/api/dealer/operational-inventory/:vin/listing-preparation',
     const listing=await prepareMyDealerListing(req.userContext,req.params.vin,req.body);
     res.set('Cache-Control','no-store').json({listing});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -403,9 +384,7 @@ router.get('/api/dealer/operational-inventory/:vin/listing-readiness',
     const readiness=await getMyDealerListingReadiness(req.userContext,req.params.vin);
     res.set('Cache-Control','no-store').json({readiness});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -416,9 +395,7 @@ router.get('/api/dealer/operational-inquiries',authorizeSessionRole([]),async(re
     const inquiries=await getMyCanonicalDealerInquiries(req.userContext);
     res.set('Cache-Control','no-store').json({inquiries});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -431,9 +408,7 @@ router.patch('/api/dealer/operational-inquiries/:inquiryId/follow-up',
       req.userContext,req.params.inquiryId,req.body?.next_status);
     res.set('Cache-Control','no-store').status(200).json({receipt});
   }catch(error){
-    if(error.statusCode&&error.statusCode>=400&&error.statusCode<500)
-      return res.status(error.statusCode).json({error:error.message});
-    next(error);
+    sendDealerRouteError(res,next,error);
   }
 });
 
@@ -445,7 +420,7 @@ router.get('/api/admin/dealers', authorizeSessionRole(ADMIN_ROLES), async (req, 
     const dealers = await listProfiles({ tenantId: req.userContext?.tenantId || undefined });
     res.json({ dealers });
   } catch (err) {
-    next(err);
+    sendDealerRouteError(res, next, err);
   }
 });
 
@@ -456,7 +431,7 @@ router.get('/api/admin/dealers/:id', authorizeSessionRole(ADMIN_ROLES), async (r
     const compliance = await evaluateCompliance(profile.id);
     res.json({ profile, compliance });
   } catch (err) {
-    next(err);
+    sendDealerRouteError(res, next, err);
   }
 });
 
@@ -484,10 +459,7 @@ router.patch('/api/admin/dealers/:id/decision', authorizeSessionRole(['admin','r
     if (/decision must be|requires a requirement_key|authenticated actor/.test(err.message)) {
       return res.status(400).json({ error: err.message });
     }
-    if (err.statusCode && err.statusCode >= 400 && err.statusCode < 500) {
-      return res.status(err.statusCode).json({ error:err.message });
-    }
-    next(err);
+    sendDealerRouteError(res, next, err);
   }
 });
 
@@ -500,7 +472,7 @@ router.get('/api/dealers/:id/summary', authorizeRole(), async (req, res, next) =
     const summary = await getBuyerSafeSummary(profile.id);
     res.json({ summary });
   } catch (err) {
-    next(err);
+    sendDealerRouteError(res, next, err);
   }
 });
 
