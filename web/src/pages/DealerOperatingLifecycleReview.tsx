@@ -12,7 +12,8 @@ import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
 type QueueCase={seed_dealer_id:string;operating_status:string}
 type LifecycleEvent={event_id:string;action:string;previous_operating_status:string;
  next_operating_status:string;public_listings_withdrawn:number;created_at:string;recorded_by_this_reviewer:boolean}
-type Lifecycle={seed_dealer_id:string;operating_status:string;events:LifecycleEvent[]}
+type RenewalCandidate={legal_review_id:string;reviewed_at:string;legal_expires_at:string;approved_scope:string}
+type Lifecycle={seed_dealer_id:string;operating_status:string;events:LifecycleEvent[];renewal_candidates?:RenewalCandidate[]}
 const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
  typeof window==='undefined'?undefined:window.location.hostname)
 const ACTIONS:[string,string][]= [
@@ -45,7 +46,7 @@ export default function DealerOperatingLifecycleReview(){
  useEffect(()=>{
   if(!userId||!token)return
   let live=true
-  apiRequest<{cases:QueueCase[]}>({baseUrl:API,path:'/admin/dealership/full-storefronts/queue',
+  apiRequest<{cases:QueueCase[]}>({baseUrl:API,path:'/admin/dealership/operating-lifecycle',
    authHeaders:{'x-session-token':token,'x-user-id':userId}})
    .then(r=>{if(live)setCases(r.cases||[])}).catch(e=>{if(live)setError(message(e))})
   return()=>{live=false}
@@ -96,15 +97,22 @@ export default function DealerOperatingLifecycleReview(){
      <label className="block text-sm">Decision
       <select id="lifecycle-action" className={field} value={action} onChange={e=>setAction(e.target.value)}>
        {ACTIONS.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>
-     {action==='RENEW'&&<label className="block text-sm">Newer independent legal review ID
-      <input id="lifecycle-legal-review" className={field} value={legalReview} onChange={e=>setLegalReview(e.target.value)} required/></label>}
+     {action==='RENEW'&&<label className="block text-sm">Newer independent legal review
+      <select id="lifecycle-legal-review" className={field} value={legalReview}
+       onChange={e=>setLegalReview(e.target.value)} required>
+       <option value="">{(lifecycle?.renewal_candidates||[]).length
+        ?'Choose the newer legal review':'No newer unexpired legal review exists for this dealership'}</option>
+       {(lifecycle?.renewal_candidates||[]).map(c=><option key={c.legal_review_id} value={c.legal_review_id}>
+        Reviewed {new Date(c.reviewed_at).toLocaleDateString()} · valid until {new Date(c.legal_expires_at).toLocaleDateString()} · {c.approved_scope}
+       </option>)}
+      </select></label>}
      <label className="block text-sm">Reason (40–3000 characters, recorded permanently)
       <textarea id="lifecycle-reason" className={field+' min-h-28'} value={reason} minLength={40} maxLength={3000}
        required onChange={e=>setReason(e.target.value)}/></label>
      <label className="block text-sm">Your password (step-up for this decision only)
       <input id="lifecycle-password" type="password" autoComplete="current-password" className={field}
        value={password} onChange={e=>setPassword(e.target.value)} required/></label>
-     <button type="submit" disabled={busy||!password||reason.trim().length<40}
+     <button type="submit" disabled={busy||!password||reason.trim().length<40||(action==='RENEW'&&!legalReview)}
       className="min-h-11 rounded bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-60">
       {busy?'Recording…':'Record immutable lifecycle decision'}</button>
     </form>

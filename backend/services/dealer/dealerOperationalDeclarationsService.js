@@ -67,3 +67,28 @@ export async function recordMyOperationalDeclaration(actor,section,payload={}){
   if(error)throw refuse('CANONICAL_PRIVATE_OPERATION_WRITE_REFUSED',409);
   return data;
 }
+/**
+ * R6 C02 — what the governed activation carried from the approved, frozen application
+ * into canonical branches and private declarations, and what still needs the owner.
+ * Provenance only: nothing here is verified, public or approved.
+ */
+export async function readMyActivationCarryover(actor,{db=supabase,resolveOwner=requireApprovedOwnerWorkspace}={}){
+  const owner=await resolveOwner(actor);
+  const {data,error}=await db.rpc('dealer_read_activation_carryover',{
+    p_profile_id:owner.dealer_profile_id,p_tenant_id:owner.tenant_id,
+  });
+  if(error)throw refuse('ACTIVATION_CARRYOVER_READ_UNAVAILABLE',503);
+  if(!data||typeof data!=='object')throw refuse('ACTIVATION_CARRYOVER_NOT_FOUND',404);
+  return Object.freeze({
+    application_version:data.application_version??null,
+    activated_at:data.activated_at??null,
+    branches:Array.isArray(data.branches)?data.branches.map(b=>({
+      branch_ref:b.branch_ref,source_row:b.source_row,branch_id:b.branch_id,name:b.name,
+      has_gps:b.has_gps===true,has_hours:b.has_hours===true,
+    })):[],
+    sections:Array.isArray(data.sections)?data.sections.filter(s=>dealerOperationSections.includes(s)):[],
+    counts:data.counts&&typeof data.counts==='object'?data.counts:{},
+    needs_attention:Array.isArray(data.needs_attention)?data.needs_attention.slice(0,200):[],
+    independently_verified:false,publicly_approved:false,
+  });
+}

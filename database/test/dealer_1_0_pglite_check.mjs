@@ -35,6 +35,7 @@ const names=[
   '20261103141000_dealer_canonical_listing_authority.sql',
   '20261103142000_dealer_operating_lifecycle.sql',
   '20261103143000_dealer_r5_directory_media_corrections_redirects.sql',
+  '20261103144000_dealer_activation_workbook_carryover.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -393,7 +394,8 @@ try{
   await exec("DELETE FROM dealer_branches WHERE id='"+uuid(9871)+"'");
   await exec("DELETE FROM dealer_profiles WHERE id='"+uuid(9870)+"'");
   // R5: 35 + 6 (correction review events, duplicate redirects, media items, media review events, public media view, shared media review tickets) = 41.
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,41);
+  // R6 C02: + activation branch crosswalk + activation carry-over provenance = 43.
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,43);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -605,11 +607,32 @@ try{
       BUSINESS:[{
         claim_reference:uuid(1),source_seed_id:'ZW-DEAL-0001',
         legal_name:'Fixture Legal Co',registration_number:'FIXTURE-REG-001',
-        operating_country:'ZW',
+        operating_country:'ZW',trading_name:'Fixture Trading',
+        business_model:'Independent fictional used-vehicle retailer',
+        business_email:'fixture-dealer@example.invalid',tax_clearance_number:'FIXTURE-TAX-1',
         research_confirmation:'CORRECT',
       }],
+      // R6 C02: several branches incl. a duplicate reference, markup, invalid GPS and
+      // a multi-line schedule; dealer-level policy rows incl. a branch-level conflict.
       BRANCHES:[{branch_ref:'BR-1',source_seed_id:'ZW-DEAL-0001',
-        branch_name:'Fixture showroom',city:'Harare',physical_address:'123 Fictional Fixture Rd'}],
+        branch_name:'Fixture showroom',city:'Harare',physical_address:'123 Fictional Fixture Rd',
+        suburb:'Fixture Suburb',gps_latitude:'-17.8292',gps_longitude:'31.0522',
+        visiting_hours:'Mon-Fri 08:00-17:00\nSat 08:00-12:00',business_contact_phone:'+263 000 000'},
+       {branch_ref:'BR-2',branch_name:'Fixture second yard',city:'Bulawayo',
+        gps_latitude:'91',gps_longitude:'31',visiting_hours:'Daily 09:00-15:00'},
+       {branch_ref:'BR-2',branch_name:'Fixture duplicate reference'},
+       {branch_ref:'BR-4',branch_name:'<script>alert(1)</script>'},
+       {branch_ref:'BR-5',branch_name:'Fixture third site',physical_address:'<b>bold</b> street',
+        city:'Gweru',gps_latitude:'-19.45',gps_longitude:'29.82'}],
+      FINANCE_PAYMENTS:[{policy_ref:'F1',payment_methods:'Bank transfer (fixture)',
+        currencies:'USD',finance_partner:'Fixture Bank (unverified)'},
+       {policy_ref:'F2',branch_ref:'BR-2',payment_methods:'Cash only (fixture)'}],
+      OPERATIONS_SOURCING:[{operation_ref:'O1',sourcing_channels:'Fictional auction imports',
+        import_duty_policy:'Duty quoted per VIN, never as a blanket badge',lot_capacity:40}],
+      WORKSHOP_WARRANTY:[{policy_ref:'W1',workshop_services:'Inspection and minor repairs',
+        warranty_coverage:'x'.repeat(800),parts_support:'Parts on request'}],
+      BRANDS_FRANCHISES:[{brand_claim_ref:'B1',branch_ref:'BR-1',brand:'Fixture OEM',
+        relationship:'official franchise'}],
       CONSENTS_DECLARATIONS:[{
         signer_name:'Fixture Director',signer_role:'Director',
         privacy_acknowledgment:'YES',
@@ -741,6 +764,76 @@ try{
   assert.equal(activated.rows[0].receipt.vehicle_listing_authority_granted,false);
   assert.equal(activated.rows[0].receipt.payment_entitlement_granted,false);
   const activeProfileId=activated.rows[0].receipt.dealer_profile_id;
+  // R6 C02: the approved application is carried, privately and unverified, in the
+  // SAME activation transaction; the dealer does not retype it.
+  const carriedBranches=(await query(`SELECT x.branch_ref,x.source_row,b.id,b.name,b.address,
+    b.latitude::float AS lat,b.longitude::float AS lng,b.opening_hours_text AS hours
+    FROM dealer_activation_branch_crosswalk x JOIN dealer_branches b ON b.id=x.branch_id
+    ORDER BY x.source_row`)).rows;
+  assert.deepEqual(carriedBranches.map(b=>[b.branch_ref,b.source_row,b.name]),
+    [['BR-1',1,'Fixture showroom'],['BR-2',2,'Fixture second yard'],['BR-5',5,'Fixture third site']]);
+  assert.equal(carriedBranches[0].id,activated.rows[0].receipt.initial_branch_id,
+    'the activation branch is enriched, not duplicated');
+  assert.equal(carriedBranches[0].address,'123 Fictional Fixture Rd, Fixture Suburb, Harare');
+  assert.deepEqual([carriedBranches[0].lat,carriedBranches[0].lng],[-17.8292,31.0522]);
+  assert.equal(carriedBranches[0].hours,'Mon-Fri 08:00-17:00 Sat 08:00-12:00');
+  assert.deepEqual([carriedBranches[1].lat,carriedBranches[1].lng],[null,null],'latitude 91 is never carried');
+  assert.equal(carriedBranches[1].hours,'Daily 09:00-15:00');
+  assert.equal(carriedBranches[2].address,'Gweru','markup address part dropped, safe parts kept');
+  assert.deepEqual([carriedBranches[2].lat,carriedBranches[2].lng],[-19.45,29.82]);
+  assert.equal((await query('SELECT count(*)::int AS n FROM dealer_branches WHERE dealer_id=$1',
+    [activeProfileId])).rows[0].n,3,'duplicate and markup branches are not created');
+  const carriedSections=Object.fromEntries((await query(`SELECT section,section_version,
+    declared_values,actor_user_id,publication_approved,independent_legal_verification
+    FROM dealer_operational_declaration_events WHERE dealer_profile_id=$1`,[activeProfileId]))
+    .rows.map(r=>[r.section,r]));
+  assert.deepEqual(Object.keys(carriedSections).sort(),
+    ['BUSINESS_OVERVIEW','FINANCE_TERMS','SERVICE_CAPABILITIES','SOURCING','WARRANTY_AFTERSALES']);
+  assert.deepEqual(carriedSections.FINANCE_TERMS.declared_values,{
+    accepted_payment_methods:'Bank transfer (fixture)',currency_disclosure:'USD',
+    finance_partner_disclosure:'Fixture Bank (unverified)'});
+  assert.deepEqual(carriedSections.BUSINESS_OVERVIEW.declared_values,{
+    public_description:'Independent fictional used-vehicle retailer',
+    declared_contact_email:'fixture-dealer@example.invalid'});
+  assert.deepEqual(carriedSections.WARRANTY_AFTERSALES.declared_values,{spare_parts_support:'Parts on request'});
+  for(const r of Object.values(carriedSections)){
+    assert.equal(r.section_version,1);assert.equal(r.actor_user_id,claimant);
+    assert.equal(r.publication_approved,false);assert.equal(r.independent_legal_verification,false);
+  }
+  const prov=Object.fromEntries((await query(`SELECT source_tab||':'||source_row||':'||source_field AS k,
+    disposition,target,value_sha256,research_value_differs FROM dealer_activation_carryover_events`))
+    .rows.map(r=>[r.k,r]));
+  assert.equal(prov['BRANCHES:3:branch_name'].disposition,'NOT_CARRIED_DUPLICATE');
+  assert.equal(prov['BRANCHES:4:branch_name'].disposition,'NOT_CARRIED_INVALID');
+  assert.equal(prov['BRANCHES:2:gps_latitude'].disposition,'NOT_CARRIED_INVALID');
+  assert.equal(prov['BRANCHES:5:physical_address'].disposition,'NOT_CARRIED_INVALID');
+  assert.equal(prov['BRANCHES:1:gps_latitude'].disposition,'CARRIED_UNVERIFIED');
+  assert.equal(prov['BRANCHES:1:city'].research_value_differs,false,'city equals the researched value');
+  assert.equal(prov['FINANCE_PAYMENTS:2:payment_methods'].disposition,'NOT_CARRIED_CONFLICT');
+  assert.equal(prov['WORKSHOP_WARRANTY:1:warranty_coverage'].disposition,'NOT_CARRIED_INVALID');
+  assert.equal(prov['BRANDS_FRANCHISES:1:relationship'].disposition,'RETAINED_PRIVATE_NOT_CANONICAL',
+    'an OEM claim is never carried into a canonical or public record');
+  assert.equal(prov['BUSINESS:1:tax_clearance_number'].disposition,'RETAINED_PRIVATE_NOT_CANONICAL');
+  assert.equal(prov['OPERATIONS_SOURCING:1:lot_capacity'].disposition,'RETAINED_PRIVATE_NOT_CANONICAL');
+  assert.equal(prov['BUSINESS:1:registration_number'].disposition,'CARRIED_UNVERIFIED');
+  assert.match(prov['BUSINESS:1:legal_name'].value_sha256,/^[0-9a-f]{64}$/);
+  assert.equal(Object.values(prov).some(r=>JSON.stringify(r).includes('Fixture Bank')),false,
+    'provenance stores digests, never a second copy of submitted values');
+  const carryRead=(await query('SELECT dealer_read_activation_carryover($1,$2) AS r',
+    [activeProfileId,tenant])).rows[0].r;
+  assert.equal(carryRead.branches.length,3);
+  assert.equal(carryRead.independently_verified,false);
+  assert.ok(carryRead.needs_attention.some(n=>n.tab==='BRANCHES'&&n.row===4));
+  assert.equal(carryRead.needs_attention.some(n=>n.disposition==='RETAINED_PRIVATE_NOT_CANONICAL'),false);
+  await fails("UPDATE dealer_activation_carryover_events SET disposition='CARRIED_UNVERIFIED'",'APPEND_ONLY_LEDGER');
+  await fails('DELETE FROM dealer_activation_branch_crosswalk','APPEND_ONLY_LEDGER');
+  await exec('SET ROLE anon');
+  await fails('SELECT * FROM dealer_activation_carryover_events','permission denied');
+  await fails(`SELECT dealer_read_activation_carryover('${activeProfileId}','${tenant}')`,'permission denied');
+  await exec('RESET ROLE');
+  await fails(read('20261103144000_dealer_activation_workbook_carryover.sql').down,
+    'CANNOT_ROLLBACK_WITH_ACTIVATION_CARRYOVER_CUSTODY');
+  console.log('DEALER_R6_C02_CARRYOVER PASS: 3/5 branches carried with GPS/hours (duplicate, markup and invalid GPS refused), 5 private v1 sections, conflicts and retained fields recorded by digest, no verification or publication');
   await fails(`SELECT dealer_record_operational_declaration(
     '${activeProfileId}','${tenant}','${outsider}',
     'BUYER_ASSURANCE',0,'{"refund_policy":"A forged promise"}'::jsonb)`,
@@ -1545,7 +1638,8 @@ try{
     'CANNOT_ROLLBACK_WITH_BRANCH_OPERATING_DETAILS');
   await query(`UPDATE dealer_branches
     SET latitude=NULL,longitude=NULL,opening_hours_text=NULL,
-        operating_details_updated_at=NULL WHERE id=$1`,[branchId]);
+        operating_details_updated_at=NULL
+    WHERE dealer_id=(SELECT dealer_id FROM dealer_branches WHERE id=$1)`,[branchId]);
   const cleared=(await query(`SELECT latitude,longitude,opening_hours_text,
     operating_details_updated_at FROM dealer_branches WHERE id=$1`,
     [branchId])).rows[0];
@@ -1575,7 +1669,7 @@ try{
   for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
   for(const name of names){await exec(read(name).up);console.log('REAPPLIED',name)}
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
-    '20 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, R5 media/corrections/redirects/concurrency, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
+    '21 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, R5 media/corrections/redirects/concurrency, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
   } // End full destructive synthetic contract suite; fresh schema mode stays empty.
 }catch(error){
   console.error(native?'DEALER_NATIVE_POSTGRES_RESULT FAIL':'DEALER_PGLITE_RESULT FAIL',error);

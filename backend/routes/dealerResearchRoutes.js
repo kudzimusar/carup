@@ -31,7 +31,7 @@ import {
 } from '../services/dealer/dealerBuyerFeedbackService.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { getPublicDealerStorefrontInventory } from '../services/dealer/dealerCanonicalListingService.js';
-import { recordOperatingLifecycleDecision, readOperatingLifecycle } from '../services/dealer/dealerOperatingLifecycleService.js';
+import { recordOperatingLifecycleDecision, readOperatingLifecycle, listOperatingLifecycleCases } from '../services/dealer/dealerOperatingLifecycleService.js';
 import {
   listStorefrontMediaReviewQueue,
   previewStorefrontMediaItem,
@@ -435,6 +435,13 @@ router.post('/api/admin/dealership/claims/:claimId/review',
 // R4 P0-3 (C12): governed operating lifecycle — suspend, investigate, dual-control reinstate,
 // renew onto a newer independent legal review, withdraw. Independent reviewer + password step-up;
 // public stock is withdrawn by the data layer and never silently republished.
+router.get('/api/admin/dealership/operating-lifecycle',
+ reviewer,async(req,res,next)=>{
+  try{
+    const cases=await listOperatingLifecycleCases(req.userContext);
+    res.set('Cache-Control','no-store').json({cases});
+  }catch(error){errorResponse(res,next,error)}
+});
 router.get('/api/admin/dealership/operating-lifecycle/:seedId',
  reviewer,async(req,res,next)=>{
   try{

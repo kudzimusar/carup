@@ -32,6 +32,18 @@ type Inventory={
   count_scope:'FIRST_100_CANONICAL_TENANT_VEHICLES_ONLY';
   seller_publish_action_enabled:false;
 }
+type Carryover={
+  application_version:number|null;activated_at:string|null
+  branches:{branch_ref:string;source_row:number;branch_id:string;name:string|null;has_gps:boolean;has_hours:boolean}[]
+  sections:string[];counts:Record<string,number>
+  needs_attention:{tab:string;row:number;field:string;disposition:string;reason:string}[]
+  independently_verified:false;publicly_approved:false
+}
+const SECTION_LABELS:Record<string,string>={
+  BUSINESS_OVERVIEW:'Business overview',BUYER_ASSURANCE:'Buyer assurance',
+  FINANCE_TERMS:'Finance terms',SOURCING:'Sourcing',
+  WARRANTY_AFTERSALES:'Warranty & aftersales',SERVICE_CAPABILITIES:'Service capabilities',
+}
 type Status='loading'|'ready'|'missing'|'error'
 const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
   typeof window==='undefined'?undefined:window.location.hostname)
@@ -50,6 +62,7 @@ export default function DealerDashboard(){
   const [workspace,setWorkspace]=useState<Workspace|null>(null)
   const [status,setStatus]=useState<Status>('loading')
   const [inventory,setInventory]=useState<Inventory|null>(null)
+  const [carryover,setCarryover]=useState<Carryover|null>(null)
   const [stockStatus,setStockStatus]=useState<'loading'|'ready'|'unavailable'>('loading')
   const [branchName,setBranchName]=useState('')
   const [branchAddress,setBranchAddress]=useState('')
@@ -84,6 +97,10 @@ export default function DealerDashboard(){
         setStatus('error');setStockStatus('unavailable');return
       }
       setWorkspace(result.workspace);setStatus('ready')
+      apiRequest<{carryover:Carryover}>({
+        baseUrl:API,path:'/dealer/activation-carryover',authHeaders:hdr,
+      }).then(response=>{if(live)setCarryover(response.carryover??null)})
+        .catch(()=>{if(live)setCarryover(null)})
       try{
         const response=await apiRequest<{inventory:Inventory}>({
           baseUrl:API,path:'/dealer/operational-inventory',authHeaders:hdr,
@@ -248,6 +265,38 @@ export default function DealerDashboard(){
       </div>
       <div className="grid gap-6 lg:grid-cols-3">
         <section className="lg:col-span-2 space-y-6">
+          {carryover&&<Card data-testid="dealer-activation-carryover">
+            <CardHeader><CardTitle>Carried from your approved application</CardTitle></CardHeader>
+            <CardContent className="space-y-3 text-sm text-gray-700">
+              <p>
+                Application version {carryover.application_version??'—'} was carried into your
+                operating profile, so you do not need to retype it. Carried details stay private
+                declarations: nothing here is verified or public.
+              </p>
+              <p><strong>{carryover.branches.length}</strong> branch(es) carried:</p>
+              <ul className="list-disc pl-5 space-y-1">
+                {carryover.branches.map(b=><li key={b.branch_id} className="break-words">
+                  {b.name||'Unnamed branch'} · GPS {b.has_gps?'carried':'not provided'} ·
+                  hours {b.has_hours?'carried':'not provided'}
+                </li>)}
+              </ul>
+              <p>
+                Policy sections carried: {carryover.sections.length
+                  ?carryover.sections.map(s=>SECTION_LABELS[s]||s).join(', '):'none'}
+              </p>
+              {carryover.needs_attention.length===0
+                ?<p>Nothing from your application needs to be re-entered.</p>
+                :<div>
+                  <p className="font-medium">Needs your attention (not carried):</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    {carryover.needs_attention.slice(0,20).map(n=>
+                      <li key={n.tab+n.row+n.field} className="break-words">
+                        {n.tab} row {n.row} · {n.field}: {n.reason}
+                      </li>)}
+                  </ul>
+                </div>}
+            </CardContent>
+          </Card>}
           <Card><CardHeader><CardTitle>Branches</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {branches.length===0&&<p className="text-sm text-gray-600">

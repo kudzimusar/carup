@@ -95,6 +95,15 @@ test('Native PG physical browser · claimant submits real claim, sees evidence-r
   await page.goto('/dealers/zw-deal-0001/claim',{waitUntil:'domcontentloaded'})
   await expect(page.getByRole('heading',{name:'Request to claim this business'}))
     .toBeVisible({timeout:25000})
+  // R6 E: the public blank registration workbook is reachable from the claim page.
+  const template=page.getByTestId('dealer-blank-intake-template')
+  await expect(template).toBeVisible()
+  const templateResponse=await page.request.get((await template.getAttribute('href'))!)
+  expect(templateResponse.status()).toBe(200)
+  expect(templateResponse.headers()['content-type']).toContain('spreadsheetml')
+  const blank=new ExcelJS.Workbook()
+  await blank.xlsx.load(await templateResponse.body())
+  expect(blank.worksheets.length).toBe(12)
   await page.locator('#dealer-claim-legal-name').fill('Fictional Car Dealer Ltd — Test Only')
   await page.locator('#dealer-claim-statement').fill(
     'I am a synthetic representative in an isolated integration test. This request grants no real ownership rights.')
@@ -200,7 +209,7 @@ function fictionalEvidencePdf():Buffer {
   return Buffer.from(output,'ascii')
 }
 
-function setWorkbookField(book:ExcelJS.Workbook,tab:string,label:string,value:string){
+function setWorkbookField(book:ExcelJS.Workbook,tab:string,label:string,value:string,row=2){
   const sheet=book.getWorksheet(tab)
   if(!sheet)throw Error('MISSING_CANONICAL_CUSTOMER_SHEET_'+tab)
   const header=sheet.getRow(1)
@@ -209,7 +218,7 @@ function setWorkbookField(book:ExcelJS.Workbook,tab:string,label:string,value:st
     if(header.getCell(i).text===label){column=i;break}
   }
   if(!column)throw Error('MISSING_CANONICAL_CUSTOMER_FIELD_'+tab+'_'+label)
-  sheet.getRow(2).getCell(column).value=value
+  sheet.getRow(row).getCell(column).value=value
 }
 
 // Unlike a service-only test, this exercises actual claimant and reviewer UI
@@ -322,6 +331,24 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
   setWorkbookField(book,'BRANCHES','Confirm researched branch: YES / CORRECT / UNKNOWN','CORRECT')
   setWorkbookField(book,'BUYER_PROTECTION','Deposits/lay-by policy',
     'NO REAL DEPOSITS OR MONEY COLLECTED IN THIS FICTIONAL SCENARIO')
+  // R6 C02: a second branch and dealer-level buyer/finance terms are declared ONCE
+  // here; the legal phase proves activation carries them without retyping.
+  for(const [label,value] of [
+    ['Branch reference — stable key','BR-FICTIONAL-SECOND'],
+    ['Branch/trading location name','FICTIONAL CARRIED SECOND YARD - PRIVATE ONLY'],
+    ['Branch physical address','TEST CARRIED STREET 2 - NOT A REAL PUBLIC ADDRESS'],
+    ['City/town','FICTIONAL BULAWAYO'],
+    ['Country code (ISO alpha-2)','ZW'],
+    ['Latitude -90 to 90','-20.15'],
+    ['Longitude -180 to 180','28.58'],
+    ['Visitor opening hours','Sat 08:00-13:00 (FICTIONAL)'],
+  ])setWorkbookField(book,'BRANCHES',label,value,3)
+  setWorkbookField(book,'FINANCE_PAYMENTS','Deposit return conditions',
+    'FICTIONAL CI: no actual deposits collected. All test orders are void and refunds are not real.')
+  setWorkbookField(book,'FINANCE_PAYMENTS','Customer payment methods (declaration)',
+    'FICTIONAL CI: no real payment method is offered')
+  setWorkbookField(book,'BUYER_PROTECTION','Buyer complaint/dispute contact',
+    'FICTIONAL CI: contact CarUp test reviewers. No customer claim is adjudicated here.')
   setWorkbookField(book,'CONSENTS_DECLARATIONS','Authorized signatory name',
     'Fictional Test Signatory')
   setWorkbookField(book,'CONSENTS_DECLARATIONS','Signatory legal role',

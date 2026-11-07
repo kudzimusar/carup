@@ -95,7 +95,7 @@ try{
  const branches=await db.query(`SELECT id,name,address,latitude,longitude,
    opening_hours_text FROM dealer_branches WHERE dealer_id=$1`,
   [row.dealer_profile_id]);
- assert.ok(branches.rowCount>=2);
+ assert.ok(branches.rowCount>=3);
  const added=branches.rows.find(b=>b.name==='FICTIONAL SECOND YARD - PRIVATE ONLY');
  assert.ok(added,'physical browser must persist the second canonical branch');
  assert.equal(added.address,'TEST STREET 2 - NOT A REAL PUBLIC ADDRESS');
@@ -106,7 +106,28 @@ try{
   WHERE dealer_profile_id=$1 AND section='BUYER_ASSURANCE'
   ORDER BY section_version DESC LIMIT 1`,[row.dealer_profile_id]);
  assert.equal(declaration.rowCount,1);
- assert.equal(declaration.rows[0].section_version,1);
+ assert.equal(declaration.rows[0].section_version,2,
+  'v1 carried from the approved application, v2 the owner edit in the browser');
+ // R6 C02: activation carried the workbook's second branch and terms (no retyping).
+ const carriedBranch=branches.rows.find(b=>b.name==='FICTIONAL CARRIED SECOND YARD - PRIVATE ONLY');
+ assert.ok(carriedBranch,'the approved workbook second branch must be carried by activation');
+ assert.equal(Number(carriedBranch.latitude),-20.15);
+ assert.equal(Number(carriedBranch.longitude),28.58);
+ assert.equal(carriedBranch.opening_hours_text,'Sat 08:00-13:00 (FICTIONAL)');
+ const carriedV1=await db.query(`SELECT section_version,actor_user_id,declared_values,publication_approved
+  FROM dealer_operational_declaration_events WHERE dealer_profile_id=$1
+  AND section='BUYER_ASSURANCE' AND section_version=1`,[row.dealer_profile_id]);
+ assert.equal(carriedV1.rows[0].actor_user_id,f.actors.claimant.id);
+ assert.equal(carriedV1.rows[0].publication_approved,false);
+ assert.match(carriedV1.rows[0].declared_values.refund_policy,/^FICTIONAL CI:/);
+ const carryEvents=await db.query(`SELECT disposition,count(*)::int AS n
+  FROM dealer_activation_carryover_events e JOIN dealer_approved_seed_links l ON l.link_id=e.link_id
+  WHERE l.dealer_profile_id=$1 GROUP BY disposition`,[row.dealer_profile_id]);
+ const carryCounts=Object.fromEntries(carryEvents.rows.map(r=>[r.disposition,r.n]));
+ assert.ok(carryCounts.CARRIED_UNVERIFIED>=10,'field-level carry-over provenance recorded');
+ const crosswalk=await db.query(`SELECT count(*)::int AS n FROM dealer_activation_branch_crosswalk x
+  JOIN dealer_approved_seed_links l ON l.link_id=x.link_id WHERE l.dealer_profile_id=$1`,[row.dealer_profile_id]);
+ assert.equal(crosswalk.rows[0].n,2,'both workbook branches cross-walked to canonical branches');
  assert.match(declaration.rows[0].declared_values.refund_policy,/^FICTIONAL CI:/);
  const publication=await db.query(`SELECT seed_dealer_id,public_slug,
    approved_branch_snapshot,dealer_declared_sections FROM dealer_full_storefront_current
@@ -133,6 +154,8 @@ try{
   genuine_local_storage_files:docs.rowCount,
   genuine_malware_scanned_files:docs.rowCount,
   independent_authenticated_actors:5,
+  r6_c02_carryover:{branches_crosswalked:crosswalk.rows[0].n,dispositions:carryCounts,
+   buyer_assurance_versions:'v1 carried, v2 owner edit',independently_verified:false},
   canonical_tenants:canonical.rows[0].tenants,
   canonical_organizations:canonical.rows[0].organizations,
   canonical_dealer_memberships:canonical.rows[0].owner_memberships,

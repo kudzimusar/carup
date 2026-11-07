@@ -456,6 +456,13 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                     Submitting a claim only opens an evidence-required request. It does not verify ownership,
                     enable editing, grant dealer access or activate a CarUp tenant.
                   </p>
+                  <p className="text-sm text-gray-600 mb-5">
+                    <a className="text-blue-700 underline" href={API+'/dealership/intake/template'}
+                      download data-testid="dealer-blank-intake-template">
+                      Preview the blank dealership registration workbook (.xlsx)
+                    </a>
+                    {' '}— after an approved claim you receive your own prefilled copy to complete once.
+                  </p>
                   {!token || !user ? (
                     <p className="text-sm">
                       <Link className="text-blue-700 underline" to="/login">

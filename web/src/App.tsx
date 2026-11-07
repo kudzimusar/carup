@@ -30,6 +30,7 @@ import DealerClaimReview from './pages/DealerClaimReview'
 import DealerReviewerLayout from './components/dealer/DealerReviewerLayout'
 import DealerOperatingLifecycleReview from './pages/DealerOperatingLifecycleReview'
 import DealerCanonicalWorkspaceLayout from './components/dealer/DealerCanonicalWorkspaceLayout'
+import LegacyDealerRouteGate from './components/dealer/LegacyDealerRouteGate'
 import DealerResearchReview from './pages/DealerResearchReview'
 import DealerComplianceApplicationReview from './pages/DealerComplianceApplicationReview'
 import DealerLegalActivationReview from './pages/DealerLegalActivationReview'
@@ -375,8 +376,10 @@ export default function App() {
           <Route path="/dealer/dashboard" element={<DealerDashboard />} />
         </Route>
 
-        {/* Legacy global-role dealer routes remain isolated from verified owner path. */}
-        <Route element={<DashboardLayout role="dealer" />}>
+        {/* Legacy global-role dealer routes: a canonically activated owner is redirected to
+            the canonical workspace (one journey); everyone else keeps the legacy route and its
+            unchanged role="dealer" boundary (R6 E). */}
+        <Route element={<LegacyDealerRouteGate />}>
           <Route path="/dealer" element={<DealerDashboard />} />
           <Route path="/dealer/inventory" element={<Inventory />} />
           <Route path="/dealer/leads" element={<Leads />} />

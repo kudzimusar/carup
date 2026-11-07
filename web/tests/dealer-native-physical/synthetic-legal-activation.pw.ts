@@ -231,6 +231,29 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await expect(claimant.getByText('SYNTHETIC CARUP DEALERSHIP LTD - TEST ONLY').first())
   .toBeVisible({timeout:20000})
  await expect(claimant.getByText('Recorded company branches')).toBeVisible()
+ // R6 C02: activation carried the approved workbook — the second branch, GPS,
+ // hours and buyer/finance terms are already here BEFORE the owner types anything.
+ const carried=claimant.getByTestId('dealer-activation-carryover')
+ await expect(carried.getByText('Carried from your approved application')).toBeVisible({timeout:30000})
+ await expect(carried.getByText('FICTIONAL CARRIED SECOND YARD - PRIVATE ONLY',{exact:false})).toBeVisible()
+ await expect(carried.getByText(/Policy sections carried:.*Buyer assurance/)).toBeVisible()
+ await expect(carried.getByText(/Policy sections carried:.*Finance terms/)).toBeVisible()
+ await expect(claimant.getByText('Declared hours: Sat 08:00-13:00 (FICTIONAL)')).toBeVisible()
+ await expect(claimant.getByText('Declared hours: Mon-Fri 09:00-16:00 (FICTIONAL)')).toBeVisible()
+ const carryShot=info.outputPath('r6-c02-activation-carryover-no-retyping-1280px.png')
+ await carried.screenshot({path:carryShot})
+ await info.attach('r6-c02-activation-carryover-no-retyping',{path:carryShot,contentType:'image/png'})
+ const carryResponse=await claimant.request.get(API+'/dealer/activation-carryover',{
+  headers:headers(fixture.actors.claimant)})
+ expect(carryResponse.status()).toBe(200)
+ const carryBody=await carryResponse.json() as {carryover:{branches:Array<{branch_ref:string;has_gps:boolean;has_hours:boolean}>;
+  sections:string[];independently_verified:boolean;publicly_approved:boolean}}
+ expect(carryBody.carryover.branches.map(b=>b.branch_ref)).toContain('BR-FICTIONAL-SECOND')
+ expect(carryBody.carryover.branches.every(b=>b.has_gps&&b.has_hours)).toBe(true)
+ expect(carryBody.carryover.sections).toEqual(expect.arrayContaining(['BUYER_ASSURANCE','FINANCE_TERMS']))
+ expect(carryBody.carryover.independently_verified).toBe(false)
+ expect(carryBody.carryover.publicly_approved).toBe(false)
+ // A genuinely NEW branch is still added through the canonical private editor (C14).
  await claimant.locator('#dealer-new-branch-name')
   .fill('FICTIONAL SECOND YARD - PRIVATE ONLY')
  await claimant.locator('#dealer-new-branch-address')
@@ -240,7 +263,7 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await claimant.locator('#dealer-branch-hours').fill('Monday-Friday 09:00-16:00 (FICTIONAL)')
  await claimant.getByRole('button',{name:'Save branch to canonical dealership profile'})
   .click()
- await expect(claimant.getByText('FICTIONAL SECOND YARD - PRIVATE ONLY'))
+ await expect(claimant.getByText('FICTIONAL SECOND YARD - PRIVATE ONLY',{exact:true}))
   .toBeVisible({timeout:30000})
  // Operational buyer policies must persist in the canonical versioned
  // dealer declaration ledger and survive a fresh browser page reload.
@@ -248,12 +271,16 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await expect(claimant.getByRole('heading',{name:'Operate your verified dealership'}))
   .toBeVisible({timeout:30000})
  await claimant.getByRole('button',{name:/Buyer assurance/}).click()
- await claimant.locator('#dealer-refund_policy').fill(
-  'FICTIONAL CI: no actual deposits collected. All test orders are void and refunds are not real.')
- await claimant.locator('#dealer-dispute_resolution').fill(
+ // Carried values are pre-filled: the owner does NOT retype them.
+ await expect(claimant.locator('#dealer-refund_policy')).toHaveValue(
+  'FICTIONAL CI: no actual deposits collected. All test orders are void and refunds are not real.',
+  {timeout:30000})
+ await expect(claimant.locator('#dealer-dispute_resolution')).toHaveValue(
   'FICTIONAL CI: contact CarUp test reviewers. No customer claim is adjudicated here.')
+ await claimant.locator('#dealer-inspection_rights').fill(
+  'FICTIONAL CI: buyers may inspect any fictional vehicle before a (fictional) deposit.')
  await claimant.getByRole('button',{name:'Save this section to CarUp'}).click()
- await expect(claimant.getByText('Saved private buyer assurance version 1.',{exact:false}))
+ await expect(claimant.getByText('Saved private buyer assurance version 2.',{exact:false}))
   .toBeVisible({timeout:30000})
  // The same local loopback IP is shared by many REAL browser navigation,
  // session, menu and feature calls. A valid policy save must survive refresh
@@ -279,6 +306,20 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await info.attach('fictional-dealer-live-canonical-dashboard-1280px',{
   path:dashboardShot,contentType:'image/png',
  })
+ // R6 E: one journey — an activated owner's legacy dealer-portal bookmarks land in the
+ // canonical workspace instead of a parallel global-role portal.
+ await claimant.waitForTimeout(65_000)
+ await claimant.goto('/dealer/inventory')
+ await expect(claimant).toHaveURL(/\/dealers\/stock$/,{timeout:30000})
+ await claimant.goto('/dealer/leads?from=bookmark')
+ await expect(claimant).toHaveURL(/\/dealers\/inquiries\?from=bookmark$/,{timeout:30000})
+ // Billing is reachable from the canonical workspace navigation and stays fail-closed.
+ await claimant.goto('/dealer/dashboard')
+ await expect(claimant.getByRole('heading',{name:'Dealership operations'})).toBeVisible({timeout:30000})
+ await claimant.getByRole('link',{name:'Billing readiness'}).click()
+ await expect(claimant.getByRole('heading',{name:'Dealer subscriptions cannot be purchased yet'}))
+  .toBeVisible({timeout:30000})
+ await expect(claimant.getByText('No payment has been initiated.',{exact:false})).toBeVisible()
 
  const publicReviewerContext=await browser.newContext({viewport:{width:1280,height:900}})
  const publish=await publicReviewerContext.newPage()
@@ -298,9 +339,11 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await expect(publish.getByRole('heading',{
   name:'Independently review dealer-declared sections',
  })).toBeVisible({timeout:30000})
+ // R6 C02: several sections are now carried; approve exactly the reviewed buyer assurance.
  await publish.getByRole('heading',{
   name:'Independently review dealer-declared sections',
- }).locator('..').locator('input[type="checkbox"]').first().check()
+ }).locator('..').locator('label',{hasText:/BUYER ASSURANCE · version 2/})
+  .locator('input[type="checkbox"]').check()
  await publish.locator('#storefront-reason').fill(
   'Fictional CI public display approval only. The branch identity, local test policy and dealer-declared fields were reviewed under isolated synthetic sessions, with no real company publicity or merchant entitlement.')
  await publish.locator('#storefront-password').fill(fixture.reviewer_password)

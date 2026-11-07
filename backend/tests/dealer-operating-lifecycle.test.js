@@ -100,3 +100,67 @@ test('wiring: reviewer routes call the real service behind the write limiter', (
   assert.match(routes, /recordOperatingLifecycleDecision\(req\.params\.seedId,req\.userContext,req\.body\|\|\{\}\)/);
   assert.match(routes, /router\.get\('\/api\/admin\/dealership\/operating-lifecycle\/:seedId',\s*reviewer,/);
 });
+
+// R6 E — the workbench has its OWN queue of activated dealerships and offers RENEW
+// targets from recorded newer legal reviews instead of a pasted raw identifier.
+const { listOperatingLifecycleCases } = await import('../services/dealer/dealerOperatingLifecycleService.js');
+function richDb({ links = [], legal = {}, newer = [] } = {}) {
+  return {
+    from(table) {
+      const chain = { _filters: [],
+        select() { return chain; }, eq(k, v) { chain._filters.push([k, v]); return chain; },
+        gt() { return chain; }, order() { return chain; },
+        async limit() {
+          if (table === 'dealer_approved_seed_links') return { data: links, error: null };
+          if (table === 'dealer_legal_application_reviews') return { data: newer, error: null };
+          return { data: [], error: null };
+        },
+        async maybeSingle() {
+          if (table === 'dealer_approved_seed_links') return { data: link, error: null };
+          if (table === 'dealer_legal_application_reviews') return { data: legal, error: null };
+          return { data: null, error: null };
+        } };
+      return chain;
+    },
+  };
+}
+
+test('R6 E queue lists every activated dealership with status, never the reviewer\'s own claim', async () => {
+  const cases = await listOperatingLifecycleCases(reviewer, { independent, db: richDb({ links: [
+    { seed_dealer_id: 'ZW-DEAL-0001', operating_status: 'ACTIVE', activated_at: 't1', claimant_user_id: 'fictional-owner' },
+    { seed_dealer_id: 'ZW-DEAL-0002', operating_status: 'SUSPENDED', activated_at: 't2', claimant_user_id: 'fictional-reviewer' },
+    { seed_dealer_id: 'not-a-seed', operating_status: 'ACTIVE', activated_at: 't3', claimant_user_id: 'x' },
+  ] }) });
+  assert.deepEqual(cases.map((c) => [c.seed_dealer_id, c.operating_status]), [['ZW-DEAL-0001', 'ACTIVE']]);
+  assert.equal('claimant_user_id' in cases[0], false, 'no claimant identity leaks into the queue');
+});
+
+test('R6 E the dealership\'s own claimant cannot read its lifecycle as a reviewer', async () => {
+  await assert.rejects(readOperatingLifecycle('ZW-DEAL-0001', { userId: 'fictional-owner' },
+    { independent, db: richDb() }), /INDEPENDENT_REVIEWER_REQUIRED/);
+});
+
+test('R6 E renewal candidates are newer unexpired reviews of the same claimant only', async () => {
+  const id = '3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e';
+  const lifecycle = await readOperatingLifecycle('ZW-DEAL-0001', reviewer, { independent, db: richDb({
+    legal: { created_at: '2026-11-01T00:00:00Z' },
+    newer: [
+      { legal_review_id: id, created_at: '2026-11-05T00:00:00Z', legal_expires_at: '2027-11-05T00:00:00Z',
+        approved_scope: 'BRANCH', claimant_user_id: 'fictional-owner' },
+      { legal_review_id: 'not-a-uuid', created_at: '2026-11-06T00:00:00Z', legal_expires_at: '2027-11-06T00:00:00Z',
+        approved_scope: 'BRANCH', claimant_user_id: 'fictional-owner' },
+      { legal_review_id: id.replace('3f', '4f'), created_at: '2026-11-06T00:00:00Z', legal_expires_at: '2027-11-06T00:00:00Z',
+        approved_scope: 'BRANCH', claimant_user_id: 'someone-else' },
+    ] }) });
+  assert.deepEqual(lifecycle.renewal_candidates.map((c) => c.legal_review_id), [id]);
+  assert.equal('claimant_user_id' in lifecycle.renewal_candidates[0], false);
+});
+
+test('R6 E the workbench reads its own queue and offers RENEW as a choice, not a pasted id', () => {
+  const page = readFileSync(new URL('../../web/src/pages/DealerOperatingLifecycleReview.tsx', import.meta.url), 'utf8');
+  assert.match(page, /path:'\/admin\/dealership\/operating-lifecycle',/);
+  assert.doesNotMatch(page, /full-storefronts\/queue/);
+  assert.match(page, /<select id="lifecycle-legal-review"/);
+  const routes = readFileSync(new URL('../routes/dealerResearchRoutes.js', import.meta.url), 'utf8');
+  assert.match(routes, /router\.get\('\/api\/admin\/dealership\/operating-lifecycle',\s*\n\s*reviewer,/);
+});

@@ -84,9 +84,43 @@ export async function recordOperatingLifecycleDecision(seedId, actor, body = {},
   return Object.freeze(data);
 }
 
+/**
+ * R6 E: the workbench's OWN queue — every activated dealership and its operating status
+ * (it previously borrowed the full-storefront queue, which omits dealers without a
+ * storefront case). A reviewer never sees a dealership they claimed themselves.
+ */
+export async function listOperatingLifecycleCases(actor, { db = supabase, independent = requireIndependentReviewer } = {}) {
+  independent(actor, '');
+  const { data, error } = await db.from('dealer_approved_seed_links')
+    .select('seed_dealer_id,operating_status,activated_at,claimant_user_id')
+    .order('activated_at', { ascending: false }).limit(200);
+  if (error || !Array.isArray(data)) throw refuse('DEALER_OPERATING_LIFECYCLE_UNAVAILABLE', 503);
+  return data.filter((c) => c.claimant_user_id !== actor.userId && SEED.test(c.seed_dealer_id))
+    .map((c) => Object.freeze({ seed_dealer_id: c.seed_dealer_id, operating_status: c.operating_status,
+      activated_at: c.activated_at }));
+}
+
+/** Newer, unexpired independent legal reviews for the same claimant: RENEW targets (no ID pasting). */
+async function renewalCandidates(db, link) {
+  const { data: current } = await db.from('dealer_legal_application_reviews')
+    .select('created_at').eq('legal_review_id', link.legal_review_id).maybeSingle();
+  if (!current?.created_at) return [];
+  const { data, error } = await db.from('dealer_legal_application_reviews')
+    .select('legal_review_id,created_at,legal_expires_at,approved_scope,claimant_user_id')
+    .eq('claimant_user_id', link.claimant_user_id)
+    .gt('created_at', current.created_at)
+    .gt('legal_expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false }).limit(10);
+  if (error || !Array.isArray(data)) return [];
+  return data.filter((r) => UUID_RE.test(r.legal_review_id) && r.claimant_user_id === link.claimant_user_id)
+    .map((r) => Object.freeze({ legal_review_id: r.legal_review_id, reviewed_at: r.created_at,
+      legal_expires_at: r.legal_expires_at, approved_scope: r.approved_scope }));
+}
+
 export async function readOperatingLifecycle(seedId, actor, { db = supabase, independent = requireIndependentReviewer } = {}) {
   independent(actor, '');
   const link = await loadLink(db, seedId);
+  independent(actor, link.claimant_user_id);
   const { data, error } = await db.from('dealer_operating_lifecycle_events')
     .select('event_id,action,previous_operating_status,next_operating_status,public_listings_withdrawn,created_at,reviewer_user_id')
     .eq('link_id', link.link_id).order('created_at', { ascending: false }).limit(50);
@@ -94,6 +128,7 @@ export async function readOperatingLifecycle(seedId, actor, { db = supabase, ind
   return Object.freeze({
     seed_dealer_id: link.seed_dealer_id,
     operating_status: link.operating_status,
+    renewal_candidates: await renewalCandidates(db, link),
     events: data.map((e) => Object.freeze({
       event_id: e.event_id, action: e.action, previous_operating_status: e.previous_operating_status,
       next_operating_status: e.next_operating_status, public_listings_withdrawn: e.public_listings_withdrawn,

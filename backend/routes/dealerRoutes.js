@@ -21,10 +21,9 @@
  */
 import express from 'express';
 import dealerResearchRouter from './dealerResearchRoutes.js';
-import {getMyDealerMembershipSummary} from '../services/dealer/dealerOperationsReadService.js';
 import {getMyVerifiedDealerWorkspace,addDeclaredDealerBranch,updateDeclaredDealerBranch}
   from '../services/dealer/dealerVerifiedWorkspaceService.js';
-import {listMyOperationalDeclarations,recordMyOperationalDeclaration}
+import {listMyOperationalDeclarations,recordMyOperationalDeclaration,readMyActivationCarryover}
   from '../services/dealer/dealerOperationalDeclarationsService.js';
 import {listMyStorefrontMedia,uploadMyStorefrontMedia}
   from '../services/dealer/dealerStorefrontMediaService.js';
@@ -86,6 +85,16 @@ router.get('/api/dealer/operational-workspace',
   try{
     const workspace=await getMyVerifiedDealerWorkspace(req.userContext);
     res.set('Cache-Control','no-store').json({workspace});
+  }catch(error){
+    sendDealerRouteError(res,next,error);
+  }
+});
+// R6 C02: what activation carried from the approved application (owner only).
+router.get('/api/dealer/activation-carryover',
+  authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const carryover=await readMyActivationCarryover(req.userContext);
+    res.set('Cache-Control','no-store').json({carryover});
   }catch(error){
     sendDealerRouteError(res,next,error);
   }
@@ -212,16 +221,10 @@ router.post('/api/dealer/documents', authorizeSessionRole(DEALER_ROLES), async (
   }
 });
 
-// Source of truth: existing canonical tenant_users; no parallel staff authority.
-router.get('/api/dealer/operations/membership-summary',
-  authorizeSessionRole(DEALER_ROLES),async(req,res,next)=>{
-  try{
-    const summary=await getMyDealerMembershipSummary(req.userContext);
-    res.set('Cache-Control','no-store').json({summary});
-  }catch(error){
-    sendDealerRouteError(res,next,error);
-  }
-});
+// R6 E: the former GET /api/dealer/operations/membership-summary is retired. It was gated
+// by the legacy global dealer role, so canonically activated owners (global role "member")
+// could never reach it, and the canonical workspace already reports the recorded tenant
+// membership count. The tested read service remains in dealerOperationsReadService.js.
 
 // Strictly read-only commercial interface — no PAY-05 garage merchant can
 // collect CarUp dealer fees or operate a dealership's own funds here.
