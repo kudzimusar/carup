@@ -328,6 +328,7 @@ export default function DealerOperatingDetails(){
             Select photograph file (PNG or JPEG)
           </label>
           <input id="dealer-media-file" type="file" accept="image/png,image/jpeg"
+            data-file-loaded={Boolean(mediaDataUrl)}
             onChange={onSelectMediaFile} className="block text-sm text-slate-700"/>
         </div>
         <label htmlFor="dealer-media-rights-attestation" className="flex items-start gap-2 text-sm">
@@ -338,8 +339,10 @@ export default function DealerOperatingDetails(){
             third-party brand logo rights claim ({RIGHTS_ATTESTATION}).
           </span>
         </label>
-        <Button variant="outline" disabled={busy||!mediaDataUrl||!mediaAttested||
-          mediaCaption.trim().length<5||mediaAltText.trim().length<5}
+        <Button variant="outline"
+          data-testid="dealer-media-upload-button"
+          disabled={busy||!mediaDataUrl||!mediaAttested||
+            mediaCaption.trim().length<5||mediaAltText.trim().length<5}
           onClick={()=>{void uploadMedia()}}>
           Upload dealership facility photo for independent review
         </Button>

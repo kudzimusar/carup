@@ -42,6 +42,7 @@ const anonKey=jwt({alg:'HS256',typ:'JWT'},{
  role:'anon',iss:'carup-dealer-ephemeral-ci',aud:'authenticated',
  exp:Math.floor(Date.now()/1000)+3600
 },jwtSecret);
+const mediaTicketSecret='carup-ephemeral-ci-dealer-media-review-ticket-secret-'+randomBytes(24).toString('hex');
 const reviewerPassword='EXPLICITLY_FAKE_DEALER_CI_REVIEWER_STEPUP_NO_PRODUCTION_USE_2026';
 const db=new pg.Client({connectionString:dbUrl,ssl:false,
  application_name:'carup-dealer-authenticated-browser-ephemeral'});
@@ -190,7 +191,8 @@ try{
   source_type:'EXPLICITLY_FICTIONAL_NATIVE_POSTGRES_XLSX'}),{mode:0o600});
  const envPath=join(runnerTemp,'carup-dealer-browser.env');
  writeFileSync(envPath,'SUPABASE_SERVICE_ROLE_KEY='+serviceKey+'\n'
-  +'SUPABASE_ANON_KEY='+anonKey+'\n',{mode:0o600});
+  +'SUPABASE_ANON_KEY='+anonKey+'\n'
+  +'DEALER_MEDIA_REVIEW_TICKET_SECRET='+mediaTicketSecret+'\n',{mode:0o600});
  console.log('DEALER_BROWSER_SYNTHETIC_FIXTURE PASS: 104 fictional sources, one reviewed unclaimed profile, two distinct real authenticated DB sessions, no legal dealer/tenant grants');
  console.log('DEALER_BROWSER_SOURCE_NOTE: FICTIONAL_ONLY; ORIGINAL_OWNER_XLSX_NOT_USED; LEGAL_PUBLICATION_IS_SIMULATED');
 }finally{await db.end()}

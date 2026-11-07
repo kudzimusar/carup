@@ -7,7 +7,8 @@
  *  - T22 + Issue #164 Phase 5 containment: Tenant-scoped dealership media gallery, ClamAV scan,
  *    rights attestation & scope-bound, short-lived, single-use, non-enumerable reviewer tickets
  *    (positive + negative tests for invalid, raw-UUID, expired, replayed, cross-dealership,
- *    cross-reviewer, cross-operation, process-restart, multi-instance, and parallel concurrent requests).
+ *    cross-reviewer, cross-operation, missing-secret, missing-RPC fail-closed, process-restart,
+ *    multi-instance, and parallel concurrent requests).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -92,6 +93,8 @@ test('R5 API Refusal Mapper: deterministically classifies SQL exceptions into 40
     ['UNSAFE_SOURCE_WEBSITE_URL', 422],
     ['SOURCE_ADDRESS_UNAVAILABLE_FOR_PUBLIC_REVIEW', 422],
     ['OEM_OR_LOGO_MEDIA_RIGHTS_NOT_PERMITTED', 422],
+    ['DEALER_MEDIA_TICKET_SECRET_UNCONFIGURED', 503],
+    ['STOREFRONT_MEDIA_TICKET_CUSTODY_UNAVAILABLE', 503],
   ];
   for (const [code, expectedStatus] of cases) {
     const mapped = mapDealerSqlRefusal({ message: `ERROR: ${code}` }, 'test op');
@@ -531,7 +534,7 @@ test('T22 dealerStorefrontMediaService validates image bytes, refuses OEM/logo c
   assert.match(uploadedPaths[0], /^dealership-media\//);
 });
 
-test('Issue #164 + T22 scope-bound review tickets: positive flow, negative refusals, process restart resilience, multi-instance shared DB custody, and parallel concurrent single-use race', async () => {
+test('Issue #164 + T22 scope-bound review tickets: positive flow, negative refusals, mandatory PostgreSQL custody fail-closed checks, process restart resilience, multi-instance shared DB custody, and parallel concurrent single-use race', async () => {
   const TARGET_MEDIA_ID = '77777777-7777-4777-8777-777777777777';
   const TENANT_ID = '99999999-8888-4777-8666-555555555555';
   const CONTENT_SHA = 'a'.repeat(64);
@@ -539,6 +542,8 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow, negative refus
   const CLUSTER_SECRET = 'shared-cluster-ticket-secret-for-multi-instance-test-2026';
 
   let dbQueryCount = 0;
+  let simulateMissingIssueRpc = false;
+  let simulateMissingConsumeRpc = false;
   const sharedTicketTable = new Map();
   const storedRow = {
     media_id: TARGET_MEDIA_ID,
@@ -594,6 +599,9 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow, negative refus
     },
     async rpc(name, args) {
       if (name === 'dealer_issue_storefront_media_review_ticket') {
+        if (simulateMissingIssueRpc) {
+          return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.dealer_issue_storefront_media_review_ticket' } };
+        }
         sharedTicketTable.set(args.p_ticket_jti, {
           ticket_jti: args.p_ticket_jti,
           token_sha256: args.p_token_sha256,
@@ -617,6 +625,9 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow, negative refus
         };
       }
       if (name === 'dealer_consume_storefront_media_review_ticket') {
+        if (simulateMissingConsumeRpc) {
+          return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.dealer_consume_storefront_media_review_ticket' } };
+        }
         dbQueryCount += 1;
         const row = sharedTicketTable.get(args.p_ticket_jti);
         const evalNow = Date.parse(args.p_now);
@@ -669,6 +680,49 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow, negative refus
     stepUpCalls.push({ reviewer: actor.userId, uploadedBy: target.claimant_user_id });
   };
 
+  // 0a. Missing or too-short shared DEALER_MEDIA_REVIEW_TICKET_SECRET fails closed with 503 DEALER_MEDIA_TICKET_SECRET_UNCONFIGURED
+  const savedTicketSecret = process.env.DEALER_MEDIA_REVIEW_TICKET_SECRET;
+  try {
+    delete process.env.DEALER_MEDIA_REVIEW_TICKET_SECRET;
+    await assert.rejects(
+      media.listStorefrontMediaReviewQueue(reviewerActor, {
+        db: mockDb,
+        seedDealerId: 'ZW-DEAL-0001',
+        now: BASE_NOW,
+      }),
+      (err) => err.statusCode === 503 && err.code === 'DEALER_MEDIA_TICKET_SECRET_UNCONFIGURED',
+    );
+    await assert.rejects(
+      media.listStorefrontMediaReviewQueue(reviewerActor, {
+        db: mockDb,
+        seedDealerId: 'ZW-DEAL-0001',
+        now: BASE_NOW,
+        secret: 'too-short-secret',
+      }),
+      (err) => err.statusCode === 503 && err.code === 'DEALER_MEDIA_TICKET_SECRET_UNCONFIGURED',
+    );
+  } finally {
+    if (savedTicketSecret !== undefined) {
+      process.env.DEALER_MEDIA_REVIEW_TICKET_SECRET = savedTicketSecret;
+    }
+  }
+
+  // 0b. Missing/unavailable dealer_issue_storefront_media_review_ticket RPC fails closed with 503 STOREFRONT_MEDIA_TICKET_CUSTODY_UNAVAILABLE
+  simulateMissingIssueRpc = true;
+  try {
+    await assert.rejects(
+      media.listStorefrontMediaReviewQueue(reviewerActor, {
+        db: mockDb,
+        seedDealerId: 'ZW-DEAL-0001',
+        now: BASE_NOW,
+        secret: CLUSTER_SECRET,
+      }),
+      (err) => err.statusCode === 503 && err.code === 'STOREFRONT_MEDIA_TICKET_CUSTODY_UNAVAILABLE',
+    );
+  } finally {
+    simulateMissingIssueRpc = false;
+  }
+
   // 1. Self-uploader receives null tickets when listing queue (maker-checker enforced at ticket issuance)
   const uploaderSameAsReviewer = { ...reviewerActor, userId: ownerActor.userId };
   const selfQueue = await media.listStorefrontMediaReviewQueue(uploaderSameAsReviewer, {
@@ -698,6 +752,20 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow, negative refus
   assert.equal(item.preview_ticket.includes(TARGET_MEDIA_ID), false);
   assert.equal(item.decision_ticket.includes(TARGET_MEDIA_ID), false);
   assert.equal(sharedTicketTable.size, 2, 'both tickets persisted in shared PostgreSQL table');
+
+  // 2b. Missing/unavailable dealer_consume_storefront_media_review_ticket RPC fails closed with 503 STOREFRONT_MEDIA_TICKET_CUSTODY_UNAVAILABLE (no fail-open in-memory fallback)
+  simulateMissingConsumeRpc = true;
+  try {
+    await assert.rejects(
+      media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+        review_ticket: item.preview_ticket,
+        reviewer_password: REVIEWER_PW,
+      }, { db: mockDb, stepUp, now: BASE_NOW + 500, secret: CLUSTER_SECRET }),
+      (err) => err.statusCode === 503 && err.code === 'STOREFRONT_MEDIA_TICKET_CUSTODY_UNAVAILABLE',
+    );
+  } finally {
+    simulateMissingConsumeRpc = false;
+  }
 
   // 3. Negative checks BEFORE any database lookup runs:
   dbQueryCount = 0;
@@ -773,8 +841,8 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow, negative refus
   );
   assert.equal(dbQueryCount, 0, 'mismatched secret must fail GCM tag verification before any DB query');
 
-  // 4. Simulate Process Restart / Routing to Instance B (wipes all process-local memory):
-  // The unconsumed preview_ticket issued by Instance A MUST still succeed on Instance B via shared PostgreSQL custody!
+  // 4. Simulate Process Restart / Routing to Instance B (no process-local ticket cache exists):
+  // The unconsumed preview_ticket issued by Instance A MUST succeed on Instance B via shared PostgreSQL custody!
   media.simulateProcessRestartForTest();
 
   const preview = await media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
@@ -787,7 +855,7 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow, negative refus
   assert.match(preview.signed_url, /^data:image\/png;base64,/);
 
   // 5. Cross-Instance Replay Protection:
-  // Simulate routing the already-consumed preview_ticket to a third fresh instance (Instance C) with empty local memory:
+  // Simulate routing the already-consumed preview_ticket to a third fresh instance (Instance C):
   // Shared PostgreSQL custody (`consumed_at IS NOT NULL`) MUST reject the replay with 403!
   media.simulateProcessRestartForTest();
   await assert.rejects(

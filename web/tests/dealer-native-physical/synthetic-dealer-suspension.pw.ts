@@ -122,6 +122,7 @@ test('FICTIONAL revocation withdraws the dealer listing and closes every public,
   const pub=await unsafe(r5Reviewer,f.actors.reviewer,'POST','/admin/dealership/research/'+seedId+'/review',{
    decision:'PRELISTED_UNCLAIMED',
    reason:'Synthetic CI independent publication review for '+seedId+' to exercise S08 directory filtering, T42 correction/takedown, and S09 duplicate canonical redirect.',
+   reviewer_password:f.reviewer_password,
   })
   expect(pub.status()).toBe(201)
  }
@@ -131,35 +132,34 @@ test('FICTIONAL revocation withdraws the dealer listing and closes every public,
  const dirGuest=await dirGuestCtx.newPage()
  const dirApi=await dirGuest.request.get(API+'/dealership/research?limit=24')
  expect(dirApi.status()).toBe(200)
- const dirJson=await dirApi.json() as {total:number;real_104_records_published_claim:boolean;entries:Array<{seed_dealer_id:string;public_research_category:string}>}
+ const dirJson=await dirApi.json() as {total:number;real_104_records_published_claim:boolean;entries:Array<{seed_dealer_id:string;category:string}>}
  expect(dirJson.total).toBe(4)
  expect(dirJson.real_104_records_published_claim).toBe(false)
  await dirGuest.goto('/dealers')
- await expect(dirGuest.getByRole('heading',{name:'Zimbabwe vehicle business research directory'})).toBeVisible({timeout:30000})
- await expect(dirGuest.getByText('4 reviewed listings matching filters')).toBeVisible({timeout:30000})
+ await expect(dirGuest.getByRole('heading',{name:'Zimbabwe Dealership Directory'})).toBeVisible({timeout:30000})
+ await expect(dirGuest.getByTestId('dealer-directory-count')).toContainText('4 reviewed public results',{timeout:30000})
  await dirGuest.locator('#dealer-tier-filter').selectOption('PRELISTED_UNCLAIMED')
- await expect(dirGuest.getByText('4 reviewed listings matching filters')).toBeVisible({timeout:20000})
+ await expect(dirGuest.getByTestId('dealer-directory-count')).toContainText('4 reviewed public results',{timeout:20000})
  await dirGuest.locator('#dealer-tier-filter').selectOption('FULL_DEALER_APPROVED')
- await expect(dirGuest.getByText('0 reviewed listings matching filters')).toBeVisible({timeout:20000})
+ await expect(dirGuest.getByTestId('dealer-directory-empty')).toBeVisible({timeout:20000})
  await dirGuest.getByTestId('dealer-directory-clear-filters').click()
- await expect(dirGuest.getByText('4 reviewed listings matching filters')).toBeVisible({timeout:20000})
- const firstCategory=dirJson.entries[0].public_research_category
+ await expect(dirGuest.getByTestId('dealer-directory-count')).toContainText('4 reviewed public results',{timeout:20000})
+ const firstCategory=dirJson.entries[0].category
  await dirGuest.locator('#dealer-category-filter').selectOption(firstCategory)
- await expect(dirGuest.locator('article,div').filter({hasText:'SYNTHETIC FICTIONAL CAR DEALER'}).first()).toBeVisible({timeout:20000})
+ await expect(dirGuest.getByTestId('dealer-directory-card-'+dirJson.entries[0].seed_dealer_id)).toBeVisible({timeout:20000})
  const s08Shot=info.outputPath('r5-s08-directory-multi-prelisting-filters-1280.png')
  await dirGuest.screenshot({path:s08Shot,fullPage:true})
  await info.attach('r5-s08-directory-multi-prelisting-filters-1280',{path:s08Shot,contentType:'image/png'})
 
  // T42: Guest submits a removal/takedown request on /dealers/zw-deal-0003/correction
  await dirGuest.goto('/dealers/zw-deal-0003/correction')
- await expect(dirGuest.getByRole('heading',{name:'Request a correction or removal review'})).toBeVisible({timeout:30000})
- await dirGuest.locator('#correction-requester-name').fill('Fictional Business Representative')
- await dirGuest.locator('#correction-requester-contact').fill('rep@example.invalid')
- await dirGuest.locator('#correction-type').selectOption('REMOVAL_OR_SUPPRESSION_REQUEST')
- await dirGuest.locator('#correction-details').fill(
+ await expect(dirGuest.getByRole('heading',{name:'Correct or request removal of a researched listing'})).toBeVisible({timeout:30000})
+ await dirGuest.locator('#research-correction-kind').selectOption('REMOVAL')
+ await dirGuest.locator('#research-correction-summary').fill(
   'Fictional CI takedown request for ZW-DEAL-0003: requesting suppression of this prelisted research profile pending source verification.')
- await dirGuest.getByRole('button',{name:'Queue correction request'}).click()
- await expect(dirGuest.getByText('Correction request queued',{exact:false})).toBeVisible({timeout:30000})
+ await dirGuest.locator('#research-correction-email').fill('rep@example.invalid')
+ await dirGuest.getByRole('button',{name:'Submit private review request'}).click({timeout:15000})
+ await expect(dirGuest.getByText('Your request is recorded for private human review',{exact:false})).toBeVisible({timeout:30000})
  // Unreviewed complaint never auto-suppresses the public profile
  const stillPublic=await dirGuest.request.get(API+'/dealership/research/ZW-DEAL-0003')
  expect(stillPublic.status()).toBe(200)
@@ -167,11 +167,11 @@ test('FICTIONAL revocation withdraws the dealer listing and closes every public,
  // T42 negative: non-reviewer claimant cannot review the correction request
  const corrListResp=await r5Reviewer.request.get(API+'/admin/dealership/research/corrections',{headers:ids(f.actors.reviewer)})
  expect(corrListResp.status()).toBe(200)
- const corrRequests=(await corrListResp.json() as {requests:Array<{id:string;seed_dealer_id:string;status:string}>}).requests
- const targetCorr=corrRequests.find(r=>r.seed_dealer_id==='ZW-DEAL-0003'&&r.status==='OPEN')
+ const corrRequests=(await corrListResp.json() as {requests:Array<{request_id:string;seed_dealer_id:string;status:string}>}).requests
+ const targetCorr=corrRequests.find(r=>r.seed_dealer_id==='ZW-DEAL-0003'&&r.status==='PENDING_HUMAN_REVIEW')
  expect(targetCorr).toBeTruthy()
  const unauthCorrReview=await unsafe(dirGuest,f.actors.claimant,'POST',
-  '/admin/dealership/research/corrections/'+targetCorr!.id+'/review',{
+  '/admin/dealership/research/corrections/'+targetCorr!.request_id+'/review',{
    decision:'RESOLVED_SUPPRESSED',
    reason:'Unauthorized non-reviewer attempt to suppress a competitor listing must fail.',
    reviewer_password:f.reviewer_password,
@@ -182,13 +182,15 @@ test('FICTIONAL revocation withdraws the dealer listing and closes every public,
  await r5Reviewer.goto('/admin/dealer-research-review')
  const corrPanel=r5Reviewer.getByTestId('dealer-correction-review-panel')
  await expect(corrPanel).toBeVisible({timeout:30000})
- await corrPanel.locator('#correction-request-select').selectOption(targetCorr!.id)
- await corrPanel.locator('#correction-review-decision').selectOption('RESOLVED_SUPPRESSED')
+ await corrPanel.locator('#correction-request-select').selectOption(targetCorr!.request_id)
+ await corrPanel.locator('#correction-disposition').selectOption('RESOLVED_SUPPRESSED')
  await corrPanel.locator('#correction-review-reason').fill(
   'Independent fictional reviewer verified the takedown request for ZW-DEAL-0003 and suppressed the public research profile.')
- await corrPanel.locator('#correction-reviewer-password').fill(f.reviewer_password)
- await corrPanel.getByRole('button',{name:'Record correction disposition'}).click()
- await expect(r5Reviewer.getByText('Correction/takedown decision RESOLVED_SUPPRESSED recorded',{exact:false}))
+ await r5Reviewer.locator('#source-reviewer-password').fill(f.reviewer_password)
+ const corrBtn=corrPanel.getByRole('button',{name:'Record correction/takedown disposition'})
+ await expect(corrBtn).toBeEnabled({timeout:15000})
+ await corrBtn.click({timeout:15000})
+ await expect(r5Reviewer.getByText('Correction/takedown request resolved for ZW-DEAL-0003: RESOLVED_SUPPRESSED',{exact:false}))
   .toBeVisible({timeout:30000})
  const afterSuppression=await dirGuest.request.get(API+'/dealership/research/ZW-DEAL-0003')
  expect(afterSuppression.status()).toBe(404)
@@ -203,15 +205,17 @@ test('FICTIONAL revocation withdraws the dealer listing and closes every public,
  expect(hostileRedirect.status()).toBe(409)
 
  // S09 positive: independent reviewer reconciles duplicate ZW-DEAL-0004 -> canonical ZW-DEAL-0002 in the UI
+ await r5Reviewer.getByRole('button',{name:/ZW-DEAL-0004/}).first().click({timeout:15000})
  const dupPanel=r5Reviewer.getByTestId('dealer-duplicate-reconcile-panel')
  await expect(dupPanel).toBeVisible({timeout:30000})
- await dupPanel.locator('#duplicate-seed-input').fill('ZW-DEAL-0004')
- await dupPanel.locator('#canonical-seed-input').fill('ZW-DEAL-0002')
+ await dupPanel.locator('#duplicate-canonical-seed').fill('ZW-DEAL-0002')
  await dupPanel.locator('#duplicate-reconcile-reason').fill(
   'Independent fictional reviewer confirmed ZW-DEAL-0004 is a duplicate research entry of canonical ZW-DEAL-0002; source custody preserved.')
- await dupPanel.locator('#duplicate-reviewer-password').fill(f.reviewer_password)
- await dupPanel.getByRole('button',{name:'Reconcile duplicate & set canonical redirect'}).click()
- await expect(r5Reviewer.getByText('Reconciled duplicate ZW-DEAL-0004',{exact:false})).toBeVisible({timeout:30000})
+ await r5Reviewer.locator('#source-reviewer-password').fill(f.reviewer_password)
+ const dupBtn=dupPanel.getByRole('button',{name:'Reconcile duplicate & activate canonical redirect'})
+ await expect(dupBtn).toBeEnabled({timeout:15000})
+ await dupBtn.click({timeout:15000})
+ await expect(r5Reviewer.getByText('Reconciled duplicate research seed ZW-DEAL-0004 -> canonical ZW-DEAL-0002',{exact:false})).toBeVisible({timeout:30000})
  await r5ReviewerCtx.close()
 
  // Guest visits /dealers/zw-deal-0004 and is automatically redirected to canonical /dealers/zw-deal-0002?redirected_from=ZW-DEAL-0004
