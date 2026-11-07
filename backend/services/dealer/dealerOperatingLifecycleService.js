@@ -7,6 +7,7 @@
  */
 import { supabase } from '../../db/supabase.js';
 import { requireIndependentReviewer, requireReviewerPassword } from './dealerClaimApplicationService.js';
+import { rpcWithTransientRetry } from './dealerTransientSqlRetry.js';
 
 const refuse = (code, status = 400) => Object.assign(new Error(code), { statusCode: status, code });
 const SEED = /^ZW-DEAL-\d{4}$/;
@@ -65,17 +66,19 @@ async function loadLink(db, seedId) {
 }
 
 export async function recordOperatingLifecycleDecision(seedId, actor, body = {}, {
-  db = supabase, independent = requireIndependentReviewer, stepUp = requireReviewerPassword,
+  db = supabase, independent = requireIndependentReviewer, stepUp = requireReviewerPassword, retry = {},
 } = {}) {
   const decision = parseLifecycleDecision(body);
   independent(actor, '');
   const link = await loadLink(db, seedId);
   independent(actor, link.claimant_user_id);
   await stepUp(actor, { claimant_user_id: link.claimant_user_id }, body.reviewer_password);
-  const { data, error } = await db.rpc('dealer_record_operating_lifecycle_decision', {
+  // One whole-transaction RPC (decision + withdrawal + append-only event, or nothing): retried
+  // only if PostgreSQL rolled it back as a deadlock/serialisation victim; refusals are final.
+  const { data, error } = await rpcWithTransientRetry(db, 'dealer_record_operating_lifecycle_decision', {
     p_seed_dealer_id: seedId, p_reviewer_id: actor.userId, p_action: decision.action,
     p_reason: decision.reason, p_new_legal_review_id: decision.new_legal_review_id,
-  });
+  }, retry);
   if (error) throw mapLifecycleSqlError(error);
   if (!data || data.seed_dealer_id !== seedId || data.action !== decision.action
       || data.listings_republished !== false || data.payment_entitlement_changed !== false) {
