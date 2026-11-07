@@ -14,6 +14,13 @@
  *    refused unless BOTH --allow-non-loopback AND --confirm-target=<host>:<port>/<database> are given
  *    and the confirmation equals the parsed URL exactly. Production project refs are never
  *    special-cased as safe: the confirmation is the operator's explicit, typed decision.
+ *  - DBA review 3 N1: the target is computed with node-pg's OWN parser (pg/lib/connection-parameters,
+ *    i.e. pg-connection-string), not only the WHATWG URL parser — node-pg honours ?host= / ?port= /
+ *    ?options= query parameters, which once let a "loopback" URL connect elsewhere. Every query
+ *    parameter except sslmode is refused, the port and database must be explicit (no PGPORT /
+ *    PGDATABASE fallback), and the two parsers must agree. After connecting, before any migration
+ *    statement, the server itself must match: current_database(), inet_server_port() and — for a
+ *    loopback target — a loopback inet_server_addr(). Anything else disconnects and refuses.
  *  - --dry-run prints the plan (target identity + migration names) and touches nothing.
  *
  * Usage:
@@ -22,10 +29,15 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import ConnectionParameters from 'pg/lib/connection-parameters.js';
 
 const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'database', 'migrations');
 const DEALER_MIGRATION = /^20261103\d{6}_dealer_[a-z0-9_]+\.sql$/;
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+const ALLOWED_QUERY_PARAMETERS = new Set(['sslmode']);
+const LOOPBACK_SERVER_ADDR = /^(127(\.\d{1,3}){3}|::1|::ffff:127(\.\d{1,3}){3})$/;
+export const SERVER_IDENTITY_SQL = `SELECT host(inet_server_addr()) AS addr, inet_server_port() AS port,
+  current_database() AS db, current_user AS usr, current_setting('server_version') AS v`;
 
 const refuse = (code, detail = '') => Object.assign(new Error(detail ? `${code}: ${detail}` : code), { code });
 
@@ -60,10 +72,16 @@ export function assertSafeTarget(url, { allowNonLoopback = false, confirmTarget 
   let parsed;
   try { parsed = new URL(url); } catch { throw refuse('INVALID_TARGET_URL'); }
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) throw refuse('POSTGRES_URL_REQUIRED');
-  const host = parsed.hostname;
-  const port = parsed.port || '5432';
-  const database = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
-  if (!database) throw refuse('DATABASE_NAME_REQUIRED');
+  // N1: node-pg lets query parameters override the host, port, database, user and server options.
+  for (const key of parsed.searchParams.keys()) {
+    if (!ALLOWED_QUERY_PARAMETERS.has(key)) throw refuse('CONNECTION_QUERY_PARAMETER_REFUSED', `?${key}= is not allowed (only sslmode)`);
+  }
+  // What node-pg itself will connect to (same parser and defaults the Client uses).
+  let effective;
+  try { effective = new ConnectionParameters({ connectionString: url }); } catch { throw refuse('INVALID_TARGET_URL'); }
+  const host = String(effective.host || '');
+  const port = String(effective.port || '');
+  const database = String(effective.database || '');
   if (port === '6543' || /(^|\.)pooler\./i.test(host) || /pgbouncer/i.test(parsed.search)) {
     throw refuse('DIRECT_SESSION_CONNECTION_REQUIRED', 'a transaction pooler cannot run one transaction per migration');
   }
@@ -72,7 +90,34 @@ export function assertSafeTarget(url, { allowNonLoopback = false, confirmTarget 
     if (!allowNonLoopback) throw refuse('NON_LOOPBACK_TARGET_REFUSED', `${target} needs --allow-non-loopback and --confirm-target`);
     if (confirmTarget !== target) throw refuse('TARGET_CONFIRMATION_MISMATCH', `expected --confirm-target=${target}`);
   }
+  // Explicit everything: no PGHOST / PGPORT / PGDATABASE fallback may choose the target.
+  if (!parsed.port) throw refuse('EXPLICIT_PORT_REQUIRED', 'write the port in the URL');
+  const urlDatabase = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
+  if (!urlDatabase || !database) throw refuse('DATABASE_NAME_REQUIRED');
+  // The WHATWG view and node-pg's view must be the same target.
+  if (parsed.hostname !== host || parsed.port !== port || urlDatabase !== database) {
+    throw refuse('TARGET_PARSE_MISMATCH', `URL says ${parsed.hostname}:${parsed.port}/${urlDatabase}, node-pg would use ${target}`);
+  }
   return { host, port, database, target, loopback: LOOPBACK.has(host) };
+}
+
+/**
+ * N1, after connecting: the server we reached must be the approved one. `row` is the result of
+ * SERVER_IDENTITY_SQL. A loopback target must be served from a loopback address (a tunnel or a
+ * query-parameter redirect to a remote server is refused); every target must report the approved
+ * port (a pooler or forwarder reports its backend's port) and database. Unix-socket sessions are
+ * refused (inet_server_addr() is NULL).
+ */
+export function verifyConnectedServer(target, row) {
+  const addr = row?.addr ?? null;
+  const port = row?.port === null || row?.port === undefined ? null : String(row.port);
+  const problems = [];
+  if (!addr) problems.push('not a TCP session');
+  if (target.loopback && addr && !LOOPBACK_SERVER_ADDR.test(addr)) problems.push(`server address ${addr} is not loopback`);
+  if (port !== target.port) problems.push(`server port ${port} is not ${target.port}`);
+  if ((row?.db ?? null) !== target.database) problems.push(`database ${row?.db} is not ${target.database}`);
+  if (problems.length) throw refuse('CONNECTED_SERVER_MISMATCH', problems.join('; '));
+  return true;
 }
 
 /** Split one migration file into its Up and Down sections; both markers are mandatory. */
@@ -114,24 +159,32 @@ export async function runDealerMigrations(client, plan, direction, { dir = MIGRA
   return results;
 }
 
-async function main() {
-  const opts = parseRunnerArgs(process.argv.slice(2), process.env);
-  const target = assertSafeTarget(opts.url, opts);
-  const plan = planMigrations(opts);
-  console.log(`TARGET ${target.target}${target.loopback ? ' (loopback)' : ' (NON-LOOPBACK, explicitly confirmed)'}; ${opts.direction} ${plan.length} migration(s)`);
-  if (opts.dryRun) { for (const n of plan) console.log('PLAN', n); return; }
+async function defaultCreateClient(config) {
   const { default: pg } = await import('pg');
-  const client = new pg.Client({ connectionString: opts.url, application_name: 'carup-dealer-migration-runner' });
+  return new pg.Client(config);
+}
+
+/** Parse, approve, connect, verify the server, then run — the whole CLI as one testable function. */
+export async function runFromArgs(argv, env, { createClient = defaultCreateClient, dir = MIGRATIONS_DIR, log = console.log } = {}) {
+  const opts = parseRunnerArgs(argv, env);
+  const target = assertSafeTarget(opts.url, opts);
+  const plan = planMigrations(opts, dir);
+  log(`TARGET ${target.target}${target.loopback ? ' (loopback)' : ' (NON-LOOPBACK, explicitly confirmed)'}; ${opts.direction} ${plan.length} migration(s)`);
+  if (opts.dryRun) { for (const n of plan) log('PLAN', n); return { target, plan, applied: [] }; }
+  const client = await createClient({ connectionString: opts.url, application_name: 'carup-dealer-migration-runner' });
   await client.connect();
   try {
-    const who = (await client.query('SELECT current_database() AS db, current_user AS usr, current_setting(\'server_version\') AS v')).rows[0];
-    console.log(`CONNECTED database=${who.db} user=${who.usr} server=${who.v}`);
-    await runDealerMigrations(client, plan, opts.direction);
+    const who = (await client.query(SERVER_IDENTITY_SQL)).rows[0];
+    verifyConnectedServer(target, who);
+    log(`CONNECTED database=${who.db} server=${who.addr}:${who.port} user=${who.usr} version=${who.v}`);
+    const applied = await runDealerMigrations(client, plan, opts.direction, { dir, log });
+    return { target, plan, applied };
   } finally {
     await client.end();
   }
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  main().catch((error) => { console.error(error.code || 'DEALER_MIGRATION_RUNNER_FAILED', error.message); process.exitCode = 1; });
+  runFromArgs(process.argv.slice(2), process.env)
+    .catch((error) => { console.error(error.code || 'DEALER_MIGRATION_RUNNER_FAILED', error.message); process.exitCode = 1; });
 }
