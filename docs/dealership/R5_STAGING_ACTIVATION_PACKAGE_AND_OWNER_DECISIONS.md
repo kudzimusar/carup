@@ -6,7 +6,7 @@
 
 | Item | Value |
 |---|---|
-| Source | Draft PR #258, branch `feat/carup-dealer-1-0-unified-longrun` — exact SHA is the head named in the R5 return comment, after its CI is green |
+| Source | Draft PR #258, branch `feat/carup-dealer-1-0-unified-longrun` — frozen code SHA `1a42ba12e3ca4132c5bbe95955f319d2b09147fe` (all exact-head CI green except Marketplace Reference, BLOCKED_ENVIRONMENT_AUTHORITY); later commits are evidence docs only |
 | Protected main | `bb9d9900c700873ca57df0ac18a1a5c01f77711a` |
 | Frontend / backend preview pair | **None approved.** Must be created by the exact-SHA preview procedure (cached Vercel CLI from a clean worktree; web built with `VITE_API_URL` pinned to the immutable backend deployment host) and registered in `web/preview-backend-pairing.json` + `web/preview-frontend-pairing.json` in one commit. No borrowed hosts. |
 
@@ -65,6 +65,7 @@
 | O10 | Minimum core claim-first pilot vs full commercial product — explicit sign-off; no silent scope reduction | Merge/release | Not signed |
 | O11 | After an independent claim **revocation**, may the same public URL invite a new claim ("Claim this dealership"), or must it stay closed pending dispute review? (Phase 7 screenshot shows it re-opens.) | Pilot policy | Undecided |
 | O12 | Publication of REAL researched records: single reviewer + password today; require a two-person rule and/or an Owner publication-policy row before any real record is published (Security review #2) | PILOT READY | Not decided; 0 real records published |
+| O13 | T32 contrast fix is **site-wide**: the CarUp logo "Up", primary CTA buttons and several labels on shared public components (Navbar, Footer, MobileNavDrawer, DashboardLayout, VehicleDetail, AllInPricePanel, history/intelligence panels) moved orange-500→orange-700, gray/slate-400→600. Accept the brand shade change, or have design supply an approved AA palette | Merge | Implemented on the branch; Marketplace Reference Regression (which covers VehicleDetail) cannot run until O1 |
 
 ## 7. Independent review dispositions (R5, 7 Nov 2026 — agent reviewers, advisory, not named certifiers)
 
@@ -87,3 +88,4 @@
 | Functional #3 | C02: activation carries over only legal name, trading name and the first branch; GPS/hours/extra branches/policy tabs are retyped | **Open — engineering gap** |
 | Functional #4 | C12 lifecycle workbench has no browser test (SQL/unit only) | **Open** |
 | Functional #6 | Unwired/untested routes (`intake/template`, `requirements`, `documents`, membership summary; unpublish, CSV, OCR UI, billing page not browser-tested); legacy global-role dealer workspace runs in parallel | **Open** |
+| R5 evidence | After revocation the canonical `POST /api/vehicles/:vin/publish` and a new buyer enquiry are refused **at the data layer** (`DATA_LAYER_DEALER_LISTING_AUTHORITY_NOT_CURRENT`) but surface as HTTP **500**, not a mapped 4xx — the canonical vehicle/inquiry routes do not use `dealerSqlRefusalMapper` | **Open** — map the dealer-authority SQLSTATE/messages to 409/403 in the canonical routes (cross-domain change; needs the vehicle-domain owner) |
