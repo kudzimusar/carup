@@ -59,11 +59,11 @@ function ReconciliationRow({ entry }: { entry: SellerFactReconciliationEntry }) 
 
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
         <div className="rounded-lg bg-white p-2" data-testid={`reconciliation-seller-${entry.field}`}>
-          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">You stated</p>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">You stated</p>
           <p className="mt-0.5 font-semibold text-slate-900">{entry.seller_stated ?? 'Not recorded'}</p>
         </div>
         <div className="rounded-lg bg-white p-2" data-testid={`reconciliation-evidence-${entry.field}`}>
-          <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+          <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-600">
             <FileText className="h-3 w-3" aria-hidden="true" />
             {documentLabel(entry.document_type)} reads
           </p>

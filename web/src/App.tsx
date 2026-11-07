@@ -23,6 +23,26 @@ import VehicleDetail from './pages/VehicleDetail'
 import VehicleSearch from './pages/VehicleSearch'
 import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
+import DealerResearchProfile from './pages/DealerResearchProfile'
+import DealerResearchCorrection from './pages/DealerResearchCorrection'
+import DealerClaimWorkspace from './pages/DealerClaimWorkspace'
+import DealerClaimReview from './pages/DealerClaimReview'
+import DealerReviewerLayout from './components/dealer/DealerReviewerLayout'
+import DealerOperatingLifecycleReview from './pages/DealerOperatingLifecycleReview'
+import DealerCanonicalWorkspaceLayout from './components/dealer/DealerCanonicalWorkspaceLayout'
+import LegacyDealerRouteGate from './components/dealer/LegacyDealerRouteGate'
+import LegacyDealerDashboard from './pages/dashboard/dealer/LegacyDealerDashboard'
+import DealerResearchReview from './pages/DealerResearchReview'
+import DealerComplianceApplicationReview from './pages/DealerComplianceApplicationReview'
+import DealerLegalActivationReview from './pages/DealerLegalActivationReview'
+import DealerFullStorefrontReview from './pages/DealerFullStorefrontReview'
+import DealerOperatingDetails from './pages/DealerOperatingDetails'
+import DealerBillingReadiness from './pages/DealerBillingReadiness'
+import DealerStaffConsole from './pages/DealerStaffConsole'
+import DealerTenantInventory from './pages/DealerTenantInventory'
+import DealerTenantInquiries from './pages/DealerTenantInquiries'
+import DealerBuyerFeedback from './pages/DealerBuyerFeedback'
+import DealerBuyerFeedbackReview from './pages/DealerBuyerFeedbackReview'
 import GarageDirectory from './pages/GarageDirectory'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
@@ -256,6 +276,16 @@ export default function App() {
           <Route path="/search" element={<VehicleSearch />} />
           <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
+          <Route path="/dealers/feedback" element={<DealerBuyerFeedback />} />
+          <Route path="/dealers/:seedId" element={<DealerResearchProfile />} />
+          <Route path="/dealers/:seedId/claim" element={<DealerResearchProfile claimMode />} />
+          <Route path="/dealers/:seedId/correction" element={<DealerResearchCorrection />} />
+          <Route path="/dealers/claims" element={<DealerClaimWorkspace />} />
+          <Route path="/dealers/operating-details" element={<DealerOperatingDetails />} />
+          <Route path="/dealers/billing" element={<DealerBillingReadiness />} />
+          <Route path="/dealers/staff" element={<DealerStaffConsole />} />
+          <Route path="/dealers/stock" element={<DealerTenantInventory />} />
+          <Route path="/dealers/inquiries" element={<DealerTenantInquiries />} />
           <Route path="/garages" element={<GarageDirectory />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
@@ -341,9 +371,17 @@ export default function App() {
           <Route path="/dashboard/intelligence" element={<SellerIntelligence />} />
         </Route>
 
-        {/* Dealer Dashboard */}
-        <Route element={<DashboardLayout role="dealer" />}>
-          <Route path="/dealer" element={<DealerDashboard />} />
+        {/* Canonical active dealer owners may retain global member role. Only
+            the real session/tenant/compliance authority unlocks this route. */}
+        <Route element={<DealerCanonicalWorkspaceLayout />}>
+          <Route path="/dealer/dashboard" element={<DealerDashboard />} />
+        </Route>
+
+        {/* Legacy global-role dealer routes: a canonically activated owner is redirected to
+            the canonical workspace (one journey); everyone else keeps the legacy route and its
+            unchanged role="dealer" boundary (R6 E). */}
+        <Route element={<LegacyDealerRouteGate />}>
+          <Route path="/dealer" element={<LegacyDealerDashboard />} />
           <Route path="/dealer/inventory" element={<Inventory />} />
           <Route path="/dealer/leads" element={<Leads />} />
           <Route path="/dealer/promotions" element={<Promotions />} />
@@ -415,6 +453,7 @@ export default function App() {
           <Route path="/admin/vehicles/:vin/review" element={<VehicleOperationsReview />} />
           <Route path="/admin/fraud-queue" element={<FraudQueue />} />
           <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
+
           <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />
@@ -431,6 +470,25 @@ export default function App() {
           <Route path="/dashboard/admin/communications" element={<AdminCommunications />} />
           <Route path="/dashboard/admin/communications/inbox/:threadId" element={<AdminCommunications />} />
           <Route path="/dashboard/admin/communications/:section" element={<AdminCommunications />} />
+        </Route>
+
+        {/* Independently verified dealer reviewers are NOT generic platform admins.
+            The existing five reviewer workbenches keep their canonical routes and
+            proven backend session/step-up checks, but no longer inherit the
+            administrator-only dashboard redirect. */}
+        <Route element={<DealerReviewerLayout />}>
+          <Route path="/admin/dealer-claims" element={<DealerClaimReview />} />
+          <Route path="/admin/dealer-research-review" element={<DealerResearchReview />} />
+          <Route path="/admin/dealer-compliance-submissions" element={<DealerComplianceApplicationReview />} />
+          <Route path="/admin/dealer-legal-activation" element={<DealerLegalActivationReview />} />
+          <Route path="/admin/dealer-full-storefront-review" element={<DealerFullStorefrontReview />} />
+          <Route path="/admin/dealer-buyer-feedback" element={<DealerBuyerFeedbackReview />} />
+          {/* R4 P0-2: the CANONICAL vehicle evidence review workbench (same component and the same
+              admin/government-only verify/reject endpoints as /admin/evidence), reachable from the
+              dealership reviewer shell. The data layer refuses self-verification of dealer stock. */}
+          <Route path="/admin/dealer-vehicle-evidence" element={<EvidenceReview />} />
+          {/* R4 P0-3 (C12): governed operating lifecycle decisions. */}
+          <Route path="/admin/dealer-operating-lifecycle" element={<DealerOperatingLifecycleReview />} />
         </Route>
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}

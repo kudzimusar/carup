@@ -8,6 +8,7 @@
  */
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import {installStepUpGuardModel} from './helpers/dealerStepUpGuardModel.js';
 import http from 'node:http';
 
 process.env.NODE_ENV = 'test';
@@ -18,7 +19,12 @@ const express = (await import('express')).default;
 const router = (await import('../routes/dealerRoutes.js')).default;
 const errorHandler = (await import('../middleware/errorMiddleware.js')).default;
 const { supabase } = await import('../db/supabase.js');
+// R6 round 2: the legacy decision route now uses the per-reviewer step-up lockout RPCs.
+installStepUpGuardModel(supabase);
 const svc = await import('../services/dealer/dealerComplianceService.js');
+const {hashPassword}=await import('../utils/passwordAuth.js');
+const REVIEW_PASSWORD='DealerGovernanceReviewPassword39!';
+const REVIEW_HASH=await hashPassword(REVIEW_PASSWORD);
 
 let db;
 function resetDb() {
@@ -26,8 +32,14 @@ function resetDb() {
     users: [
       { id: 'dealer-1', role: 'dealer', is_verified: true },
       { id: 'dealer-2', role: 'dealer', is_verified: true },
-      { id: 'admin-1', role: 'admin', is_verified: true },
+      { id: 'admin-1', role: 'admin', is_verified: true, password_hash:REVIEW_HASH },
       { id: 'buyer-1', role: 'buyer', is_verified: true },
+    ],
+    user_sessions: [
+      ...['dealer-1','dealer-2','admin-1','buyer-1'].map(userId => ({
+        user_id: userId, token: userId + '-token', is_valid: true,
+        expires_at: '2035-01-01T00:00:00.000Z',
+      })),
     ],
     dealer_profiles: [],
     dealer_branches: [],
@@ -131,7 +143,7 @@ function request(method, path, body, userId) {
   return serverPort().then((port) => new Promise((resolve, reject) => {
     {
       const data = body ? JSON.stringify(body) : null;
-      const req = http.request({ host: '127.0.0.1', port, path, method, headers: { 'content-type': 'application/json', ...(userId ? { 'x-user-id': userId } : {}), ...(data ? { 'content-length': Buffer.byteLength(data) } : {}) } }, (res) => {
+      const req = http.request({ host: '127.0.0.1', port, path, method, headers: { 'content-type': 'application/json', ...(userId ? { 'x-user-id': userId, 'x-session-token': userId + '-token' } : {}), ...(data ? { 'content-length': Buffer.byteLength(data) } : {}) } }, (res) => {
         let buf = '';
         res.on('data', (c) => (buf += c));
         res.on('end', () => {
@@ -150,13 +162,27 @@ function request(method, path, body, userId) {
   }));
 }
 
-before(() => { resetDb(); supabase.from = (t) => builder(t); });
+function atomicComplianceMock(name,args){
+  assert.equal(name,'dealer_record_atomic_compliance_decision');
+  const profile=db.dealer_profiles.find(p=>p.id===args.p_dealer_id);
+  if(!profile) return Promise.resolve({data:null,error:{message:'UNKNOWN_DEALER_PROFILE'}});
+  const event={id:'governance-'+(++seq),dealer_id:profile.id,decision:args.p_decision,
+    reason:args.p_reason,actor_id:args.p_reviewer_id};
+  db.dealer_compliance_decisions.push(event);
+  Object.assign(profile,svc.applyDecisionToProfile(args.p_decision,args.p_payload));
+  return Promise.resolve({data:{audit_atomic:true,decision:event,profile},error:null});
+}
+before(() => {
+  resetDb(); supabase.from=(t)=>builder(t);
+  supabase.rpc=atomicComplianceMock;
+});
 
 test('dealer creates own profile (201) then reads it back', async () => {
   resetDb();
   const create = await request('POST', '/api/dealer/profile', { legal_name: 'Acme Motors', tenant_id: 't1' }, 'dealer-1');
   assert.equal(create.status, 201);
   assert.equal(create.body.profile.user_id, 'dealer-1');
+  assert.equal(create.body.profile.tenant_id, undefined, 'applicant must not self-assign tenant authority');
   const read = await request('GET', '/api/dealer/profile', null, 'dealer-1');
   assert.equal(read.status, 200);
   assert.equal(read.body.profile.legal_name, 'Acme Motors');
@@ -184,11 +210,21 @@ test('admin records a governance decision (suspend) and it appears in the ledger
   resetDb();
   await request('POST', '/api/dealer/profile', { legal_name: 'Acme Motors', tenant_id: 't1' }, 'dealer-1');
   const dealerId = createdDealerId();
-  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend', reason: 'fraud' }, 'admin-1');
+  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend', reason: 'Documented independent suspension after confirmed compliance investigation', reviewer_password:REVIEW_PASSWORD }, 'admin-1');
   assert.equal(res.status, 201);
   assert.equal(res.body.decision.decision, 'suspend');
   assert.equal(res.body.profile.suspension_state, 'suspended');
   assert.equal(db.dealer_compliance_decisions.length, 1);
+});
+
+test('admin governance denies missing reviewer step-up without writing audit event', async () => {
+  resetDb();
+  await request('POST','/api/dealer/profile',{legal_name:'Acme'},'dealer-1');
+  const result=await request('PATCH',`/api/admin/dealers/${createdDealerId()}/decision`,{
+    decision:'suspend',reason:'Documented independent suspension after confirmed compliance investigation',
+  },'admin-1');
+  assert.equal(result.status,403);
+  assert.equal(db.dealer_compliance_decisions.length,0);
 });
 
 test('admin decision with an invalid decision -> 400', async () => {
@@ -230,7 +266,7 @@ test('suspend blocks publication via evaluateCompliance', async () => {
   const before = await svc.evaluateCompliance(dealerId);
   assert.equal(before.can_publish, true);
 
-  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend', reason: 'fraud' }, 'admin-1');
+  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend', reason: 'Documented independent suspension after confirmed compliance investigation', reviewer_password:REVIEW_PASSWORD }, 'admin-1');
   assert.equal(res.status, 201);
   const after = await svc.evaluateCompliance(dealerId);
   assert.equal(after.can_publish, false);

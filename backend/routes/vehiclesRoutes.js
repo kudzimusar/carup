@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
 import { DatabaseError, ValidationError, ForbiddenError, NotFoundError } from '../utils/errors.js';
+import { dealerCanonicalWriteRefusal } from '../services/dealer/dealerCanonicalWriteRefusal.js';
 import { logAuditEvent } from '../services/auditLogger.js';
 // ONE public-evidence authority. #175 shipped a deliberately self-contained
 // `publicEvidenceProjection.js` so a security hotfix would not depend on this unmerged programme;
@@ -139,7 +140,7 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
   const beforeStatus = normalizeVehicleStatus(vehicle.status) || vehicle.status || 'unknown';
 
   const { error } = await supabase.from('vehicles').update({ status: afterStatus }).eq('vin', vin);
-  if (error) throw new DatabaseError(error.message);
+  if (error) throw dealerCanonicalWriteRefusal(error) || new DatabaseError(error.message);
 
   // Centralized audit logging (Non-blocking, gracefully catch-all)
   try {
@@ -298,7 +299,7 @@ router.post('/api/vehicles/:vin/publish', authorizeRole(['owner', 'dealer', 'adm
     .from('vehicles')
     .update({ publication_status: 'published' })
     .eq('vin', vin);
-  if (error) throw new DatabaseError(error.message);
+  if (error) throw dealerCanonicalWriteRefusal(error) || new DatabaseError(error.message);
 
   // Publication is the moment CarUp asserts a public position, so it is where the derived position
   // must be made current. Without this, a listing goes public carrying a Trust conclusion computed
@@ -340,7 +341,7 @@ router.post('/api/vehicles/:vin/unpublish', authorizeRole(['owner', 'dealer', 'a
     .from('vehicles')
     .update({ publication_status: 'publishable' })
     .eq('vin', vin);
-  if (error) throw new DatabaseError(error.message);
+  if (error) throw dealerCanonicalWriteRefusal(error) || new DatabaseError(error.message);
 
   auditPublicationChange(req, vin, 'VEHICLE_LISTING_UNPUBLISHED', 'published', 'publishable');
   res.json({ success: true, vin, publication_status: 'publishable' });
@@ -383,7 +384,7 @@ router.patch('/api/vehicles/:vin/price', authorizeRole(['owner', 'dealer', 'admi
     .from('vehicles')
     .update({ price })
     .eq('vin', vin);
-  if (error) throw new DatabaseError(error.message);
+  if (error) throw dealerCanonicalWriteRefusal(error) || new DatabaseError(error.message);
 
   // "The price changed" is not a record of what changed. Both ends travel.
   try {
@@ -436,6 +437,8 @@ router.post('/api/vehicles/:vin/seller-claim', authorizeRole(['owner', 'dealer']
       },
     });
   } catch (err) {
+    const dealerRefusal = dealerCanonicalWriteRefusal(err) || dealerCanonicalWriteRefusal(err?.cause);
+    if (dealerRefusal) throw dealerRefusal;
     if (err instanceof SellerAuthorityError) {
       if (err.code === 'SELLER_AUTHORITY_CLAIM_INVALID') throw new ValidationError(err.message);
       if (err.code === 'SELLER_AUTHORITY_VEHICLE_NOT_FOUND') throw new NotFoundError(err.message);
@@ -850,7 +853,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
         .insert(insertData)
         .select('*')
         .single();
-      if (insertError) throw new DatabaseError(insertError.message);
+      if (insertError) throw dealerCanonicalWriteRefusal(insertError) || new DatabaseError(insertError.message);
 
       // Milestone 1: record the immutable chain-of-custody "uploaded" event (best-effort).
       await recordEvidenceUploadProvenance(supabase, { evidence: inserted, req, eventType: 'uploaded' });
@@ -1143,7 +1146,7 @@ router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(asyn
   }
 
   const { data, error } = await query;
-  if (error) throw new DatabaseError(error.message);
+  if (error) throw dealerCanonicalWriteRefusal(error) || new DatabaseError(error.message);
 
   res.json((data || []).map(normalizeEvidenceRecord));
 }));
@@ -1186,7 +1189,7 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/verify', authorizeRole(['a
     .single();
 
   if (updateErr) {
-    throw new DatabaseError(updateErr.message);
+    throw dealerCanonicalWriteRefusal(updateErr) || new DatabaseError(updateErr.message);
   }
 
   // Evidence review is what CHANGES the governed facts, so it is where the canonical position is
@@ -1281,7 +1284,7 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/reject', authorizeRole(['a
     .single();
 
   if (updateErr) {
-    throw new DatabaseError(updateErr.message);
+    throw dealerCanonicalWriteRefusal(updateErr) || new DatabaseError(updateErr.message);
   }
 
   // Evidence review is what CHANGES the governed facts, so it is where the canonical position is
@@ -1442,7 +1445,7 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/link-event', authorizeRole
     .single();
 
   if (updateErr) {
-    throw new DatabaseError(updateErr.message);
+    throw dealerCanonicalWriteRefusal(updateErr) || new DatabaseError(updateErr.message);
   }
 
   // Audit Log

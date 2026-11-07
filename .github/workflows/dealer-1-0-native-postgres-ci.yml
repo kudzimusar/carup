@@ -1,0 +1,102 @@
+name: CarUp Dealership 1.0 — native PostgreSQL 17 synthetic authority
+
+# This does not connect to Supabase, staging, production, a provider or an
+# Owner workbook. It physically executes the existing SQL lifecycle on a fresh
+# ephemeral real PostgreSQL server, with clearly fictional test identities.
+on:
+  push:
+    branches: [feat/carup-dealer-1-0-unified-longrun]
+    paths:
+      - 'database/migrations/*dealer*.sql'
+      - 'database/test/dealer_1_0_pglite_check.mjs'
+      - 'backend/scripts/dealership/proveSynthetic104NativePostgres.mjs'
+      - 'backend/scripts/dealership/importResearchSeed.mjs'
+      - 'backend/tests/fixtures/dealer_source_104_safe_manifest.json'
+      - '.github/workflows/dealer-1-0-native-postgres-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'database/migrations/*dealer*.sql'
+      - 'database/test/dealer_1_0_pglite_check.mjs'
+      - 'backend/scripts/dealership/proveSynthetic104NativePostgres.mjs'
+      - 'backend/scripts/dealership/importResearchSeed.mjs'
+      - 'backend/tests/fixtures/dealer_source_104_safe_manifest.json'
+      - '.github/workflows/dealer-1-0-native-postgres-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dealer-native-postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-postgres-synthetic:
+    name: Real PostgreSQL 17 · isolated synthetic dealer authority
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: dealer-ci-ephemeral-only
+          POSTGRES_DB: carup_dealer_isolated_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d carup_dealer_isolated_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      NODE_ENV: test
+      # PostgreSQL client reads the ephemeral password separately from PGPASSWORD;
+      # never commit credential-bearing connection URIs, even for test databases.
+      PGPASSWORD: dealer-ci-ephemeral-only
+      DEALER_ISOLATED_POSTGRES_URL: postgresql://postgres@127.0.0.1:5432/carup_dealer_isolated_ci
+    steps:
+      - name: Checkout exact commit, no persisted token
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # Pull requests normally checkout a synthetic merge SHA, which is
+          # NOT the actual branch commit. Pin the true immutable head instead.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact unmerged branch source SHA
+        env:
+          EXPECTED_DEALER_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_DEALER_SOURCE_HEAD"
+          echo "DEALER_EXACT_SOURCE_SHA PASS: $EXPECTED_DEALER_SOURCE_HEAD"
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Prove 16 native PostgreSQL migration and synthetic lifecycle checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          node database/test/dealer_1_0_pglite_check.mjs | tee "${RUNNER_TEMP}/dealer-native-postgres-result.log"
+          grep -q '^DEALER_NATIVE_POSTGRES_VERSION 17' "${RUNNER_TEMP}/dealer-native-postgres-result.log"
+          grep -q '^DEALER_NATIVE_POSTGRES_RESULT PASS:' "${RUNNER_TEMP}/dealer-native-postgres-result.log"
+      - name: Prove synthetic 104-row XLSX imported and reread in real PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          node backend/scripts/dealership/proveSynthetic104NativePostgres.mjs | tee "${RUNNER_TEMP}/dealer-synthetic-104-postgres-result.log"
+          grep -q '^DEALER_SYNTHETIC_104_NATIVE_RESULT PASS:' "${RUNNER_TEMP}/dealer-synthetic-104-postgres-result.log"
+          grep -q '^DEALER_SYNTHETIC_104_SOURCE_STATUS: FICTIONAL_CI_FIXTURE;' "${RUNNER_TEMP}/dealer-synthetic-104-postgres-result.log"
+      - name: Assert no real workbook, service provider or deployed DB used
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "${DEALER_SEED_DATABASE_URL:-}"
+          test -z "${CARUP_DEALER_RESEARCH_XLSX:-}"
+          test -z "${SUPABASE_URL:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${PAYNOW_INTEGRATION_ID:-}"
+          echo 'NATIVE_POSTGRES_SYNTHETIC_ONLY; original 104-row XLSX import and browser golden journey NOT EXECUTED.'

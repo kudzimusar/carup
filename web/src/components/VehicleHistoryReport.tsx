@@ -545,7 +545,7 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
                     <span className="text-xs font-semibold text-slate-600">{formatMileage(item.mileage, item.mileage_unit || 'km')}</span>
                   )}
                   {item.source_kind && (
-                    <span className="text-[11px] uppercase tracking-wide text-slate-400">{titleCase(item.source_kind)}</span>
+                    <span className="text-[11px] uppercase tracking-wide text-slate-600">{titleCase(item.source_kind)}</span>
                   )}
                   <Badge variant="outline" className={`ml-auto inline-flex items-center gap-1 border ${statusMeta.className}`}>
                     <StatusIcon className="h-3 w-3" aria-hidden="true" />
