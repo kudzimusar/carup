@@ -66,7 +66,7 @@ const plans = {};
 for (const [k, sql] of Object.entries({
   sweep_driver: `SELECT DISTINCT l.tenant_id FROM dealer_approved_seed_links l JOIN vehicles x ON x.tenant_id = l.tenant_id AND x.publication_status = 'published'`,
   guard_link_lookup_legacy: `SELECT * FROM dealer_approved_seed_links WHERE tenant_id = ${L(12)} FOR SHARE`,
-  withdraw_prelock_programme: `SELECT 1 FROM vehicles WHERE tenant_id = '20000000-0000-4000-8000-000000000007' AND publication_status='published' ORDER BY vin FOR NO KEY UPDATE`,
+  withdraw_prelock_programme: `SELECT 1 FROM vehicles WHERE tenant_id = '20000000-0000-4000-8000-000000000007' ORDER BY vin FOR NO KEY UPDATE`,
   inquiry_guard_lookup_legacy: `SELECT * FROM dealer_approved_seed_links WHERE tenant_id::text = '10000000-0000-4000-8000-000000000012' FOR SHARE`,
 })) {
   await c.query('BEGIN');
