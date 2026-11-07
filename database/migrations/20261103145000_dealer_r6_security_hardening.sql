@@ -1,5 +1,23 @@
 -- +migrate Up
 SET LOCAL lock_timeout = '3s';
+SET LOCAL carup.dealer_migration_txn = 'on';
+DO $txnguard$
+BEGIN
+  -- R6 DBA review 3 N2: SET LOCAL is a silent no-op outside a transaction block, so a migration
+  -- run statement by statement in autocommit (plain `psql -f`) would lose its lock_timeout and
+  -- could apply half-way. Refuse, and end the session so the client cannot run the remaining
+  -- statements. Apply with backend/scripts/dealership/applyDealerMigrations.mjs or
+  -- `psql -1 -v ON_ERROR_STOP=1` (one transaction per migration section).
+  IF current_setting('carup.dealer_migration_txn', true) IS DISTINCT FROM 'on' THEN
+    RAISE WARNING 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION: use the dealership migration runner or psql -1 -v ON_ERROR_STOP=1';
+    BEGIN
+      PERFORM pg_terminate_backend(pg_backend_pid());
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';
+  END IF;
+END
+$txnguard$;
 -- CARUP-DEALER-ONB-001-LR01-R6 work package C: security hardening from the R5 advisory review
 -- (docs/dealership/R5_STAGING_ACTIVATION_PACKAGE_AND_OWNER_DECISIONS.md §7).
 --   #2  Real research publication stays FAIL-CLOSED (Owner decision O12 undecided): a non-fictional
@@ -564,6 +582,24 @@ GRANT EXECUTE ON FUNCTION dealer_consume_storefront_media_review_ticket(TEXT, TE
 
 -- +migrate Down
 SET LOCAL lock_timeout = '3s';
+SET LOCAL carup.dealer_migration_txn = 'on';
+DO $txnguard$
+BEGIN
+  -- R6 DBA review 3 N2: SET LOCAL is a silent no-op outside a transaction block, so a migration
+  -- run statement by statement in autocommit (plain `psql -f`) would lose its lock_timeout and
+  -- could apply half-way. Refuse, and end the session so the client cannot run the remaining
+  -- statements. Apply with backend/scripts/dealership/applyDealerMigrations.mjs or
+  -- `psql -1 -v ON_ERROR_STOP=1` (one transaction per migration section).
+  IF current_setting('carup.dealer_migration_txn', true) IS DISTINCT FROM 'on' THEN
+    RAISE WARNING 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION: use the dealership migration runner or psql -1 -v ON_ERROR_STOP=1';
+    BEGIN
+      PERFORM pg_terminate_backend(pg_backend_pid());
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';
+  END IF;
+END
+$txnguard$;
 -- Refuse while security custody this Down would destroy exists: an Owner publication-policy record
 -- or any reviewer step-up counter/lockout row. An operator must consciously archive and clear them.
 DO $$

@@ -1,6 +1,24 @@
 -- +migrate Up
 -- DBA review #7: never queue indefinitely behind long transactions on canonical tables.
 SET LOCAL lock_timeout = '3s';
+SET LOCAL carup.dealer_migration_txn = 'on';
+DO $txnguard$
+BEGIN
+  -- R6 DBA review 3 N2: SET LOCAL is a silent no-op outside a transaction block, so a migration
+  -- run statement by statement in autocommit (plain `psql -f`) would lose its lock_timeout and
+  -- could apply half-way. Refuse, and end the session so the client cannot run the remaining
+  -- statements. Apply with backend/scripts/dealership/applyDealerMigrations.mjs or
+  -- `psql -1 -v ON_ERROR_STOP=1` (one transaction per migration section).
+  IF current_setting('carup.dealer_migration_txn', true) IS DISTINCT FROM 'on' THEN
+    RAISE WARNING 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION: use the dealership migration runner or psql -1 -v ON_ERROR_STOP=1';
+    BEGIN
+      PERFORM pg_terminate_backend(pg_backend_pid());
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';
+  END IF;
+END
+$txnguard$;
 -- CARUP-DEALER-ONB-001-LR01-R4 P0-2 (C17 / C12 / C15): canonical dealer VIN listing authority.
 --
 -- The dealership domain NEVER publishes a vehicle and never invents a seller decision. Publication
@@ -628,6 +646,24 @@ GRANT EXECUTE ON FUNCTION dealer_storefront_public_listing_vins(TEXT, INTEGER) T
 -- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
 -- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
 SET LOCAL lock_timeout = '3s';
+SET LOCAL carup.dealer_migration_txn = 'on';
+DO $txnguard$
+BEGIN
+  -- R6 DBA review 3 N2: SET LOCAL is a silent no-op outside a transaction block, so a migration
+  -- run statement by statement in autocommit (plain `psql -f`) would lose its lock_timeout and
+  -- could apply half-way. Refuse, and end the session so the client cannot run the remaining
+  -- statements. Apply with backend/scripts/dealership/applyDealerMigrations.mjs or
+  -- `psql -1 -v ON_ERROR_STOP=1` (one transaction per migration section).
+  IF current_setting('carup.dealer_migration_txn', true) IS DISTINCT FROM 'on' THEN
+    RAISE WARNING 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION: use the dealership migration runner or psql -1 -v ON_ERROR_STOP=1';
+    BEGIN
+      PERFORM pg_terminate_backend(pg_backend_pid());
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';
+  END IF;
+END
+$txnguard$;
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM dealer_listing_authority_events)

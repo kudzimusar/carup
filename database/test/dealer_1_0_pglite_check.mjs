@@ -2645,6 +2645,51 @@ try{
     assert.match(down.split('\n').filter(l=>l.trim()&&!l.trim().startsWith('--'))[0]||'',/^SET LOCAL lock_timeout = '3s';$/,`${name}: Down starts with SET LOCAL lock_timeout`);
     assert.doesNotMatch(up+down,/^\s*SET lock_timeout/m,`${name}: no session-scoped lock_timeout`);
   }
+  // R6 DBA review 3 N2: every Up and every Down starts (after its optional SET LOCAL lock_timeout)
+  // with the one-transaction guard, before any other statement — so a statement-by-statement
+  // autocommit apply (plain `psql -f`) is refused before it can change anything.
+  const txnGuardPrefix=/^(?:[ \t]*(?:--[^\n]*)?\n)*(?:SET LOCAL lock_timeout = '3s';\n(?:[ \t]*(?:--[^\n]*)?\n)*)?SET LOCAL carup\.dealer_migration_txn = 'on';\nDO \$txnguard\$\n[\s\S]*?IS DISTINCT FROM 'on' THEN[\s\S]*?pg_terminate_backend\(pg_backend_pid\(\)\)[\s\S]*?RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';[\s\S]*?\n\$txnguard\$;\n/;
+  const guardedSections=[];
+  for(const name of names){
+    for(const [dir,section] of Object.entries(read(name))){
+      const m=txnGuardPrefix.exec(section);
+      assert.ok(m,`${name} ${dir}: the one-transaction guard must be the first statement after SET LOCAL lock_timeout`);
+      assert.equal((section.match(/carup\.dealer_migration_txn = 'on'/g)||[]).length,1,`${name} ${dir}: exactly one guard`);
+      guardedSections.push({name,dir,prefix:m[0]});
+    }
+  }
+  assert.equal(guardedSections.length,names.length*2);
+  if(native){
+    // Simulate an autocommit client (each statement its own transaction, as plain `psql -f` does):
+    // the guard ends the session, so a canary statement after it can never run.
+    const statementsOf=(prefix)=>{
+      const out=[];const lt=/SET LOCAL lock_timeout = '3s';/.exec(prefix);
+      if(lt)out.push(lt[0]);
+      out.push("SET LOCAL carup.dealer_migration_txn = 'on';");
+      out.push(prefix.slice(prefix.indexOf('DO $txnguard$')));
+      return out;
+    };
+    let refused=0;
+    for(const {name,dir,prefix} of guardedSections){
+      const c=new pg.Client({connectionString:nativeUrl,ssl:false,application_name:'carup-dealer-r6-autocommit-probe'});
+      c.on('error',()=>{});
+      await c.connect();
+      let guardError=null;
+      try{for(const st of statementsOf(prefix))await c.query(st)}catch(e){guardError=e}
+      const canary=await c.query('CREATE TABLE r6_autocommit_canary(x int)').then(()=>'RAN',e=>e.code||e.message);
+      await c.end().catch(()=>{});
+      assert.ok(guardError&&(guardError.code==='57P01'||/DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION/.test(guardError.message)),
+        `${name} ${dir}: autocommit apply must be refused by the guard (${guardError?.code} ${guardError?.message})`);
+      assert.notEqual(canary,'RAN',`${name} ${dir}: the session must be ended so no later statement runs`);
+      refused+=1;
+    }
+    assert.equal((await query(`SELECT to_regclass('public.r6_autocommit_canary') IS NULL AS absent`)).rows[0].absent,true);
+    // ...while the same statements inside ONE transaction pass.
+    const tx=new pg.Client({connectionString:nativeUrl,ssl:false});await tx.connect();
+    try{await tx.query('BEGIN');for(const st of statementsOf(guardedSections[0].prefix))await tx.query(st);await tx.query('ROLLBACK')}
+    finally{await tx.end()}
+    console.log(`DEALER_R6_ONE_TRANSACTION_GUARD PASS: ${refused}/${guardedSections.length} Up/Down sections refuse an autocommit (statement-by-statement) apply and end the session before any change; inside one transaction they pass`);
+  }
   // Native: a Down queued behind a reader gives up after ~3 s with 55P03, changes nothing, and
   // releases the readers that queued behind its ACCESS EXCLUSIVE request (review 2 #1 reproduction).
   const downProbes=native?{

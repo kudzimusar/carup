@@ -1,5 +1,23 @@
 -- +migrate Up
 SET LOCAL lock_timeout = '3s';
+SET LOCAL carup.dealer_migration_txn = 'on';
+DO $txnguard$
+BEGIN
+  -- R6 DBA review 3 N2: SET LOCAL is a silent no-op outside a transaction block, so a migration
+  -- run statement by statement in autocommit (plain `psql -f`) would lose its lock_timeout and
+  -- could apply half-way. Refuse, and end the session so the client cannot run the remaining
+  -- statements. Apply with backend/scripts/dealership/applyDealerMigrations.mjs or
+  -- `psql -1 -v ON_ERROR_STOP=1` (one transaction per migration section).
+  IF current_setting('carup.dealer_migration_txn', true) IS DISTINCT FROM 'on' THEN
+    RAISE WARNING 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION: use the dealership migration runner or psql -1 -v ON_ERROR_STOP=1';
+    BEGIN
+      PERFORM pg_terminate_backend(pg_backend_pid());
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';
+  END IF;
+END
+$txnguard$;
 -- CARUP-DEALER-ONB-001-LR01-R6 round 2: independent security review of candidate b2da0a74 (FAIL).
 --   #1 takedown laundering   — re-prelisting needs a reviewer different from EVERY takedown-class
 --                               event since the last public prelisting (WITHHELD included once public);
@@ -364,6 +382,24 @@ CREATE TRIGGER dealer_r6_media_reapproval_dual_control
 
 -- +migrate Down
 SET LOCAL lock_timeout = '3s';
+SET LOCAL carup.dealer_migration_txn = 'on';
+DO $txnguard$
+BEGIN
+  -- R6 DBA review 3 N2: SET LOCAL is a silent no-op outside a transaction block, so a migration
+  -- run statement by statement in autocommit (plain `psql -f`) would lose its lock_timeout and
+  -- could apply half-way. Refuse, and end the session so the client cannot run the remaining
+  -- statements. Apply with backend/scripts/dealership/applyDealerMigrations.mjs or
+  -- `psql -1 -v ON_ERROR_STOP=1` (one transaction per migration section).
+  IF current_setting('carup.dealer_migration_txn', true) IS DISTINCT FROM 'on' THEN
+    RAISE WARNING 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION: use the dealership migration runner or psql -1 -v ON_ERROR_STOP=1';
+    BEGIN
+      PERFORM pg_terminate_backend(pg_backend_pid());
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';
+  END IF;
+END
+$txnguard$;
 -- Refuse while custody this Down would orphan exists: duplicate redirects, grouping reviews or buyer-case
 -- findings recorded under the R6-round-2 guards, or lifecycle events (their dual-control history).
 DO $$

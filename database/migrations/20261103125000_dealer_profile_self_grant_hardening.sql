@@ -2,6 +2,24 @@
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
 -- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
 SET LOCAL lock_timeout = '3s';
+SET LOCAL carup.dealer_migration_txn = 'on';
+DO $txnguard$
+BEGIN
+  -- R6 DBA review 3 N2: SET LOCAL is a silent no-op outside a transaction block, so a migration
+  -- run statement by statement in autocommit (plain `psql -f`) would lose its lock_timeout and
+  -- could apply half-way. Refuse, and end the session so the client cannot run the remaining
+  -- statements. Apply with backend/scripts/dealership/applyDealerMigrations.mjs or
+  -- `psql -1 -v ON_ERROR_STOP=1` (one transaction per migration section).
+  IF current_setting('carup.dealer_migration_txn', true) IS DISTINCT FROM 'on' THEN
+    RAISE WARNING 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION: use the dealership migration runner or psql -1 -v ON_ERROR_STOP=1';
+    BEGIN
+      PERFORM pg_terminate_backend(pg_backend_pid());
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';
+  END IF;
+END
+$txnguard$;
 -- CARUP-DEALER-ONB-001 D2 security barrier.
 -- Legacy 20260626150000_dealer_compliance.sql granted authenticated users
 -- table-wide INSERT and UPDATE of dealer_profiles. RLS checked *whose row*,
@@ -45,6 +63,24 @@ COMMENT ON TABLE dealer_profiles IS
 -- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
 -- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
 SET LOCAL lock_timeout = '3s';
+SET LOCAL carup.dealer_migration_txn = 'on';
+DO $txnguard$
+BEGIN
+  -- R6 DBA review 3 N2: SET LOCAL is a silent no-op outside a transaction block, so a migration
+  -- run statement by statement in autocommit (plain `psql -f`) would lose its lock_timeout and
+  -- could apply half-way. Refuse, and end the session so the client cannot run the remaining
+  -- statements. Apply with backend/scripts/dealership/applyDealerMigrations.mjs or
+  -- `psql -1 -v ON_ERROR_STOP=1` (one transaction per migration section).
+  IF current_setting('carup.dealer_migration_txn', true) IS DISTINCT FROM 'on' THEN
+    RAISE WARNING 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION: use the dealership migration runner or psql -1 -v ON_ERROR_STOP=1';
+    BEGIN
+      PERFORM pg_terminate_backend(pg_backend_pid());
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';
+  END IF;
+END
+$txnguard$;
 -- R6 DBA #6: this Down deliberately does NOT restore the pre-migration privileges. The exact
 -- pre-migration state (20260626150000: table-wide GRANT INSERT,UPDATE ON dealer_profiles TO
 -- authenticated, and an owner UPDATE policy with no status predicate) is the privilege-escalation

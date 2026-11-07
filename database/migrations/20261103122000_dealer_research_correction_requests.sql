@@ -1,4 +1,22 @@
 -- +migrate Up
+SET LOCAL carup.dealer_migration_txn = 'on';
+DO $txnguard$
+BEGIN
+  -- R6 DBA review 3 N2: SET LOCAL is a silent no-op outside a transaction block, so a migration
+  -- run statement by statement in autocommit (plain `psql -f`) would lose its lock_timeout and
+  -- could apply half-way. Refuse, and end the session so the client cannot run the remaining
+  -- statements. Apply with backend/scripts/dealership/applyDealerMigrations.mjs or
+  -- `psql -1 -v ON_ERROR_STOP=1` (one transaction per migration section).
+  IF current_setting('carup.dealer_migration_txn', true) IS DISTINCT FROM 'on' THEN
+    RAISE WARNING 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION: use the dealership migration runner or psql -1 -v ON_ERROR_STOP=1';
+    BEGIN
+      PERFORM pg_terminate_backend(pg_backend_pid());
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';
+  END IF;
+END
+$txnguard$;
 -- Public correction/removal requests do not confer business ownership, modify a research
 -- publication, or trigger automatic suppression. All disposition is independent review.
 CREATE TABLE IF NOT EXISTS dealer_research_correction_requests (
@@ -22,6 +40,24 @@ CREATE INDEX IF NOT EXISTS idx_dealer_research_correction_queue
 -- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
 -- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
 SET LOCAL lock_timeout = '3s';
+SET LOCAL carup.dealer_migration_txn = 'on';
+DO $txnguard$
+BEGIN
+  -- R6 DBA review 3 N2: SET LOCAL is a silent no-op outside a transaction block, so a migration
+  -- run statement by statement in autocommit (plain `psql -f`) would lose its lock_timeout and
+  -- could apply half-way. Refuse, and end the session so the client cannot run the remaining
+  -- statements. Apply with backend/scripts/dealership/applyDealerMigrations.mjs or
+  -- `psql -1 -v ON_ERROR_STOP=1` (one transaction per migration section).
+  IF current_setting('carup.dealer_migration_txn', true) IS DISTINCT FROM 'on' THEN
+    RAISE WARNING 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION: use the dealership migration runner or psql -1 -v ON_ERROR_STOP=1';
+    BEGIN
+      PERFORM pg_terminate_backend(pg_backend_pid());
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';
+  END IF;
+END
+$txnguard$;
 -- R6 DBA #6: a public correction/takedown request is a third party's record. Rollback is refused
 -- while any exist, before any DDL; dispose of them explicitly, or fix forward.
 DO $$
