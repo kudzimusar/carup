@@ -112,9 +112,10 @@ try{
  await db.query(`GRANT SELECT ON escrow_trust_sessions,
    dealer_transaction_feedback_cases,dealer_transaction_feedback_review_events
    TO service_role`);
- await db.query(`GRANT SELECT, INSERT, UPDATE ON
+ await db.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON
    dealer_storefront_media_items,
    dealer_storefront_media_review_events,
+   dealer_storefront_media_review_tickets,
    dealer_research_correction_requests,
    dealer_research_correction_review_events,
    dealer_research_duplicate_redirects

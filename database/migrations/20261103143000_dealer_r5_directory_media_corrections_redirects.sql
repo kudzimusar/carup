@@ -719,6 +719,209 @@ WHERE m.review_status = 'APPROVED_PUBLIC_DISPLAY'
 REVOKE ALL ON dealer_public_storefront_media_current FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON dealer_public_storefront_media_current TO service_role;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 4. Shared Multi-Instance & Process-Restart-Safe Single-Use Media Review Tickets
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS dealer_storefront_media_review_tickets (
+  ticket_jti TEXT PRIMARY KEY CHECK (ticket_jti ~ '^[0-9a-f]{32}$'),
+  token_sha256 TEXT NOT NULL UNIQUE CHECK (token_sha256 ~ '^[0-9a-f]{64}$'),
+  reviewer_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  seed_dealer_id TEXT NOT NULL REFERENCES dealer_research_seed_records(seed_dealer_id) ON DELETE RESTRICT,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+  target_row_id UUID NOT NULL REFERENCES dealer_storefront_media_items(media_id) ON DELETE CASCADE,
+  content_sha256 TEXT NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
+  operation TEXT NOT NULL CHECK (operation IN ('STOREFRONT_MEDIA_PREVIEW', 'STOREFRONT_MEDIA_DECISION')),
+  issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ NULL,
+  CHECK (expires_at > issued_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dealer_media_tickets_lookup
+  ON dealer_storefront_media_review_tickets(reviewer_id, seed_dealer_id, operation, expires_at);
+
+ALTER TABLE dealer_storefront_media_review_tickets ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON dealer_storefront_media_review_tickets FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON dealer_storefront_media_review_tickets TO service_role;
+
+CREATE OR REPLACE FUNCTION dealer_issue_storefront_media_review_ticket(
+  p_ticket_jti TEXT,
+  p_token_sha256 TEXT,
+  p_reviewer_id TEXT,
+  p_seed_dealer_id TEXT,
+  p_target_row_id UUID,
+  p_operation TEXT,
+  p_expires_at TIMESTAMPTZ
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_reviewer RECORD;
+  v_media RECORD;
+  v_link RECORD;
+BEGIN
+  IF p_ticket_jti IS NULL OR p_ticket_jti !~ '^[0-9a-f]{32}$'
+     OR p_token_sha256 IS NULL OR p_token_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_operation IS NULL OR p_operation NOT IN ('STOREFRONT_MEDIA_PREVIEW', 'STOREFRONT_MEDIA_DECISION')
+     OR p_expires_at IS NULL THEN
+    RAISE EXCEPTION 'INVALID_MEDIA_REVIEW_TICKET_GRANT';
+  END IF;
+
+  SELECT id, role, is_verified INTO v_reviewer
+    FROM users
+   WHERE id = p_reviewer_id;
+  IF NOT FOUND
+     OR COALESCE(v_reviewer.is_verified, false) IS NOT TRUE
+     OR COALESCE(v_reviewer.role, '') NOT IN ('admin', 'reviewer', 'platform_admin', 'super_admin') THEN
+    RAISE EXCEPTION 'INDEPENDENT_MEDIA_REVIEWER_REQUIRED';
+  END IF;
+
+  SELECT * INTO v_media
+    FROM dealer_storefront_media_items
+   WHERE media_id = p_target_row_id
+     AND seed_dealer_id = p_seed_dealer_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'STOREFRONT_MEDIA_NOT_FOUND';
+  END IF;
+
+  SELECT * INTO v_link
+    FROM dealer_approved_seed_links
+   WHERE link_id = v_media.link_id;
+
+  IF p_reviewer_id = v_media.uploaded_by
+     OR p_reviewer_id = v_link.claimant_user_id
+     OR EXISTS (
+       SELECT 1 FROM tenant_users tu
+        WHERE tu.tenant_id = v_media.tenant_id
+          AND tu.user_id = p_reviewer_id
+     ) THEN
+    RAISE EXCEPTION 'INDEPENDENT_MEDIA_REVIEWER_REQUIRED';
+  END IF;
+
+  DELETE FROM dealer_storefront_media_review_tickets
+   WHERE expires_at < now() - interval '1 hour'
+      OR (consumed_at IS NOT NULL AND consumed_at < now() - interval '1 hour');
+
+  INSERT INTO dealer_storefront_media_review_tickets (
+    ticket_jti,
+    token_sha256,
+    reviewer_id,
+    seed_dealer_id,
+    tenant_id,
+    target_row_id,
+    content_sha256,
+    operation,
+    issued_at,
+    expires_at
+  ) VALUES (
+    p_ticket_jti,
+    p_token_sha256,
+    p_reviewer_id,
+    p_seed_dealer_id,
+    v_media.tenant_id,
+    v_media.media_id,
+    v_media.content_sha256,
+    p_operation,
+    LEAST(now(), p_expires_at - interval '1 second'),
+    p_expires_at
+  );
+
+  RETURN jsonb_build_object(
+    'ticket_jti', p_ticket_jti,
+    'seed_dealer_id', p_seed_dealer_id,
+    'operation', p_operation,
+    'expires_at', p_expires_at
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION dealer_issue_storefront_media_review_ticket(TEXT, TEXT, TEXT, TEXT, UUID, TEXT, TIMESTAMPTZ)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION dealer_issue_storefront_media_review_ticket(TEXT, TEXT, TEXT, TEXT, UUID, TEXT, TIMESTAMPTZ)
+  TO service_role;
+
+CREATE OR REPLACE FUNCTION dealer_consume_storefront_media_review_ticket(
+  p_ticket_jti TEXT,
+  p_token_sha256 TEXT,
+  p_reviewer_id TEXT,
+  p_seed_dealer_id TEXT,
+  p_expected_operation TEXT,
+  p_now TIMESTAMPTZ DEFAULT now()
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_eval_now TIMESTAMPTZ := COALESCE(p_now, now());
+  v_ticket RECORD;
+  v_reviewer RECORD;
+  v_media RECORD;
+BEGIN
+  IF p_ticket_jti IS NULL OR p_ticket_jti !~ '^[0-9a-f]{32}$'
+     OR p_token_sha256 IS NULL OR p_token_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_reviewer_id IS NULL
+     OR p_seed_dealer_id IS NULL
+     OR p_expected_operation IS NULL
+     OR p_expected_operation NOT IN ('STOREFRONT_MEDIA_PREVIEW', 'STOREFRONT_MEDIA_DECISION') THEN
+    RAISE EXCEPTION 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID';
+  END IF;
+
+  -- Atomic row-level lock and single-use transition across all backend instances
+  UPDATE dealer_storefront_media_review_tickets
+     SET consumed_at = v_eval_now
+   WHERE ticket_jti = p_ticket_jti
+     AND token_sha256 = p_token_sha256
+     AND reviewer_id = p_reviewer_id
+     AND seed_dealer_id = p_seed_dealer_id
+     AND operation = p_expected_operation
+     AND consumed_at IS NULL
+     AND expires_at >= v_eval_now
+  RETURNING ticket_jti, reviewer_id, seed_dealer_id, tenant_id, target_row_id, content_sha256, operation, expires_at, consumed_at
+    INTO v_ticket;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID';
+  END IF;
+
+  SELECT id, role, is_verified INTO v_reviewer
+    FROM users
+   WHERE id = p_reviewer_id;
+  IF NOT FOUND
+     OR COALESCE(v_reviewer.is_verified, false) IS NOT TRUE
+     OR COALESCE(v_reviewer.role, '') NOT IN ('admin', 'reviewer', 'platform_admin', 'super_admin') THEN
+    RAISE EXCEPTION 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID';
+  END IF;
+
+  SELECT media_id, uploaded_by INTO v_media
+    FROM dealer_storefront_media_items
+   WHERE media_id = v_ticket.target_row_id
+     AND seed_dealer_id = v_ticket.seed_dealer_id;
+  IF NOT FOUND OR v_media.uploaded_by = p_reviewer_id THEN
+    RAISE EXCEPTION 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'ticket_jti', v_ticket.ticket_jti,
+    'reviewer_id', v_ticket.reviewer_id,
+    'seed_dealer_id', v_ticket.seed_dealer_id,
+    'tenant_id', v_ticket.tenant_id,
+    'target_row_id', v_ticket.target_row_id,
+    'content_sha256', v_ticket.content_sha256,
+    'operation', v_ticket.operation,
+    'expires_at', v_ticket.expires_at,
+    'consumed_at', v_ticket.consumed_at
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION dealer_consume_storefront_media_review_ticket(TEXT, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION dealer_consume_storefront_media_review_ticket(TEXT, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ)
+  TO service_role;
+
 -- +migrate Down
 DO $$
 BEGIN
@@ -731,6 +934,9 @@ BEGIN
 END;
 $$;
 
+DROP FUNCTION IF EXISTS dealer_consume_storefront_media_review_ticket(TEXT, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ);
+DROP FUNCTION IF EXISTS dealer_issue_storefront_media_review_ticket(TEXT, TEXT, TEXT, TEXT, UUID, TEXT, TIMESTAMPTZ);
+DROP TABLE IF EXISTS dealer_storefront_media_review_tickets;
 DROP VIEW IF EXISTS dealer_public_storefront_media_current;
 DROP FUNCTION IF EXISTS dealer_review_storefront_media_item(UUID, TEXT, TEXT, TEXT);
 DROP FUNCTION IF EXISTS dealer_record_storefront_media_upload(TEXT, UUID, UUID, TEXT, TEXT, TEXT, INTEGER, TEXT, TEXT, TEXT, TEXT, BOOLEAN);

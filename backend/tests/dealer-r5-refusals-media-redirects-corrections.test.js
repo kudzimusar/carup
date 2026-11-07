@@ -7,7 +7,7 @@
  *  - T22 + Issue #164 Phase 5 containment: Tenant-scoped dealership media gallery, ClamAV scan,
  *    rights attestation & scope-bound, short-lived, single-use, non-enumerable reviewer tickets
  *    (positive + negative tests for invalid, raw-UUID, expired, replayed, cross-dealership,
- *    cross-reviewer, and cross-operation requests).
+ *    cross-reviewer, cross-operation, process-restart, multi-instance, and parallel concurrent requests).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -47,10 +47,15 @@ const ownerActor = {
   platformRole: 'member',
 };
 
-// Minimal valid 1x1 PNG binary
-const VALID_PNG_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-const VALID_PNG_DATA_URI = `data:image/png;base64,${VALID_PNG_BASE64}`;
+// Minimal valid 1x1 PNG binary constructed from byte array
+const VALID_PNG_BYTES = Buffer.from([
+  137, 80, 78, 71, 13, 10, 26, 10,
+  0, 0, 0, 13, 73, 72, 68, 82,
+  0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137,
+  0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 207, 80, 15, 0, 3, 134, 1, 128, 90, 52, 125, 107,
+  0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+]);
+const VALID_PNG_DATA_URI = `data:image/png;base64,${VALID_PNG_BYTES.toString('base64')}`;
 
 test('R5 API Refusal Mapper: deterministically classifies SQL exceptions into 400, 403, 404, 409, 422, and 503', () => {
   const cases = [
@@ -526,13 +531,15 @@ test('T22 dealerStorefrontMediaService validates image bytes, refuses OEM/logo c
   assert.match(uploadedPaths[0], /^dealership-media\//);
 });
 
-test('Issue #164 + T22 scope-bound review tickets: positive flow and negative refusals for raw UUID, invalid, expired, replayed, cross-dealership, cross-reviewer, and cross-operation requests', async () => {
+test('Issue #164 + T22 scope-bound review tickets: positive flow, negative refusals, process restart resilience, multi-instance shared DB custody, and parallel concurrent single-use race', async () => {
   const TARGET_MEDIA_ID = '77777777-7777-4777-8777-777777777777';
   const TENANT_ID = '99999999-8888-4777-8666-555555555555';
   const CONTENT_SHA = 'a'.repeat(64);
   const BASE_NOW = 1_762_000_000_000;
+  const CLUSTER_SECRET = 'shared-cluster-ticket-secret-for-multi-instance-test-2026';
 
   let dbQueryCount = 0;
+  const sharedTicketTable = new Map();
   const storedRow = {
     media_id: TARGET_MEDIA_ID,
     seed_dealer_id: 'ZW-DEAL-0001',
@@ -577,7 +584,7 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow and negative re
         assert.equal(bucket, 'ocr-documents');
         return {
           async download() {
-            return { data: Buffer.from(VALID_PNG_BASE64, 'base64'), error: null };
+            return { data: VALID_PNG_BYTES, error: null };
           },
           async createSignedUrl() {
             return { data: { signedUrl: 'https://storage.example.invalid/signed' }, error: null };
@@ -586,6 +593,58 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow and negative re
       },
     },
     async rpc(name, args) {
+      if (name === 'dealer_issue_storefront_media_review_ticket') {
+        sharedTicketTable.set(args.p_ticket_jti, {
+          ticket_jti: args.p_ticket_jti,
+          token_sha256: args.p_token_sha256,
+          reviewer_id: args.p_reviewer_id,
+          seed_dealer_id: args.p_seed_dealer_id,
+          tenant_id: TENANT_ID,
+          target_row_id: args.p_target_row_id,
+          content_sha256: CONTENT_SHA,
+          operation: args.p_operation,
+          expires_at: Date.parse(args.p_expires_at),
+          consumed_at: null,
+        });
+        return {
+          data: {
+            ticket_jti: args.p_ticket_jti,
+            seed_dealer_id: args.p_seed_dealer_id,
+            operation: args.p_operation,
+            expires_at: args.p_expires_at,
+          },
+          error: null,
+        };
+      }
+      if (name === 'dealer_consume_storefront_media_review_ticket') {
+        dbQueryCount += 1;
+        const row = sharedTicketTable.get(args.p_ticket_jti);
+        const evalNow = Date.parse(args.p_now);
+        if (!row
+            || row.token_sha256 !== args.p_token_sha256
+            || row.reviewer_id !== args.p_reviewer_id
+            || row.seed_dealer_id !== args.p_seed_dealer_id
+            || row.operation !== args.p_expected_operation
+            || row.consumed_at !== null
+            || evalNow > row.expires_at) {
+          return { data: null, error: { message: 'ERROR: STOREFRONT_MEDIA_REVIEW_TICKET_INVALID' } };
+        }
+        row.consumed_at = args.p_now;
+        return {
+          data: {
+            ticket_jti: row.ticket_jti,
+            reviewer_id: row.reviewer_id,
+            seed_dealer_id: row.seed_dealer_id,
+            tenant_id: row.tenant_id,
+            target_row_id: row.target_row_id,
+            content_sha256: row.content_sha256,
+            operation: row.operation,
+            expires_at: new Date(row.expires_at).toISOString(),
+            consumed_at: row.consumed_at,
+          },
+          error: null,
+        };
+      }
       assert.equal(name, 'dealer_review_storefront_media_item');
       assert.equal(args.p_media_id, TARGET_MEDIA_ID);
       assert.equal(args.p_reviewer_id, reviewerActor.userId);
@@ -615,18 +674,20 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow and negative re
   const selfQueue = await media.listStorefrontMediaReviewQueue(uploaderSameAsReviewer, {
     db: mockDb,
     now: BASE_NOW,
+    secret: CLUSTER_SECRET,
   });
   assert.equal(selfQueue.length, 1);
   assert.equal(selfQueue[0].independent_reviewer_required, false);
   assert.equal(selfQueue[0].preview_ticket, null);
   assert.equal(selfQueue[0].decision_ticket, null);
 
-  // 2. Independent reviewer receives opaque, non-UUID preview_ticket and decision_ticket
+  // 2. Instance A issues opaque preview_ticket and decision_ticket persisted in shared PostgreSQL custody
   const queue = await media.listStorefrontMediaReviewQueue(reviewerActor, {
     db: mockDb,
     seedDealerId: 'ZW-DEAL-0001',
     ticketTtlMs: 60_000,
     now: BASE_NOW,
+    secret: CLUSTER_SECRET,
   });
   assert.equal(queue.length, 1);
   const item = queue[0];
@@ -634,9 +695,9 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow and negative re
   assert.match(item.preview_ticket, /^rt1\./);
   assert.match(item.decision_ticket, /^rt1\./);
   assert.notEqual(item.preview_ticket, item.decision_ticket);
-  // Ensure the encrypted ticket never leaks the UUID in plaintext
   assert.equal(item.preview_ticket.includes(TARGET_MEDIA_ID), false);
   assert.equal(item.decision_ticket.includes(TARGET_MEDIA_ID), false);
+  assert.equal(sharedTicketTable.size, 2, 'both tickets persisted in shared PostgreSQL table');
 
   // 3. Negative checks BEFORE any database lookup runs:
   dbQueryCount = 0;
@@ -647,7 +708,7 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow and negative re
       media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
         review_ticket: rawId,
         reviewer_password: REVIEWER_PW,
-      }, { db: mockDb, stepUp, now: BASE_NOW + 1000 }),
+      }, { db: mockDb, stepUp, now: BASE_NOW + 1000, secret: CLUSTER_SECRET }),
       (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
     );
   }
@@ -658,7 +719,7 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow and negative re
     media.previewStorefrontMediaItem('ZW-DEAL-0002', reviewerActor, {
       review_ticket: item.preview_ticket,
       reviewer_password: REVIEWER_PW,
-    }, { db: mockDb, stepUp, now: BASE_NOW + 1000 }),
+    }, { db: mockDb, stepUp, now: BASE_NOW + 1000, secret: CLUSTER_SECRET }),
     (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
   );
   assert.equal(dbQueryCount, 0, 'cross-dealership ticket must fail AAD verification before any DB query');
@@ -668,7 +729,7 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow and negative re
     media.previewStorefrontMediaItem('ZW-DEAL-0001', secondReviewerActor, {
       review_ticket: item.preview_ticket,
       reviewer_password: REVIEWER_PW,
-    }, { db: mockDb, stepUp, now: BASE_NOW + 1000 }),
+    }, { db: mockDb, stepUp, now: BASE_NOW + 1000, secret: CLUSTER_SECRET }),
     (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
   );
   assert.equal(dbQueryCount, 0, 'cross-reviewer ticket must fail AAD verification before any DB query');
@@ -680,14 +741,14 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow and negative re
       decision: 'APPROVED_PUBLIC_DISPLAY',
       reason: 'Attempting to use a preview ticket on the decision endpoint must fail.',
       reviewer_password: REVIEWER_PW,
-    }, { db: mockDb, stepUp, now: BASE_NOW + 1000 }),
+    }, { db: mockDb, stepUp, now: BASE_NOW + 1000, secret: CLUSTER_SECRET }),
     (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
   );
   await assert.rejects(
     media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
       review_ticket: item.decision_ticket,
       reviewer_password: REVIEWER_PW,
-    }, { db: mockDb, stepUp, now: BASE_NOW + 1000 }),
+    }, { db: mockDb, stepUp, now: BASE_NOW + 1000, secret: CLUSTER_SECRET }),
     (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
   );
   assert.equal(dbQueryCount, 0, 'cross-operation ticket must fail AAD verification before any DB query');
@@ -697,55 +758,68 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow and negative re
     media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
       review_ticket: item.preview_ticket,
       reviewer_password: REVIEWER_PW,
-    }, { db: mockDb, stepUp, now: BASE_NOW + 60_001 }),
+    }, { db: mockDb, stepUp, now: BASE_NOW + 60_001, secret: CLUSTER_SECRET }),
     (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
   );
   assert.equal(dbQueryCount, 0, 'expired ticket must be refused before any DB query');
 
-  // 4. Positive flow: valid preview_ticket within TTL succeeds with password step-up
-  const preview = await media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
-    review_ticket: item.preview_ticket,
-    reviewer_password: REVIEWER_PW,
-  }, { db: mockDb, stepUp, now: BASE_NOW + 5000 });
-  assert.equal(preview.media_id, TARGET_MEDIA_ID);
-  assert.equal(preview.seed_dealer_id, 'ZW-DEAL-0001');
-  assert.equal(preview.logo_rights_approved, false);
-  assert.match(preview.signed_url, /^data:image\/png;base64,/);
-  assert.equal(dbQueryCount, 1);
-  assert.equal(stepUpCalls.length, 1);
-
-  // 5. Replay protection: reusing the consumed preview_ticket is refused before querying DB
+  // 3f. Mismatched cluster secret refused without querying DB
   await assert.rejects(
     media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
       review_ticket: item.preview_ticket,
       reviewer_password: REVIEWER_PW,
-    }, { db: mockDb, stepUp, now: BASE_NOW + 6000 }),
+    }, { db: mockDb, stepUp, now: BASE_NOW + 1000, secret: 'wrong-cluster-secret-value-999999' }),
     (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
   );
-  assert.equal(dbQueryCount, 1, 'replayed preview_ticket must be refused before any DB query');
+  assert.equal(dbQueryCount, 0, 'mismatched secret must fail GCM tag verification before any DB query');
 
-  // 6. Positive flow: valid decision_ticket within TTL records immutable review decision
-  const reviewed = await media.reviewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
-    review_ticket: item.decision_ticket,
-    decision: 'APPROVED_PUBLIC_DISPLAY',
-    reason: 'Independently verified Harare showroom exterior photo; descriptive alt text and caption present; zero OEM/brand logos.',
+  // 4. Simulate Process Restart / Routing to Instance B (wipes all process-local memory):
+  // The unconsumed preview_ticket issued by Instance A MUST still succeed on Instance B via shared PostgreSQL custody!
+  media.simulateProcessRestartForTest();
+
+  const preview = await media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+    review_ticket: item.preview_ticket,
     reviewer_password: REVIEWER_PW,
-  }, { db: mockDb, stepUp, now: BASE_NOW + 7000 });
-  assert.equal(reviewed.decision, 'APPROVED_PUBLIC_DISPLAY');
-  assert.equal(reviewed.public_display_approved, true);
-  assert.equal(reviewed.logo_rights_approved, false);
-  assert.equal(dbQueryCount, 2);
-  assert.equal(stepUpCalls.length, 2);
+  }, { db: mockDb, stepUp, now: BASE_NOW + 5000, secret: CLUSTER_SECRET });
+  assert.equal(preview.media_id, TARGET_MEDIA_ID);
+  assert.equal(preview.seed_dealer_id, 'ZW-DEAL-0001');
+  assert.equal(preview.logo_rights_approved, false);
+  assert.match(preview.signed_url, /^data:image\/png;base64,/);
 
-  // 7. Replay protection: reusing the consumed decision_ticket is refused before querying DB
+  // 5. Cross-Instance Replay Protection:
+  // Simulate routing the already-consumed preview_ticket to a third fresh instance (Instance C) with empty local memory:
+  // Shared PostgreSQL custody (`consumed_at IS NOT NULL`) MUST reject the replay with 403!
+  media.simulateProcessRestartForTest();
   await assert.rejects(
+    media.previewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+      review_ticket: item.preview_ticket,
+      reviewer_password: REVIEWER_PW,
+    }, { db: mockDb, stepUp, now: BASE_NOW + 6000, secret: CLUSTER_SECRET }),
+    (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
+  );
+
+  // 6. Parallel Concurrent Requests Race (`Promise.all`) with the same `decision_ticket`:
+  // Exactly ONE request must succeed and ONE must fail with 403 STOREFRONT_MEDIA_REVIEW_TICKET_INVALID!
+  media.simulateProcessRestartForTest();
+  const parallelOutcomes = await Promise.allSettled([
     media.reviewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
       review_ticket: item.decision_ticket,
-      decision: 'RETRACTED',
-      reason: 'Attempting to replay an already consumed decision ticket must fail closed.',
+      decision: 'APPROVED_PUBLIC_DISPLAY',
+      reason: 'Concurrent request 1: Independently verified Harare showroom exterior photo; descriptive alt text and caption present.',
       reviewer_password: REVIEWER_PW,
-    }, { db: mockDb, stepUp, now: BASE_NOW + 8000 }),
-    (err) => err.statusCode === 403 && err.code === 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
-  );
-  assert.equal(dbQueryCount, 2, 'replayed decision_ticket must be refused before any DB query');
+    }, { db: mockDb, stepUp, now: BASE_NOW + 7000, secret: CLUSTER_SECRET }),
+    media.reviewStorefrontMediaItem('ZW-DEAL-0001', reviewerActor, {
+      review_ticket: item.decision_ticket,
+      decision: 'REJECTED',
+      reason: 'Concurrent request 2: Racing the same single-use decision ticket in parallel must be refused.',
+      reviewer_password: REVIEWER_PW,
+    }, { db: mockDb, stepUp, now: BASE_NOW + 7000, secret: CLUSTER_SECRET }),
+  ]);
+  const fulfilled = parallelOutcomes.filter((r) => r.status === 'fulfilled');
+  const rejected = parallelOutcomes.filter((r) => r.status === 'rejected');
+  assert.equal(fulfilled.length, 1, 'exactly one concurrent request may consume the single-use ticket');
+  assert.equal(rejected.length, 1, 'the competing concurrent request must be refused');
+  assert.equal(fulfilled[0].value.decision, 'APPROVED_PUBLIC_DISPLAY');
+  assert.equal(rejected[0].reason.statusCode, 403);
+  assert.equal(rejected[0].reason.code, 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID');
 });

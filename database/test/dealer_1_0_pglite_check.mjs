@@ -392,8 +392,8 @@ try{
     'CANNOT_ROLLBACK_WITH_BRANCH_OPERATING_DETAILS');
   await exec("DELETE FROM dealer_branches WHERE id='"+uuid(9871)+"'");
   await exec("DELETE FROM dealer_profiles WHERE id='"+uuid(9870)+"'");
-  // R5: 35 + 5 (correction review events, duplicate redirects, media items, media review events, public media view) = 40.
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,40);
+  // R5: 35 + 6 (correction review events, duplicate redirects, media items, media review events, public media view, shared media review tickets) = 41.
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,41);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -828,6 +828,70 @@ try{
   assert.equal(mediaUpload.logo_rights_approved,false);
   assert.equal(mediaUpload.public_display_approved,false);
   assert.equal((await query("SELECT count(*)::int AS n FROM dealer_public_storefront_media_current WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0].n,0);
+  // Shared multi-instance & restart-safe single-use ticket custody in PostgreSQL
+  const previewJti='a'.repeat(32);
+  const previewHash='b'.repeat(64);
+  const ticketExp=new Date(Date.now()+600_000).toISOString();
+  await fails(`SELECT dealer_issue_storefront_media_review_ticket(
+    '${previewJti}','${previewHash}','${claimant}','ZW-DEAL-0001',
+    '${mediaUpload.media_id}'::uuid,'STOREFRONT_MEDIA_PREVIEW','${ticketExp}'::timestamptz)`,
+    'INDEPENDENT_MEDIA_REVIEWER_REQUIRED');
+  const issuedTicket=(await query(
+    'SELECT dealer_issue_storefront_media_review_ticket($1,$2,$3,$4,$5::uuid,$6,$7::timestamptz) AS r',
+    [previewJti,previewHash,reviewer,'ZW-DEAL-0001',mediaUpload.media_id,'STOREFRONT_MEDIA_PREVIEW',ticketExp])).rows[0].r;
+  assert.equal(issuedTicket.ticket_jti,previewJti);
+  // Cross-dealership, cross-reviewer, cross-operation, and expired consumption must all fail closed
+  await fails(`SELECT dealer_consume_storefront_media_review_ticket(
+    '${previewJti}','${previewHash}','${reviewer}','ZW-DEAL-0002','STOREFRONT_MEDIA_PREVIEW')`,
+    'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID');
+  await fails(`SELECT dealer_consume_storefront_media_review_ticket(
+    '${previewJti}','${previewHash}','${claimant}','ZW-DEAL-0001','STOREFRONT_MEDIA_PREVIEW')`,
+    'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID');
+  await fails(`SELECT dealer_consume_storefront_media_review_ticket(
+    '${previewJti}','${previewHash}','${reviewer}','ZW-DEAL-0001','STOREFRONT_MEDIA_DECISION')`,
+    'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID');
+  await fails(`SELECT dealer_consume_storefront_media_review_ticket(
+    '${previewJti}','${previewHash}','${reviewer}','ZW-DEAL-0001','STOREFRONT_MEDIA_PREVIEW',
+    (now() + interval '1 hour'))`,
+    'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID');
+  // Valid single-use consumption succeeds once and refuses replay
+  const consumedTicket=(await query(
+    'SELECT dealer_consume_storefront_media_review_ticket($1,$2,$3,$4,$5) AS r',
+    [previewJti,previewHash,reviewer,'ZW-DEAL-0001','STOREFRONT_MEDIA_PREVIEW'])).rows[0].r;
+  assert.equal(consumedTicket.target_row_id,mediaUpload.media_id);
+  await fails(`SELECT dealer_consume_storefront_media_review_ticket(
+    '${previewJti}','${previewHash}','${reviewer}','ZW-DEAL-0001','STOREFRONT_MEDIA_PREVIEW')`,
+    'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID');
+  if(native){
+    // Two-independent-session concurrent ticket consumption race across two PostgreSQL connections:
+    // Session A and Session B race dealer_consume_storefront_media_review_ticket on the same ticket.
+    const raceJti='c'.repeat(32);
+    const raceHash='d'.repeat(64);
+    await query(
+      'SELECT dealer_issue_storefront_media_review_ticket($1,$2,$3,$4,$5::uuid,$6,$7::timestamptz)',
+      [raceJti,raceHash,reviewer,'ZW-DEAL-0001',mediaUpload.media_id,'STOREFRONT_MEDIA_PREVIEW',ticketExp]);
+    const tConnA=new pg.Client({connectionString:nativeUrl,ssl:false});
+    const tConnB=new pg.Client({connectionString:nativeUrl,ssl:false});
+    await tConnA.connect();
+    await tConnB.connect();
+    try{
+      await tConnA.query('BEGIN');
+      await tConnB.query('BEGIN');
+      await tConnA.query(
+        'SELECT dealer_consume_storefront_media_review_ticket($1,$2,$3,$4,$5)',
+        [raceJti,raceHash,reviewer,'ZW-DEAL-0001','STOREFRONT_MEDIA_PREVIEW']);
+      const pendingB=tConnB.query(
+        'SELECT dealer_consume_storefront_media_review_ticket($1,$2,$3,$4,$5)',
+        [raceJti,raceHash,reviewer,'ZW-DEAL-0001','STOREFRONT_MEDIA_PREVIEW']);
+      await new Promise(resolve=>setTimeout(resolve,120));
+      await tConnA.query('COMMIT');
+      await assert.rejects(pendingB,/STOREFRONT_MEDIA_REVIEW_TICKET_INVALID/);
+      await tConnB.query('ROLLBACK');
+    }finally{
+      await tConnA.end();
+      await tConnB.end();
+    }
+  }
   await fails(`SELECT dealer_review_storefront_media_item(
     '${mediaUpload.media_id}','${claimant}','APPROVED_PUBLIC_DISPLAY',
     'Claimant attempted to self-approve their own dealership showroom photograph.')`,
@@ -842,7 +906,7 @@ try{
   assert.equal(publicMedia.length,1);
   assert.equal(publicMedia[0].logo_rights_approved,false);
   await fails("UPDATE dealer_storefront_media_review_events SET decision='REJECTED'",'APPEND_ONLY_LEDGER');
-  console.log('DEALER_R5_T22_MEDIA_GALLERY PASS: owner-only upload, OEM/logo claim refused, independent reviewer approval, public view active');
+  console.log('DEALER_R5_T22_MEDIA_GALLERY PASS: owner-only upload, OEM/logo claim refused, shared single-use ticket custody verified, independent reviewer approval, public view active');
 
   // Prove immediate public FULL + media withdrawal when policy expires or tenant is suspended.
   await exec('BEGIN');
@@ -1486,7 +1550,7 @@ try{
     'fictional branch teardown must not hide real retained operating data');
 
   // Dispose R5 custody tables before rollback test (after proving CANNOT_ROLLBACK_WITH_DEALER_R5_CUSTODY above).
-  await exec('TRUNCATE dealer_storefront_media_review_events, dealer_storefront_media_items, dealer_research_duplicate_redirects, dealer_research_correction_review_events');
+  await exec('TRUNCATE dealer_storefront_media_review_tickets, dealer_storefront_media_review_events, dealer_storefront_media_items, dealer_research_duplicate_redirects, dealer_research_correction_review_events');
   await exec('TRUNCATE dealer_research_duplicate_redirects, dealer_research_grouping_review_events, dealer_research_public_contact_events');
   await exec('TRUNCATE dealer_staff_branch_scope_events, dealer_staff_branch_scopes, dealer_staff_invitation_events, dealer_staff_invitation_records');
   await exec('TRUNCATE dealer_canonical_inquiry_progress_events');

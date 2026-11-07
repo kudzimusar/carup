@@ -56,9 +56,10 @@ try {
     current_storefronts: 0, listing_events: 0 }, 'phase-six preconditions');
 
   // Ensure disposable loopback service_role has explicit table privileges on R5 tables
-  await db.query(`GRANT SELECT, INSERT, UPDATE ON
+  await db.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON
     dealer_storefront_media_items,
     dealer_storefront_media_review_events,
+    dealer_storefront_media_review_tickets,
     dealer_research_correction_requests,
     dealer_research_correction_review_events,
     dealer_research_duplicate_redirects
