@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {installStepUpGuardModel} from './helpers/dealerStepUpGuardModel.js';
 process.env.NODE_ENV='test';
 process.env.SUPABASE_URL ||= 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'dummy-dealer-key';
 const {supabase}=await import('../db/supabase.js');
+// R6: the reviewer step-up lockout RPCs are answered by a faithful in-memory model.
+installStepUpGuardModel(supabase);
 const {hashPassword}=await import('../utils/passwordAuth.js');
 const legal=await import('../services/dealer/dealerLegalActivationService.js');
 const submitted='c63ef593-6e41-4ed5-8026-26b7ad451c46';

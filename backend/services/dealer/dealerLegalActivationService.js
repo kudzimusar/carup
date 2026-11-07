@@ -6,6 +6,7 @@
  * A draft policy is not approvable by this API and no paid plan confers rights.
  */
 import {supabase} from '../../db/supabase.js';
+import {throwIfDealerSecurityRefusal} from './dealerSqlRefusalMapper.js';
 import {requireClaimantSession,requireIndependentReviewer,
   requireReviewerPassword} from './dealerClaimApplicationService.js';
 
@@ -126,7 +127,7 @@ export async function certifyLegalDealerCase(submissionId,actor,payload={}){
     p_scope:payload.approved_scope,p_expires_at:payload.legal_expires_at,
     p_reason:payload.reason.trim(),
   });
-  if(error)throw deny('LEGAL_COUNTRY_POLICY_OR_CASE_AUTHORITY_BLOCKED',409);
+  if(error){throwIfDealerSecurityRefusal(error);throw deny('LEGAL_COUNTRY_POLICY_OR_CASE_AUTHORITY_BLOCKED',409);}
   return data;
 }
 export async function activateLegallyApprovedDealer(reviewId,actor,payload={}){
@@ -141,7 +142,7 @@ export async function activateLegallyApprovedDealer(reviewId,actor,payload={}){
     p_approver_id:actor.userId,
     p_activation_reason:payload.activation_reason.trim(),
   });
-  if(error)throw deny('CANONICAL_ACTIVATION_GATES_NOT_MET',409);
+  if(error){throwIfDealerSecurityRefusal(error);throw deny('CANONICAL_ACTIVATION_GATES_NOT_MET',409);}
   return data;
 }
 export async function readMyOperationalDealerAuthority(claimId,actor){

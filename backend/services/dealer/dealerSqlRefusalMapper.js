@@ -254,7 +254,30 @@ export const DEALER_SQL_REFUSAL_STATUS_MAP = Object.freeze({
   INVALID_MEDIA_REVIEW_TICKET_GRANT: 400,
   DEALER_MEDIA_TICKET_SECRET_UNCONFIGURED: 503,
   STOREFRONT_MEDIA_TICKET_CUSTODY_UNAVAILABLE: 503,
+
+  // 20261103145000 — R6 security hardening
+  DEALER_REVIEWER_CONFLICT_OF_INTEREST: 403,
+  REAL_RESEARCH_PUBLICATION_REQUIRES_OWNER_POLICY: 403,
+  PUBLICATION_POLICY_NOT_WRITABLE_FROM_API: 403,
+  MEDIA_REVIEW_TICKET_OUTSTANDING_LIMIT: 429,
 });
+
+/**
+ * R6 security refusals raised by data-layer guards (conflict of interest, Owner publication
+ * policy). Services that otherwise collapse every RPC error into one generic 409 call this first,
+ * so a reviewer sees a clear 403 instead of an indistinct state conflict.
+ */
+const DEALER_SECURITY_REFUSALS = Object.freeze([
+  'DEALER_REVIEWER_CONFLICT_OF_INTEREST',
+  'REAL_RESEARCH_PUBLICATION_REQUIRES_OWNER_POLICY',
+]);
+export function throwIfDealerSecurityRefusal(error) {
+  const text = String(error?.message || error?.details || error?.hint || '');
+  const code = DEALER_SECURITY_REFUSALS.find((c) => text.includes(c));
+  if (code) {
+    throw Object.assign(new Error(code), { code, statusCode: DEALER_SQL_REFUSAL_STATUS_MAP[code] });
+  }
+}
 
 /**
  * Inspect a PostgreSQL / PostgREST error object and return a deterministic HTTP Error
@@ -307,6 +330,10 @@ export function mapDealerSqlRefusal(error, fallbackOperation = 'dealership opera
 export function sendDealerRouteError(res, _next, error) {
   const status = Number(error?.statusCode);
   if (Number.isInteger(status) && status >= 400 && status <= 499) {
+    const retryAfter = Number(error?.retryAfterSeconds);
+    if (status === 429 && Number.isInteger(retryAfter) && retryAfter > 0 && retryAfter <= 86400) {
+      res.set('Retry-After', String(retryAfter));
+    }
     res.set('Cache-Control', 'no-store').status(status).json({
       error: error.message,
       code: typeof error.code === 'string' ? error.code : undefined,

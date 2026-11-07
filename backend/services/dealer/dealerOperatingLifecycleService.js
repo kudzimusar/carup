@@ -34,6 +34,8 @@ const SQL_REFUSALS = Object.freeze({
   WITHDRAWN_DEALER_CANNOT_BE_REINSTATED: 409,
   RENEWAL_REQUIRES_SEPARATE_REVIEWER: 403,
   RENEWAL_MUST_BE_SAME_REGISTERED_COMPANY: 409,
+  // R6 #7: data-layer conflict-of-interest guard (own claim on the seed / dealer tenant member).
+  DEALER_REVIEWER_CONFLICT_OF_INTEREST: 403,
 });
 
 export function mapLifecycleSqlError(error) {
