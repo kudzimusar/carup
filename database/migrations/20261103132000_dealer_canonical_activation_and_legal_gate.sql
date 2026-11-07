@@ -326,8 +326,16 @@ DECLARE v dealer_approved_seed_links%ROWTYPE;
 BEGIN
  IF NEW.claim_status NOT IN ('CLAIM_REVOKED','CLAIM_DISPUTED','CLAIM_REJECTED')
    OR NEW.claim_status=OLD.claim_status THEN RETURN NEW; END IF;
- SELECT * INTO v FROM dealer_approved_seed_links WHERE claim_id=NEW.claim_id FOR UPDATE;
+ SELECT * INTO v FROM dealer_approved_seed_links WHERE claim_id=NEW.claim_id;
  IF NOT FOUND THEN RETURN NEW; END IF;
+ -- R6 DBA #4 lock order (docs/dealership/R6_DBA_OPERATIONS_AND_LOCK_ORDER.md): tenants →
+ -- dealer_profiles → published programme vehicles (ascending VIN) → dealer_approved_seed_links,
+ -- the same order as the governed lifecycle decision and the canonical vehicle write guard.
+ PERFORM 1 FROM tenants WHERE id=v.tenant_id FOR NO KEY UPDATE;
+ PERFORM 1 FROM dealer_profiles WHERE id=v.dealer_profile_id FOR NO KEY UPDATE;
+ PERFORM 1 FROM vehicles WHERE tenant_id=v.tenant_id AND publication_status='published'
+   ORDER BY vin FOR NO KEY UPDATE;
+ SELECT * INTO v FROM dealer_approved_seed_links WHERE link_id=v.link_id FOR UPDATE;
  UPDATE dealer_approved_seed_links SET operating_status='SUSPENDED' WHERE link_id=v.link_id;
  UPDATE dealer_profiles SET active_state='inactive',
    suspension_state='suspended',updated_at=now() WHERE id=v.dealer_profile_id;
