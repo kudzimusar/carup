@@ -206,7 +206,7 @@ DECLARE
  v_carried_branches INTEGER:=0; v_field TEXT; v_text TEXT;
  m RECORD; v_section TEXT; v_values JSONB; v_notes JSONB; v_event UUID; n JSONB;
  v_chosen INTEGER; v_chosen_text TEXT; v_sha TEXT; v_cell RECORD;
- v_tabname TEXT; v_tabval JSONB; v_extra INTEGER; v_written INTEGER:=0;
+ v_tabname TEXT; v_tabval JSONB; v_extra INTEGER; v_written INTEGER:=0; v_capped BOOLEAN:=false;
 BEGIN
  SELECT * INTO s FROM dealer_claim_compliance_submissions WHERE submission_id=NEW.submission_id;
  SELECT * INTO law FROM dealer_legal_application_reviews WHERE legal_review_id=NEW.legal_review_id;
@@ -437,38 +437,60 @@ BEGIN
  --    listed, so nothing is silently dropped. Pure reference keys are structural.
  --    R6 DBA review 2 #8: bounded by the intake contract — only contract tabs and fields are
  --    noted cell by cell (at most 11 tabs x 250 rows, 111 fields: under 23,300 cells, so a
- --    legitimate activation never reaches the 25,000-row cap below). A non-contract tab, a
- --    tab that is not a row list, rows beyond 250, a non-object row and non-contract fields
- --    each get ONE note, never one per hostile cell.
+ --    legitimate activation never reaches the 25,000-row cap below). A tab that is not a row
+ --    list, rows beyond 250, a non-object row and non-contract fields each get ONE note, never
+ --    one per hostile cell.
+ --    R6 DBA review 3 (#8 leftover): non-contract TABS are bounded too — the first 25 (in key
+ --    order) get one note each, every further one is counted in ONE summary note (50,000 hostile
+ --    tabs once meant 50,002 rows / 8.9 s) — and every section-4 note counts toward the cap.
+ FOR v_tabname IN SELECT t.key FROM jsonb_object_keys(v_tabs) t(key)
+   WHERE t.key NOT LIKE 'README%'
+     AND NOT EXISTS(SELECT 1 FROM dealer_intake_contract_fields() c WHERE c.tab=t.key)
+   ORDER BY t.key LIMIT 25
+ LOOP
+  PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,
+   'UNRECOGNISED_TAB_'||translate(upper(substr(md5(v_tabname),1,10)),'0123456789','GHIJKLMNOP'),
+   1,'tab_not_in_contract','frozen_submission',NULL,'NOT_CARRIED_INVALID',
+   'Tab is not part of the intake contract; it stays only in the frozen submission',to_jsonb(v_tabname));
+  v_written:=v_written+1;
+ END LOOP;
+ SELECT count(*)::int INTO v_extra FROM jsonb_object_keys(v_tabs) t(key)
+  WHERE t.key NOT LIKE 'README%'
+    AND NOT EXISTS(SELECT 1 FROM dealer_intake_contract_fields() c WHERE c.tab=t.key);
+ IF v_extra>25 THEN
+  PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,
+   'UNRECOGNISED_TABS',1,'tabs_not_listed','frozen_submission',NULL,'NOT_CARRIED_INVALID',
+   (v_extra-25)||' further tab(s) outside the intake contract stay only in the frozen submission (not listed)',NULL);
+  v_written:=v_written+1;
+ END IF;
  <<tabs>>
- FOR v_tabname IN SELECT t.key FROM jsonb_each(v_tabs) t ORDER BY t.key LOOP
-  CONTINUE WHEN v_tabname LIKE 'README%';
+ FOR v_tabname IN SELECT t.key FROM jsonb_object_keys(v_tabs) t(key)
+   WHERE EXISTS(SELECT 1 FROM dealer_intake_contract_fields() c WHERE c.tab=t.key)
+   ORDER BY t.key
+ LOOP
   v_tabval:=v_tabs->v_tabname;
-  IF NOT EXISTS(SELECT 1 FROM dealer_intake_contract_fields() c WHERE c.tab=v_tabname) THEN
-   PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,
-    'UNRECOGNISED_TAB_'||translate(upper(substr(md5(v_tabname),1,10)),'0123456789','GHIJKLMNOP'),
-    1,'tab_not_in_contract','frozen_submission',NULL,'NOT_CARRIED_INVALID',
-    'Tab is not part of the intake contract; it stays only in the frozen submission',to_jsonb(v_tabname));
-   CONTINUE;
-  END IF;
   IF jsonb_typeof(v_tabval)<>'array' THEN
    PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,1,
     'tab_not_a_row_list','frozen_submission',NULL,'NOT_CARRIED_INVALID',
     'Tab is not a list of rows; nothing in it was carried',NULL);
+   v_written:=v_written+1;
    CONTINUE;
   END IF;
   IF jsonb_array_length(v_tabval)>250 THEN
    PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,250,
     'rows_beyond_limit','frozen_submission',NULL,'NOT_CARRIED_INVALID',
     (jsonb_array_length(v_tabval)-250)||' row(s) beyond the 250-row contract limit were not processed',NULL);
+   v_written:=v_written+1;
   END IF;
   FOR v_cell IN SELECT r.ord::int AS ord,r.value AS raw
    FROM jsonb_array_elements(v_tabval) WITH ORDINALITY r(value,ord)
    WHERE r.ord<=250 AND jsonb_typeof(r.value)<>'object' ORDER BY r.ord
   LOOP
+   IF v_written>=25000 THEN v_capped:=true; EXIT tabs; END IF;
    PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,v_cell.ord,
     'row_not_an_object','frozen_submission',NULL,'NOT_CARRIED_INVALID',
     'Row is not a field object; nothing in it was carried',v_cell.raw);
+   v_written:=v_written+1;
   END LOOP;
   SELECT count(*)::int INTO v_extra
    FROM jsonb_array_elements(v_tabval) WITH ORDINALITY r(value,ord)
@@ -479,6 +501,7 @@ BEGIN
    PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,1,
     'non_contract_fields','frozen_submission',NULL,'NOT_CARRIED_INVALID',
     v_extra||' value(s) under keys outside the intake contract stay only in the frozen submission',NULL);
+   v_written:=v_written+1;
   END IF;
   FOR v_cell IN
    SELECT r.ord::int AS ord,c.key AS field,c.value AS raw
@@ -493,12 +516,7 @@ BEGIN
   LOOP
    v_text:=dealer_carryover_text(v_cell.raw,750);
    CONTINUE WHEN v_text IS NULL;
-   IF v_written>=25000 THEN
-    PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,250,
-     'provenance_cap_reached','frozen_submission',NULL,'NOT_CARRIED_INVALID',
-     'Provenance cap of 25,000 retained-field notes reached; the rest stays only in the frozen submission',NULL);
-    EXIT tabs;
-   END IF;
+   IF v_written>=25000 THEN v_capped:=true; EXIT tabs; END IF;
    PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,
     v_cell.ord,v_cell.field,'frozen_submission',NULL,
     CASE WHEN v_text=E'\x01INVALID' THEN 'NOT_CARRIED_INVALID' ELSE 'RETAINED_PRIVATE_NOT_CANONICAL' END,
@@ -508,6 +526,11 @@ BEGIN
    v_written:=v_written+1;
   END LOOP;
  END LOOP;
+ IF v_capped THEN
+  PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,250,
+   'provenance_cap_reached','frozen_submission',NULL,'NOT_CARRIED_INVALID',
+   'Provenance cap of 25,000 retained-field notes reached; the rest stays only in the frozen submission',NULL);
+ END IF;
  RETURN NEW;
 END;
 $$;

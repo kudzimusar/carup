@@ -871,9 +871,10 @@ try{
       await query(`INSERT INTO dealer_approved_seed_links(seed_dealer_id,claim_id,submission_id,legal_review_id,organization_id,tenant_id,dealer_profile_id,claimant_user_id,activated_by)
         VALUES ('ZW-DEAL-9'||lpad((floor(random()*999))::int::text,3,'0'),gen_random_uuid(),$1,gen_random_uuid(),'r6-carry-'||gen_random_uuid(),gen_random_uuid(),$2,$3,'reviewer1')`,[sub,prof,claimant]);
       const ms=Date.now()-started;
-      const notes=(await query(`SELECT e.source_tab||':'||e.source_row||':'||e.source_field AS k,e.disposition
+      const notes=(await query(`SELECT e.source_tab||':'||e.source_row||':'||e.source_field AS k,e.disposition,e.target,e.reason
         FROM dealer_activation_carryover_events e JOIN dealer_approved_seed_links l USING(link_id) WHERE l.submission_id=$1`,[sub])).rows;
-      return {ms,notes:new Map(notes.map(n=>[n.k,n.disposition])),count:notes.length};
+      return {ms,notes:new Map(notes.map(n=>[n.k,n.disposition])),reasons:new Map(notes.map(n=>[n.k,n.reason])),
+        count:notes.length,frozen:notes.filter(n=>n.target==='frozen_submission').length};
     }finally{await exec('ROLLBACK')}
   };
   const filler=(n)=>Array.from({length:20},(_,j)=>['f'+j,'hostile value '+n]);
@@ -888,8 +889,12 @@ try{
     Array.from({length:250},(_,r)=>Object.fromEntries(filler(r)));
   const hostile=await carryActivation('hostile',hostileTabs);
   const unrecognised=[...hostile.notes.keys()].filter(k=>k.startsWith('UNRECOGNISED_TAB_'));
-  assert.equal(unrecognised.length,43,'one distinct note per non-contract tab (hash-suffixed), none collapsed: '+unrecognised.length);
+  // R6 DBA review 3: the first 25 non-contract tabs are listed individually (hash-suffixed, never
+  // collapsed), every further one only counted in ONE summary note.
+  assert.equal(unrecognised.length,25,'25 distinct hash-suffixed notes for the first 25 of 43 non-contract tabs: '+unrecognised.length);
   assert.ok(unrecognised.every(k=>/^UNRECOGNISED_TAB_[A-P]{10}:1:tab_not_in_contract$/.test(k)));
+  assert.equal(hostile.notes.get('UNRECOGNISED_TABS:1:tabs_not_listed'),'NOT_CARRIED_INVALID');
+  assert.match(hostile.reasons.get('UNRECOGNISED_TABS:1:tabs_not_listed'),/^18 further tab\(s\) outside the intake contract/);
   assert.equal(hostile.notes.get('BUSINESS:1:row_not_an_object'),'NOT_CARRIED_INVALID');
   assert.equal(hostile.notes.get('BRANCHES:2:row_not_an_object'),'NOT_CARRIED_INVALID');
   assert.equal(hostile.notes.get('BRANCHES:3:row_not_an_object'),'NOT_CARRIED_INVALID');
@@ -911,7 +916,29 @@ try{
   assert.equal([...legit.notes.keys()].some(k=>k.endsWith(':provenance_cap_reached')),false,'a legitimate maximal application is never capped');
   assert.equal([...legit.notes.keys()].some(k=>k.startsWith('UNRECOGNISED_TAB_')||k.endsWith(':non_contract_fields')),false);
   assert.ok(legit.count>15000,`maximal application recorded ${legit.count} provenance rows`);
-  console.log(`DEALER_R6_CARRYOVER_BOUNDS PASS: hostile 43 extra tabs / 260 rows / 5 MB value -> ${hostile.count} rows in ${hostile.ms} ms (43 distinct unrecognised-tab notes, non-object rows noted); maximal legitimate application -> ${legit.count} rows in ${legit.ms} ms, uncapped`);
+  // R6 DBA review 3 (#8 leftover): 50,000 hostile tabs once produced 50,002 rows in 8.9 s.
+  const manyTabs={BRANCHES:[{branch_ref:'M-1',branch_name:'Many-tab probe'}]};
+  for(let k=0;k<50000;k+=1)manyTabs['X'+k]=[{}];
+  const many=await carryActivation('many-tabs',manyTabs);
+  assert.equal([...many.notes.keys()].filter(k=>k.startsWith('UNRECOGNISED_TAB_')).length,25);
+  assert.match(many.reasons.get('UNRECOGNISED_TABS:1:tabs_not_listed'),/^49975 further tab\(s\)/);
+  assert.ok(many.count<100,`50,000 non-contract tabs produced ${many.count} provenance rows`);
+  assert.ok(many.ms<5000,`50,000 non-contract tabs took ${many.ms} ms`);
+  // Every section-4 note (tab, row, field and cell notes alike) counts toward the 25,000 cap, and
+  // the contract alone keeps the worst case below it: 26 tab notes + per contract tab 250 rows x its
+  // non-structural fields + 2 tab-level notes. Even an over-full snapshot the submission function
+  // would refuse (250 BUSINESS rows) plus 43 non-contract tabs stays within that bound, uncapped.
+  const structural=new Set(['claim_reference','source_seed_id','research_display_name','branch_ref','brand_claim_ref',
+    'authorization_ref','operation_ref','policy_ref','buyer_policy_ref','media_ref']);
+  const worstCase=26+TEMPLATE_FIELD_REGISTRY.filter(t=>!t.name.startsWith('README'))
+    .reduce((n,t)=>n+250*t.fields.filter(f=>!structural.has(f.key)).length+2,0);
+  assert.ok(worstCase<25000,`contract worst case ${worstCase} must stay below the 25,000 backstop cap`);
+  const overfull={...Object.fromEntries(Object.entries(maximal).map(([t,rows])=>[t,t==='BUSINESS'?Array.from({length:250},()=>rows[0]):rows]))};
+  for(const k of Object.keys(hostileTabs))if(!(k in maximal))overfull[k]=[{x:'1'}];
+  const capped=await carryActivation('overfull',overfull);
+  assert.ok(capped.frozen<=worstCase,`over-full hostile snapshot: ${capped.frozen} section-4 rows within the contract worst case ${worstCase}`);
+  assert.equal([...capped.notes.keys()].some(k=>k.endsWith(':provenance_cap_reached')),false);
+  console.log(`DEALER_R6_CARRYOVER_BOUNDS PASS: hostile 43 extra tabs / 260 rows / 5 MB value -> ${hostile.count} rows in ${hostile.ms} ms (25 listed + 1 summary unrecognised-tab notes, non-object rows noted); 50,000 extra tabs -> ${many.count} rows in ${many.ms} ms; over-full hostile snapshot ${capped.frozen} section-4 rows (contract worst case ${worstCase} < 25,000 cap) in ${capped.ms} ms; maximal legitimate application -> ${legit.count} rows in ${legit.ms} ms, uncapped`);
   await fails(`SELECT dealer_record_operational_declaration(
     '${activeProfileId}','${tenant}','${outsider}',
     'BUYER_ASSURANCE',0,'{"refund_policy":"A forged promise"}'::jsonb)`,
