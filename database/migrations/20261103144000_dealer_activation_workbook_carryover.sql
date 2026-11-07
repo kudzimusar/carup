@@ -78,6 +78,8 @@ RETURNS TEXT LANGUAGE sql IMMUTABLE SET search_path=public,pg_temp AS $$
  SELECT CASE
   WHEN p IS NULL OR p='null'::jsonb THEN NULL
   WHEN jsonb_typeof(p) NOT IN ('string','number') THEN E'\x01INVALID'
+  -- R6 DBA review 2 #8: refuse an over-long value by its byte size before any regex runs over it.
+  WHEN octet_length(p#>>'{}') > 4*p_max+64 THEN E'\x01INVALID'
   WHEN btrim(regexp_replace(p#>>'{}',E'[\\r\\n\\t]+',' ','g'))='' THEN NULL
   WHEN length(btrim(regexp_replace(p#>>'{}',E'[\\r\\n\\t]+',' ','g')))>p_max
     OR regexp_replace(p#>>'{}',E'[\\r\\n\\t]+',' ','g') ~ '[[:cntrl:]]'
@@ -87,6 +89,70 @@ RETURNS TEXT LANGUAGE sql IMMUTABLE SET search_path=public,pg_temp AS $$
  END
 $$;
 REVOKE ALL ON FUNCTION dealer_carryover_text(JSONB,INTEGER) FROM PUBLIC,anon,authenticated;
+
+-- R6 DBA review 2 #8: the intake contract (backend TEMPLATE_FIELD_REGISTRY, README tab excluded):
+-- 11 tabs, 111 fields. Only these tabs/fields are processed cell by cell; the harness pins this
+-- list to the backend registry so the two cannot drift.
+CREATE FUNCTION dealer_intake_contract_fields()
+RETURNS TABLE(tab TEXT, field TEXT) LANGUAGE sql IMMUTABLE SET search_path=public,pg_temp AS $$
+ SELECT x.tab, x.field FROM (VALUES
+  ('BUSINESS','claim_reference'),('BUSINESS','source_seed_id'),
+  ('BUSINESS','research_display_name'),('BUSINESS','legal_name'),('BUSINESS','trading_name'),
+  ('BUSINESS','operating_country'),('BUSINESS','registration_authority'),
+  ('BUSINESS','registration_number'),('BUSINESS','registration_evidence_reference'),
+  ('BUSINESS','tax_clearance_number'),('BUSINESS','tax_clearance_expiry'),
+  ('BUSINESS','year_established'),('BUSINESS','business_model'),
+  ('BUSINESS','responsible_signer_name'),('BUSINESS','business_email'),
+  ('BUSINESS','business_phone'),('BUSINESS','head_office_address'),
+  ('BUSINESS','research_confirmation'),('BRANCHES','branch_ref'),('BRANCHES','source_seed_id'),
+  ('BRANCHES','branch_name'),('BRANCHES','branch_type'),('BRANCHES','physical_address'),
+  ('BRANCHES','suburb'),('BRANCHES','city'),('BRANCHES','province'),('BRANCHES','country'),
+  ('BRANCHES','gps_latitude'),('BRANCHES','gps_longitude'),('BRANCHES','maps_url'),
+  ('BRANCHES','visiting_hours'),('BRANCHES','site_capacity'),
+  ('BRANCHES','business_contact_phone'),('BRANCHES','source_confirmation'),
+  ('LICENCES_AUTHORIZATIONS','authorization_ref'),('LICENCES_AUTHORIZATIONS','branch_ref'),
+  ('LICENCES_AUTHORIZATIONS','authorization_type'),('LICENCES_AUTHORIZATIONS','issuer'),
+  ('LICENCES_AUTHORIZATIONS','jurisdiction'),('LICENCES_AUTHORIZATIONS','scope'),
+  ('LICENCES_AUTHORIZATIONS','reference_number'),('LICENCES_AUTHORIZATIONS','issued_at'),
+  ('LICENCES_AUTHORIZATIONS','expires_at'),('LICENCES_AUTHORIZATIONS','evidence_ref'),
+  ('LICENCES_AUTHORIZATIONS','conditional_applicability'),
+  ('BRANDS_FRANCHISES','brand_claim_ref'),('BRANDS_FRANCHISES','branch_ref'),
+  ('BRANDS_FRANCHISES','brand'),('BRANDS_FRANCHISES','relationship'),
+  ('BRANDS_FRANCHISES','authorizing_issuer'),('BRANDS_FRANCHISES','effective_at'),
+  ('BRANDS_FRANCHISES','expires_at'),('BRANDS_FRANCHISES','evidence_ref'),
+  ('OPERATIONS_SOURCING','operation_ref'),('OPERATIONS_SOURCING','branch_ref'),
+  ('OPERATIONS_SOURCING','sourcing_countries'),('OPERATIONS_SOURCING','sourcing_channels'),
+  ('OPERATIONS_SOURCING','stock_model'),('OPERATIONS_SOURCING','vehicle_class'),
+  ('OPERATIONS_SOURCING','import_duty_policy'),('OPERATIONS_SOURCING','lot_capacity'),
+  ('OPERATIONS_SOURCING','capacity_period'),('OPERATIONS_SOURCING','sales_estimate'),
+  ('FINANCE_PAYMENTS','policy_ref'),('FINANCE_PAYMENTS','branch_ref'),
+  ('FINANCE_PAYMENTS','payment_methods'),('FINANCE_PAYMENTS','currencies'),
+  ('FINANCE_PAYMENTS','finance_partner'),('FINANCE_PAYMENTS','written_terms'),
+  ('FINANCE_PAYMENTS','fee_disclosures'),('FINANCE_PAYMENTS','refund_conditions'),
+  ('FINANCE_PAYMENTS','evidence_ref'),('WORKSHOP_WARRANTY','policy_ref'),
+  ('WORKSHOP_WARRANTY','branch_ref'),('WORKSHOP_WARRANTY','workshop_services'),
+  ('WORKSHOP_WARRANTY','service_facility'),('WORKSHOP_WARRANTY','parts_support'),
+  ('WORKSHOP_WARRANTY','warranty_coverage'),('WORKSHOP_WARRANTY','warranty_exclusions'),
+  ('WORKSHOP_WARRANTY','warranty_term'),('WORKSHOP_WARRANTY','claims_process'),
+  ('WORKSHOP_WARRANTY','partner_reference'),('BUYER_PROTECTION','buyer_policy_ref'),
+  ('BUYER_PROTECTION','sale_contract_url'),('BUYER_PROTECTION','quote_includes_duty'),
+  ('BUYER_PROTECTION','extra_fees_disclosed'),('BUYER_PROTECTION','deposit_policy'),
+  ('BUYER_PROTECTION','independent_inspection'),('BUYER_PROTECTION','vin_before_deposit'),
+  ('BUYER_PROTECTION','condition_report'),('BUYER_PROTECTION','transfer_process'),
+  ('BUYER_PROTECTION','cancellation_policy'),('BUYER_PROTECTION','complaint_process'),
+  ('BUYER_PROTECTION','policy_effective_at'),('DIGITAL_MEDIA','media_ref'),
+  ('DIGITAL_MEDIA','branch_ref'),('DIGITAL_MEDIA','media_kind'),('DIGITAL_MEDIA','uri'),
+  ('DIGITAL_MEDIA','alt_text'),('DIGITAL_MEDIA','rights_owner'),
+  ('DIGITAL_MEDIA','license_reference'),('DIGITAL_MEDIA','public_visibility_request'),
+  ('VEHICLE_INVENTORY_REFERENCE','branch_ref'),
+  ('VEHICLE_INVENTORY_REFERENCE','inventory_batch_reference'),
+  ('VEHICLE_INVENTORY_REFERENCE','mapping_notes'),('CONSENTS_DECLARATIONS','agreement_version'),
+  ('CONSENTS_DECLARATIONS','agreement_hash'),('CONSENTS_DECLARATIONS','signer_name'),
+  ('CONSENTS_DECLARATIONS','signer_role'),('CONSENTS_DECLARATIONS','declaration_draft'),
+  ('CONSENTS_DECLARATIONS','privacy_acknowledgment')
+  ) x(tab,field)
+$$;
+REVOKE ALL ON FUNCTION dealer_intake_contract_fields() FROM PUBLIC,anon,authenticated;
 
 CREATE FUNCTION dealer_carryover_note(
  p_link UUID,p_submission UUID,p_profile UUID,p_tab TEXT,p_row INTEGER,p_field TEXT,
@@ -122,6 +188,7 @@ DECLARE
  v_carried_branches INTEGER:=0; v_field TEXT; v_text TEXT;
  m RECORD; v_section TEXT; v_values JSONB; v_notes JSONB; v_event UUID; n JSONB;
  v_chosen INTEGER; v_chosen_text TEXT; v_sha TEXT; v_cell RECORD;
+ v_tabname TEXT; v_tabval JSONB; v_extra INTEGER; v_written INTEGER:=0;
 BEGIN
  SELECT * INTO s FROM dealer_claim_compliance_submissions WHERE submission_id=NEW.submission_id;
  SELECT * INTO law FROM dealer_legal_application_reviews WHERE legal_review_id=NEW.legal_review_id;
@@ -350,25 +417,78 @@ BEGIN
 
  -- 4. Everything else that was declared stays private in the frozen submission and is
  --    listed, so nothing is silently dropped. Pure reference keys are structural.
- FOR v_cell IN
-  SELECT t.key AS tab,r.ord::int AS ord,c.key AS field,c.value AS raw
-  FROM jsonb_each(v_tabs) t
-  CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(t.value)='array'
-    THEN t.value ELSE '[]'::jsonb END) WITH ORDINALITY r(value,ord)
-  CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(r.value)='object'
-    THEN r.value ELSE '{}'::jsonb END) c
-  WHERE r.ord<=250 AND c.key NOT IN ('claim_reference','source_seed_id','research_display_name',
-   'branch_ref','brand_claim_ref','authorization_ref','operation_ref','policy_ref',
-   'buyer_policy_ref','media_ref')
- LOOP
-  v_text:=dealer_carryover_text(v_cell.raw,750);
-  CONTINUE WHEN v_text IS NULL;
-  PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_cell.tab,
-   v_cell.ord,v_cell.field,'frozen_submission',NULL,
-   CASE WHEN v_text=E'\x01INVALID' THEN 'NOT_CARRIED_INVALID' ELSE 'RETAINED_PRIVATE_NOT_CANONICAL' END,
-   CASE WHEN v_text=E'\x01INVALID' THEN 'Unsafe, non-text or over-long value'
-    ELSE 'No canonical owner for this field; it stays private in the frozen application' END,
-   v_cell.raw);
+ --    R6 DBA review 2 #8: bounded by the intake contract — only contract tabs and fields are
+ --    noted cell by cell (at most 11 tabs x 250 rows, 111 fields: under 23,300 cells, so a
+ --    legitimate activation never reaches the 25,000-row cap below). A non-contract tab, a
+ --    tab that is not a row list, rows beyond 250, a non-object row and non-contract fields
+ --    each get ONE note, never one per hostile cell.
+ <<tabs>>
+ FOR v_tabname IN SELECT t.key FROM jsonb_each(v_tabs) t ORDER BY t.key LOOP
+  CONTINUE WHEN v_tabname LIKE 'README%';
+  v_tabval:=v_tabs->v_tabname;
+  IF NOT EXISTS(SELECT 1 FROM dealer_intake_contract_fields() c WHERE c.tab=v_tabname) THEN
+   PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,
+    'UNRECOGNISED_TAB_'||translate(upper(substr(md5(v_tabname),1,10)),'0123456789','GHIJKLMNOP'),
+    1,'tab_not_in_contract','frozen_submission',NULL,'NOT_CARRIED_INVALID',
+    'Tab is not part of the intake contract; it stays only in the frozen submission',to_jsonb(v_tabname));
+   CONTINUE;
+  END IF;
+  IF jsonb_typeof(v_tabval)<>'array' THEN
+   PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,1,
+    'tab_not_a_row_list','frozen_submission',NULL,'NOT_CARRIED_INVALID',
+    'Tab is not a list of rows; nothing in it was carried',NULL);
+   CONTINUE;
+  END IF;
+  IF jsonb_array_length(v_tabval)>250 THEN
+   PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,250,
+    'rows_beyond_limit','frozen_submission',NULL,'NOT_CARRIED_INVALID',
+    (jsonb_array_length(v_tabval)-250)||' row(s) beyond the 250-row contract limit were not processed',NULL);
+  END IF;
+  FOR v_cell IN SELECT r.ord::int AS ord,r.value AS raw
+   FROM jsonb_array_elements(v_tabval) WITH ORDINALITY r(value,ord)
+   WHERE r.ord<=250 AND jsonb_typeof(r.value)<>'object' ORDER BY r.ord
+  LOOP
+   PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,v_cell.ord,
+    'row_not_an_object','frozen_submission',NULL,'NOT_CARRIED_INVALID',
+    'Row is not a field object; nothing in it was carried',v_cell.raw);
+  END LOOP;
+  SELECT count(*)::int INTO v_extra
+   FROM jsonb_array_elements(v_tabval) WITH ORDINALITY r(value,ord)
+   CROSS JOIN LATERAL jsonb_object_keys(r.value) k
+   WHERE r.ord<=250 AND jsonb_typeof(r.value)='object'
+     AND NOT EXISTS(SELECT 1 FROM dealer_intake_contract_fields() c WHERE c.tab=v_tabname AND c.field=k);
+  IF v_extra>0 THEN
+   PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,1,
+    'non_contract_fields','frozen_submission',NULL,'NOT_CARRIED_INVALID',
+    v_extra||' value(s) under keys outside the intake contract stay only in the frozen submission',NULL);
+  END IF;
+  FOR v_cell IN
+   SELECT r.ord::int AS ord,c.key AS field,c.value AS raw
+   FROM jsonb_array_elements(v_tabval) WITH ORDINALITY r(value,ord)
+   CROSS JOIN LATERAL jsonb_each(r.value) c
+   WHERE r.ord<=250 AND jsonb_typeof(r.value)='object'
+     AND EXISTS(SELECT 1 FROM dealer_intake_contract_fields() f WHERE f.tab=v_tabname AND f.field=c.key)
+     AND c.key NOT IN ('claim_reference','source_seed_id','research_display_name',
+      'branch_ref','brand_claim_ref','authorization_ref','operation_ref','policy_ref',
+      'buyer_policy_ref','media_ref')
+   ORDER BY r.ord,c.key
+  LOOP
+   v_text:=dealer_carryover_text(v_cell.raw,750);
+   CONTINUE WHEN v_text IS NULL;
+   IF v_written>=25000 THEN
+    PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,250,
+     'provenance_cap_reached','frozen_submission',NULL,'NOT_CARRIED_INVALID',
+     'Provenance cap of 25,000 retained-field notes reached; the rest stays only in the frozen submission',NULL);
+    EXIT tabs;
+   END IF;
+   PERFORM dealer_carryover_note(NEW.link_id,s.submission_id,NEW.dealer_profile_id,v_tabname,
+    v_cell.ord,v_cell.field,'frozen_submission',NULL,
+    CASE WHEN v_text=E'\x01INVALID' THEN 'NOT_CARRIED_INVALID' ELSE 'RETAINED_PRIVATE_NOT_CANONICAL' END,
+    CASE WHEN v_text=E'\x01INVALID' THEN 'Unsafe, non-text or over-long value'
+     ELSE 'No canonical owner for this field; it stays private in the frozen application' END,
+    v_cell.raw);
+   v_written:=v_written+1;
+  END LOOP;
  END LOOP;
  RETURN NEW;
 END;
@@ -425,5 +545,6 @@ DROP FUNCTION IF EXISTS dealer_read_activation_carryover(UUID,UUID);
 DROP FUNCTION IF EXISTS dealer_carry_over_activation_workbook();
 DROP FUNCTION IF EXISTS dealer_carryover_note(UUID,UUID,UUID,TEXT,INTEGER,TEXT,TEXT,UUID,TEXT,TEXT,JSONB,BOOLEAN);
 DROP FUNCTION IF EXISTS dealer_carryover_text(JSONB,INTEGER);
+DROP FUNCTION IF EXISTS dealer_intake_contract_fields();
 DROP TABLE IF EXISTS dealer_activation_carryover_events;
 DROP TABLE IF EXISTS dealer_activation_branch_crosswalk;

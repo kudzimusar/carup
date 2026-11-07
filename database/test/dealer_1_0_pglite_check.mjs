@@ -13,6 +13,7 @@ import { dirname,join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
 import {PUBLIC_VEHICLE_FIELDS} from '../../backend/utils/publicVehicleProjection.js';
+import {TEMPLATE_FIELD_REGISTRY} from '../../backend/services/dealer/dealerIntakeWorkbook.js';
 const ROOT=join(dirname(fileURLToPath(import.meta.url)),'..','migrations');
 const names=[
   '20261103120000_dealer_research_seed_candidates.sql',
@@ -354,6 +355,10 @@ try{
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role`);
   }
   for(const name of names){await exec(read(name).up);console.log('APPLIED',name)}
+  // R6 DBA review 2 #8: the SQL intake contract equals the backend TEMPLATE_FIELD_REGISTRY.
+  assert.deepEqual((await query('SELECT tab,field FROM dealer_intake_contract_fields() ')).rows.map(r=>r.tab+'.'+r.field).sort(),
+    TEMPLATE_FIELD_REGISTRY.filter(t=>!t.name.startsWith('README')).flatMap(t=>t.fields.map(f=>t.name+'.'+f.key)).sort(),
+    'dealer_intake_contract_fields() drifted from the backend intake registry');
   if(process.env.DEALER_NATIVE_SCHEMA_ONLY==='1'){
     if(!native)throw Error('SCHEMA_ONLY_REQUIRES_GUARDED_NATIVE_LOOPBACK');
     const fresh=await query(`SELECT
@@ -847,6 +852,64 @@ try{
   await fails(read('20261103144000_dealer_activation_workbook_carryover.sql').down,
     'CANNOT_ROLLBACK_WITH_ACTIVATION_CARRYOVER_CUSTODY');
   console.log('DEALER_R6_C02_CARRYOVER PASS: 3/5 branches carried with GPS/hours (duplicate, markup and invalid GPS refused), 5 private v1 sections, conflicts and retained fields recorded by digest, no verification or publication');
+  // ── R6 DBA review 2 #8: the carry-over trigger is bounded by the intake contract ──
+  // Sandboxed (rolled back): the activation trigger is forced to fire for a synthetic link loaded
+  // under replica role, so hostile and maximal submissions can be measured without a governed flow.
+  const carryActivation=async(label,tabRows)=>{
+    await exec('BEGIN');
+    try{
+      await exec(`SET LOCAL session_replication_role = replica;
+        ALTER TABLE dealer_approved_seed_links ENABLE ALWAYS TRIGGER dealer_activation_workbook_carryover`);
+      const sub=(await query(`INSERT INTO dealer_claim_compliance_submissions(claim_id,claimant_user_id,intake_version,schema_version,source_row_sha256,workbook_sha256,application_snapshot,snapshot_sha256,attestation_version,applicant_attested)
+        VALUES (gen_random_uuid(),$1,1,'CARUP_DEALER_INTAKE_1_0',repeat('a',64),repeat('b',64),$2::jsonb,repeat('c',64),'CARUP_DEALER_APPLICANT_DECLARATION_1',true) RETURNING submission_id`,
+        [claimant,JSON.stringify({schema:'CARUP_DEALER_INTAKE_1_0',tab_rows:tabRows})])).rows[0].submission_id;
+      const prof=(await query(`INSERT INTO dealer_profiles(user_id,legal_name) VALUES ($1,'R6 carry probe') RETURNING id`,[claimant])).rows[0].id;
+      await query(`INSERT INTO dealer_branches(dealer_id,name) VALUES ($1,'activation branch')`,[prof]);
+      const started=Date.now();
+      await query(`INSERT INTO dealer_approved_seed_links(seed_dealer_id,claim_id,submission_id,legal_review_id,organization_id,tenant_id,dealer_profile_id,claimant_user_id,activated_by)
+        VALUES ('ZW-DEAL-9'||lpad((floor(random()*999))::int::text,3,'0'),gen_random_uuid(),$1,gen_random_uuid(),'r6-carry-'||gen_random_uuid(),gen_random_uuid(),$2,$3,'reviewer1')`,[sub,prof,claimant]);
+      const ms=Date.now()-started;
+      const notes=(await query(`SELECT e.source_tab||':'||e.source_row||':'||e.source_field AS k,e.disposition
+        FROM dealer_activation_carryover_events e JOIN dealer_approved_seed_links l USING(link_id) WHERE l.submission_id=$1`,[sub])).rows;
+      return {ms,notes:new Map(notes.map(n=>[n.k,n.disposition])),count:notes.length};
+    }finally{await exec('ROLLBACK')}
+  };
+  const filler=(n)=>Array.from({length:20},(_,j)=>['f'+j,'hostile value '+n]);
+  const hostileTabs={
+    BUSINESS:[['not','object']],
+    BRANCHES:[{branch_ref:'H-1',branch_name:'Hostile one',physical_address:'Z'.repeat(5*1024*1024),evil_key:'x',another_evil:'y'},
+      'a string row',[1,2],...Array.from({length:257},(_,i)=>({branch_ref:'H-'+(i+4),branch_name:'Row '+(i+4)}))],
+    FINANCE_PAYMENTS:{not:'array'},
+    'Bad Tab!':[{x:'1'}],tab1:[{x:'1'}],tab2:[{x:'2'}],
+  };
+  for(let k=0;k<40;k+=1)hostileTabs['EXTRA_TAB_'+String.fromCharCode(65+k%26)+String.fromCharCode(65+Math.floor(k/26))]=
+    Array.from({length:250},(_,r)=>Object.fromEntries(filler(r)));
+  const hostile=await carryActivation('hostile',hostileTabs);
+  const unrecognised=[...hostile.notes.keys()].filter(k=>k.startsWith('UNRECOGNISED_TAB_'));
+  assert.equal(unrecognised.length,43,'one distinct note per non-contract tab (hash-suffixed), none collapsed: '+unrecognised.length);
+  assert.ok(unrecognised.every(k=>/^UNRECOGNISED_TAB_[A-P]{10}:1:tab_not_in_contract$/.test(k)));
+  assert.equal(hostile.notes.get('BUSINESS:1:row_not_an_object'),'NOT_CARRIED_INVALID');
+  assert.equal(hostile.notes.get('BRANCHES:2:row_not_an_object'),'NOT_CARRIED_INVALID');
+  assert.equal(hostile.notes.get('BRANCHES:3:row_not_an_object'),'NOT_CARRIED_INVALID');
+  assert.equal(hostile.notes.get('BRANCHES:1:non_contract_fields'),'NOT_CARRIED_INVALID');
+  assert.equal(hostile.notes.get('BRANCHES:250:rows_beyond_limit'),'NOT_CARRIED_INVALID');
+  assert.equal(hostile.notes.get('FINANCE_PAYMENTS:1:tab_not_a_row_list'),'NOT_CARRIED_INVALID');
+  assert.equal(hostile.notes.get('BRANCHES:1:physical_address'),'NOT_CARRIED_INVALID','a 5 MB value is refused by size');
+  assert.ok(hostile.count<1500,`hostile submission produced ${hostile.count} provenance rows (bounded by the contract, not by the attacker)`);
+  assert.ok(hostile.ms<5000,`hostile carry-over took ${hostile.ms} ms`);
+  // The largest LEGITIMATE submission (every contract tab 250 rows, every contract field filled)
+  // never reaches the provenance cap and never fails the activation.
+  const maximal={};
+  for(const t of TEMPLATE_FIELD_REGISTRY){
+    if(t.name.startsWith('README'))continue;
+    maximal[t.name]=Array.from({length:t.name==='BUSINESS'?1:250},(_,r)=>Object.fromEntries(t.fields.map((f,j)=>
+      [f.key,f.key==='branch_ref'?'BR-'+r:f.key==='branch_name'?'Branch '+r:('Declared value '+r+'.'+j+' ').repeat(20)])));
+  }
+  const legit=await carryActivation('maximal',maximal);
+  assert.equal([...legit.notes.keys()].some(k=>k.endsWith(':provenance_cap_reached')),false,'a legitimate maximal application is never capped');
+  assert.equal([...legit.notes.keys()].some(k=>k.startsWith('UNRECOGNISED_TAB_')||k.endsWith(':non_contract_fields')),false);
+  assert.ok(legit.count>15000,`maximal application recorded ${legit.count} provenance rows`);
+  console.log(`DEALER_R6_CARRYOVER_BOUNDS PASS: hostile 43 extra tabs / 260 rows / 5 MB value -> ${hostile.count} rows in ${hostile.ms} ms (43 distinct unrecognised-tab notes, non-object rows noted); maximal legitimate application -> ${legit.count} rows in ${legit.ms} ms, uncapped`);
   await fails(`SELECT dealer_record_operational_declaration(
     '${activeProfileId}','${tenant}','${outsider}',
     'BUYER_ASSURANCE',0,'{"refund_policy":"A forged promise"}'::jsonb)`,
