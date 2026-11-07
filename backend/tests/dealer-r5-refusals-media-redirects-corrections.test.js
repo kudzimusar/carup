@@ -570,6 +570,13 @@ test('Issue #164 + T22 scope-bound review tickets: positive flow, negative refus
 
   const mockDb = {
     from(table) {
+      // R6 closure: the media review queue first resolves the reviewer's conflicts (none here);
+      // these lookups are not media-item queries and are not counted.
+      if (['dealer_research_claim_requests', 'tenant_users', 'dealer_approved_seed_links'].includes(table)) {
+        const c = { select() { return c; }, eq() { return c; }, in() { return c; },
+          async limit() { return { data: [], error: null }; } };
+        return c;
+      }
       assert.equal(table, 'dealer_storefront_media_items');
       dbQueryCount += 1;
       let rows = [storedRow];

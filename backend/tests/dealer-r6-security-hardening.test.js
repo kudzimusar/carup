@@ -425,11 +425,19 @@ test('#3 HTTP: gallery JSON then per-item image with cache headers, ETag/304, CO
 
 // ───────────────────────── #8b/#8c review queue & ticket custody bounds ─────────────────────────
 const TICKET_SECRET = 'r6-test-shared-media-review-ticket-secret-0123456789';
-function queueDb({ rows, issue }) {
+function queueDb({ rows, issue, reviewerClaims = [], memberships = [], links = [] }) {
   const calls = { limit: [], issue: [], consume: [] };
   return {
     calls,
     from(table) {
+      // R6 closure: the up-front reviewer-conflict lookup (claims held, memberships, linked seeds).
+      const conflictRows = { dealer_research_claim_requests: reviewerClaims, tenant_users: memberships,
+        dealer_approved_seed_links: links }[table];
+      if (conflictRows) {
+        const c = { select() { return c; }, eq() { return c; }, in() { return c; },
+          async limit() { return { data: conflictRows, error: null }; } };
+        return c;
+      }
       assert.equal(table, 'dealer_storefront_media_items');
       const chain = {
         select() { return chain; }, eq() { return chain; }, order() { return chain; },
@@ -500,6 +508,25 @@ test('#7/#8b a conflicted row gets no tickets (queue still loads); an exhausted 
   const broken = queueDb({ rows, issue: () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } }) });
   await assert.rejects(media.listStorefrontMediaReviewQueue(reviewer, { db: broken, secret: TICKET_SECRET }),
     (e) => e.statusCode === 503 && e.code === 'STOREFRONT_MEDIA_TICKET_CUSTODY_UNAVAILABLE');
+});
+
+test('R6 closure: a conflicted row stays redacted even after the reviewer\'s grant budget is exhausted', async () => {
+  media.simulateProcessRestartForTest();
+  const rows = Array.from({ length: 4 }, (_, i) => queueRow(i));
+  const conflictedSeed = rows[3].seed_dealer_id;
+  // Budget exhausted after the first item: the grant error no longer reveals the conflict.
+  const db = queueDb({ rows, reviewerClaims: [{ seed_dealer_id: conflictedSeed }],
+    issue: (args, n) => (n > 2 ? { data: null, error: { message: 'MEDIA_REVIEW_TICKET_OUTSTANDING_LIMIT' } } : okIssue(args)) });
+  const items = await media.listStorefrontMediaReviewQueue(reviewer, { db, secret: TICKET_SECRET });
+  const conflicted = items.filter((x) => x.seed_dealer_id === conflictedSeed);
+  assert.ok(conflicted.length >= 1);
+  for (const x of conflicted) {
+    assert.equal(x.conflict_of_interest, true);
+    assert.equal(x.caption, null); assert.equal(x.alt_text, null); assert.equal(x.rights_attestation, null);
+    assert.equal(x.preview_ticket, null); assert.equal(x.decision_ticket, null);
+  }
+  assert.equal(db.calls.issue.some((a) => a.p_seed_dealer_id === conflictedSeed), false,
+    'no ticket grant is even attempted for a conflicted row');
 });
 
 test('#8c ticket consumption never sends an app-supplied clock to the database', async () => {

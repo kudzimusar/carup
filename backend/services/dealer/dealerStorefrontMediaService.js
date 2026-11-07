@@ -29,6 +29,7 @@ import {
 } from './dealerClaimApplicationService.js';
 import { requireApprovedOwnerWorkspace } from './dealerVerifiedWorkspaceService.js';
 import { mapDealerSqlRefusal } from './dealerSqlRefusalMapper.js';
+import { loadReviewerConflicts } from './dealerReviewerConflicts.js';
 
 const SEED_RE = /^ZW-DEAL-\d{4}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -525,11 +526,16 @@ export async function listStorefrontMediaReviewQueue(actor, {
   if (error || !Array.isArray(data)) {
     throw refuse('STOREFRONT_MEDIA_REVIEW_QUEUE_UNAVAILABLE', 503);
   }
+  // R6 closure (final security verification of 8ef077e6): conflicts are known UP FRONT from the
+  // shared read rule, not inferred from a ticket-grant error — otherwise an exhausted grant
+  // budget (MEDIA_REVIEW_TICKET_OUTSTANDING_LIMIT) left a conflicted row unredacted.
+  const conflicts = await loadReviewerConflicts(actor, { db });
   const out = [];
   let ticketBudgetExhausted = false;
   for (const row of data.slice(0, MEDIA_REVIEW_QUEUE_PAGE_SIZE)) {
-    let canReviewIndependently = row.uploaded_by !== actor.userId;
-    let conflictOfInterest = false;
+    let conflictOfInterest = conflicts.conflicted(row.seed_dealer_id)
+      || (typeof row.tenant_id === 'string' && conflicts.tenants.has(row.tenant_id));
+    let canReviewIndependently = row.uploaded_by !== actor.userId && !conflictOfInterest;
     const expiresAtMs = Math.floor(now + ticketTtlMs);
     let previewTicket = null;
     let decisionTicket = null;
