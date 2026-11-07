@@ -2672,50 +2672,159 @@ try{
     assert.match(down.split('\n').filter(l=>l.trim()&&!l.trim().startsWith('--'))[0]||'',/^SET LOCAL lock_timeout = '3s';$/,`${name}: Down starts with SET LOCAL lock_timeout`);
     assert.doesNotMatch(up+down,/^\s*SET lock_timeout/m,`${name}: no session-scoped lock_timeout`);
   }
-  // R6 DBA review 3 N2: every Up and every Down starts (after its optional SET LOCAL lock_timeout)
-  // with the one-transaction guard, before any other statement — so a statement-by-statement
-  // autocommit apply (plain `psql -f`) is refused before it can change anything.
-  const txnGuardPrefix=/^(?:[ \t]*(?:--[^\n]*)?\n)*(?:SET LOCAL lock_timeout = '3s';\n(?:[ \t]*(?:--[^\n]*)?\n)*)?SET LOCAL carup\.dealer_migration_txn = 'on';\nDO \$txnguard\$\n[\s\S]*?IS DISTINCT FROM 'on' THEN[\s\S]*?pg_terminate_backend\(pg_backend_pid\(\)\)[\s\S]*?RAISE EXCEPTION 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION';[\s\S]*?\n\$txnguard\$;\n/;
+  // R6 DBA review 3 N2 + review 4 (R1–R4, item 6): every Up and every Down opens — after its
+  // optional SET LOCAL lock_timeout and before any other statement — with
+  //   SET LOCAL search_path = public, pg_temp;                (R2: objects always land in public)
+  //   DO $txnmark$  set carup.dealer_migration_txn = this transaction's own id  (R4: no preset can match)
+  //                 [Up only] set carup.dealer_migration_up_v<version> = that id (R1)
+  //   DO $txnguard$ not this transaction's id → make the SESSION read-only, WARN, RETURN (no raise,
+  //                 no session termination: a raise would roll the setting back and an interactive
+  //                 psql would reconnect after a termination); [Down only] own Up ran in this
+  //                 transaction → RAISE DEALER_MIGRATION_WHOLE_FILE_APPLY_REFUSED (R1).
+  const between=(s,a,b,from=0)=>{const i=s.indexOf(a,from);if(i<0)return null;const j=s.indexOf(b,i+a.length);return j<0?null:{text:s.slice(i,j+b.length),end:j+b.length,start:i};};
+  const prologueOf=(name,dir,section)=>{
+    const version=name.slice(0,14);
+    const lines=section.split('\n');let k=0;
+    const skip=()=>{while(k<lines.length&&(!lines[k].trim()||lines[k].trim().startsWith('--')))k+=1;};
+    skip();const stmts=[];
+    if(lines[k]==="SET LOCAL lock_timeout = '3s';"){stmts.push(lines[k]);k+=1;skip();}
+    assert.equal(lines[k],'SET LOCAL search_path = public, pg_temp;',`${name} ${dir}: SET LOCAL search_path = public, pg_temp must come next`);
+    stmts.push(lines[k]);k+=1;
+    const rest=lines.slice(k).join('\n');
+    assert.ok(rest.startsWith('DO $txnmark$\n'),`${name} ${dir}: the transaction marker must come next`);
+    const mark=between(rest,'DO $txnmark$\n','\n$txnmark$;');
+    assert.ok(mark,`${name} ${dir}: marker block`);
+    assert.ok(mark.text.includes("set_config('carup.dealer_migration_txn', txid_current()::text, true)"),`${name} ${dir}: marker is the transaction id`);
+    assert.equal(mark.text.includes(`set_config('carup.dealer_migration_up_v${version}', txid_current()::text, true)`),dir==='up',
+      `${name} ${dir}: only the Up sets its own per-version Up marker`);
+    const afterMark=rest.slice(mark.end).replace(/^\n/,'');
+    assert.ok(afterMark.startsWith('DO $txnguard$\n'),`${name} ${dir}: the guard must come next`);
+    const guard=between(afterMark,'DO $txnguard$\n','\n$txnguard$;');
+    assert.ok(guard,`${name} ${dir}: guard block`);
+    const poison=between(guard.text,"IF current_setting('carup.dealer_migration_txn', true) IS DISTINCT FROM txid_current()::text THEN",'END IF;');
+    assert.ok(poison,`${name} ${dir}: guard compares the marker with this transaction's id`);
+    for(const must of ["set_config('default_transaction_read_only', 'on', false)","set_config('transaction_read_only', 'on', true)",
+      "RAISE WARNING 'DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION",'RETURN;'])
+      assert.ok(poison.text.includes(must),`${name} ${dir}: the not-one-transaction branch must ${must}`);
+    assert.equal(guard.text.includes(`current_setting('carup.dealer_migration_up_v${version}', true)`)&&guard.text.includes('DEALER_MIGRATION_WHOLE_FILE_APPLY_REFUSED'),
+      dir==='down',`${name} ${dir}: only the Down refuses a whole-file apply`);
+    assert.equal((section.match(/\$txnmark\$;/g)||[]).length,1,`${name} ${dir}: exactly one marker`);
+    assert.equal((section.match(/\$txnguard\$;/g)||[]).length,1,`${name} ${dir}: exactly one guard`);
+    assert.doesNotMatch(section,/pg_terminate_backend/,`${name} ${dir}: no session termination (a reconnect would defeat the read-only guard)`);
+    return [...stmts,mark.text,guard.text];
+  };
   const guardedSections=[];
-  for(const name of names){
-    for(const [dir,section] of Object.entries(read(name))){
-      const m=txnGuardPrefix.exec(section);
-      assert.ok(m,`${name} ${dir}: the one-transaction guard must be the first statement after SET LOCAL lock_timeout`);
-      assert.equal((section.match(/carup\.dealer_migration_txn = 'on'/g)||[]).length,1,`${name} ${dir}: exactly one guard`);
-      guardedSections.push({name,dir,prefix:m[0]});
-    }
-  }
+  for(const name of names)for(const [dir,section] of Object.entries(read(name)))guardedSections.push({name,dir,statements:prologueOf(name,dir,section)});
   assert.equal(guardedSections.length,names.length*2);
   if(native){
-    // Simulate an autocommit client (each statement its own transaction, as plain `psql -f` does):
-    // the guard ends the session, so a canary statement after it can never run.
-    const statementsOf=(prefix)=>{
-      const out=[];const lt=/SET LOCAL lock_timeout = '3s';/.exec(prefix);
-      if(lt)out.push(lt[0]);
-      out.push("SET LOCAL carup.dealer_migration_txn = 'on';");
-      out.push(prefix.slice(prefix.indexOf('DO $txnguard$')));
-      return out;
+    // Explicit fields, not the connection string: node-pg lets URL fields override explicit ones.
+    const target=new URL(nativeUrl);
+    const probe=async(extra={})=>{
+      const c=new pg.Client({host:target.hostname,port:Number(target.port||5432),database:target.pathname.slice(1),
+        user:decodeURIComponent(target.username||'postgres'),ssl:false,application_name:'carup-dealer-r6-autocommit-probe',...extra});
+      c.on('error',()=>{});c.notices=[];c.on('notice',(n)=>c.notices.push(String(n.message)));
+      await c.connect();return c;
     };
-    let refused=0;
-    for(const {name,dir,prefix} of guardedSections){
-      const c=new pg.Client({connectionString:nativeUrl,ssl:false,application_name:'carup-dealer-r6-autocommit-probe'});
-      c.on('error',()=>{});
-      await c.connect();
-      let guardError=null;
-      try{for(const st of statementsOf(prefix))await c.query(st)}catch(e){guardError=e}
-      const canary=await c.query('CREATE TABLE r6_autocommit_canary(x int)').then(()=>'RAN',e=>e.code||e.message);
-      await c.end().catch(()=>{});
-      assert.ok(guardError&&(guardError.code==='57P01'||/DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION/.test(guardError.message)),
-        `${name} ${dir}: autocommit apply must be refused by the guard (${guardError?.code} ${guardError?.message})`);
-      assert.notEqual(canary,'RAN',`${name} ${dir}: the session must be ended so no later statement runs`);
-      refused+=1;
+    const canary=async(c,table)=>c.query(`CREATE TABLE ${table}(x int)`).then(()=>'RAN',(e)=>e.code||e.message);
+    // (a) Autocommit (each statement its own transaction, as plain `psql -f` or an interactive paste):
+    //     the guard returns WITHOUT an error, the session stays connected and becomes read-only, and
+    //     every later change in it fails with 25006 — so nothing can be applied half-way.
+    let poisoned=0;
+    for(const {name,dir,statements} of guardedSections){
+      const c=await probe();
+      try{
+        for(const st of statements)await c.query(st);
+        assert.ok(c.notices.some((m)=>m.includes('DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION')),`${name} ${dir}: the guard must warn`);
+        assert.equal((await c.query('SHOW default_transaction_read_only')).rows[0].default_transaction_read_only,'on',`${name} ${dir}: session read-only`);
+        assert.equal(await canary(c,'r6_autocommit_canary'),'25006',`${name} ${dir}: every later change in the session must fail`);
+        assert.equal((await c.query('SELECT 1 AS ok')).rows[0].ok,1,`${name} ${dir}: the session stays connected (no reconnect can clear the guard)`);
+        poisoned+=1;
+      }finally{await c.end().catch(()=>{})}
     }
-    assert.equal((await query(`SELECT to_regclass('public.r6_autocommit_canary') IS NULL AS absent`)).rows[0].absent,true);
-    // ...while the same statements inside ONE transaction pass.
-    const tx=new pg.Client({connectionString:nativeUrl,ssl:false});await tx.connect();
-    try{await tx.query('BEGIN');for(const st of statementsOf(guardedSections[0].prefix))await tx.query(st);await tx.query('ROLLBACK')}
-    finally{await tx.end()}
-    console.log(`DEALER_R6_ONE_TRANSACTION_GUARD PASS: ${refused}/${guardedSections.length} Up/Down sections refuse an autocommit (statement-by-statement) apply and end the session before any change; inside one transaction they pass`);
+    // (b) Inside ONE transaction every section's opening passes and leaves the transaction writable.
+    const tx=await probe();
+    try{
+      for(const {name,dir,statements} of guardedSections){
+        await tx.query('BEGIN');
+        for(const st of statements)await tx.query(st);
+        assert.equal(await canary(tx,'r6_txn_canary'),'RAN',`${name} ${dir}: one transaction must stay writable`);
+        await tx.query('ROLLBACK');
+      }
+      // (c) R1: a version's Down in the same transaction as its own Up is refused loudly.
+      let wholeFile=0;
+      for(const name of names){
+        const up=guardedSections.find((s)=>s.name===name&&s.dir==='up').statements;
+        const down=guardedSections.find((s)=>s.name===name&&s.dir==='down').statements;
+        await tx.query('BEGIN');
+        for(const st of up)await tx.query(st);
+        let refusal=null;try{for(const st of down)await tx.query(st)}catch(e){refusal=e}
+        await tx.query('ROLLBACK');
+        assert.match(String(refusal?.message),/DEALER_MIGRATION_WHOLE_FILE_APPLY_REFUSED/,`${name}: Up then Down in one transaction must be refused`);
+        wholeFile+=1;
+      }
+      // …while Down then Up (an atomic rollback-and-reapply) stays allowed.
+      await tx.query('BEGIN');
+      for(const st of guardedSections.find((s)=>s.name===names[0]&&s.dir==='down').statements)await tx.query(st);
+      for(const st of guardedSections.find((s)=>s.name===names[0]&&s.dir==='up').statements)await tx.query(st);
+      await tx.query('ROLLBACK');
+      // (d) A marker set in an earlier autocommit transaction does not cover a later explicit one:
+      //     the guard makes the CURRENT transaction read-only as well.
+      const s0=guardedSections.find((s)=>s.name===names[names.length-1]&&s.dir==='up').statements;
+      const c=await probe();
+      try{
+        for(const st of s0.slice(0,-1))await c.query(st);
+        await c.query('BEGIN');await c.query(s0[s0.length-1]);
+        assert.equal(await canary(c,'r6_late_txn_canary'),'25006','the transaction that ran the guard must be read-only too');
+        await c.query('ROLLBACK').catch(()=>{});
+      }finally{await c.end().catch(()=>{})}
+      // (e) R4: a marker preset at session level (here through the startup options, as PGOPTIONS or
+      //     ALTER ROLE … SET would) never satisfies the guard — in every one of the 46 sections…
+      let presetRefused=0;
+      for(const {name,dir,statements} of guardedSections){
+        const p=await probe({options:'-c carup.dealer_migration_txn=on'});
+        try{
+          for(const st of statements)await p.query(st);
+          assert.equal(await canary(p,'r6_preset_canary'),'25006',`${name} ${dir}: a preset marker must not satisfy the guard`);
+          presetRefused+=1;
+        }finally{await p.end().catch(()=>{})}
+      }
+      // …and whatever the preset value is.
+      for(const preset of ['on','1',String((await query('SELECT txid_current() AS x')).rows[0].x)]){
+        const p=await probe({options:`-c carup.dealer_migration_txn=${preset}`});
+        try{
+          assert.equal((await p.query("SELECT current_setting('carup.dealer_migration_txn', true) AS v")).rows[0].v,preset);
+          for(const st of s0)await p.query(st);
+          assert.equal(await canary(p,'r6_preset_canary'),'25006',`a preset marker (${preset}) must not satisfy the guard`);
+        }finally{await p.end().catch(()=>{})}
+      }
+      // (f) R3: a login role different from the current role (`-c role=…`) — the case where a
+      //     self-termination was refused — is made read-only all the same.
+      const pw='r6probe'+Math.random().toString(36).slice(2,12);
+      await exec(`DROP ROLE IF EXISTS r6_probe_login; DROP ROLE IF EXISTS r6_probe_migrator; DO $r3$ BEGIN
+        CREATE ROLE r6_probe_migrator NOLOGIN;
+        CREATE ROLE r6_probe_login LOGIN PASSWORD '${pw}' IN ROLE r6_probe_migrator;
+      END $r3$; GRANT CREATE, USAGE ON SCHEMA public TO r6_probe_migrator;`);
+      try{
+        const login={user:'r6_probe_login',password:pw,options:'-c role=r6_probe_migrator'};
+        const ok=await probe(login);
+        try{
+          const who=(await ok.query('SELECT session_user AS s, current_user AS c')).rows[0];
+          assert.deepEqual([who.s,who.c],['r6_probe_login','r6_probe_migrator'],'R3 probe: login role differs from the current role');
+          assert.equal(await canary(ok,'r6_r3_control'),'RAN','R3 control: without the guard this role CAN create objects');
+          await ok.query('DROP TABLE r6_r3_control');
+        }finally{await ok.end().catch(()=>{})}
+        const r3=await probe(login);
+        try{
+          for(const st of s0)await r3.query(st);
+          assert.equal(await canary(r3,'r6_r3_canary'),'25006','R3: the SET ROLE session is read-only after the guard');
+        }finally{await r3.end().catch(()=>{})}
+      }finally{
+        await exec(`REVOKE CREATE, USAGE ON SCHEMA public FROM r6_probe_migrator; DROP ROLE r6_probe_login; DROP ROLE r6_probe_migrator;`);
+      }
+      for(const t of ['r6_autocommit_canary','r6_txn_canary','r6_late_txn_canary','r6_preset_canary','r6_r3_canary'])
+        assert.equal((await query(`SELECT to_regclass('public.${t}') IS NULL AS absent`)).rows[0].absent,true,`${t} must not exist`);
+      console.log(`DEALER_R6_ONE_TRANSACTION_GUARD PASS: ${poisoned}/${guardedSections.length} Up/Down sections applied statement by statement leave the session connected but read-only (later changes fail 25006, nothing applied); all pass in one transaction; ${wholeFile}/${names.length} whole-file (Up then Down) transactions refused; ${presetRefused}/${guardedSections.length} sections ignore a preset marker (R4); a SET ROLE login (R3) and a later explicit transaction are covered`);
+    }finally{await tx.end().catch(()=>{})}
   }
   // Native: a Down queued behind a reader gives up after ~3 s with 55P03, changes nothing, and
   // releases the readers that queued behind its ACCESS EXCLUSIVE request (review 2 #1 reproduction).
@@ -2729,6 +2838,13 @@ try{
   const catalogShape=async()=>(await query(`SELECT (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public') AS rels,
     (SELECT count(*)::int FROM pg_trigger WHERE NOT tgisinternal) AS triggers,
     (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public') AS procs`)).rows[0];
+  const catalogPrint=async()=>(await query(`SELECT md5(string_agg(x, E'\\n' ORDER BY x)) AS fp FROM (
+    SELECT 'r:'||c.relname||':'||c.relkind::text||':'||coalesce(c.relacl::text,'') AS x FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
+    UNION ALL SELECT 'p:'||p.oid::regprocedure::text||':'||md5(p.prosrc)||':'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'
+    UNION ALL SELECT 't:'||t.tgname||':'||t.tgrelid::regclass::text||':'||t.tgenabled::text FROM pg_trigger t WHERE NOT t.tgisinternal
+    UNION ALL SELECT 'pol:'||polname||':'||polrelid::regclass::text FROM pg_policy
+    UNION ALL SELECT 'con:'||conname||':'||conrelid::regclass::text FROM pg_constraint WHERE connamespace='public'::regnamespace) s`)).rows[0].fp;
+  let wholeFileRefused=0;
   for(const name of [...names].reverse()){
     const table=downProbes[name];
     if(table){
@@ -2755,7 +2871,15 @@ try{
       }finally{await reader.query('ROLLBACK');await reader.end();await app.end()}
     }
     await exec(read(name).down);console.log('ROLLED_BACK',name);
+    // R6 DBA review 4 R1: the WHOLE file (Up then Down) in one transaction — what `psql -1 -f file`
+    // does — is refused loudly and leaves the catalog exactly as it was.
+    const beforeWholeFile=await catalogPrint();let wholeFileError=null;
+    try{await exec(read(name).up+'\n'+read(name).down)}catch(e){wholeFileError=e}
+    assert.match(String(wholeFileError?.message),/DEALER_MIGRATION_WHOLE_FILE_APPLY_REFUSED/,`${name}: whole-file apply must be refused`);
+    assert.equal(await catalogPrint(),beforeWholeFile,`${name}: a refused whole-file apply changes nothing`);
+    wholeFileRefused+=1;
   }
+  console.log(`DEALER_R6_WHOLE_FILE_REFUSED PASS: ${wholeFileRefused}/${names.length} migrations refuse Up+Down in one transaction (as psql -1 on the whole file) with the catalog fingerprint unchanged`);
   // R6 DBA #6: rolling back 20261103125000 must NOT restore the legacy table-wide self-grant.
   assert.equal((await query("SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed")).rows[0].allowed,false,
     'rollback must not re-open table-wide UPDATE on dealer_profiles');
@@ -2776,6 +2900,9 @@ try{
     '20261103138000_dealer_branch_operating_details.sql':'dealer_branches',
     '20261103141000_dealer_canonical_listing_authority.sql':'vehicles',
   }:{};
+  // R6 DBA review 4 R2: the whole reapply runs with a hostile session search_path — every section's
+  // own SET LOCAL search_path = public, pg_temp must still put every object into public.
+  await exec('CREATE SCHEMA r6_shadow; SET search_path = r6_shadow, public');
   for(const name of names){
     const table=lockTimeoutProbes[name];
     if(table){
@@ -2802,6 +2929,12 @@ try{
     }
     await exec(read(name).up);console.log('REAPPLIED',name);
   }
+  const shadowObjects=(await query(`SELECT (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='r6_shadow')
+    +(SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='r6_shadow')
+    +(SELECT count(*)::int FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='r6_shadow') AS n`)).rows[0].n;
+  assert.equal(shadowObjects,0,'R2: no migration object may land in a schema placed first on the session search_path');
+  await exec('RESET search_path; DROP SCHEMA r6_shadow');
+  console.log('DEALER_R6_SEARCH_PATH PASS: 23 Ups reapplied under search_path = r6_shadow, public created 0 objects outside public');
   // R6 DBA review 2 #9: SET LOCAL ended with each migration's transaction.
   assert.equal((await query('SHOW lock_timeout')).rows[0].lock_timeout,'0','no migration leaked lock_timeout into the session');
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
