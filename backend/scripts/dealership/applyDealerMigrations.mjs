@@ -21,6 +21,13 @@
  *    PGDATABASE fallback), and the two parsers must agree. After connecting, before any migration
  *    statement, the server itself must match: current_database(), inet_server_port() and — for a
  *    loopback target — a loopback inet_server_addr(). Anything else disconnects and refuses.
+ *  - DBA review 4 R2: a session option from the environment (PGOPTIONS, e.g.
+ *    `-c search_path=shadow,public`, which made objects land in another schema while the runner
+ *    reported APPLIED) is refused before connecting, and after connecting the session must report
+ *    current_schema() = public with public first on its search_path, and no read-only default.
+ *    (Every migration section also pins `SET LOCAL search_path = public, pg_temp` itself.)
+ *  - The runner does NOT record versions in supabase_migrations.schema_migrations; see
+ *    docs/dealership/R6_DBA_OPERATIONS_AND_LOCK_ORDER.md §3 for what an operator must do.
  *  - --dry-run prints the plan (target identity + migration names) and touches nothing.
  *
  * Usage:
@@ -35,9 +42,14 @@ const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '
 const DEALER_MIGRATION = /^20261103\d{6}_dealer_[a-z0-9_]+\.sql$/;
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 const ALLOWED_QUERY_PARAMETERS = new Set(['sslmode']);
+// Environment variables through which node-pg (PGOPTIONS, PGCLIENT_ENCODING) or libpq-style tooling
+// (PGTZ, PGDATESTYLE, PGGEQO, PGCLIENTENCODING) would inject session settings. Any non-empty one is refused.
+export const SESSION_OPTION_ENV = Object.freeze(['PGOPTIONS', 'PGCLIENT_ENCODING', 'PGCLIENTENCODING', 'PGTZ', 'PGDATESTYLE', 'PGGEQO']);
 const LOOPBACK_SERVER_ADDR = /^(127(\.\d{1,3}){3}|::1|::ffff:127(\.\d{1,3}){3})$/;
 export const SERVER_IDENTITY_SQL = `SELECT host(inet_server_addr()) AS addr, inet_server_port() AS port,
-  current_database() AS db, current_user AS usr, current_setting('server_version') AS v`;
+  current_database() AS db, current_user AS usr, current_setting('server_version') AS v,
+  current_schema() AS schema, (current_schemas(false))[1] AS first_schema,
+  current_setting('default_transaction_read_only') AS read_only`;
 
 const refuse = (code, detail = '') => Object.assign(new Error(detail ? `${code}: ${detail}` : code), { code });
 
@@ -116,6 +128,11 @@ export function verifyConnectedServer(target, row) {
   if (target.loopback && addr && !LOOPBACK_SERVER_ADDR.test(addr)) problems.push(`server address ${addr} is not loopback`);
   if (port !== target.port) problems.push(`server port ${port} is not ${target.port}`);
   if ((row?.db ?? null) !== target.database) problems.push(`database ${row?.db} is not ${target.database}`);
+  // R2: objects must land in public, and the session must be able to write.
+  if (row?.schema !== 'public' || row?.first_schema !== 'public') {
+    problems.push(`current_schema() ${row?.schema} / first search_path schema ${row?.first_schema} is not public`);
+  }
+  if (row?.read_only !== 'off') problems.push(`default_transaction_read_only is ${row?.read_only}`);
   if (problems.length) throw refuse('CONNECTED_SERVER_MISMATCH', problems.join('; '));
   return true;
 }
@@ -164,9 +181,17 @@ async function defaultCreateClient(config) {
   return new pg.Client(config);
 }
 
+/** R2: refuse session options injected through the environment (checked in env AND process.env). */
+export function assertNoSessionOptionEnv(env = {}) {
+  const found = SESSION_OPTION_ENV.filter((k) => (env[k] ?? '') !== '' || (process.env[k] ?? '') !== '');
+  if (found.length) throw refuse('SESSION_OPTION_ENVIRONMENT_REFUSED', `unset ${found.join(', ')} (they inject session settings, e.g. search_path)`);
+  return true;
+}
+
 /** Parse, approve, connect, verify the server, then run — the whole CLI as one testable function. */
 export async function runFromArgs(argv, env, { createClient = defaultCreateClient, dir = MIGRATIONS_DIR, log = console.log } = {}) {
   const opts = parseRunnerArgs(argv, env);
+  assertNoSessionOptionEnv(env);
   const target = assertSafeTarget(opts.url, opts);
   const plan = planMigrations(opts, dir);
   log(`TARGET ${target.target}${target.loopback ? ' (loopback)' : ' (NON-LOOPBACK, explicitly confirmed)'}; ${opts.direction} ${plan.length} migration(s)`);
@@ -176,7 +201,7 @@ export async function runFromArgs(argv, env, { createClient = defaultCreateClien
   try {
     const who = (await client.query(SERVER_IDENTITY_SQL)).rows[0];
     verifyConnectedServer(target, who);
-    log(`CONNECTED database=${who.db} server=${who.addr}:${who.port} user=${who.usr} version=${who.v}`);
+    log(`CONNECTED database=${who.db} server=${who.addr}:${who.port} user=${who.usr} schema=${who.schema} version=${who.v}`);
     const applied = await runDealerMigrations(client, plan, opts.direction, { dir, log });
     return { target, plan, applied };
   } finally {
