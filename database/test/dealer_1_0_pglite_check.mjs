@@ -372,7 +372,7 @@ try{
     assert.deepEqual(fresh.rows[0],{
       tenants:0,organizations:0,profiles:0,seeds:0,claims:0,
     },'browser schema must not inherit contract-test business/tenant authority');
-    console.log('DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS: 20 exact dealership migrations applied to empty disposable PostgreSQL; 0 business/tenant/claim authorities, protected users preseeded');
+    console.log('DEALER_NATIVE_FRESH_BROWSER_SCHEMA PASS: '+names.length+' exact dealership migrations applied to empty disposable PostgreSQL; 0 business/tenant/claim authorities, protected users preseeded');
   } else {
   const authorityColumns=['tenant_id','identity_status','compliance_review_state',
     'active_state','restriction_state','suspension_state','investigation_state'];
@@ -2307,7 +2307,7 @@ try{
         }
         const fns=(await query(`SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
           WHERE n.nspname='public' AND p.proname LIKE 'dealer\\_%' AND (p.prorettype='trigger'::regtype OR p.proname IN (
-            'dealer_carryover_note','dealer_carryover_text','dealer_assert_staff_owner','dealer_lock_tenant_public_listings',
+            'dealer_carryover_note','dealer_carryover_text','dealer_assert_staff_owner','dealer_lock_tenant_programme_vins','dealer_intake_contract_fields',
             'dealer_withdraw_tenant_public_listings','dealer_reviewer_conflict_of_interest','dealer_research_seed_is_fictional_fixture',
             'dealer_real_research_publication_policy_current'))`)).rows.map(r=>r.f);
         assert.ok(fns.length>=25,'internal helper inventory '+fns.length);

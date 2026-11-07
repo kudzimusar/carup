@@ -1,5 +1,5 @@
 -- +migrate Up
-SET lock_timeout = '3s';
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001-LR01-R6 round 2: independent security review of candidate b2da0a74 (FAIL).
 --   #1 takedown laundering   — re-prelisting needs a reviewer different from EVERY takedown-class
 --                               event since the last public prelisting (WITHHELD included once public);
@@ -299,7 +299,8 @@ BEGIN
     SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public' AND p.proname IN (
        'dealer_carryover_note', 'dealer_carryover_text', 'dealer_assert_staff_owner',
-       'dealer_lock_tenant_public_listings', 'dealer_withdraw_tenant_public_listings',
+       'dealer_lock_tenant_programme_vins', 'dealer_withdraw_tenant_public_listings',
+       'dealer_intake_contract_fields',
        'dealer_reviewer_conflict_of_interest', 'dealer_research_seed_is_fictional_fixture',
        'dealer_real_research_publication_policy_current')
   LOOP
@@ -309,7 +310,7 @@ END;
 $$;
 
 -- +migrate Down
-SET lock_timeout = '3s';
+SET LOCAL lock_timeout = '3s';
 -- Refuse while custody this Down would orphan exists: duplicate redirects, grouping reviews or buyer-case
 -- findings recorded under the R6-round-2 guards, or lifecycle events (their dual-control history).
 DO $$
