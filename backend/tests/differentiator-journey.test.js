@@ -140,11 +140,27 @@ function atomicDealerComplianceDecision(a={}) {
 
 test('CarUp differentiator journey (30 steps) through real services', async () => {
   reset(); supabase.from = (t) => builder(t); sv.initSourceVerification(); elig.initEligibility();
+  // R6 #5: reviewer decisions go through the shared per-reviewer step-up guard
+  // (dealer_begin/complete_reviewer_step_up). Model it faithfully — 5 failures lock, a
+  // success resets — instead of bypassing the step-up.
+  const stepUpGuard = new Map();
+  const reviewerStepUp = (fn, args) => {
+    const state = stepUpGuard.get(args.p_reviewer_id) || { failures: 0, locked: false };
+    if (fn === 'dealer_begin_reviewer_step_up') {
+      return { data: state.locked ? { allowed: false, retry_after_seconds: 900 } : { allowed: true }, error: null };
+    }
+    if (args.p_succeeded === true) state.failures = 0;
+    else if (++state.failures >= 5) state.locked = true;
+    stepUpGuard.set(args.p_reviewer_id, state);
+    return { data: { recorded: true, locked: state.locked }, error: null };
+  };
   supabase.rpc = async (fn, args) => (fn === 'issue164_upsert_transaction_intent_atomic'
     ? upsertTransactionIntentAtomic(args)
     : fn === 'dealer_record_atomic_compliance_decision'
       ? atomicDealerComplianceDecision(args)
-      : { data: null, error: { message: `unexpected rpc: ${fn}` } });
+      : fn === 'dealer_begin_reviewer_step_up' || fn === 'dealer_complete_reviewer_step_up'
+        ? reviewerStepUp(fn, args)
+        : { data: null, error: { message: `unexpected rpc: ${fn}` } });
   // Phase 6 fails every eligibility/escrow gate CLOSED on unknowns (bd23975b), so an "all clear"
   // context must state each fact rather than omitting it. dealer_suspended/seller_suspended and
   // listing_snapshot_changed were previously absent, which silently routed step 22 to manual_review
