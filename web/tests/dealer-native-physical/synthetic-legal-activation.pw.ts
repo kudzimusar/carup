@@ -267,6 +267,9 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
   .toBeVisible({timeout:30000})
  // Operational buyer policies must persist in the canonical versioned
  // dealer declaration ledger and survive a fresh browser page reload.
+ // The R6 carry-over checks above are real page/API traffic from the shared loopback IP:
+ // respect CarUp's unchanged 100-request/minute window before the next write (never raise it).
+ await claimant.waitForTimeout(65_000)
  await claimant.goto('/dealers/operating-details')
  await expect(claimant.getByRole('heading',{name:'Operate your verified dealership'}))
   .toBeVisible({timeout:30000})
@@ -321,6 +324,8 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
   .toBeVisible({timeout:30000})
  await expect(claimant.getByText('No payment has been initiated.',{exact:false})).toBeVisible()
 
+ // Same reason: the legacy-bookmark and billing navigation shares the per-IP window.
+ await claimant.waitForTimeout(65_000)
  const publicReviewerContext=await browser.newContext({viewport:{width:1280,height:900}})
  const publish=await publicReviewerContext.newPage()
  await login(publish,fixture.actors.reviewer)
