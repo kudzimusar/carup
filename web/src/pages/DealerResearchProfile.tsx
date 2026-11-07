@@ -37,17 +37,17 @@ type DuplicateRedirectEnvelope = {
   source_custody_preserved: true
   legal_entity_merged: false
 }
+// R6 security #3: the public gallery JSON is metadata only; each image is fetched separately
+// from `image_path` (relative to the API base), one bounded object per request.
 type StorefrontMediaItem = {
-  media_id: string
+  media_key: string
   seed_dealer_id: string
-  branch_id: string | null
   branch_name: string | null
   mime_type: string
   media_category: string
   caption: string
   alt_text: string
-  image_url: string
-  thumbnail_url: string
+  image_path: string
   rights_attestation: string
   logo_rights_approved: false
   approved_at: string
@@ -313,11 +313,11 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                   No reviewed dealership facility photographs are currently published.
                 </p>}
                 {mediaState==='ready'&&mediaItems&&mediaItems.length>0&&<div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  {mediaItems.map(item=><figure key={item.media_id}
-                    data-testid={`dealer-storefront-media-item-${item.media_id}`}
+                  {mediaItems.map(item=><figure key={item.media_key}
+                    data-testid={`dealer-storefront-media-item-${item.media_key}`}
                     className="rounded-lg border border-gray-200 bg-white p-3">
                     <img
-                      src={item.thumbnail_url}
+                      src={API+item.image_path}
                       alt={item.alt_text}
                       className="h-44 w-full rounded-md object-cover bg-slate-100"
                     />

@@ -36,6 +36,63 @@ const TICKET_ENVELOPE_RE = /^rt1\.([A-Za-z0-9_-]{16})\.([A-Za-z0-9_-]{24,1024})\
 const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
 const DEFAULT_TICKET_TTL_MS = 10 * 60 * 1000;
 const MIN_TICKET_SECRET_LENGTH = 32;
+const MEDIA_KEY_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * R6 security review #3 — bounded anonymous media delivery.
+ * The public gallery JSON carries METADATA ONLY (never bytes, storage paths or internal ids):
+ * at most PUBLIC_MEDIA_MAX_ITEMS approved items, each with an `image_path` relative to the API
+ * base that addresses one image by its content SHA-256 under its seed. Each image is fetched
+ * separately (one object, <= 4 MiB, integrity-checked against its SHA-256) with a short public
+ * cache lifetime and an ETag, so one anonymous request can never amplify into many megabytes.
+ * Authorization (approved + current storefront + current dealer authority) is re-evaluated on
+ * EVERY image request against dealer_public_storefront_media_current; only the bytes are cached
+ * in-process (bounded LRU), so a withdrawn item stops being served immediately by this instance
+ * and at most PUBLIC_MEDIA_CACHE_SECONDS later by a browser that already held it.
+ */
+export const PUBLIC_MEDIA_MAX_ITEMS = 12;
+export const PUBLIC_MEDIA_CACHE_SECONDS = 60;
+export const PUBLIC_MEDIA_BYTE_CACHE_MAX_BYTES = 32 * 1024 * 1024;
+const PUBLIC_MEDIA_BYTE_CACHE_TTL_MS = 5 * 60 * 1000;
+/** R6 #8b: the reviewer queue issues tickets for at most one page of this many items per call. */
+export const MEDIA_REVIEW_QUEUE_PAGE_SIZE = 24;
+
+const publicMediaByteCache = new Map();
+let publicMediaByteCacheBytes = 0;
+
+export function clearPublicMediaByteCacheForTest() {
+  publicMediaByteCache.clear();
+  publicMediaByteCacheBytes = 0;
+}
+
+function cacheGet(key, now) {
+  const hit = publicMediaByteCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt <= now) {
+    publicMediaByteCache.delete(key);
+    publicMediaByteCacheBytes -= hit.bytes.length;
+    return null;
+  }
+  publicMediaByteCache.delete(key);
+  publicMediaByteCache.set(key, hit); // refresh LRU position
+  return hit.bytes;
+}
+
+function cachePut(key, bytes, now) {
+  if (bytes.length > PUBLIC_MEDIA_BYTE_CACHE_MAX_BYTES) return;
+  const prior = publicMediaByteCache.get(key);
+  if (prior) {
+    publicMediaByteCache.delete(key);
+    publicMediaByteCacheBytes -= prior.bytes.length;
+  }
+  while (publicMediaByteCacheBytes + bytes.length > PUBLIC_MEDIA_BYTE_CACHE_MAX_BYTES && publicMediaByteCache.size) {
+    const [oldestKey, oldest] = publicMediaByteCache.entries().next().value;
+    publicMediaByteCache.delete(oldestKey);
+    publicMediaByteCacheBytes -= oldest.bytes.length;
+  }
+  publicMediaByteCache.set(key, { bytes, expiresAt: now + PUBLIC_MEDIA_BYTE_CACHE_TTL_MS });
+  publicMediaByteCacheBytes += bytes.length;
+}
 
 const consumedTicketJtis = new Set();
 const inFlightTicketJtis = new Set();
@@ -259,7 +316,7 @@ export async function verifyAndConsumeStorefrontMediaReviewTicket(rawTicket, {
         p_reviewer_id: reviewerId,
         p_seed_dealer_id: seedDealerId,
         p_expected_operation: expectedOperation,
-        p_now: new Date(now).toISOString(),
+        // R6 #8c: no app-supplied clock; the database judges expiry on its own clock.
       },
     );
     if (rpcErr) {
@@ -464,42 +521,64 @@ export async function listStorefrontMediaReviewQueue(actor, {
   }
   const { data, error } = await query
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(MEDIA_REVIEW_QUEUE_PAGE_SIZE);
   if (error || !Array.isArray(data)) {
     throw refuse('STOREFRONT_MEDIA_REVIEW_QUEUE_UNAVAILABLE', 503);
   }
   const out = [];
-  for (const row of data) {
-    const canReviewIndependently = row.uploaded_by !== actor.userId;
+  let ticketBudgetExhausted = false;
+  for (const row of data.slice(0, MEDIA_REVIEW_QUEUE_PAGE_SIZE)) {
+    let canReviewIndependently = row.uploaded_by !== actor.userId;
+    let conflictOfInterest = false;
     const expiresAtMs = Math.floor(now + ticketTtlMs);
     let previewTicket = null;
     let decisionTicket = null;
-    if (canReviewIndependently) {
-      previewTicket = await issueAndPersistStorefrontMediaReviewTicket({
-        db,
-        reviewerId: actor.userId,
-        seedDealerId: row.seed_dealer_id,
-        tenantId: row.tenant_id || null,
-        targetRowId: row.media_id,
-        contentSha256: row.content_sha256 || null,
-        operation: DEALER_MEDIA_TICKET_OPERATIONS.PREVIEW,
-        ttlMs: ticketTtlMs,
-        now,
-        secret,
-      });
-      decisionTicket = await issueAndPersistStorefrontMediaReviewTicket({
-        db,
-        reviewerId: actor.userId,
-        seedDealerId: row.seed_dealer_id,
-        tenantId: row.tenant_id || null,
-        targetRowId: row.media_id,
-        contentSha256: row.content_sha256 || null,
-        operation: DEALER_MEDIA_TICKET_OPERATIONS.DECISION,
-        ttlMs: ticketTtlMs,
-        now,
-        secret,
-      });
+    if (canReviewIndependently && !ticketBudgetExhausted) {
+      try {
+        previewTicket = await issueAndPersistStorefrontMediaReviewTicket({
+          db,
+          reviewerId: actor.userId,
+          seedDealerId: row.seed_dealer_id,
+          tenantId: row.tenant_id || null,
+          targetRowId: row.media_id,
+          contentSha256: row.content_sha256 || null,
+          operation: DEALER_MEDIA_TICKET_OPERATIONS.PREVIEW,
+          ttlMs: ticketTtlMs,
+          now,
+          secret,
+        });
+        decisionTicket = await issueAndPersistStorefrontMediaReviewTicket({
+          db,
+          reviewerId: actor.userId,
+          seedDealerId: row.seed_dealer_id,
+          tenantId: row.tenant_id || null,
+          targetRowId: row.media_id,
+          contentSha256: row.content_sha256 || null,
+          operation: DEALER_MEDIA_TICKET_OPERATIONS.DECISION,
+          ttlMs: ticketTtlMs,
+          now,
+          secret,
+        });
+      } catch (grantError) {
+        // R6 #7: a reviewer who has a claim on this dealer or belongs to its tenant gets no tickets
+        // for that row (instead of the whole queue failing). R6 #8b: once the per-reviewer
+        // outstanding-ticket budget is reached, the remaining rows are listed without tickets.
+        if (grantError?.code === 'DEALER_REVIEWER_CONFLICT_OF_INTEREST'
+            || grantError?.code === 'INDEPENDENT_MEDIA_REVIEWER_REQUIRED') {
+          canReviewIndependently = false;
+          conflictOfInterest = true;
+          previewTicket = null;
+          decisionTicket = null;
+        } else if (grantError?.code === 'MEDIA_REVIEW_TICKET_OUTSTANDING_LIMIT') {
+          ticketBudgetExhausted = true;
+          previewTicket = null;
+          decisionTicket = null;
+        } else {
+          throw grantError;
+        }
+      }
     }
+    const ticketsIssued = Boolean(previewTicket && decisionTicket);
     out.push(Object.freeze({
       media_id: row.media_id,
       seed_dealer_id: row.seed_dealer_id,
@@ -514,9 +593,11 @@ export async function listStorefrontMediaReviewQueue(actor, {
       created_at: row.created_at,
       updated_at: row.updated_at,
       independent_reviewer_required: canReviewIndependently,
-      preview_ticket: previewTicket,
-      decision_ticket: decisionTicket,
-      ticket_expires_at: canReviewIndependently ? new Date(expiresAtMs).toISOString() : null,
+      conflict_of_interest: conflictOfInterest,
+      ticket_issuance_deferred: canReviewIndependently && !ticketsIssued,
+      preview_ticket: ticketsIssued ? previewTicket : null,
+      decision_ticket: ticketsIssued ? decisionTicket : null,
+      ticket_expires_at: ticketsIssued ? new Date(expiresAtMs).toISOString() : null,
       logo_rights_approved: false,
     }));
   }
@@ -649,6 +730,10 @@ export async function reviewStorefrontMediaItem(seedId, actor, payload = {}, {
   return Object.freeze(data);
 }
 
+function publicMediaImagePath(seedId, contentSha256) {
+  return `/dealership/research/${encodeURIComponent(seedId)}/media/${contentSha256}`;
+}
+
 export async function getPublicDealerStorefrontMedia(seedId, {
   db = supabase,
 } = {}) {
@@ -656,46 +741,32 @@ export async function getPublicDealerStorefrontMedia(seedId, {
     throw refuse('INVALID_DEALER_PROFILE', 400);
   }
   const { data, error } = await db.from('dealer_public_storefront_media_current')
-    .select('media_id,seed_dealer_id,branch_id,branch_name,storage_bucket,storage_path,mime_type,media_category,caption,alt_text,rights_attestation,logo_rights_approved,approved_at')
+    .select('seed_dealer_id,branch_name,content_sha256,mime_type,media_category,caption,alt_text,rights_attestation,logo_rights_approved,approved_at')
     .eq('seed_dealer_id', seedId)
     .order('approved_at', { ascending: false })
-    .limit(24);
+    .limit(PUBLIC_MEDIA_MAX_ITEMS);
   if (error || !Array.isArray(data)) {
     throw refuse('PUBLIC_STOREFRONT_MEDIA_UNAVAILABLE', 503);
   }
   const items = [];
-  for (const row of data) {
+  const seen = new Set();
+  for (const row of data.slice(0, PUBLIC_MEDIA_MAX_ITEMS)) {
     if (!row?.alt_text || !row?.caption || row.logo_rights_approved !== false) continue;
-    let imageUrl = null;
-    const { data: downloaded, error: dlErr } = await db.storage
-      .from(row.storage_bucket || 'ocr-documents')
-      .download(row.storage_path);
-    if (!dlErr && downloaded) {
-      const ab = typeof downloaded.arrayBuffer === 'function'
-        ? await downloaded.arrayBuffer()
-        : downloaded;
-      const buf = Buffer.isBuffer(ab) ? ab : Buffer.from(ab);
-      imageUrl = `data:${row.mime_type};base64,${buf.toString('base64')}`;
-    } else {
-      const { data: signed, error: signErr } = await db.storage
-        .from(row.storage_bucket || 'ocr-documents')
-        .createSignedUrl(row.storage_path, 120);
-      if (signErr || !signed?.signedUrl) {
-        throw refuse('PUBLIC_STOREFRONT_MEDIA_UNAVAILABLE', 503);
-      }
-      imageUrl = signed.signedUrl;
-    }
+    if (row.seed_dealer_id !== seedId || typeof row.content_sha256 !== 'string'
+        || !MEDIA_KEY_RE.test(row.content_sha256) || seen.has(row.content_sha256)
+        || !['image/jpeg', 'image/png'].includes(row.mime_type)) continue;
+    seen.add(row.content_sha256);
     items.push(Object.freeze({
-      media_id: row.media_id,
-      seed_dealer_id: row.seed_dealer_id,
-      branch_id: row.branch_id || null,
+      // Content-addressed public key: the SHA-256 of an image that is itself public. It is not an
+      // internal row id, a storage path or a signed storage URL, and it cannot be enumerated.
+      media_key: row.content_sha256,
+      seed_dealer_id: seedId,
       branch_name: row.branch_name || null,
       mime_type: row.mime_type,
       media_category: row.media_category,
       caption: row.caption,
       alt_text: row.alt_text,
-      image_url: imageUrl,
-      thumbnail_url: imageUrl,
+      image_path: publicMediaImagePath(seedId, row.content_sha256),
       rights_attestation: row.rights_attestation,
       logo_rights_approved: false,
       approved_at: row.approved_at,
@@ -705,8 +776,62 @@ export async function getPublicDealerStorefrontMedia(seedId, {
     seed_dealer_id: seedId,
     items: Object.freeze(items),
     count: items.length,
+    max_items: PUBLIC_MEDIA_MAX_ITEMS,
+    max_image_bytes: MAX_MEDIA_BYTES,
     logo_rights_approved: false,
     oem_badges_or_logos_shown: false,
     requires_current_full_storefront_and_dealer_authority: true,
+  });
+}
+
+/**
+ * One approved image per request (R6 #3). Re-authorizes against the current public view on every
+ * call; serves bytes only when they are <= 4 MiB and hash to the requested content key.
+ */
+export async function getPublicDealerStorefrontMediaImage(seedId, mediaKey, {
+  db = supabase,
+  now = Date.now(),
+} = {}) {
+  if (typeof seedId !== 'string' || !SEED_RE.test(seedId)) {
+    throw refuse('INVALID_DEALER_PROFILE', 400);
+  }
+  if (typeof mediaKey !== 'string' || !MEDIA_KEY_RE.test(mediaKey)) {
+    throw refuse('PUBLIC_STOREFRONT_MEDIA_NOT_FOUND', 404);
+  }
+  const { data, error } = await db.from('dealer_public_storefront_media_current')
+    .select('seed_dealer_id,storage_bucket,storage_path,content_sha256,mime_type,caption,alt_text,logo_rights_approved')
+    .eq('seed_dealer_id', seedId)
+    .eq('content_sha256', mediaKey)
+    .limit(1);
+  if (error || !Array.isArray(data)) {
+    throw refuse('PUBLIC_STOREFRONT_MEDIA_UNAVAILABLE', 503);
+  }
+  const row = data.find((r) => r?.seed_dealer_id === seedId && r?.content_sha256 === mediaKey);
+  if (!row || !row.alt_text || !row.caption || row.logo_rights_approved !== false
+      || !['image/jpeg', 'image/png'].includes(row.mime_type)
+      || typeof row.storage_path !== 'string' || !row.storage_path.startsWith('dealership-media/')) {
+    throw refuse('PUBLIC_STOREFRONT_MEDIA_NOT_FOUND', 404);
+  }
+  const bucket = row.storage_bucket || 'ocr-documents';
+  const cacheKey = `${bucket}:${row.storage_path}:${mediaKey}`;
+  let bytes = cacheGet(cacheKey, now);
+  if (!bytes) {
+    const { data: downloaded, error: dlErr } = await db.storage.from(bucket).download(row.storage_path);
+    if (dlErr || !downloaded) {
+      throw refuse('PUBLIC_STOREFRONT_MEDIA_UNAVAILABLE', 503);
+    }
+    const ab = typeof downloaded.arrayBuffer === 'function' ? await downloaded.arrayBuffer() : downloaded;
+    const buf = Buffer.isBuffer(ab) ? ab : Buffer.from(ab);
+    if (buf.length < 32 || buf.length > MAX_MEDIA_BYTES || sha256Hex(buf) !== mediaKey) {
+      throw refuse('PUBLIC_STOREFRONT_MEDIA_INTEGRITY_FAILED', 503);
+    }
+    bytes = buf;
+    cachePut(cacheKey, bytes, now);
+  }
+  return Object.freeze({
+    bytes,
+    mime_type: row.mime_type,
+    etag: `"${mediaKey}"`,
+    cache_seconds: PUBLIC_MEDIA_CACHE_SECONDS,
   });
 }
