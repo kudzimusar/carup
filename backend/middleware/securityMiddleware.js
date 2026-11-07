@@ -41,9 +41,15 @@ export function securityHeadersMiddleware(req, res, next) {
 /**
  * Custom Rate Limiter Middleware
  */
-export function rateLimiter({ max, windowMs, isSensitive = false, bucket = 'shared' }) {
+export function rateLimiter({ max, windowMs, isSensitive = false, bucket = 'shared', keyBy = 'ip' }) {
   if(typeof bucket!=='string'||!/^[a-z][a-z0-9-]{0,63}$/.test(bucket))
     throw new TypeError('INVALID_RATE_LIMIT_BUCKET');
+  // keyBy:'account' (R6 #8a) counts per authenticated user id and MUST be mounted after session
+  // authentication. It exists for vetted, non-self-service accounts (approved dealer owners,
+  // verified reviewers) so a shared NAT/CI IP cannot exhaust another account's budget and
+  // unauthenticated traffic cannot consume it. Without an authenticated user it falls back to
+  // the IP key. Claimant/applicant budgets stay IP-keyed (see the note below).
+  if(keyBy!=='ip'&&keyBy!=='account')throw new TypeError('INVALID_RATE_LIMIT_KEY');
   const store = isSensitive ? sensitiveStore : globalStore;
   // A single shared sensitive:<IP> counter mixes unrelated *limits*: e.g.
   // reviewer password step-up (15/hour) consumes an applicant's 4/hour
@@ -54,7 +60,7 @@ export function rateLimiter({ max, windowMs, isSensitive = false, bucket = 'shar
   // budget by rotating accounts or moving between intake endpoints.
   const tier = isSensitive ? 'sensitive' : 'global';
   const policyBucket = `${tier}:${max}:${windowMs}:${bucket}`;
-  return (req, res, next) => {
+  const limiter = (req, res, next) => {
     // Bypass rate limiting in tests if requested
     if (process.env.NODE_ENV === 'test' && req.headers['x-bypass-rate-limit'] === 'true') {
       return next();
@@ -68,7 +74,9 @@ export function rateLimiter({ max, windowMs, isSensitive = false, bucket = 'shar
     // Behind a Cloudflare-proxied host, req.ip is the edge address; carupClientIp is the real
     // client, but only when the request provably transited our zone (see edgeClientIp.js).
     const ip = req.carupClientIp || req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-    const key = `${policyBucket}:${ip}`;
+    const accountId = keyBy === 'account' && typeof req.userContext?.userId === 'string'
+      && req.userContext.userId ? req.userContext.userId : null;
+    const key = accountId ? `${policyBucket}:account:${accountId}` : `${policyBucket}:${ip}`;
 
     Promise.resolve(store.hit(key, windowMs)).then((rateData) => {
       if (rateData.count > max) {
@@ -101,6 +109,10 @@ export function rateLimiter({ max, windowMs, isSensitive = false, bucket = 'shar
       next();
     });
   };
+  // Named so route wiring can be asserted in tests (e.g. that a write route mounts its limiter
+  // after session authentication).
+  Object.defineProperty(limiter, 'name', { value: `rateLimit:${policyBucket}:${keyBy}` });
+  return limiter;
 }
 
 /**

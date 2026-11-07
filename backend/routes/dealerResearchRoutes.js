@@ -37,6 +37,7 @@ import {
   previewStorefrontMediaItem,
   reviewStorefrontMediaItem,
   getPublicDealerStorefrontMedia,
+  getPublicDealerStorefrontMediaImage,
 } from '../services/dealer/dealerStorefrontMediaService.js';
 import { sendDealerRouteError } from '../services/dealer/dealerSqlRefusalMapper.js';
 import { rateLimiter } from '../middleware/securityMiddleware.js';
@@ -75,6 +76,13 @@ const buyerCaseWriteLimit = rateLimiter({max:4,windowMs:3600000,
   isSensitive:true,bucket:'dealer-buyer-feedback'});
 const buyerReviewWriteLimit = rateLimiter({max:12,windowMs:3600000,
   isSensitive:true,bucket:'dealer-independent-buyer-case-review'});
+// R6 #3: one approved image (<= 4 MiB) per request; 60/min/IP bounds anonymous egress to one
+// full 12-image gallery view every ~12 s per client, far below the former 24 x 4 MiB per call.
+const publicMediaImageLimit = rateLimiter({ max: 60, windowMs: 60 * 1000, isSensitive: false,
+  bucket: 'dealer-public-media-image' });
+// R6 #8b: each queue load may issue up to 2 x 24 single-use tickets; bound loads per reviewer.
+const mediaReviewQueueLimit = rateLimiter({ max: 120, windowMs: 60 * 60 * 1000, isSensitive: true,
+  bucket: 'dealer-media-review-queue', keyBy: 'account' });
 const session = authorizeSessionRole([]);
 const reviewer = authorizeSessionRole(['admin','reviewer']);
 
@@ -180,6 +188,24 @@ router.get('/api/dealership/research/:seedId/media', publicReadLimit, async (req
   try {
     const media = await getPublicDealerStorefrontMedia(req.params.seedId);
     res.set('Cache-Control','no-store').json({ media });
+  } catch (error) { errorResponse(res,next,error); }
+});
+// R6 #3: bounded per-item delivery of ONE currently approved image, addressed by its content
+// SHA-256 under its seed. Never a storage path, signed storage URL or internal media id.
+router.get('/api/dealership/research/:seedId/media/:mediaKey', publicMediaImageLimit, async (req,res,next) => {
+  try {
+    const image = await getPublicDealerStorefrontMediaImage(req.params.seedId, req.params.mediaKey);
+    res.set('Cache-Control', `public, max-age=${image.cache_seconds}, must-revalidate`)
+      .set('ETag', image.etag)
+      .set('X-Content-Type-Options', 'nosniff')
+      .set('Cross-Origin-Resource-Policy', 'cross-origin')
+      .set('Content-Disposition', 'inline');
+    const ifNoneMatch = String(req.headers['if-none-match'] || '');
+    if (ifNoneMatch.split(',').map((v) => v.trim()).includes(image.etag)) {
+      res.status(304).end();
+      return;
+    }
+    res.status(200).type(image.mime_type).set('Content-Length', String(image.bytes.length)).send(image.bytes);
   } catch (error) { errorResponse(res,next,error); }
 });
 router.get('/api/dealership/research/:seedId', publicReadLimit, async (req,res,next) => {
@@ -489,7 +515,7 @@ router.post('/api/admin/dealership/full-storefronts/:seedId/review',
 // preview and review are scoped by `:seedId` and require a short-lived, single-use,
 // server-issued review_ticket bound to the authenticated reviewer, dealership, and operation.
 router.get('/api/admin/dealership/storefront-media/queue',
-  reviewer, async (req,res,next) => {
+  reviewer, mediaReviewQueueLimit, async (req,res,next) => {
   try {
     const items = await listStorefrontMediaReviewQueue(req.userContext, {
       seedDealerId: req.query.seed_dealer_id,

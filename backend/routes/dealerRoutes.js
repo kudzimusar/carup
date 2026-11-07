@@ -20,6 +20,7 @@
  * by the caller's userId, so a dealer can never read or mutate another dealer's full profile.
  */
 import express from 'express';
+import {rateLimiter} from '../middleware/securityMiddleware.js';
 import dealerResearchRouter from './dealerResearchRoutes.js';
 import {getMyVerifiedDealerWorkspace,addDeclaredDealerBranch,updateDeclaredDealerBranch}
   from '../services/dealer/dealerVerifiedWorkspaceService.js';
@@ -62,6 +63,19 @@ import {
 
 const router = express.Router();
 
+// R6 security review #8a: write limits on the dealer workspace. Keyed per authenticated account and
+// mounted AFTER session authentication, so unauthenticated traffic or another account behind the
+// same NAT/CI IP cannot consume an owner's budget. Budgets per account per hour:
+//   uploads (ClamAV scan + private 4 MiB storage write)       20
+//   staff invitations / acceptances / revocations / scopes     30
+//   all other owner/staff workspace writes                    120
+const ownerUploadWriteLimit = rateLimiter({max:20,windowMs:3600000,isSensitive:true,
+  bucket:'dealer-owner-upload-write',keyBy:'account'});
+const ownerStaffWriteLimit = rateLimiter({max:30,windowMs:3600000,isSensitive:true,
+  bucket:'dealer-owner-staff-write',keyBy:'account'});
+const ownerWorkspaceWriteLimit = rateLimiter({max:120,windowMs:3600000,isSensitive:true,
+  bucket:'dealer-owner-workspace-write',keyBy:'account'});
+
 const DEALER_ROLES = ['dealer', 'admin'];
 const ADMIN_ROLES = ['admin', 'government', 'reviewer'];
 
@@ -100,7 +114,7 @@ router.get('/api/dealer/activation-carryover',
   }
 });
 router.post('/api/dealer/operational-branches',
-  authorizeSessionRole([]),async(req,res,next)=>{
+  authorizeSessionRole([]),ownerWorkspaceWriteLimit,async(req,res,next)=>{
   try{
     const branch=await addDeclaredDealerBranch(req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({branch});
@@ -109,7 +123,7 @@ router.post('/api/dealer/operational-branches',
   }
 });
 router.patch('/api/dealer/operational-branches/:branchId',
-  authorizeSessionRole([]),async(req,res,next)=>{
+  authorizeSessionRole([]),ownerWorkspaceWriteLimit,async(req,res,next)=>{
   try{
     const branch=await updateDeclaredDealerBranch(req.userContext,req.params.branchId,req.body||{});
     res.set('Cache-Control','no-store').status(200).json({branch});
@@ -130,7 +144,7 @@ router.get('/api/dealer/operational-declarations',authorizeSessionRole([]),async
   }
 });
 router.post('/api/dealer/operational-declarations/:section',
- authorizeSessionRole([]),async(req,res,next)=>{
+ authorizeSessionRole([]),ownerWorkspaceWriteLimit,async(req,res,next)=>{
   try{
     const receipt=await recordMyOperationalDeclaration(
       req.userContext,req.params.section,req.body||{});
@@ -150,7 +164,7 @@ router.get('/api/dealer/operational-media',authorizeSessionRole([]),async(req,re
     sendDealerRouteError(res,next,error);
   }
 });
-router.post('/api/dealer/operational-media',authorizeSessionRole([]),async(req,res,next)=>{
+router.post('/api/dealer/operational-media',authorizeSessionRole([]),ownerUploadWriteLimit,async(req,res,next)=>{
   try{
     const receipt=await uploadMyStorefrontMedia(req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({receipt});
@@ -159,7 +173,7 @@ router.post('/api/dealer/operational-media',authorizeSessionRole([]),async(req,r
   }
 });
 
-router.post('/api/dealer/profile', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
+router.post('/api/dealer/profile', authorizeSessionRole(DEALER_ROLES),ownerWorkspaceWriteLimit, async (req, res, next) => {
   try {
     const profile = await createOrUpdateProfile(req.userContext?.userId, req.body || {});
     res.status(201).json({ profile });
@@ -187,7 +201,7 @@ router.get('/api/dealer/branches', authorizeSessionRole(DEALER_ROLES), async (re
   } catch (error) { sendDealerRouteError(res, next, error); }
 });
 
-router.post('/api/dealer/branches', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
+router.post('/api/dealer/branches', authorizeSessionRole(DEALER_ROLES),ownerWorkspaceWriteLimit, async (req, res, next) => {
   try {
     const profile = await ownProfileOr404(req, res);
     if (!profile) return;
@@ -209,7 +223,7 @@ router.get('/api/dealer/requirements', authorizeSessionRole(DEALER_ROLES), async
   }
 });
 
-router.post('/api/dealer/documents', authorizeSessionRole(DEALER_ROLES), async (req, res, next) => {
+router.post('/api/dealer/documents', authorizeSessionRole(DEALER_ROLES),ownerUploadWriteLimit, async (req, res, next) => {
   try {
     const profile = await ownProfileOr404(req, res);
     if (!profile) return;
@@ -247,7 +261,7 @@ router.get('/api/dealer/operational-staff',authorizeSessionRole([]),async(req,re
     sendDealerRouteError(res,next,error);
   }
 });
-router.post('/api/dealer/staff-invitations',authorizeSessionRole([]),async(req,res,next)=>{
+router.post('/api/dealer/staff-invitations',authorizeSessionRole([]),ownerStaffWriteLimit,async(req,res,next)=>{
   try{
     const receipt=await inviteDealerStaff(req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(202).json({receipt});
@@ -263,7 +277,7 @@ router.get('/api/dealer/staff-invitations/mine',authorizeSessionRole([]),async(r
     sendDealerRouteError(res,next,error);
   }
 });
-router.post('/api/dealer/staff-invitations/:id/accept',authorizeSessionRole([]),async(req,res,next)=>{
+router.post('/api/dealer/staff-invitations/:id/accept',authorizeSessionRole([]),ownerStaffWriteLimit,async(req,res,next)=>{
   try{
     const receipt=await acceptDealerStaffInvitation(req.userContext,req.params.id);
     res.set('Cache-Control','no-store').status(201).json({receipt});
@@ -271,7 +285,7 @@ router.post('/api/dealer/staff-invitations/:id/accept',authorizeSessionRole([]),
     sendDealerRouteError(res,next,error);
   }
 });
-router.post('/api/dealer/staff-invitations/:id/revoke',authorizeSessionRole([]),async(req,res,next)=>{
+router.post('/api/dealer/staff-invitations/:id/revoke',authorizeSessionRole([]),ownerStaffWriteLimit,async(req,res,next)=>{
   try{
     const receipt=await revokeDealerStaffInvitation(req.userContext,req.params.id);
     res.set('Cache-Control','no-store').status(200).json({receipt});
@@ -300,7 +314,7 @@ router.get('/api/dealer/staff-branch-scopes/owner',authorizeSessionRole([]),asyn
     sendDealerRouteError(res,next,error);
   }
 });
-router.post('/api/dealer/staff-branch-scopes',authorizeSessionRole([]),async(req,res,next)=>{
+router.post('/api/dealer/staff-branch-scopes',authorizeSessionRole([]),ownerStaffWriteLimit,async(req,res,next)=>{
   try{
     const receipt=await grantMyStaffBranchScope(req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({receipt});
@@ -309,7 +323,7 @@ router.post('/api/dealer/staff-branch-scopes',authorizeSessionRole([]),async(req
   }
 });
 router.post('/api/dealer/staff-branch-scopes/:id/revoke',
-  authorizeSessionRole([]),async(req,res,next)=>{
+  authorizeSessionRole([]),ownerStaffWriteLimit,async(req,res,next)=>{
   try{
     const receipt=await revokeMyStaffBranchScope(req.userContext,req.params.id);
     res.set('Cache-Control','no-store').json({receipt});
@@ -318,7 +332,7 @@ router.post('/api/dealer/staff-branch-scopes/:id/revoke',
   }
 });
 router.patch('/api/dealer/staff-branches/:scopeId',
-  authorizeSessionRole([]),async(req,res,next)=>{
+  authorizeSessionRole([]),ownerWorkspaceWriteLimit,async(req,res,next)=>{
   try{
     const receipt=await editMyStaffBranch(
       req.userContext,req.params.scopeId,req.body||{});
@@ -343,7 +357,7 @@ router.get('/api/dealer/operational-inventory',authorizeSessionRole([]),async(re
 // the existing canonical vehicles table. No sale, seller rights, listing, trust
 // or real-vehicle title is inferred. Global member role cannot self-promote.
 router.post('/api/dealer/operational-inventory/private-drafts',
-  authorizeSessionRole([]),async(req,res,next)=>{
+  authorizeSessionRole([]),ownerWorkspaceWriteLimit,async(req,res,next)=>{
   try{
     const draft=await recordMyCanonicalDealerPrivateDraft(
       req.userContext,req.body);
@@ -357,7 +371,7 @@ router.post('/api/dealer/operational-inventory/private-drafts',
 // attributes. Source VIN, buyer/seller rights, payment, duty and Passport
 // authority remain outside this surface; no cross-tenant lookup is exposed.
 router.patch('/api/dealer/operational-inventory/private-drafts/:vin',
-  authorizeSessionRole([]),async(req,res,next)=>{
+  authorizeSessionRole([]),ownerWorkspaceWriteLimit,async(req,res,next)=>{
   try{
     const draft=await correctMyCanonicalDealerPrivateDraft(
       req.userContext,req.params.vin,req.body);
@@ -371,7 +385,7 @@ router.patch('/api/dealer/operational-inventory/private-drafts/:vin',
 // candidate (owner = governed current seller, owned branch, dealer_declared facts). It stays
 // UNPUBLISHED: publication is only ever the canonical POST /api/vehicles/:vin/publish gate.
 router.post('/api/dealer/operational-inventory/:vin/listing-preparation',
-  authorizeSessionRole([]),async(req,res,next)=>{
+  authorizeSessionRole([]),ownerWorkspaceWriteLimit,async(req,res,next)=>{
   try{
     const listing=await prepareMyDealerListing(req.userContext,req.params.vin,req.body);
     res.set('Cache-Control','no-store').json({listing});
@@ -405,7 +419,7 @@ router.get('/api/dealer/operational-inquiries',authorizeSessionRole([]),async(re
 // Only two bounded seller-reported transitions are permitted. Moderation,
 // assignment, Communications, financial and transaction authority remain separate.
 router.patch('/api/dealer/operational-inquiries/:inquiryId/follow-up',
-  authorizeSessionRole([]),async(req,res,next)=>{
+  authorizeSessionRole([]),ownerWorkspaceWriteLimit,async(req,res,next)=>{
   try{
     const receipt=await advanceMyCanonicalDealerInquiry(
       req.userContext,req.params.inquiryId,req.body?.next_status);
