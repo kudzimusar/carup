@@ -4,7 +4,9 @@ Scope: the 23 dealership migrations `database/migrations/20261103120000…146000
 This closes the R5 advisory DBA review findings #2, #4, #6, #7 and #8; the R6 independent DBA
 review of candidate b2da0a74 ("review 2", findings #1–#12; section 8 maps each one); and the
 closure re-verification of 4476e2c8 ("review 3": N1, N2, N4 and the #3/#8/#12 leftovers;
-section 9). #1, #3, #5 and the first part of #7 of the R5 review were closed in 9731a20d. Every number below comes from a **disposable** local
+section 9); and the verification of 7f7432f0 ("review 4": R1–R4, the interactive-psql reconnect
+and the #12 leftovers; section 10). #1, #3, #5 and the first part of #7 of the R5 review were
+closed in 9731a20d. Every number below comes from a **disposable** local
 PostgreSQL 17.11 cluster loaded with **synthetic** rows. No shared, staging or production
 database was read or written, and nothing here contains real data or secrets.
 
@@ -306,23 +308,69 @@ forward.
   application session. The old session-scoped `SET` did leak.
 - If a migration or rollback fails with **55P03**, its transaction was rolled back and nothing
   changed. Wait for the long transaction to finish, or stop it, then re-run.
-- **One transaction per section is enforced, not assumed** (review 3 N2). `SET LOCAL` is a silent
-  no-op outside a transaction block, so an autocommit apply (plain `psql -f`, which sends every
-  statement as its own transaction) would have lost the 3 s bound and could stop half-way.
-  Right after its `SET LOCAL lock_timeout` (at the top for the three Ups without one), every Up
-  and every Down — all 46 sections — now runs
-  `SET LOCAL carup.dealer_migration_txn = 'on'` and a guard `DO` block. If the marker is not set,
-  the statements are not sharing one transaction: the guard raises a WARNING naming
-  `DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION`, **ends its own session**
-  (`pg_terminate_backend(pg_backend_pid())`, allowed for any role on its own backend) and then
-  raises the same error. Ending the session matters: without `ON_ERROR_STOP`, psql would print
-  the error and carry on with the next statement; with the session gone it stops (exit status 2).
-  A dedicated marker is used instead of testing `lock_timeout = 0`, because a role- or
-  database-level `lock_timeout` default would make that test pass in autocommit.
+- **One transaction per section is enforced, not assumed** (review 3 N2, redesigned in review 4).
+  `SET LOCAL` is a silent no-op outside a transaction block, so an autocommit apply (plain
+  `psql -f`, or SQL pasted into an interactive psql, which send every statement as its own
+  transaction) would lose the 3 s bound and could stop half-way. Every Up and every Down — all 46
+  sections — therefore opens, right after its `SET LOCAL lock_timeout` (at the very top for the
+  three Ups without one) and before any other statement, with:
+  1. `SET LOCAL search_path = public, pg_temp;` (review 4 R2, below);
+  2. a `DO $txnmark$` block that sets `carup.dealer_migration_txn` to **this transaction's own id**
+     (`txid_current()`), transaction-locally; an Up also sets
+     `carup.dealer_migration_up_v<version>` the same way;
+  3. a `DO $txnguard$` block:
+     - **marker ≠ this transaction's id** → the statements are not sharing one transaction. The
+       guard makes the **rest of the session read-only**
+       (`set_config('default_transaction_read_only','on',false)` plus the current transaction),
+       raises a WARNING naming `DEALER_MIGRATION_MUST_RUN_IN_ONE_TRANSACTION`, and **returns
+       without raising**. Every later change in that session then fails with SQLSTATE 25006, so
+       nothing can be applied half-way;
+     - **Down only: this version's own Up ran earlier in the same transaction** (review 4 R1, a
+       whole file applied with `psql -1`) → `RAISE EXCEPTION 'DEALER_MIGRATION_WHOLE_FILE_APPLY_REFUSED'`.
+       The whole transaction rolls back. A Down followed by an Up (an atomic rollback-and-reapply)
+       is still allowed.
+- **Why read-only, and why no session termination any more** (review 4 R3 and the interactive-psql
+  finding):
+  - The review-3 guard ended its own session with `pg_terminate_backend`. An interactive psql
+    reconnects automatically ("Attempting reset: Succeeded") and carried on in autocommit; once the
+    statements after the guard were applied.
+  - A login role that differs from the current role (`-c role=…`) may not terminate its own
+    backend, so plain `psql -f` carried on as well.
+  - A session setting made in a statement that **commits** survives, does not depend on any
+    privilege (the setting is user-settable), and is not undone by a reconnect, because no
+    reconnect happens. A raise would roll the setting back, which is why the guard only warns.
+- **Why the transaction id** (review 4 R4): a marker preset at session, role or database level
+  (`ALTER ROLE … SET`, `PGOPTIONS='-c carup.dealer_migration_txn=on'`) satisfied the review-3
+  literal `'on'`. No preset can equal the id of a transaction that does not exist yet.
 - **The only supported ways to apply a section** are the runner below, or
-  `psql -1 -v ON_ERROR_STOP=1 -f <one section>` (each file holds an Up and a Down section; apply
-  only the one you mean). The harness's multi-statement queries are also single implicit
-  transactions.
+  `psql -1 -v ON_ERROR_STOP=1 -f <file holding ONE section>`. Each migration file holds an Up and a
+  Down section, so a whole file must never be applied as one; the guard now refuses that too. The
+  harness's multi-statement queries are also single implicit transactions.
+- **Behaviour matrix** (psql 16 against the disposable PG17; 146000; catalog fingerprint = md5
+  over relations, functions and their source, ACLs, triggers, policies and constraints):
+
+  | How the section is sent | psql exit | Catalog | What the operator sees |
+  |---|---|---|---|
+  | Down section, plain `psql -f` (autocommit, no `ON_ERROR_STOP`) | **0** | unchanged | 1 guard WARNING, then every later statement fails "read-only transaction" (18 refusals) |
+  | Down section, `psql -v ON_ERROR_STOP=1 -f` | **3** | unchanged | guard WARNING, stops at the first refused statement |
+  | Whole file, plain `psql -f` | 0 | unchanged | 2 guard WARNINGs, 51 refusals |
+  | Down section pasted into an **interactive** psql | — | unchanged | guard WARNING, 18 refusals, **no reconnect** |
+  | Marker preset with `PGOPTIONS='-c carup.dealer_migration_txn=on'`, plain `psql -f` (R4) | 0 | unchanged | same as autocommit |
+  | `-c role=<migrator>` login (can create functions in the control), plain `psql -f` Up (R3) | 0 | unchanged | guard WARNING, 33 refusals |
+  | **Whole file**, `psql -1 -v ON_ERROR_STOP=1` (146000 not applied: the review's R1 case) | **3** | unchanged | `DEALER_MIGRATION_WHOLE_FILE_APPLY_REFUSED` + HINT |
+  | Whole file, `psql -1` without `ON_ERROR_STOP` (not applied) | **0** | unchanged | same error; psql rolls the transaction back at the end but exits 0 |
+  | Whole file, `psql -1 -v ON_ERROR_STOP=1` (already applied) | 3 | unchanged | the Up fails first (`… already exists`) |
+  | Section-only Down, then section-only Up, `psql -1 -v ON_ERROR_STOP=1` | 0 / 0 | applied, then back to the original fingerprint | — |
+  | Section-only Up, `psql -1`, with `PGOPTIONS='-c search_path=shadow,public'` (R2) | 0 | identical to a normal apply; nothing in `shadow` | — |
+
+  **Read this honestly:** without `ON_ERROR_STOP`, psql exits **0** even though nothing was
+  applied. That is psql's rule (only `ON_ERROR_STOP` or a lost connection make it exit non-zero),
+  and ending the connection to force exit 2 is exactly what an interactive psql defeats by
+  reconnecting. So **`-v ON_ERROR_STOP=1` is mandatory**: always read the output, and do not
+  treat exit 0 as success unless `ON_ERROR_STOP` was set.
+- Not covered by the guard: a client that resets session state between statements (for example
+  a transaction-mode pooler, where consecutive autocommit statements may run on different server
+  sessions). The runner refuses known pooler endpoints. Never apply through a pooler.
 - 20261103138000's two `CHECK` constraints stay validated inline, and the file says why:
   - They constrain only the columns added in the same migration, which are `NULL` on every
     existing row, so validation cannot fail.
@@ -345,22 +393,30 @@ forward.
   session-scoped `SET lock_timeout`.
 - **Mutants:** removing the Down's `SET LOCAL` is caught, and so is turning an Up's `SET LOCAL`
   back into `SET` (the leak check fires).
-- **One-transaction guard** (review 3 N2):
-  - The harness checks statically that all 46 sections start with the guard, before any other
-    statement.
-  - On native PG17 it replays each section's opening statements the way an autocommit client
-    does: 46/46 are refused, the session is ended, and a canary `CREATE TABLE` sent afterwards
-    never runs. The same statements inside one transaction pass.
-  - With psql 16 against PG17 (disposable cluster, 146000 Down):
-    - plain `psql -f` and `psql -v ON_ERROR_STOP=1 -f` both stop at the guard with exit status 2
-      and change nothing (71 functions, 85 triggers and 181 relations before and after);
-    - `psql -1 -v ON_ERROR_STOP=1 -f` applies the Down and then the Up, and `lock_timeout` is `0`
-      afterwards;
-    - a non-superuser login role is also stopped.
-  - Mutants killed: guard removed from a Down; the guard condition replaced; the guard made never
-    to fire (caught at runtime: autocommit no longer refused); the `pg_terminate_backend` call
-    made a no-op (caught at runtime: the canary ran).
-
+- **One-transaction guard** (review 3 N2, review 4):
+  - Static check (PGlite and native): all 46 sections open with `SET LOCAL search_path`, the
+    transaction-id marker and the guard, before any other statement. The not-one-transaction
+    branch makes the session read-only and returns. Only Ups set their per-version Up marker, only
+    Downs refuse a whole-file apply, and no section calls `pg_terminate_backend`.
+  - Native PG17 replay (`DEALER_R6_ONE_TRANSACTION_GUARD`):
+    - **46/46** sections sent statement by statement leave the session connected but read-only. A
+      canary `CREATE TABLE` fails with 25006 and `SELECT 1` still works.
+    - All 46 pass inside one transaction and leave it writable.
+    - **23/23** Up-then-Down transactions are refused, and Down-then-Up is allowed.
+    - A marker preset through the startup options (`on`, `1`, a past transaction id) never
+      satisfies the guard (R4).
+    - A `-c role=…` login whose role can create objects in the control is made read-only all the
+      same (R3).
+    - A marker set in an earlier autocommit transaction does not cover a later explicit
+      transaction, which is made read-only as well.
+  - `DEALER_R6_WHOLE_FILE_REFUSED` (PGlite and native): during the rollback loop, each of the 23
+    whole files applied as one transaction (Up then Down) is refused, and the catalog fingerprint
+    is unchanged.
+  - Mutants killed:
+    - at runtime: the read-only setting undone right after it is made; raise instead of return (the
+      read-only setting would roll back); the R1 comparison broken; a preset `on` accepted (R4);
+      `search_path` overridden inside the marker block (R2);
+    - statically: the per-version Up marker removed; the `SET LOCAL search_path` line removed.
 **Apply runner for a staging-clone rehearsal**: `backend/scripts/dealership/applyDealerMigrations.mjs`.
 
 ```bash
@@ -371,7 +427,11 @@ node backend/scripts/dealership/applyDealerMigrations.mjs --url postgresql://pos
 
 - It runs one transaction per migration (`BEGIN; <section>; COMMIT`, with `ROLLBACK` and a stop on
   the first error). Down runs newest to oldest.
-- It refuses a transaction-pooler endpoint (port 6543 or a `pooler.` host).
+- It refuses a transaction-pooler endpoint **only when it is recognisable**: port 6543 or a
+  `pooler.` host. A transaction pooler listening on 5432 under another name would pass the URL
+  check. The server-identity check below only catches it when the pooler's backend reports a
+  different port or database. **The rehearsal must use a direct session connection to the
+  database server.**
 - It reads the target only from `--url` or `DEALER_MIGRATION_DATABASE_URL`, never from
   `DATABASE_URL`.
 - It refuses every non-loopback host unless both the flag and the exact confirmation are given.
@@ -390,23 +450,58 @@ node backend/scripts/dealership/applyDealerMigrations.mjs --url postgresql://pos
     `inet_server_port()` and — for a loopback target — a loopback `inet_server_addr()` must match
     the approved target (`CONNECTED_SERVER_MISMATCH`, then the connection is closed). A tunnel, a
     pooler, a Unix socket or a redirected session is refused even if the URL looked right.
-- Tested by `backend/tests/dealer-migration-runner.test.js`: 12 tests, including the four
-  reviewer bypass URLs and an injected client that reports a remote server. All 9 runner mutants
-  are killed. It was also run against native PG17 (all 23 migrations, Down then Up, one
-  transaction each, the server identity verified as `127.0.0.1:55483`). The bypass URLs and a URL
-  without a port are refused before connecting.
+- **It refuses session options from the environment** (review 4 R2). With
+  `PGOPTIONS='-c search_path=shadow,public'` the runner used to create objects in `shadow` and
+  still report APPLIED, while the public view kept the pre-146000 definition without the O12 gate.
+  - A non-empty `PGOPTIONS`, `PGCLIENT_ENCODING`, `PGCLIENTENCODING`, `PGTZ`, `PGDATESTYLE` or
+    `PGGEQO` is refused before connecting (`SESSION_OPTION_ENVIRONMENT_REFUSED`). Both the
+    supplied environment and the real process environment are checked.
+  - After connecting it also requires `current_schema() = public`, `public` first on the effective
+    `search_path`, and `default_transaction_read_only = off` (`CONNECTED_SERVER_MISMATCH`). Live:
+    `ALTER DATABASE … SET search_path = shadow, public` is refused after connecting.
+  - Every section also pins `SET LOCAL search_path = public, pg_temp`. That is safe because no
+    dealership migration calls an extension function unqualified: the only non-core calls are
+    `auth.uid()`, `cron.schedule` and `cron.unschedule`, all schema-qualified, while
+    `gen_random_uuid`, `sha256` and `encode` are core (`pg_catalog`). The only `SET search_path`
+    occurrences in the files are function attributes.
+  - `DEALER_R6_SEARCH_PATH` reapplies all 23 Ups under `search_path = r6_shadow, public`, and 0
+    objects land outside public.
+- Tested by `backend/tests/dealer-migration-runner.test.js`: 14 tests, including the four
+  reviewer bypass URLs, an injected client that reports a remote server, the environment refusal
+  and the schema/read-only checks. 15/15 runner mutants are killed. It was also run against native
+  PG17: all 23 migrations Down, then Up, one transaction each, server identity
+  `127.0.0.1:55483 schema=public`. The bypass URLs, a URL without a port and `PGOPTIONS` are
+  refused before connecting.
+- **It does not record versions in `supabase_migrations.schema_migrations`.** The repository's
+  staging-apply scripts do: they insert `(version, statements, name)` in the same transaction as
+  the Up, for example `backend/scripts/staging-apply-publication-gate.mjs` and
+  `diaspora-staging-apply-20.mjs`.
+  - On a throw-away clone this does not matter.
+  - On any database that later tooling will see (`supabase migration list`, `supabase db push`,
+    the diaspora verifiers), an operator applying these sections with the runner or psql must
+    record the same rows, so later tooling neither re-applies nor reports drift. That means one row
+    per applied Up, written in the same transaction as the section, and the row deleted in the same
+    transaction as its Down.
+  - The repository has used two `name` conventions: the full file name in
+    `staging-apply-publication-gate.mjs`, and the bare name in `diaspora-staging-apply-20.mjs`.
+    Check the target's own recent rows first
+    (`SELECT version, name FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 5`)
+    and follow them.
+  - The runner deliberately does not write this table, because its exact definition on the
+    target could not be verified here.
 
 ## 4. Scheduled job `carup-dealer-listing-lapse-sweep` (finding #8)
 
 **What it does.**
 - 20261103141000 runs
-  `cron.schedule('carup-dealer-listing-lapse-sweep', '*/10 * * * *', 'SELECT public.dealer_withdraw_lapsed_listing_authority(''pg_cron'')')`,
+  `cron.schedule('carup-dealer-listing-lapse-sweep', '*/10 * * * *', 'SET statement_timeout = ''300s''; SELECT public.dealer_withdraw_lapsed_listing_authority(''pg_cron'')')`,
   but **only where the `pg_cron` extension is installed**. Applying 141000 to such a database
   starts the job at once.
 - The job withdraws (never deletes) the public listings of programme dealers whose authority
   lapsed purely by time: legal approval, country policy or profile expiry.
 - It finds those dealers with an index nested loop over `dealer_approved_seed_links`. With 100
-  dealers it takes **0.33 ms**; see section 5.
+  dealers a run takes **0.33 ms** (section 5). That run withdrew nothing: each dealer it does
+  withdraw adds that dealer's `UPDATE`, and each dealer it has to wait for adds up to 2 s.
 - **It is bounded** (review 2 #2). The command is
   `SET statement_timeout = '300s'; SELECT public.dealer_withdraw_lapsed_listing_authority('pg_cron')`.
   - The function runs with `SET lock_timeout = '2s'`.
@@ -434,8 +529,10 @@ node backend/scripts/dealership/applyDealerMigrations.mjs --url postgresql://pos
   withdrawn dealer's VIN locks and link `FOR SHARE` are held until the run commits. A dealer write,
   lifecycle decision or policy change on an already-withdrawn dealer waits for the rest of that
   run.
-  - A normal run takes milliseconds (0.33 ms with 100 dealers, section 5).
-  - The hold grows only with dealers skipped later in the same run: at most 2 s each.
+  - A run that withdraws nothing takes 0.33 ms with 100 dealers (section 5). Each withdrawn
+    dealer adds its `UPDATE` time.
+  - **Any** dealer the run has to wait for — whether it is then withdrawn or skipped — adds up
+    to 2 s for everyone already locked by the run.
   - The hard bound is the command's 300 s `statement_timeout`.
   - A waiting writer is itself bounded by its own `lock_timeout` or, for backend RPCs, by the
     retry policy.
@@ -500,7 +597,9 @@ SELECT created_at, tenant_id, reason_code FROM dealer_listing_authority_events
 ## 5. Trigger cost on non-programme rows (finding #2)
 
 **Fixture** (`database/test/dealer_r6_trigger_cost_fixture.sql`). All rows are synthetic,
-loaded after the 22 migrations (`DEALER_NATIVE_SCHEMA_ONLY=1`):
+loaded after the dealership migrations (`DEALER_NATIVE_SCHEMA_ONLY=1`). There are 23 now. These
+figures were measured with the 22 of the review-2 head; 20261103146000 adds no trigger on the
+canonical tables measured here.
 
 - **5,000** legacy tenants and **5,000** legacy memberships
 - **50,000** legacy vehicles, 5% published, with `idx_vehicles_tenant` as in production
@@ -650,13 +749,24 @@ The `DEALER_R6_C02_CARRYOVER` block is unchanged and still passes: 3 of 5 branch
 | Item | Disposition |
 |---|---|
 | N1 (Medium) runner target bypass via `?host=` / `?port=` | **Fixed.** node-pg's own parser; only `sslmode` allowed; explicit port and database; post-connect identity check (section 3) |
-| N2 (Low) `SET LOCAL` silently ineffective in autocommit | **Fixed.** Marker + guard in all 46 Up/Down sections; autocommit apply ends the session; `psql -1 -v ON_ERROR_STOP=1` or the runner (section 3) |
+| N2 (Low) `SET LOCAL` silently ineffective in autocommit | **Fixed.** Marker + guard in all 46 Up/Down sections; `psql -1 -v ON_ERROR_STOP=1` or the runner (section 3). The review-3 "end the session" behaviour was **replaced in review 4** by making the session read-only (section 10) |
 | #8 leftover (Low) one note per non-contract tab | **Fixed.** First 25 listed, the rest counted in one summary note; every section-4 note counts toward the 25,000 cap; 50,000 tabs → 27 rows in 27–50 ms (section 7) |
 | #3 leftover (Low, fail-safe) programme-VIN or enquiry insert before a VIN write | **Documented** in rule 1 (insert last, or pre-lock); behaviour unchanged by design |
 | N4 (Low) sweep holds withdrawn dealers' locks to the end of the run | **Accepted residual**, bounded and documented (section 4) |
 | #12 doc drift | **Fixed** in this revision: 23 migrations; the sweep takes links `FOR SHARE` through the guard; retry give-up ≈ 3 s; the lifecycle decision can be a retried victim in the rule-1 case; runner claims; apply procedure |
 
-## 10. Verification commands
+## 10. Review 4 (verification of 7f7432f0)
+
+| Item | Disposition |
+|---|---|
+| R1 (Medium) whole-file `psql -1` runs Up then Down, exit 0, half-applied 146000 | **Fixed.** Per-version Up marker; every Down refuses `DEALER_MIGRATION_WHOLE_FILE_APPLY_REFUSED` when its own Up ran in the same transaction. Whole file with `-1 -v ON_ERROR_STOP=1` exits 3, fingerprint unchanged; WARNING/HINT text now says "a file containing a single section" |
+| R2 (Low) `PGOPTIONS` search_path redirected the runner's objects | **Fixed.** Runner refuses session-option environment variables and checks `current_schema()`, the first `search_path` schema and the read-only default after connecting; every section pins `SET LOCAL search_path = public, pg_temp` (verified safe: no unqualified extension calls) |
+| R4 (Info) a preset marker disabled the guard | **Fixed.** The marker is the transaction id; presets `on`, `1` and a past id are proved not to satisfy it |
+| R3 (Low) `-c role=…` could not terminate itself, so plain psql went on | **Fixed by the redesign**: no termination; the session is made read-only (user-settable, committed, survives); proved with a role that can create objects in the control |
+| Item 6 (security review) interactive psql reconnects after termination | **Fixed by the same redesign**: no reconnect, every later statement refused; exit status 0 without `ON_ERROR_STOP` is documented as psql behaviour (the matrix in section 3) |
+| #12 leftovers | **Fixed:** §5 counts; termination claims replaced; pooler limits stated; sweep wait nuance; cron command text; the schema_migrations note |
+
+## 11. Verification commands
 
 ```bash
 # migrations: ONLY the runner, or psql in ONE transaction per section with ON_ERROR_STOP
