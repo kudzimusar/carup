@@ -17,7 +17,7 @@ import {dirname} from 'node:path'
  */
 type Actor={id:string;name:string;email:string;role:string;token:string}
 type Fixture={actors:{claimant:Actor;reviewer:Actor;vehicle_reviewer:Actor;vehicle_buyer:Actor}
- reviewer_password:string;public_slug:string;seed:string;listing_vin:string;source_type:string
+ reviewer_password:string;vehicle_reviewer_password:string;public_slug:string;seed:string;listing_vin:string;source_type:string
  synthetic_legal_policy_provenance:string;listing_phase_provenance:string;source_population:number}
 const file=process.env.DEALER_BROWSER_FIXTURE_JSON
 if(!file)throw Error('LISTING_CI_FIXTURE_MISSING')
@@ -185,29 +185,40 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  await expect(reviewer.getByText('Evidence approved')).toBeVisible({timeout:30000})
  await reviewerContext.close()
 
- // ── 3. Dealership reviewer independently re-publishes the full storefront on the SAME URL & approves T22 media via scope-bound ticket ──
+ // ── 3. A DIFFERENT independent reviewer re-publishes the full storefront on the SAME URL ──
+ // R6 R2-1: phase 5's retraction was recorded by f.actors.reviewer; that reviewer may not undo it
+ // alone, so the re-publication comes from another independent, non-member admin (dual control).
+ const republishContext=await browser.newContext({viewport:{width:1280,height:900}})
+ const republish=await republishContext.newPage()
+ await actorOn(republish,f.actors.vehicle_reviewer)
+ await republish.goto('/admin/dealer-full-storefront-review')
+ await expect(republish.getByRole('heading',{name:'Full dealership publication'})).toBeVisible({timeout:30000})
+ await expect(republish.getByText(f.seed).first()).toBeVisible({timeout:25000})
+ await republish.locator('#storefront-password').fill(f.vehicle_reviewer_password)
+ await republish.getByRole('button',{name:'Inspect review candidate'}).click()
+ await expect(republish.getByRole('heading',{name:'Approve only verified branch display facts'})).toBeVisible({timeout:30000})
+ await republish.getByRole('heading',{name:'Approve only verified branch display facts'})
+  .locator('..').locator('input[type="checkbox"]').first().check()
+ const sections=republish.getByRole('heading',{name:'Independently review dealer-declared sections'})
+ if(await sections.count()){
+  await sections.locator('..').locator('input[type="checkbox"]').first().check()
+ }
+ await republish.locator('#storefront-decision').selectOption('PUBLISHED_FULL')
+ await republish.locator('#storefront-reason').fill(
+  'Fictional CI re-publication after an earlier independent retraction, by a different independent reviewer. Branch identity, local test policy and dealer-declared fields were re-reviewed under isolated synthetic sessions; no real company publicity or merchant entitlement.')
+ await republish.locator('#storefront-password').fill(f.vehicle_reviewer_password)
+ await republish.getByRole('button',{name:'Record immutable publication decision'}).click()
+ await expect(republish.getByText('Independent full storefront publication event recorded.',{exact:false}))
+  .toBeVisible({timeout:40000})
+ await republishContext.close()
+ await pause(WINDOW)
+
+ // ── 3b. The original dealership reviewer approves the T22 media via a scope-bound ticket ──
  const publicReviewerContext=await browser.newContext({viewport:{width:1280,height:900}})
  const publish=await publicReviewerContext.newPage()
  await actorOn(publish,f.actors.reviewer)
  await publish.goto('/admin/dealer-full-storefront-review')
  await expect(publish.getByRole('heading',{name:'Full dealership publication'})).toBeVisible({timeout:30000})
- await expect(publish.getByText(f.seed).first()).toBeVisible({timeout:25000})
- await publish.locator('#storefront-password').fill(f.reviewer_password)
- await publish.getByRole('button',{name:'Inspect review candidate'}).click()
- await expect(publish.getByRole('heading',{name:'Approve only verified branch display facts'})).toBeVisible({timeout:30000})
- await publish.getByRole('heading',{name:'Approve only verified branch display facts'})
-  .locator('..').locator('input[type="checkbox"]').first().check()
- const sections=publish.getByRole('heading',{name:'Independently review dealer-declared sections'})
- if(await sections.count()){
-  await sections.locator('..').locator('input[type="checkbox"]').first().check()
- }
- await publish.locator('#storefront-decision').selectOption('PUBLISHED_FULL')
- await publish.locator('#storefront-reason').fill(
-  'Fictional CI re-publication after an earlier independent retraction. Branch identity, local test policy and dealer-declared fields were re-reviewed under isolated synthetic sessions; no real company publicity or merchant entitlement.')
- await publish.locator('#storefront-password').fill(f.reviewer_password)
- await publish.getByRole('button',{name:'Record immutable publication decision'}).click()
- await expect(publish.getByText('Independent full storefront publication event recorded.',{exact:false}))
-  .toBeVisible({timeout:40000})
 
  // Issue #164 + T22 negative: raw UUID or fabricated ticket is refused with 403 STOREFRONT_MEDIA_REVIEW_TICKET_INVALID
  const rawUuidTicketRefusal=await unsafe(publish,f.actors.reviewer,'POST',

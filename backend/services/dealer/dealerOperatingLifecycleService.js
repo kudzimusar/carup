@@ -62,11 +62,27 @@ export function parseLifecycleDecision(body = {}) {
 async function loadLink(db, seedId) {
   if (typeof seedId !== 'string' || !SEED.test(seedId)) throw refuse('INVALID_RESEARCH_ID');
   const { data, error } = await db.from('dealer_approved_seed_links')
-    .select('link_id,seed_dealer_id,claimant_user_id,operating_status,legal_review_id')
+    .select('link_id,seed_dealer_id,tenant_id,claimant_user_id,operating_status,legal_review_id')
     .eq('seed_dealer_id', seedId).maybeSingle();
   if (error) throw refuse('APPROVED_DEALER_LOOKUP_UNAVAILABLE', 503);
   if (!data) throw refuse('APPROVED_DEALER_LINK_REQUIRED', 404);
   return data;
+}
+
+/**
+ * R6 closure (security): the reviewer's own conflicts — tenant memberships and research claims —
+ * so a reviewer who works for (or claims) a dealership never reads its lifecycle history or
+ * reasons, nor sees it in the queue. The data layer separately refuses their DECISIONS (145000).
+ */
+async function reviewerConflicts(db, actor) {
+  const [members, claims] = await Promise.all([
+    db.from('tenant_users').select('tenant_id').eq('user_id', actor.userId).limit(500),
+    db.from('dealer_research_claim_requests').select('seed_dealer_id').eq('claimant_user_id', actor.userId).limit(500),
+  ]);
+  if (members.error || claims.error) throw refuse('DEALER_OPERATING_LIFECYCLE_UNAVAILABLE', 503);
+  const ids = (rows, key) => new Set((Array.isArray(rows) ? rows : [])
+    .map((r) => r?.[key]).filter((v) => typeof v === 'string' && v.length > 0));
+  return { tenants: ids(members.data, 'tenant_id'), seeds: ids(claims.data, 'seed_dealer_id') };
 }
 
 export async function recordOperatingLifecycleDecision(seedId, actor, body = {}, {
@@ -99,10 +115,12 @@ export async function recordOperatingLifecycleDecision(seedId, actor, body = {},
 export async function listOperatingLifecycleCases(actor, { db = supabase, independent = requireIndependentReviewer } = {}) {
   independent(actor, '');
   const { data, error } = await db.from('dealer_approved_seed_links')
-    .select('seed_dealer_id,operating_status,activated_at,claimant_user_id')
+    .select('seed_dealer_id,tenant_id,operating_status,activated_at,claimant_user_id')
     .order('activated_at', { ascending: false }).limit(200);
   if (error || !Array.isArray(data)) throw refuse('DEALER_OPERATING_LIFECYCLE_UNAVAILABLE', 503);
-  return data.filter((c) => c.claimant_user_id !== actor.userId && SEED.test(c.seed_dealer_id))
+  const conflicts = await reviewerConflicts(db, actor);
+  return data.filter((c) => c.claimant_user_id !== actor.userId && SEED.test(c.seed_dealer_id)
+      && !conflicts.tenants.has(c.tenant_id) && !conflicts.seeds.has(c.seed_dealer_id))
     .map((c) => Object.freeze({ seed_dealer_id: c.seed_dealer_id, operating_status: c.operating_status,
       activated_at: c.activated_at }));
 }
@@ -128,6 +146,9 @@ export async function readOperatingLifecycle(seedId, actor, { db = supabase, ind
   independent(actor, '');
   const link = await loadLink(db, seedId);
   independent(actor, link.claimant_user_id);
+  const conflicts = await reviewerConflicts(db, actor);
+  if ((link.tenant_id && conflicts.tenants.has(link.tenant_id)) || conflicts.seeds.has(link.seed_dealer_id))
+    throw refuse('DEALER_REVIEWER_CONFLICT_OF_INTEREST', 403);
   const { data, error } = await db.from('dealer_operating_lifecycle_events')
     .select('event_id,action,previous_operating_status,next_operating_status,public_listings_withdrawn,created_at,reviewer_user_id,reason')
     .eq('link_id', link.link_id).order('created_at', { ascending: false }).limit(50);

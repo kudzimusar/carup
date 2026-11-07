@@ -2349,6 +2349,48 @@ try{
       console.log('DEALER_R6R2_REVIEW_REGRESSIONS PASS: E1 takedown laundering, E2 two-seed duplicate/grouping COI, E3 buyer-case COI, E4 legacy decisions on activated dealers, E5 read-time O12 gate, least privilege under Supabase default grants');
     }
 
+    // ── R6 closure R2-1 (independent closure review of 4476e2c8, reproduced there): the reviewer who
+    // RETRACTED a storefront, a public contact display or a media item cannot re-publish it alone.
+    // Direct inserts with real foreign keys exercise the ledger triggers themselves; all rolled back.
+    {
+      const link=(await query(`SELECT link_id,seed_dealer_id FROM dealer_approved_seed_links ORDER BY activated_at LIMIT 1`)).rows[0];
+      const media=(await query(`SELECT media_id,seed_dealer_id,tenant_id FROM dealer_storefront_media_items ORDER BY media_id LIMIT 1`)).rows[0];
+      // A fictional seed: the O12 real-publication gate (correctly) refuses any display on real seeds.
+      const contact=(await query(`SELECT seed_dealer_id,source_row_sha256,publication_revision FROM dealer_research_public_contact_events
+        WHERE dealer_research_seed_is_fictional_fixture(seed_dealer_id) ORDER BY source_checked_at DESC LIMIT 1`)).rows[0];
+      assert.ok(link&&media&&contact,'R2-1 fixtures exist (link, media item, contact display)');
+      const why='Fictional CI closure probe: dual control on any re-publication that follows a retraction by the same reviewer.';
+      const other='activationreviewer';
+      const sp=async(name,sql)=>{await exec('SAVEPOINT '+name);
+        try{await fails(sql,'REPUBLICATION_AFTER_OWN_RETRACTION_REQUIRES_DIFFERENT_REVIEWER')}
+        finally{await exec('ROLLBACK TO SAVEPOINT '+name)}};
+      const storefront=(who,disp)=>`INSERT INTO dealer_full_storefront_review_events(seed_dealer_id,link_id,reviewer_user_id,
+        disposition,public_name,public_city,approved_branch_snapshot,dealer_declared_sections,reviewer_reason)
+        VALUES ('${link.seed_dealer_id}','${link.link_id}','${who}','${disp}','Fixture Dealer','Harare','[]','{}','${why}')`;
+      const mediaEvent=(who,decision)=>`INSERT INTO dealer_storefront_media_review_events(media_id,seed_dealer_id,tenant_id,
+        reviewer_user_id,decision,rationale) VALUES ('${media.media_id}','${media.seed_dealer_id}','${media.tenant_id}','${who}','${decision}','${why}')`;
+      const contactEvent=(who,state)=>`INSERT INTO dealer_research_public_contact_events(seed_dealer_id,source_row_sha256,
+        publication_revision,reviewer_user_id,public_contact_state,rationale) VALUES ('${contact.seed_dealer_id}',
+        '${contact.source_row_sha256}',${contact.publication_revision},'${who}','${state}','${why}')`;
+      await exec('BEGIN');
+      try{
+        await exec(storefront(reviewer,'RETRACTED'));
+        await sp('r21a',storefront(reviewer,'PUBLISHED_FULL'));
+        await exec(storefront(other,'PUBLISHED_FULL'));
+        await exec(storefront(reviewer,'RETRACTED'));            // a later retraction by the same reviewer…
+        await sp('r21b',storefront(reviewer,'PUBLISHED_FULL')); // …is again refused for that reviewer alone
+
+        await exec(mediaEvent(reviewer,'RETRACTED'));
+        await sp('r21c',mediaEvent(reviewer,'APPROVED_PUBLIC_DISPLAY'));
+        await exec(mediaEvent(other,'APPROVED_PUBLIC_DISPLAY'));
+
+        await exec(contactEvent(reviewer,'RETRACTED'));
+        await sp('r21d',contactEvent(reviewer,'DISPLAY_REVIEWED_FIELDS'));
+        await exec(contactEvent(other,'DISPLAY_REVIEWED_FIELDS'));
+      }finally{await exec('ROLLBACK')}
+      console.log('DEALER_R6_CLOSURE_R2_1 PASS: storefront, media and contact re-publication after an own retraction refused; a different independent reviewer may re-publish');
+    }
+
     // Down refuses while R6 custody exists; then clean up the R6 probes for the rollback test.
     await fails(read(r6).down,'CANNOT_ROLLBACK_WITH_DEALER_R6_SECURITY_CUSTODY');
     await exec('DELETE FROM dealer_research_publication_policy_authority');

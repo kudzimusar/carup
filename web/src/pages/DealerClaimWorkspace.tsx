@@ -48,7 +48,7 @@ const AUTHORITY_REASON_TEXT:Record<string,string>={
   LEGAL_REVIEW_EXPIRED:'Your independent legal review has expired.',
   DEALER_AUTHORITY_EXPIRED:'Your dealership authority period has expired.',
   COUNTRY_POLICY_NOT_CURRENT:'The country compliance policy your approval relied on is no longer current.',
-  UNDER_INDEPENDENT_INVESTIGATION:'An independent investigation is open.',
+  UNDER_INDEPENDENT_REVIEW:'An independent CarUp review of your dealership is in progress.',
   RESTRICTED_BY_INDEPENDENT_REVIEW:'An independent reviewer restricted your dealership.',
   OWNER_MEMBERSHIP_NOT_CURRENT:'Your owner membership of the dealership is no longer current.',
   TENANT_NOT_ACTIVE:'Your dealership organisation is not active.',

@@ -164,3 +164,44 @@ test('R6 E the workbench reads its own queue and offers RENEW as a choice, not a
   const routes = readFileSync(new URL('../routes/dealerResearchRoutes.js', import.meta.url), 'utf8');
   assert.match(routes, /router\.get\('\/api\/admin\/dealership\/operating-lifecycle',\s*\n\s*reviewer,/);
 });
+
+// R6 closure (security): a reviewer who is a member of, or holds a claim on, the dealership can
+// neither read its lifecycle (incl. recorded reasons) nor see it in the queue.
+function conflictDb({ memberships = [], claims = [] } = {}) {
+  return {
+    from(table) {
+      const chain = { select() { return chain; }, eq() { return chain; }, gt() { return chain; }, order() { return chain; },
+        async limit() {
+          if (table === 'tenant_users') return { data: memberships, error: null };
+          if (table === 'dealer_research_claim_requests') return { data: claims, error: null };
+          if (table === 'dealer_approved_seed_links') return { data: [
+            { seed_dealer_id: 'ZW-DEAL-0001', tenant_id: 'tenant-1', operating_status: 'SUSPENDED', activated_at: 't1', claimant_user_id: 'fictional-owner' },
+            { seed_dealer_id: 'ZW-DEAL-0002', tenant_id: 'tenant-2', operating_status: 'ACTIVE', activated_at: 't2', claimant_user_id: 'other-owner' },
+          ], error: null };
+          return { data: [{ event_id: 'e1', action: 'SUSPEND', previous_operating_status: 'ACTIVE',
+            next_operating_status: 'SUSPENDED', public_listings_withdrawn: 1, created_at: 't', reviewer_user_id: 'x',
+            reason: 'Confidential investigation reason' }], error: null };
+        },
+        async maybeSingle() {
+          if (table === 'dealer_approved_seed_links') return { data: { ...link, tenant_id: 'tenant-1' }, error: null };
+          return { data: null, error: null };
+        } };
+      return chain;
+    },
+  };
+}
+test('R6 a reviewer who is staff of the dealership cannot read its lifecycle reasons', async () => {
+  await assert.rejects(readOperatingLifecycle('ZW-DEAL-0001', reviewer, { independent,
+    db: conflictDb({ memberships: [{ tenant_id: 'tenant-1' }] }) }), (e) => e.statusCode === 403 && e.code === 'DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+  await assert.rejects(readOperatingLifecycle('ZW-DEAL-0001', reviewer, { independent,
+    db: conflictDb({ claims: [{ seed_dealer_id: 'ZW-DEAL-0001' }] }) }), /DEALER_REVIEWER_CONFLICT_OF_INTEREST/);
+  const clean = await readOperatingLifecycle('ZW-DEAL-0001', reviewer, { independent, db: conflictDb() });
+  assert.equal(clean.events[0].reason, 'Confidential investigation reason', 'an unconflicted reviewer sees the reason');
+});
+test('R6 a conflicted reviewer\'s queue omits the dealerships they belong to or claim', async () => {
+  const cases = await listOperatingLifecycleCases(reviewer, { independent,
+    db: conflictDb({ memberships: [{ tenant_id: 'tenant-1' }], claims: [{ seed_dealer_id: 'ZW-DEAL-0002' }] }) });
+  assert.deepEqual(cases, []);
+  const all = await listOperatingLifecycleCases(reviewer, { independent, db: conflictDb() });
+  assert.deepEqual(all.map((c) => c.seed_dealer_id), ['ZW-DEAL-0001', 'ZW-DEAL-0002']);
+});

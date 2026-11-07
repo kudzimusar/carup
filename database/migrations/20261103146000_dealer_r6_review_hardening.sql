@@ -309,6 +309,59 @@ BEGIN
 END;
 $$;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 5. Closure review R2-1: a reviewer cannot undo their OWN retraction on the storefront, the
+--    reviewed public contact display or a storefront media item. A re-publication after a
+--    retraction must come from a different independent reviewer (dual control), exactly like
+--    research re-prelisting after a takedown and CLOSE_INVESTIGATION above. Latent today (the
+--    O12 real-publication gate hides every real record), enforced before any O12 policy exists.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION dealer_guard_republish_after_own_retraction()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_last_public TIMESTAMPTZ; v_conflict BOOLEAN := false;
+BEGIN
+  IF TG_TABLE_NAME = 'dealer_full_storefront_review_events' THEN
+    IF NEW.disposition <> 'PUBLISHED_FULL' THEN RETURN NEW; END IF;
+    SELECT max(publication_reviewed_at) INTO v_last_public FROM dealer_full_storefront_review_events
+     WHERE seed_dealer_id = NEW.seed_dealer_id AND disposition = 'PUBLISHED_FULL';
+    SELECT EXISTS (SELECT 1 FROM dealer_full_storefront_review_events
+     WHERE seed_dealer_id = NEW.seed_dealer_id AND disposition = 'RETRACTED'
+       AND reviewer_user_id = NEW.reviewer_user_id
+       AND publication_reviewed_at >= coalesce(v_last_public, '-infinity'::timestamptz)) INTO v_conflict;
+  ELSIF TG_TABLE_NAME = 'dealer_research_public_contact_events' THEN
+    IF NEW.public_contact_state <> 'DISPLAY_REVIEWED_FIELDS' THEN RETURN NEW; END IF;
+    SELECT max(source_checked_at) INTO v_last_public FROM dealer_research_public_contact_events
+     WHERE seed_dealer_id = NEW.seed_dealer_id AND public_contact_state = 'DISPLAY_REVIEWED_FIELDS';
+    SELECT EXISTS (SELECT 1 FROM dealer_research_public_contact_events
+     WHERE seed_dealer_id = NEW.seed_dealer_id AND public_contact_state = 'RETRACTED'
+       AND reviewer_user_id = NEW.reviewer_user_id
+       AND source_checked_at >= coalesce(v_last_public, '-infinity'::timestamptz)) INTO v_conflict;
+  ELSIF TG_TABLE_NAME = 'dealer_storefront_media_review_events' THEN
+    IF NEW.decision <> 'APPROVED_PUBLIC_DISPLAY' THEN RETURN NEW; END IF;
+    SELECT max(reviewed_at) INTO v_last_public FROM dealer_storefront_media_review_events
+     WHERE media_id = NEW.media_id AND decision = 'APPROVED_PUBLIC_DISPLAY';
+    SELECT EXISTS (SELECT 1 FROM dealer_storefront_media_review_events
+     WHERE media_id = NEW.media_id AND decision = 'RETRACTED'
+       AND reviewer_user_id = NEW.reviewer_user_id
+       AND reviewed_at >= coalesce(v_last_public, '-infinity'::timestamptz)) INTO v_conflict;
+  END IF;
+  IF v_conflict THEN
+    RAISE EXCEPTION 'REPUBLICATION_AFTER_OWN_RETRACTION_REQUIRES_DIFFERENT_REVIEWER' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION dealer_guard_republish_after_own_retraction() FROM PUBLIC, anon, authenticated, service_role;
+CREATE TRIGGER dealer_r6_storefront_republish_dual_control
+  BEFORE INSERT ON dealer_full_storefront_review_events
+  FOR EACH ROW EXECUTE FUNCTION dealer_guard_republish_after_own_retraction();
+CREATE TRIGGER dealer_r6_contact_redisplay_dual_control
+  BEFORE INSERT ON dealer_research_public_contact_events
+  FOR EACH ROW EXECUTE FUNCTION dealer_guard_republish_after_own_retraction();
+CREATE TRIGGER dealer_r6_media_reapproval_dual_control
+  BEFORE INSERT ON dealer_storefront_media_review_events
+  FOR EACH ROW EXECUTE FUNCTION dealer_guard_republish_after_own_retraction();
+
 -- +migrate Down
 SET LOCAL lock_timeout = '3s';
 -- Refuse while custody this Down would orphan exists: duplicate redirects, grouping reviews or buyer-case
@@ -323,6 +376,10 @@ BEGIN
   END IF;
 END;
 $$;
+DROP TRIGGER IF EXISTS dealer_r6_storefront_republish_dual_control ON dealer_full_storefront_review_events;
+DROP TRIGGER IF EXISTS dealer_r6_contact_redisplay_dual_control ON dealer_research_public_contact_events;
+DROP TRIGGER IF EXISTS dealer_r6_media_reapproval_dual_control ON dealer_storefront_media_review_events;
+DROP FUNCTION IF EXISTS dealer_guard_republish_after_own_retraction();
 -- Privilege tightening (section 4) is deliberately NOT reverted: a rollback must never re-open
 -- write access for the API role (same rule as 20261103125000's Down, R6 DBA #6).
 

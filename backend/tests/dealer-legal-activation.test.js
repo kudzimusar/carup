@@ -166,7 +166,7 @@ test('R6 an expired legal review explains itself and points to renewal',async()=
   try{
     const r=await legal.readMyOperationalDealerAuthority(submitted,claimant);
     assert.equal(r.state,'DEALER_AUTHORITY_BLOCKED');
-    assert.deepEqual(r.blocking_reasons,['LEGAL_REVIEW_EXPIRED','UNDER_INDEPENDENT_INVESTIGATION']);
+    assert.deepEqual(r.blocking_reasons,['LEGAL_REVIEW_EXPIRED','UNDER_INDEPENDENT_REVIEW']);
     assert.equal(r.next_step,'SUBMIT_UPDATED_APPLICATION_FOR_RENEWAL');
     assert.equal(r.operational,false);
   }finally{done()}
@@ -190,10 +190,12 @@ test('R6 the legal reviewer sees the dealer and PICKS evidence; finished cases l
         file_bytes:2048,created_at:'2026-11-07T00:00:00Z',storage_path:'dealership-claims/x/y.pdf'}],
   };
   supabase.from=table=>{
-    const rows=tables[table]??[];
-    const b={select(){return b},eq(){return b},in(){return b},order(){return b},
-      limit(){return Promise.resolve({data:rows,error:null})},
-      then(resolve){return Promise.resolve({data:rows,error:null}).then(resolve)}};
+    let ownClaimLookup=false;
+    const rows=()=>ownClaimLookup?[]:(tables[table]??[]);
+    const b={select(){return b},in(){return b},order(){return b},
+      eq(k){if(table==='dealer_research_claim_requests'&&k==='claimant_user_id')ownClaimLookup=true;return b},
+      limit(){return Promise.resolve({data:rows(),error:null})},
+      then(resolve){return Promise.resolve({data:rows(),error:null}).then(resolve)}};
     return b;
   };
   try{
@@ -232,5 +234,33 @@ test('R6 claimant status reports listings truthfully; the gating authority read 
     const pending=await legal.readMyOperationalDealerStatus(submitted,claimant);
     assert.equal(pending.public_listings_withdrawn,false,'never claims withdrawn while a listing is public');
     assert.equal(pending.public_listings_withdrawal_pending,true);
+  }finally{supabase.from=original}
+});
+
+test('R6 closure: a reviewer holding a claim on the same business never sees its legal case',async()=>{
+  const original=supabase.from;
+  const pending='5f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e';
+  const tables={
+    dealer_claim_compliance_review_events:[{submission_id:pending,reviewer_user_id:'prelim-1',verdict:'READY_FOR_REGULATORY_REVIEW'}],
+    dealer_claim_compliance_submissions:[{submission_id:pending,claim_id:submitted,claimant_user_id:'customer-1',
+      intake_version:1,submitted_at:'2026-11-07T00:00:00Z',application_snapshot:{}}],
+    dealer_legal_application_reviews:[],
+    dealer_research_claim_requests:[{claim_id:submitted,seed_dealer_id:'ZW-DEAL-0001'}],
+    dealer_claim_private_evidence:[],
+  };
+  let ownClaims=[];
+  supabase.from=table=>{
+    let filters={};
+    const rows=()=>table==='dealer_research_claim_requests'&&filters.claimant_user_id?ownClaims:(tables[table]??[]);
+    const b={select(){return b},in(){return b},order(){return b},
+      eq(k,v){filters[k]=v;return b},
+      limit(){return Promise.resolve({data:rows(),error:null})},
+      then(resolve){return Promise.resolve({data:rows(),error:null}).then(resolve)}};
+    return b;
+  };
+  try{
+    assert.equal((await legal.listPendingLegalDealershipCases(reviewer)).length,1);
+    ownClaims=[{seed_dealer_id:'ZW-DEAL-0001'}];
+    assert.deepEqual(await legal.listPendingLegalDealershipCases(reviewer),[],'conflicted reviewer sees nothing');
   }finally{supabase.from=original}
 });

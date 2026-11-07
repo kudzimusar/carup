@@ -87,11 +87,17 @@ export async function listPendingLegalDealershipCases(actor){
   ]):[{data:[]},{data:[]}];
   if(claimError||evidenceError)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
   const seedByClaim=new Map((claims||[]).map(c=>[c.claim_id,c.seed_dealer_id]));
+  // A reviewer who holds a claim on the same business never sees its case or evidence metadata.
+  const {data:ownClaims,error:ownClaimError}=await supabase.from('dealer_research_claim_requests')
+    .select('seed_dealer_id').eq('claimant_user_id',actor.userId).limit(500);
+  if(ownClaimError)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
+  const conflictedSeeds=new Set((Array.isArray(ownClaims)?ownClaims:[]).map(c=>c?.seed_dealer_id).filter(Boolean));
   const declaredName=(snapshot)=>{
     const v=snapshot?.tab_rows?.BUSINESS?.[0]?.legal_name;
     return typeof v==='string'&&v.trim()?v.trim().slice(0,180):null;
   };
-  return cases.map(row=>({
+  return cases.filter(row=>row.claimant_user_id!==actor.userId&&
+      !conflictedSeeds.has(seedByClaim.get(row.claim_id))).map(row=>({
     submission_id:row.submission_id,claim_id:row.claim_id,
     seed_dealer_id:seedByClaim.get(row.claim_id)||null,
     declared_legal_name:declaredName(row.application_snapshot),
@@ -249,7 +255,8 @@ function blockedAuthority({d,m,t,l,policyValid}){
   const legalExpired=!l||new Date(l.legal_expires_at).getTime()<=now;
   if(legalExpired)reasons.push('LEGAL_REVIEW_EXPIRED');
   else if(!policyValid)reasons.push('COUNTRY_POLICY_NOT_CURRENT');
-  if(d?.investigation_state&&d.investigation_state!=='none')reasons.push('UNDER_INDEPENDENT_INVESTIGATION');
+  // An open investigation is NOT named to the dealer (no tip-off); explicit disclosure is Owner decision O14.
+  if(d?.investigation_state&&d.investigation_state!=='none')reasons.push('UNDER_INDEPENDENT_REVIEW');
   if(d?.restriction_state&&d.restriction_state!=='none')reasons.push('RESTRICTED_BY_INDEPENDENT_REVIEW');
   if(d?.suspension_state&&d.suspension_state!=='none')reasons.push('SUSPENDED_BY_INDEPENDENT_REVIEW');
   if(!d?.expiry_date||new Date(d.expiry_date).getTime()<=now)reasons.push('DEALER_AUTHORITY_EXPIRED');

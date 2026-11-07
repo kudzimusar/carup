@@ -15,6 +15,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { assertLocalDatabase } from './importResearchSeed.mjs';
+import { hashPassword } from '../../utils/passwordAuth.js';
 
 const url = assertLocalDatabase(process.env.DEALER_ISOLATED_POSTGRES_URL);
 const purl = new URL(url);
@@ -70,9 +71,13 @@ try {
     email: 'fictional-vehicle-reviewer@example.invalid', role: 'admin' };
   const buyer = { id: 'vehiclebuyer1', name: 'Fictional Marketplace Buyer',
     email: 'fictional-marketplace-buyer@example.invalid', role: 'member' };
+  // R6 R2-1: the storefront re-publication after phase 5's retraction must come from a DIFFERENT
+  // independent reviewer than the one who retracted, so this reviewer needs its own step-up password.
+  const vehicleReviewerPassword = 'FICTIONAL_CI_VEHICLE_REVIEWER_PASSWORD_NOT_REAL_2026_11_07';
   for (const actor of [reviewer, buyer]) {
-    await db.query(`INSERT INTO users(id, role, is_verified, name, email)
-      VALUES ($1, $2, true, $3, $4)`, [actor.id, actor.role, actor.name, actor.email]);
+    await db.query(`INSERT INTO users(id, role, is_verified, name, email, password_hash)
+      VALUES ($1, $2, true, $3, $4, $5)`, [actor.id, actor.role, actor.name, actor.email,
+      actor === reviewer ? await hashPassword(vehicleReviewerPassword) : null]);
   }
   // Independence is structural, not asserted by name: neither account holds any dealership role.
   const membership = (await db.query(`SELECT count(*)::int AS n FROM tenant_users
@@ -84,6 +89,7 @@ try {
       VALUES ($1, $2, $3, true, (now() + interval '3 hours')::text)`, [token, actor.id, actor.role]);
     f.actors[actor === reviewer ? 'vehicle_reviewer' : 'vehicle_buyer'] = { ...actor, token };
   }
+  f.vehicle_reviewer_password = vehicleReviewerPassword;
   f.listing_vin = LISTING_VIN;
   f.listing_phase_provenance = 'CI_ONLY_FICTIONAL_DEALER_STOCK_NOT_A_REAL_VEHICLE';
   writeFileSync(fpath, JSON.stringify(f), { mode: 0o600 });
