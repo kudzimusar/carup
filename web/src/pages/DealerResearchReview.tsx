@@ -1,4 +1,5 @@
 import {useCallback,useEffect,useState} from 'react'
+import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
@@ -290,7 +291,7 @@ export default function DealerResearchReview(){
             </label>
             <Input id="source-reviewer-password" type="password" autoComplete="current-password"
               value={password} onChange={e=>setPassword(e.target.value)}/>
-            <Button disabled={busy||reason.trim().length<minimum||password.length<8}
+            <Button className={DEALER_WRAP_BUTTON} disabled={busy||reason.trim().length<minimum||password.length<8}
               onClick={()=>{void record()}}>Record independent eligibility decision</Button>
             <p className="text-xs text-amber-800">
               No bulk approval. An unclaimed public research page is not a
@@ -323,7 +324,7 @@ export default function DealerResearchReview(){
               <textarea id="group-reason" value={groupReason} minLength={60}
                 maxLength={3000} onChange={e=>setGroupReason(e.target.value)}
                 className="border rounded-lg w-full p-3 min-h-28"/>
-              <Button variant="outline" disabled={busy||password.length<8||
+              <Button className={DEALER_WRAP_BUTTON} variant="outline" disabled={busy||password.length<8||
                 groupReason.trim().length<60} onClick={()=>{void recordGrouping()}}>
                 Record nonlegal grouping observation
               </Button>
@@ -347,7 +348,7 @@ export default function DealerResearchReview(){
               <textarea id="duplicate-reconcile-reason" value={duplicateReason} minLength={60}
                 maxLength={3000} onChange={e=>setDuplicateReason(e.target.value)}
                 className="border rounded-lg w-full p-3 min-h-24"/>
-              <Button variant="outline" disabled={busy||password.length<8||
+              <Button className={DEALER_WRAP_BUTTON} variant="outline" disabled={busy||password.length<8||
                 duplicateReason.trim().length<60||!/^ZW-DEAL-\d{4}$/.test(canonicalTargetSeed.trim())}
                 onClick={()=>{void recordDuplicateRedirect()}}>
                 Reconcile duplicate &amp; activate canonical redirect
@@ -394,7 +395,7 @@ export default function DealerResearchReview(){
                     <textarea id="correction-review-reason" value={correctionReason} minLength={60}
                       maxLength={3000} onChange={e=>setCorrectionReason(e.target.value)}
                       className="border rounded-lg w-full p-3 min-h-24 bg-white"/>
-                    <Button variant="outline" disabled={busy||password.length<8||
+                    <Button className={DEALER_WRAP_BUTTON} variant="outline" disabled={busy||password.length<8||
                       correctionReason.trim().length<60}
                       onClick={()=>{void recordCorrectionDisposition()}}>
                       Record correction/takedown disposition
@@ -428,7 +429,7 @@ export default function DealerResearchReview(){
               <textarea id="contact-reason" value={contactReason} minLength={80}
                 maxLength={3000} onChange={e=>setContactReason(e.target.value)}
                 className="border rounded-lg p-3 w-full min-h-28"/>
-              <Button variant="outline" disabled={busy||password.length<8||
+              <Button className={DEALER_WRAP_BUTTON} variant="outline" disabled={busy||password.length<8||
                 contactReason.trim().length<80||
                 current.publication_state!=='PRELISTED_UNCLAIMED'}
                 onClick={()=>{void recordContacts()}}>

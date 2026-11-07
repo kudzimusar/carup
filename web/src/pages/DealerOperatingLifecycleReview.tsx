@@ -1,4 +1,5 @@
 import {useEffect,useState} from 'react'
+import { dealerDate, dealerDateTime } from '@/lib/dealerDates'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
 
@@ -103,7 +104,7 @@ export default function DealerOperatingLifecycleReview(){
        <option value="">{(lifecycle?.renewal_candidates||[]).length
         ?'Choose the newer legal review':'No newer unexpired legal review exists for this dealership'}</option>
        {(lifecycle?.renewal_candidates||[]).map(c=><option key={c.legal_review_id} value={c.legal_review_id}>
-        Reviewed {new Date(c.reviewed_at).toLocaleDateString()} · valid until {new Date(c.legal_expires_at).toLocaleDateString()} · {c.approved_scope}
+        Reviewed {dealerDate(c.reviewed_at)} · valid until {dealerDate(c.legal_expires_at)} · {c.approved_scope}
        </option>)}
       </select></label>}
      <label className="block text-sm">Reason (40–3000 characters, recorded permanently)
@@ -120,7 +121,7 @@ export default function DealerOperatingLifecycleReview(){
     <ol className="mt-2 space-y-2 text-sm" data-testid="lifecycle-history">
      {(lifecycle?.events||[]).map(e=><li key={e.event_id} className="rounded border border-slate-200 p-2">
       <strong>{e.action}</strong>: {e.previous_operating_status} → {e.next_operating_status} · withdrawn
-      {' '}{e.public_listings_withdrawn} · {new Date(e.created_at).toLocaleString()}
+      {' '}{e.public_listings_withdrawn} · {dealerDateTime(e.created_at)}
       {e.recorded_by_this_reviewer&&' · recorded by you'}
       {e.reason&&<span className="block mt-1 text-slate-700 break-words">Reason: {e.reason}</span>}</li>)}
      {lifecycle&&lifecycle.events.length===0&&<li className="text-slate-600">No lifecycle decisions yet.</li>}

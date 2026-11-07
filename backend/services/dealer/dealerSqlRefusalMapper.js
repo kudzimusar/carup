@@ -336,6 +336,17 @@ export function mapDealerSqlRefusal(error, fallbackOperation = 'dealership opera
  * Format an HTTP error response in dealership routes, preserving explicit 4xx and 503 status codes
  * while ensuring 500 internal errors never leak SQL, stack traces, or private evidence.
  */
+// Owner UAT D2: an applicant-input parser (claim workbook / CSV intake) may say WHERE in the
+// applicant's OWN file a value was refused — "BRANCHES!2", "BUSINESS!2.tax_clearance_expiry",
+// "FINANCE_PAYMENTS!3:7", "BUSINESS". Only that explicit `location` field is echoed, and only in
+// this narrow shape; a database/PostgREST error's own `details` is never forwarded.
+const APPLICANT_FILE_LOCATION = /^[A-Z][A-Z_]{1,39}(?:[!.:][^\u0000-\u001f<>]{1,100})?$/;
+export function applicantFileLocation(error) {
+  const location = error?.location;
+  return typeof location === 'string' && location.length <= 140 && APPLICANT_FILE_LOCATION.test(location)
+    ? location : undefined;
+}
+
 export function sendDealerRouteError(res, _next, error) {
   const status = Number(error?.statusCode);
   if (Number.isInteger(status) && status >= 400 && status <= 499) {
@@ -343,9 +354,11 @@ export function sendDealerRouteError(res, _next, error) {
     if (status === 429 && Number.isInteger(retryAfter) && retryAfter > 0 && retryAfter <= 86400) {
       res.set('Retry-After', String(retryAfter));
     }
+    const location = applicantFileLocation(error);
     res.set('Cache-Control', 'no-store').status(status).json({
       error: error.message,
       code: typeof error.code === 'string' ? error.code : undefined,
+      ...(location ? { location } : {}),
     });
     return;
   }

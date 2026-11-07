@@ -26,7 +26,9 @@ const SOURCE = Object.freeze({
   sourceId: 'Seed Dealer ID',
 });
 export const PREFILL_CONTRACT_VERSION = 'CARUP_DEALER_CLAIM_PREFILL_V1';
-const error = (code, details = '') => Object.assign(new Error(code), {code, details, statusCode:400});
+// `location` says WHERE in the applicant's own workbook a value was refused (e.g. "BRANCHES!2");
+// sendDealerRouteError echoes only this explicit field, never a database error's `details` (UAT D2).
+const error = (code, details = '') => Object.assign(new Error(code), {code, details, location: details || undefined, statusCode:400});
 function requiredIdentity(claim, source) {
   if (!claim || claim.claim_status !== 'CLAIM_APPROVED' || !claim.claim_id ||
     !claim.claimant_user_id || !claim.seed_dealer_id) throw error('CLAIM_NOT_APPROVED');
@@ -52,23 +54,38 @@ function sheetFill(sheet, rowIndex, pairs) {
  * Source information is always marked as research requiring confirmation, even after
  * claim authorization. Claim approval is NOT legal entity, business licence or stock approval.
  */
+/**
+ * The research candidate values a claim-specific prefilled workbook carries — and nothing else.
+ * Shared by the workbook builder and the applicant's draft review (Owner UAT D4) so the "changed
+ * from research" preview can never show a research field the applicant was not already given.
+ */
+export function researchPrefillCandidates(source) {
+  const facts=source?.source_snapshot||{};
+  return Object.freeze({
+    BUSINESS:Object.freeze({research_display_name:facts[SOURCE.name] || ''}),
+    BRANCHES:Object.freeze({
+      branch_name:facts[SOURCE.name] || '', physical_address:facts[SOURCE.address] || '',
+      suburb:facts[SOURCE.suburb] || '',city:facts[SOURCE.city] || '',
+      business_contact_phone:facts[SOURCE.phone] || '',
+    }),
+  });
+}
 export async function buildPrefilledDealerWorkbook(claim, source, {issuedAt = new Date()} = {}) {
   requiredIdentity(claim,source);
   const w=await buildBlankDealerIntakeWorkbook();
-  const facts=source.source_snapshot;
+  const candidates=researchPrefillCandidates(source);
   const b=w.getWorksheet('BUSINESS');
   sheetFill(b,2,{
     claim_reference:claim.claim_id,source_seed_id:source.seed_dealer_id,
-    research_display_name:facts[SOURCE.name] || '',
+    ...candidates.BUSINESS,
     operating_country:'ZW', research_confirmation:'UNKNOWN',
   });
   const branch=w.getWorksheet('BRANCHES');
   sheetFill(branch,2,{
     branch_ref:'BR-'+source.seed_dealer_id,
     source_seed_id:source.seed_dealer_id,
-    branch_name:facts[SOURCE.name] || '', physical_address:facts[SOURCE.address] || '',
-    suburb:facts[SOURCE.suburb] || '',city:facts[SOURCE.city] || '',
-    country:'ZW',business_contact_phone:facts[SOURCE.phone] || '',
+    ...candidates.BRANCHES,
+    country:'ZW',
     source_confirmation:'UNKNOWN',
   });
   const instructions=w.getWorksheet('README - Instructions');

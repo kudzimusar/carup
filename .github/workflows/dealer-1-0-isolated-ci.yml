@@ -146,6 +146,8 @@ jobs:
             backend/tests/dealer-canonical-listing.test.js \
             backend/tests/dealer-operating-lifecycle.test.js \
             backend/tests/dealer-workbook-negative-paths.test.js \
+            backend/tests/dealer-uat-workbook-refusal-clarity.test.js \
+            backend/tests/dealer-uat-draft-review-preview.test.js \
             backend/tests/differentiator-journey.test.js
       - name: Isolated PostgreSQL migration and claim authority proof (PGlite)
         run: |
@@ -158,6 +160,12 @@ jobs:
         run: node backend/scripts/dealership/checkR3AcceptanceLedgers.mjs
       - name: Web TypeScript validation
         run: npx tsc --noEmit --project web/tsconfig.app.json
+      - name: Dealership web unit contracts (Owner visual UAT fixes D2/D4/D5)
+        run: >-
+          npm run test:unit --workspace=web --
+          src/lib/dealerFileRefusal.test.ts
+          src/lib/dealerDraftReview.test.ts
+          src/lib/dealerDates.test.ts
       - name: Web production build (artifact not deployed)
         run: npm run build
       - name: Confirm no external DB tests silently ran

@@ -8,8 +8,9 @@ import { spawn } from 'node:child_process';
 import { supabase } from '../../db/supabase.js';
 import { verifyPassword } from '../../utils/passwordAuth.js';
 import {
-  exportPrefilledDealerWorkbook,parseCompletedDealerWorkbook,
+  exportPrefilledDealerWorkbook,parseCompletedDealerWorkbook,researchPrefillCandidates,
 } from './dealerWorkbookRoundtrip.js';
+import {intakeFieldLabels} from './dealerIntakeWorkbook.js';
 
 import {buildManualDealerWorkbook} from './dealerManualIntake.js';
 import {inspectDealerCsvImport,stageConfirmedDealerCsv} from './dealerCsvIntake.js';
@@ -357,7 +358,15 @@ export async function readMyClaimIntakeDraft(claimId,actor){
     .select('schema_version,content,submission_version,state,updated_at')
     .eq('claim_id',claim.claim_id).eq('claimant_user_id',actor.userId).maybeSingle();
   if(error)throw deny('INTAKE_READ_UNAVAILABLE',503);
-  return data;
+  if(!data)return data;
+  // Owner UAT D4: before freezing, the applicant reviews what CarUp read from their workbook and where
+  // it differs from the research candidates THEIR OWN prefilled workbook carried (researchPrefillCandidates
+  // returns exactly those values, no other research field). Best effort: a source read failure only
+  // hides the comparison, never the applicant's saved draft.
+  let research_candidates=null;
+  try{research_candidates=researchPrefillCandidates(await loadSource(claim.seed_dealer_id));}
+  catch{research_candidates=null;}
+  return {...data,review_preview:{research_candidates,field_labels:intakeFieldLabels()}};
 }
 export async function listClaimReviewQueue(actor){
   requireIndependentReviewer(actor,'');

@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
+import { dealerDate, dealerDateTime } from '@/lib/dealerDates'
+import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
+import { dealerFileRefusalFromError } from '@/lib/dealerFileRefusal'
+import { DealerDraftReview } from '@/components/dealer/DealerDraftReview'
+import type { DraftReviewPreview } from '@/lib/dealerDraftReview'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -28,6 +33,7 @@ type JurisdictionPreview = {
 type Draft = {
   schema_version:string;submission_version:number;state:string;updated_at:string
   content:{tab_rows:Record<string,Array<Record<string,string>>>}
+  review_preview?:DraftReviewPreview|null
 }
 type ComplianceSubmission = {
   submission_id:string;intake_version:number;schema_version:string;
@@ -93,6 +99,9 @@ export default function DealerClaimWorkspace() {
   const [documentClass,setDocumentClass]=useState('COMPANY_REGISTRATION')
   const [documentFile,setDocumentFile]=useState<File|null>(null)
   const [workbookFile,setWorkbookFile]=useState<File|null>(null)
+  // Owner UAT D2: a refused workbook/CSV is explained in plain language right under its own upload
+  // control (with the tab and row to fix), not as a bare code at the bottom of the page.
+  const [fileProblem,setFileProblem]=useState<{scope:'workbook'|'csv';text:string}|null>(null)
   const [csvFile,setCsvFile]=useState<File|null>(null)
   const [csvTab,setCsvTab]=useState('BUSINESS')
   const [csvPreview,setCsvPreview]=useState<CsvPreview|null>(null)
@@ -142,28 +151,32 @@ export default function DealerClaimWorkspace() {
   const loadDetails=useCallback(async()=>{
     if(!user||!token||!selected)return
     const auth=authHeaders(token,user.id)
+    // Owner UAT D6: the intake, jurisdiction and compliance reads exist only for an APPROVED claim.
+    // Asking earlier just produced three refused (403) requests and console errors on every load.
+    const approved=claims.some(c=>c.claim_id===selected&&c.claim_status==='CLAIM_APPROVED')
+    const notBeforeApproval=<T,>():Promise<T>=>Promise.reject(new Error('NOT_APPLICABLE_BEFORE_CLAIM_APPROVAL'))
     try{
       const results=await Promise.allSettled([
         apiRequest<{evidence:EvidenceItem[]}>({
           baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/evidence',
           authHeaders:auth,
         }),
-        apiRequest<{intake:Draft}>({
+        approved?apiRequest<{intake:Draft}>({
           baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/intake',
           authHeaders:auth,
-        }),
+        }):notBeforeApproval<{intake:Draft}>(),
         apiRequest<{candidates:OcrCandidate[]}>({
           baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/ocr-candidates',
           authHeaders:auth,
         }),
-        apiRequest<{preview:JurisdictionPreview}>({
+        approved?apiRequest<{preview:JurisdictionPreview}>({
           baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/jurisdiction-preview',
           authHeaders:auth,
-        }),
-        apiRequest<{submissions:ComplianceSubmission[]}>({
+        }):notBeforeApproval<{preview:JurisdictionPreview}>(),
+        approved?apiRequest<{submissions:ComplianceSubmission[]}>({
           baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/compliance-submissions',
           authHeaders:auth,
-        }),
+        }):notBeforeApproval<{submissions:ComplianceSubmission[]}>(),
         apiRequest<{authority:OperationalAuthority}>({
           baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/operational-authority',
           authHeaders:auth,
@@ -176,7 +189,7 @@ export default function DealerClaimWorkspace() {
       setComplianceSubmissions(results[4].status==='fulfilled'?results[4].value.submissions||[]:[])
       setOperationalAuthority(results[5].status==='fulfilled'?results[5].value.authority:null)
     }catch{setEvidence([]);setDraft(null);setOcrCandidates([]);setJurisdiction(null);setComplianceSubmissions([]);setOperationalAuthority(null)}
-  },[selected,user,token])
+  },[selected,user,token,claims])
   useEffect(()=>{
     let mounted=true
     void Promise.resolve().then(()=>{if(mounted)void loadDetails()})
@@ -242,7 +255,7 @@ export default function DealerClaimWorkspace() {
   }
   async function uploadWorkbook(){
     if(!user||!token||!selected||!workbookFile||busy)return
-    setError('');setNotice('');setBusy(true)
+    setError('');setNotice('');setFileProblem(null);setBusy(true)
     try{
       if(!workbookFile.name.toLowerCase().endsWith('.xlsx')||workbookFile.size>8*1024*1024)
         throw new Error('Upload one valid .xlsx file no larger than 8MB')
@@ -258,13 +271,13 @@ export default function DealerClaimWorkspace() {
       setNotice(`Application draft saved (version ${result.receipt.version}). No compliance, tenant or inventory privileges have been granted.`)
       setWorkbookFile(null)
       await loadDetails()
-    }catch(problem){setError(problem instanceof Error?problem.message:'Workbook import rejected')}
+    }catch(problem){setFileProblem({scope:'workbook',text:dealerFileRefusalFromError(problem,'Workbook import rejected')})}
     finally{setBusy(false)}
   }
 
   async function previewLegacyCsv(){
     if(!selected||!token||!user||busy||!csvFile)return
-    setBusy(true);setError('');setNotice('');setCsvPreview(null)
+    setBusy(true);setError('');setNotice('');setFileProblem(null);setCsvPreview(null)
     try{
       if(!csvFile.name.toLowerCase().endsWith('.csv')||csvFile.size>2*1024*1024)
         throw new Error('Choose an UTF-8 CSV smaller than 2 MB')
@@ -280,7 +293,7 @@ export default function DealerClaimWorkspace() {
       ])))
       setCsvAcknowledged(false)
       setNotice('Import preview ready. Review and confirm every column. No candidate data or privileges have been saved.')
-    }catch(problem){setError(problem instanceof Error?problem.message:'CSV preview rejected')}
+    }catch(problem){setFileProblem({scope:'csv',text:dealerFileRefusalFromError(problem,'CSV preview rejected')})}
     finally{setBusy(false)}
   }
   async function importMappedCsv(){
@@ -307,7 +320,7 @@ export default function DealerClaimWorkspace() {
         result.receipt.version+'. No legal approval or tenant privileges granted.')
       setCsvPreview(null);setCsvAcknowledged(false);setCsvFile(null)
       await loadDetails()
-    }catch(problem){setError(problem instanceof Error?problem.message:'CSV import rejected')}
+    }catch(problem){setFileProblem({scope:'csv',text:dealerFileRefusalFromError(problem,'CSV import rejected')})}
     finally{setBusy(false)}
   }
 
@@ -453,7 +466,7 @@ export default function DealerClaimWorkspace() {
                         <div className="text-sm mt-3">
                           <strong>{evidence.length} private evidence record(s)</strong>
                           {evidence.map(e=><p className="mt-1" key={e.evidence_id}>
-                            {e.document_class.replaceAll('_',' ')} · Submitted {new Date(e.created_at).toLocaleDateString()}
+                            {e.document_class.replaceAll('_',' ')} · Submitted {dealerDate(e.created_at)}
                           </p>)}
                         </div>
                       )}
@@ -507,13 +520,15 @@ export default function DealerClaimWorkspace() {
                         Research values are candidates needing your confirmation, not independently verified
                         legal facts. Complete the missing legal, branch, service and buyer-policy fields.
                       </p>
-                      <Button disabled={busy} onClick={()=>{void downloadPrefilled()}}>Download my prefilled Excel workbook</Button>
+                      <Button className={DEALER_WRAP_BUTTON} disabled={busy} onClick={()=>{void downloadPrefilled()}}>Download my prefilled Excel workbook</Button>
                       <label htmlFor="claim-workbook-file" className="text-sm font-medium block">Completed .xlsx workbook</label>
                       <Input id="claim-workbook-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        onChange={e=>setWorkbookFile(e.target.files?.[0]||null)}/>
-                      <Button disabled={busy||!workbookFile} onClick={()=>{void uploadWorkbook()}}>
+                        onChange={e=>{setWorkbookFile(e.target.files?.[0]||null);setFileProblem(null)}}/>
+                      <Button className={DEALER_WRAP_BUTTON} disabled={busy||!workbookFile} onClick={()=>{void uploadWorkbook()}}>
                         Upload completed workbook and populate application
                       </Button>
+                      {fileProblem?.scope==='workbook' && <p role="alert" data-testid="dealer-workbook-refusal"
+                        className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{fileProblem.text}</p>}
                       <section className="border-t pt-5 space-y-3" aria-labelledby="csv-dealer-title">
                         <h3 id="csv-dealer-title" className="font-semibold text-lg">
                           Import an existing CSV with confirmed field mapping
@@ -544,8 +559,10 @@ export default function DealerClaimWorkspace() {
                         <Input id="claim-csv-file" type="file" accept=".csv,text/csv"
                           onChange={e=>{setCsvFile(e.target.files?.[0]||null);
                             setCsvPreview(null);setCsvAcknowledged(false)}}/>
-                        <Button variant="outline" disabled={busy||!csvFile}
+                        <Button variant="outline" className={DEALER_WRAP_BUTTON} disabled={busy||!csvFile}
                           onClick={()=>{void previewLegacyCsv()}}>Preview CSV mappings without saving</Button>
+                        {fileProblem?.scope==='csv' && <p role="alert" data-testid="dealer-csv-refusal"
+                          className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{fileProblem.text}</p>}
                         {csvPreview && <div className="space-y-3 border rounded-xl p-4">
                           <p className="text-sm font-semibold">
                             {csvPreview.input_rows} candidate record(s) ·
@@ -583,7 +600,7 @@ export default function DealerClaimWorkspace() {
                             these imported values are unverified candidate declarations
                             requiring independent review.
                           </label>
-                          <Button disabled={busy||!csvAcknowledged}
+                          <Button className={DEALER_WRAP_BUTTON} disabled={busy||!csvAcknowledged}
                             onClick={()=>{void importMappedCsv()}}>
                             Confirm mapped CSV and save the private application draft
                           </Button>
@@ -639,7 +656,7 @@ export default function DealerClaimWorkspace() {
                           dealership eligibility review. This is not proof that the named
                           signatory has independently verified authority.
                         </label>
-                        <Button variant="outline" disabled={busy||manualLegalName.trim().length<2}
+                        <Button className={DEALER_WRAP_BUTTON} variant="outline" disabled={busy||manualLegalName.trim().length<2}
                           onClick={()=>{void saveManual()}}>Save manual application into CarUp</Button>
                       </section>
                       {operationalAuthority && <section className="border-t pt-4 space-y-2 text-sm">
@@ -715,7 +732,7 @@ export default function DealerClaimWorkspace() {
                           independent preliminary review. This does not constitute company
                           ownership verification, regulatory approval or a legal electronic signature.
                         </label>
-                        <Button disabled={busy||!submitAcknowledged}
+                        <Button className={DEALER_WRAP_BUTTON} disabled={busy||!submitAcknowledged}
                           onClick={()=>{void submitFrozenApplication()}}>
                           Submit frozen application for independent review
                         </Button>
@@ -728,7 +745,7 @@ export default function DealerClaimWorkspace() {
                             Version {item.intake_version} · {item.preliminary_status.replaceAll('_',' ')}
                           </p>
                           <p className="text-xs text-gray-500 mt-1">
-                            Submitted {new Date(item.submitted_at).toLocaleString()}
+                            Submitted {dealerDateTime(item.submitted_at)}
                           </p>
                           {item.correction_reason&&<p className="mt-2 text-amber-800">
                             Required action: {item.correction_reason}
@@ -742,11 +759,8 @@ export default function DealerClaimWorkspace() {
                         <section className="border-t pt-3 text-sm">
                           <h3 className="font-semibold">Saved application version {draft.submission_version}</h3>
                           <p className="text-gray-600">State: {draft.state.replaceAll('_',' ')}</p>
-                          <p className="text-gray-600">Saved: {new Date(draft.updated_at).toLocaleString()}</p>
-                          <ul className="list-disc pl-5 mt-2">
-                            {Object.entries(draft.content.tab_rows).filter(([name])=>name!=='README - Instructions')
-                              .map(([name,rows])=><li key={name}>{name.replaceAll('_',' ')}: {rows.length} row(s)</li>)}
-                          </ul>
+                          <p className="text-gray-600">Saved: {dealerDateTime(draft.updated_at)}</p>
+                          <DealerDraftReview tabRows={draft.content.tab_rows} preview={draft.review_preview}/>
                         </section>
                       )}
                     </CardContent></Card>

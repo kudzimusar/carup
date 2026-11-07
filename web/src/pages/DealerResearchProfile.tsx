@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { dealerDate } from '@/lib/dealerDates'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -416,7 +417,7 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                     </p>}
                     {reviewedContacts.source_checked_at&&<p className="text-xs text-gray-500">
                       Contact display review:
-                      {' '}{new Date(reviewedContacts.source_checked_at).toLocaleDateString()}.
+                      {' '}{dealerDate(reviewedContacts.source_checked_at)}.
                       This is not independent legal-business verification.
                     </p>}
                   </div>}

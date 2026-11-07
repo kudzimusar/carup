@@ -203,6 +203,15 @@ if (JSON.stringify(CUSTOMER_TABS.map(t=>t.name)) !== JSON.stringify(REQUIRED_NAM
 }
 
 /**
+ * Owner UAT D4: the workbook's own (public, static) column labels by tab and field key, so the
+ * applicant can review "what CarUp read from your workbook" in the same words they typed against.
+ */
+export function intakeFieldLabels() {
+  return Object.fromEntries(CUSTOMER_TABS.filter((tab) => !tab.name.startsWith('README'))
+    .map((tab) => [tab.name, Object.fromEntries(tab.fields.map((f) => [f.key, f.label]))]));
+}
+
+/**
  * Official source field mapping (all 40 research intake columns). REVIEWER_ONLY fields are never
  * customer-editable, and references never confer an organization, tenant or permission.
  */

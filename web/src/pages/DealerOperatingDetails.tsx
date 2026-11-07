@@ -1,4 +1,5 @@
 import {useCallback,useEffect,useState,type ChangeEvent} from 'react'
+import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
@@ -261,7 +262,7 @@ export default function DealerOperatingDetails(){
               placeholder="Actual operating branch location"/>
           </div>
         </div>
-        <Button variant="outline" disabled={busy||branchName.trim().length<2||
+        <Button className={DEALER_WRAP_BUTTON} variant="outline" disabled={busy||branchName.trim().length<2||
           branchAddress.trim().length<3} onClick={()=>{void recordBranch()}}>
           Save branch in canonical dealership database
         </Button>
@@ -334,12 +335,12 @@ export default function DealerOperatingDetails(){
         <label htmlFor="dealer-media-rights-attestation" className="flex items-start gap-2 text-sm">
           <input id="dealer-media-rights-attestation" type="checkbox"
             checked={mediaAttested} onChange={e=>setMediaAttested(e.target.checked)}/>
-          <span>
+          <span className="min-w-0 [overflow-wrap:anywhere]">
             I attest that this photograph is owned by our dealership and contains no OEM or
             third-party brand logo rights claim ({RIGHTS_ATTESTATION}).
           </span>
         </label>
-        <Button variant="outline"
+        <Button className={DEALER_WRAP_BUTTON} variant="outline"
           data-testid="dealer-media-upload-button"
           disabled={busy||!mediaDataUrl||!mediaAttested||
             mediaCaption.trim().length<5||mediaAltText.trim().length<5}

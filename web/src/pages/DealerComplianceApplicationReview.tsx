@@ -1,4 +1,6 @@
 import {useCallback,useEffect,useState} from 'react'
+import { dealerDateTime } from '@/lib/dealerDates'
+import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
@@ -130,7 +132,7 @@ export default function DealerComplianceApplicationReview(){
             <strong className="text-sm block">Application version {item.intake_version}</strong>
             <span className="text-xs text-gray-600 block break-all">{item.claim_id}</span>
             <span className="text-xs text-gray-500 block mt-1">
-              Submitted {new Date(item.submitted_at).toLocaleString()}
+              Submitted {dealerDateTime(item.submitted_at)}
             </span>
             {!item.independent_review_required&&<span className="text-xs text-red-700 block">
               Self-review forbidden
@@ -140,7 +142,7 @@ export default function DealerComplianceApplicationReview(){
         <Card><CardContent className="p-5 space-y-4">
           <h2 className="font-semibold text-lg">Frozen declaration and findings</h2>
           {!current?<p className="text-gray-600 text-sm">Select a submitted application.</p>:<>
-            <p className="text-sm">Application {current.submission_id} · version {current.intake_version}</p>
+            <p className="text-sm [overflow-wrap:anywhere]">Application {current.submission_id} · version {current.intake_version}</p>
             <p className="text-xs text-gray-600">
               Original evidence preview remains in the separate authorized claim-review workbench.
               Review the actual issuer, company identity and claimed branch scope before any finding.
@@ -151,7 +153,7 @@ export default function DealerComplianceApplicationReview(){
               </label>
               <Input id="case-password" type="password" autoComplete="current-password"
                 value={password} onChange={e=>setPassword(e.target.value)}/>
-              <Button disabled={busy||password.length<8||!current.independent_review_required}
+              <Button className={DEALER_WRAP_BUTTON} disabled={busy||password.length<8||!current.independent_review_required}
                 onClick={()=>{void openFrozenCase()}}>
                 Inspect private frozen application
               </Button>
@@ -199,7 +201,7 @@ export default function DealerComplianceApplicationReview(){
               </label>
               <Input id="finding-password" type="password" autoComplete="current-password"
                 value={password} onChange={e=>setPassword(e.target.value)}/>
-              <Button disabled={busy||reason.trim().length<40||password.length<8}
+              <Button className={DEALER_WRAP_BUTTON} disabled={busy||reason.trim().length<40||password.length<8}
                 onClick={()=>{void recordFinding()}}>Record immutable preliminary finding</Button>
               <Button variant="outline" onClick={()=>setPreview(null)}>Close private case</Button>
             </>}

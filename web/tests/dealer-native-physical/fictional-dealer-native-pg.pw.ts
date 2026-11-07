@@ -309,6 +309,13 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
   await claimantPage.reload()
   await expect(claimantPage.getByRole('heading',{name:'Prefilled Excel and application'}))
     .toBeVisible({timeout:25000})
+  // Owner UAT D1: the approved workspace (long workbook/CSV action labels) must not scroll sideways
+  // on a 390px phone; it was 61px wider than the viewport before the labels could wrap.
+  await claimantPage.setViewportSize({width:390,height:844})
+  await expect.poll(()=>claimantPage.evaluate(()=>
+    Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)-window.innerWidth),
+    {timeout:10000}).toBeLessThanOrEqual(1)
+  await claimantPage.setViewportSize({width:1280,height:900})
   const [download]=await Promise.all([
     claimantPage.waitForEvent('download',{timeout:35000}),
     claimantPage.getByRole('button',{name:'Download my prefilled Excel workbook'}).click(),
@@ -362,6 +369,24 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
   setWorkbookField(book,'CONSENTS_DECLARATIONS','Privacy notice read YES / NO','YES')
   setWorkbookField(book,'CONSENTS_DECLARATIONS','Declaration draft — not a legal signature',
     'Synthetic-only review of fictional details. No legal signature or authorization.')
+  // Owner UAT D2: a contradictory workbook (impossible latitude) is refused right under the upload
+  // control, naming the tab and row to fix, and nothing is saved.
+  const malformed=new ExcelJS.Workbook()
+  await malformed.xlsx.load(readFileSync(exported))
+  setWorkbookField(malformed,'BRANCHES','Latitude -90 to 90','123.5')
+  setWorkbookField(malformed,'BRANCHES','Longitude -180 to 180','31.052')
+  await claimantPage.locator('#claim-workbook-file').setInputFiles({
+    name:'EXPLICITLY_FICTIONAL_MALFORMED_LATITUDE.xlsx',
+    mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer:Buffer.from(await malformed.xlsx.writeBuffer()),
+  })
+  await claimantPage.getByRole('button',{name:'Upload completed workbook and populate application'}).click()
+  await expect(claimantPage.getByTestId('dealer-workbook-refusal')).toContainText(
+    'BRANCHES tab, row 2: latitude must be a number between -90 and 90',{timeout:35000})
+  await expect(claimantPage.getByTestId('dealer-workbook-refusal')).toContainText('Nothing was saved')
+  const notSaved=await claimantPage.request.get(
+    API+'/dealership/claims/'+encodeURIComponent(claimId)+'/intake',{headers:headers(fixture.actors.claimant)})
+  expect(notSaved.status()).toBe(404)
   const edited=Buffer.from(await book.xlsx.writeBuffer())
   await claimantPage.locator('#claim-workbook-file').setInputFiles({
     name:'EXPLICITLY_FICTIONAL_CARUP_DEALER_COMPLETED.xlsx',
@@ -373,6 +398,11 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
   }).click()
   await expect(claimantPage.getByText('Application draft saved (version 1)',{exact:false}))
     .toBeVisible({timeout:35000})
+  // Owner UAT D4: before freezing, the applicant reviews what CarUp read, research corrections called out.
+  const review=claimantPage.getByTestId('dealer-draft-review')
+  await expect(review).toContainText('SYNTHETIC CARUP DEALERSHIP LTD - TEST ONLY',{timeout:30000})
+  await expect(review).toContainText('FICTIONAL CARRIED SECOND YARD - PRIVATE ONLY')
+  await expect(review).toContainText('Changed from research: “Harare”')
   const draftResponse=await claimantPage.request.get(
     API+'/dealership/claims/'+encodeURIComponent(claimId)+'/intake',{
       headers:headers(fixture.actors.claimant),

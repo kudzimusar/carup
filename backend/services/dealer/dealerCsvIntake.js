@@ -12,7 +12,8 @@ import {buildManualDealerWorkbook} from './dealerManualIntake.js';
 import {parseCompletedDealerWorkbook} from './dealerWorkbookRoundtrip.js';
 
 const MAX_BYTES=2*1024*1024,MAX_ROWS=100,MAX_COLS=75,MAX_CELL=4000;
-const reject=(code,details='')=>Object.assign(new Error(code),{code,statusCode:400,details});
+// `location`: where in the applicant's own CSV a value was refused (see sendDealerRouteError).
+const reject=(code,details='')=>Object.assign(new Error(code),{code,statusCode:400,details,location:details||undefined});
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const normal=x=>String(x).toLowerCase().normalize('NFKC')
   .trim().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');

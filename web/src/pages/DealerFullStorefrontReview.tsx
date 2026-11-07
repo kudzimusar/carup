@@ -1,4 +1,5 @@
 import {useCallback,useEffect,useState} from 'react'
+import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
@@ -279,7 +280,7 @@ export default function DealerFullStorefrontReview(){
         Reenter the reviewer password above before recording. A full publication requires
         at least one independently checked, selected branch.
        </p>
-       <Button disabled={busy||password.length<8||reason.trim().length<80||
+       <Button className={DEALER_WRAP_BUTTON} disabled={busy||password.length<8||reason.trim().length<80||
         (disposition==='PUBLISHED_FULL'&&(!candidate||approvedBranches.length===0))}
          onClick={()=>{void record()}}>Record immutable publication decision</Button>
       </fieldset>
@@ -335,7 +336,7 @@ export default function DealerFullStorefrontReview(){
          <textarea id="storefront-media-reason" value={mediaReason} maxLength={3000}
           onChange={e=>setMediaReason(e.target.value)}
           className="w-full rounded-lg border p-3 min-h-24 bg-white"/>
-         <Button variant="outline"
+         <Button className={DEALER_WRAP_BUTTON} variant="outline"
           disabled={busy||password.length<8||mediaReason.trim().length<40||!currentMedia.independent_reviewer_required||!currentMedia.decision_ticket}
           onClick={()=>{void recordMediaDecision()}}>
           Record storefront media decision

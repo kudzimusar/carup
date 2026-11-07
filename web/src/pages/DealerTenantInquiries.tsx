@@ -1,4 +1,5 @@
 import {useEffect,useState} from 'react'
+import { dealerDateTime } from '@/lib/dealerDates'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
@@ -151,7 +152,7 @@ export default function DealerTenantInquiries(){
               </span>
             </div>
             <p className="text-xs text-slate-500">
-              {new Date(item.created_at).toLocaleString()}
+              {dealerDateTime(item.created_at)}
               {' · '}{item.source_channel||'Source not recorded'}
             </p>
             {item.vin&&<p className="text-sm">Referenced vehicle VIN: <code>{item.vin}</code></p>}

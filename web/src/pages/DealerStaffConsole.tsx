@@ -1,4 +1,6 @@
 import {useCallback,useEffect,useState} from 'react'
+import { dealerDateTime } from '@/lib/dealerDates'
+import { DEALER_WRAP_BUTTON, DEALER_WRAP_BUTTON_SM } from '@/components/dealer/dealerButtonWrap'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
@@ -202,7 +204,7 @@ export default function DealerStaffConsole(){
        Limited staff member only. Owner, management, financial, branch-scoped
        and VIN seller grants are not delegated by this invitation.
       </p>
-      <Button disabled={busy||recipient.trim().length<2}
+      <Button className={DEALER_WRAP_BUTTON} disabled={busy||recipient.trim().length<2}
        onClick={()=>{void invite()}}>Issue private staff invitation</Button>
      </div>
      {ownerBranches.length>0&&<div className="border-t pt-4 space-y-2">
@@ -232,13 +234,13 @@ export default function DealerStaffConsole(){
        className="border rounded-lg p-3 text-sm">
       <p className="font-medium break-words">{i.invited_user_id}</p>
       <p>Status: {i.status}; role: {i.requested_role}</p>
-      <p className="text-xs text-slate-500">Expires: {new Date(i.expires_at).toLocaleString()}</p>
+      <p className="text-xs text-slate-500">Expires: {dealerDateTime(i.expires_at)}</p>
       {i.status==='ACCEPTED'&&ownerBranches.length>0&&
-       <Button size="sm" disabled={busy||scopeReason.trim().length<16}
+       <Button className={DEALER_WRAP_BUTTON_SM} size="sm" disabled={busy||scopeReason.trim().length<16}
         onClick={()=>{void grantScope(i.invite_id)}}>
         Grant limited branch edit access
        </Button>}
-      {i.status!=='REVOKED'&&<Button size="sm" variant="outline"
+      {i.status!=='REVOKED'&&<Button className={DEALER_WRAP_BUTTON_SM} size="sm" variant="outline"
        disabled={busy} onClick={()=>{void action(i.invite_id,'revoke')}}>
        Revoke invitation or staff membership
       </Button>}
@@ -265,9 +267,9 @@ export default function DealerStaffConsole(){
        <p className="font-medium">Organization: {i.organization_id}</p>
        <p>Status: {i.status}; role: {i.requested_role}</p>
        <p className="text-xs text-slate-500">
-        Invitation expires: {new Date(i.expires_at).toLocaleString()}
+        Invitation expires: {dealerDateTime(i.expires_at)}
        </p>
-       {i.status==='PENDING'&&<Button size="sm" disabled={busy}
+       {i.status==='PENDING'&&<Button className={DEALER_WRAP_BUTTON_SM} size="sm" disabled={busy}
         onClick={()=>{void action(i.invite_id,'accept')}}>
         Accept limited staff membership in canonical tenant
        </Button>}
@@ -300,7 +302,7 @@ export default function DealerStaffConsole(){
        value={staffHours[b.scope_id]??b.opening_hours_text??''}
        onChange={e=>setStaffHours(current=>({...current,[b.scope_id]:e.target.value}))}
        maxLength={350}/>
-      <Button disabled={busy} onClick={()=>{void saveScopedHours(b)}}>
+      <Button className={DEALER_WRAP_BUTTON} disabled={busy} onClick={()=>{void saveScopedHours(b)}}>
        Save authorized branch operating details
       </Button>
      </>}

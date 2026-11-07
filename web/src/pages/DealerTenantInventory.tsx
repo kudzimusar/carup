@@ -255,10 +255,16 @@ export default function DealerTenantInventory(){
        <label className="text-sm block font-medium mb-1" htmlFor="private-draft-vin">
         VIN — 17 characters
        </label>
+       {/* Owner UAT D3: say WHY a VIN is refused (browser "match the requested format" alone did not). */}
        <input id="private-draft-vin" className="p-3 rounded-lg border w-full"
         required maxLength={17} minLength={17} pattern="[A-HJ-NPR-Z0-9]{17}"
+        title="17 letters and digits. VINs never contain the letters I, O or Q."
+        aria-describedby="private-draft-vin-hint"
         autoComplete="off" value={draftVin}
         onChange={event=>setDraftVin(event.target.value.toUpperCase())}/>
+       <p id="private-draft-vin-hint" className="mt-1 text-xs text-gray-600">
+        Letters and digits only. VINs never use the letters I, O or Q.
+       </p>
       </div>
       <div>
        <label className="text-sm block font-medium mb-1" htmlFor="private-draft-year">

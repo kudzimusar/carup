@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -229,9 +230,9 @@ export default function DealerClaimReview() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  <Button variant="outline" disabled={busy||!password||!evidenceId}
+                  <Button className={DEALER_WRAP_BUTTON} variant="outline" disabled={busy||!password||!evidenceId}
                     onClick={()=>{void viewOriginal()}}>View selected original securely</Button>
-                  <Button disabled={busy||!password||reason.trim().length<40||
+                  <Button className={DEALER_WRAP_BUTTON} disabled={busy||!password||reason.trim().length<40||
                     (verdict==='CLAIM_APPROVED'&&(!evidenceId||issuer.trim().length<3))}
                     onClick={()=>{void decide()}}>Record immutable review decision</Button>
                 </div>

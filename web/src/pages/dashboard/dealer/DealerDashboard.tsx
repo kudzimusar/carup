@@ -1,4 +1,5 @@
 import {useCallback,useEffect,useState} from 'react'
+import { dealerDate } from '@/lib/dealerDates'
 import {Link} from 'react-router-dom'
 import {Card,CardContent,CardHeader,CardTitle} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
@@ -229,7 +230,7 @@ export default function DealerDashboard(){
                 ['Investigation',p.investigation_state],
                 ['Suspension',p.suspension_state],
                 ['Restrictions',p.restriction_state],
-                ['Expires',p.expiry_date?new Date(p.expiry_date).toLocaleDateString():'Not recorded'],
+                ['Expires',dealerDate(p.expiry_date)],
                 ['Member role','Canonical legal owner'],
               ].map(([name,value])=><div key={name}>
                 <dt className="text-gray-500 text-xs">{name}</dt>

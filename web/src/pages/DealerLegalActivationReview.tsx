@@ -1,4 +1,6 @@
 import {useCallback,useEffect,useState} from 'react'
+import { dealerDateTime } from '@/lib/dealerDates'
+import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
@@ -17,7 +19,7 @@ type LegalCase={
   separate_legal_reviewer_required:boolean;compliance_approved:false
 }
 const evidenceLabel=(e:CaseEvidence)=>`${e.document_class.replaceAll('_',' ')} · ${e.mime_type} · `+
-  `${Math.max(1,Math.round(e.file_bytes/1024))} KB · uploaded ${new Date(e.uploaded_at).toLocaleString()} · ${e.evidence_id}`
+  `${Math.max(1,Math.round(e.file_bytes/1024))} KB · uploaded ${dealerDateTime(e.uploaded_at)} · ${e.evidence_id}`
 // A date picker is what a reviewer can actually use; the API still receives an explicit UTC instant.
 const expiryInstant=(v:string)=>/^\d{4}-\d{2}-\d{2}$/.test(v)?v+'T23:59:59.000Z':v
 type ActivationCase={
@@ -148,7 +150,8 @@ export default function DealerLegalActivationReview(){
         <Card><CardContent className="p-5 space-y-3">
           <h2 className="font-semibold text-lg">Country policy authorization</h2>
           {policies.length===0&&<p>No country policy contracts are available.</p>}
-          {policies.map(p=><p className="rounded-lg border p-3 text-sm" key={p.policy_version}>
+          {/* Owner UAT D1: a long policy identifier wraps instead of widening the page on a phone. */}
+          {policies.map(p=><p className="rounded-lg border p-3 text-sm [overflow-wrap:anywhere]" key={p.policy_version}>
             <strong>{p.country_code} · {p.policy_version}</strong>
             <span className="block">State: {p.policy_state} · {p.eligibility.replaceAll('_',' ')}</span>
             <span className="block text-xs text-gray-600">
@@ -227,7 +230,7 @@ export default function DealerLegalActivationReview(){
             </label>
             <Input id="legal-password" type="password" autoComplete="current-password"
               value={password} onChange={e=>setPassword(e.target.value)}/>
-            <Button disabled={busy||!selectedLegal?.separate_legal_reviewer_required||
+            <Button className={DEALER_WRAP_BUTTON} disabled={busy||!selectedLegal?.separate_legal_reviewer_required||
               activePolicy?.eligibility!=='REQUIRES_INDEPENDENT_CASE_REVIEW'||
               !companyEvidence.trim()||!signerEvidence.trim()||reason.trim().length<80||
               password.length<8||!expiry} onClick={()=>{void legalDecision()}}>
@@ -265,7 +268,7 @@ export default function DealerLegalActivationReview(){
             </label>
             <Input id="final-password" type="password" autoComplete="current-password"
               value={password} onChange={e=>setPassword(e.target.value)}/>
-            <Button disabled={busy||!selectedActivation?.independent_activator_required||
+            <Button className={DEALER_WRAP_BUTTON} disabled={busy||!selectedActivation?.independent_activator_required||
               activationReason.trim().length<80||password.length<8}
               onClick={()=>{void activate()}}>
               Activate canonical organization, tenant & owner membership

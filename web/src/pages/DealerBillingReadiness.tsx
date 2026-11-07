@@ -1,4 +1,5 @@
 import {useEffect,useState} from 'react'
+import { dealerDate } from '@/lib/dealerDates'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {useAuth} from '@/context/AuthContext'
@@ -118,8 +119,7 @@ export default function DealerBillingReadiness(){
                 <div key={item.subscription_id} className="border rounded-lg p-3 text-sm">
                   <p className="font-semibold">Subscription {item.subscription_id}</p>
                   <p className="mt-1">Status: {item.status||'Not determined'}</p>
-                  <p className="mt-1">Paid-through record: {item.paid_through
-                    ?new Date(item.paid_through).toLocaleDateString():'Not recorded'}</p>
+                  <p className="mt-1">Paid-through record: {dealerDate(item.paid_through)}</p>
                   <p className="text-xs text-slate-500 mt-1">
                     A recorded provider state alone is never verified current entitlement.
                   </p>
