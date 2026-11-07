@@ -1083,6 +1083,10 @@ try{
       const pendingB=tConnB.query(
         'SELECT dealer_consume_storefront_media_review_ticket($1,$2,$3,$4,$5)',
         [raceJti,raceHash,reviewer,'ZW-DEAL-0001','STOREFRONT_MEDIA_PREVIEW']);
+      // B's refusal can reach Node BEFORE A's COMMIT acknowledgement on a slow runner. Mark it handled
+      // now (assert.rejects below still checks it) so it cannot crash the harness as an unhandled
+      // rejection — that bypassed the FAIL reporter once in CI (run 42420667127).
+      pendingB.catch(()=>{});
       await new Promise(resolve=>setTimeout(resolve,120));
       await tConnA.query('COMMIT');
       await assert.rejects(pendingB,/STOREFRONT_MEDIA_REVIEW_TICKET_INVALID/);
