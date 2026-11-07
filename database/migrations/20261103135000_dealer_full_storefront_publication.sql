@@ -166,6 +166,10 @@ JOIN dealer_country_legal_policy_authority policy ON
   policy.country_code=legal.country_code AND policy.policy_version=legal.policy_version
 JOIN dealer_research_public_profiles p ON p.seed_dealer_id=e.seed_dealer_id
 WHERE e.disposition='PUBLISHED_FULL'
+  -- Security review #1: an approval older than the latest research takedown never revives by itself.
+  AND NOT EXISTS(SELECT 1 FROM dealer_research_publication_events t
+    WHERE t.seed_dealer_id=e.seed_dealer_id AND t.decision IN ('SUPPRESSED','UNDER_DISPUTE','DUPLICATE')
+      AND t.recorded_at>=e.publication_reviewed_at)
   AND p.publication_status='PRELISTED_UNCLAIMED'
   AND t.type='dealership' AND t.status='active'
   AND d.identity_status='verified' AND d.compliance_review_state='passed'

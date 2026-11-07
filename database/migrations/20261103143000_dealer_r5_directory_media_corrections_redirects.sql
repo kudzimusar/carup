@@ -693,7 +693,10 @@ SELECT
   m.media_id,
   m.seed_dealer_id,
   m.branch_id,
-  b.name AS branch_name,
+  -- Security review #4: the REVIEWED branch name from the approved storefront snapshot, never the
+  -- live (owner/staff-editable) dealer_branches.name.
+  (SELECT snap->>'name' FROM jsonb_array_elements(f.approved_branch_snapshot) snap
+    WHERE snap->>'branch_id' = m.branch_id::text LIMIT 1) AS branch_name,
   m.storage_bucket,
   m.storage_path,
   m.content_sha256,
@@ -709,8 +712,6 @@ JOIN dealer_full_storefront_current f
   ON f.seed_dealer_id = m.seed_dealer_id
 JOIN dealer_approved_seed_links l
   ON l.link_id = m.link_id AND l.operating_status = 'ACTIVE'
-LEFT JOIN dealer_branches b
-  ON b.id = m.branch_id AND b.dealer_id = m.dealer_profile_id
 WHERE m.review_status = 'APPROVED_PUBLIC_DISPLAY'
   AND m.logo_rights_approved = false
   AND m.oem_or_brand_logo_claimed = false
@@ -922,6 +923,29 @@ REVOKE ALL ON FUNCTION dealer_consume_storefront_media_review_ticket(TEXT, TEXT,
 GRANT EXECUTE ON FUNCTION dealer_consume_storefront_media_review_ticket(TEXT, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ)
   TO service_role;
 
+-- Security review #1: a takedown (SUPPRESSED / UNDER_DISPUTE / DUPLICATE) can only be reversed by a
+-- DIFFERENT reviewer than the one who recorded it, and a full storefront approved before the most recent
+-- takedown never comes back on its own (dealer_full_storefront_current re-checks recency, 20261103135000).
+CREATE FUNCTION dealer_guard_research_reprelisting()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_last dealer_research_publication_events%ROWTYPE;
+BEGIN
+  IF NEW.decision <> 'PRELISTED_UNCLAIMED' THEN RETURN NEW; END IF;
+  SELECT * INTO v_last FROM dealer_research_publication_events
+   WHERE seed_dealer_id = NEW.seed_dealer_id ORDER BY revision DESC LIMIT 1;
+  IF FOUND AND v_last.decision IN ('SUPPRESSED','UNDER_DISPUTE','DUPLICATE')
+     AND v_last.reviewer_id = NEW.reviewer_id THEN
+    RAISE EXCEPTION 'REPRELISTING_AFTER_TAKEDOWN_REQUIRES_DIFFERENT_REVIEWER';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER dealer_guard_research_reprelisting
+  BEFORE INSERT ON dealer_research_publication_events
+  FOR EACH ROW EXECUTE FUNCTION dealer_guard_research_reprelisting();
+
 -- +migrate Down
 DO $$
 BEGIN
@@ -946,3 +970,5 @@ DROP FUNCTION IF EXISTS dealer_reconcile_duplicate_research_seed(TEXT, TEXT, TEX
 DROP TABLE IF EXISTS dealer_research_duplicate_redirects;
 DROP FUNCTION IF EXISTS dealer_review_research_correction_request(UUID, TEXT, TEXT, TEXT);
 DROP TABLE IF EXISTS dealer_research_correction_review_events;
+DROP TRIGGER IF EXISTS dealer_guard_research_reprelisting ON dealer_research_publication_events;
+DROP FUNCTION IF EXISTS dealer_guard_research_reprelisting();

@@ -49,6 +49,21 @@ export async function createOrUpdateProfile(userId, data = {}) {
   }
 
   if (existing) {
+    // Security review #6: once a profile is bound to an approved dealership claim, its business facts
+    // change only through the canonical dealership workflows (versioned declarations, reviewed storefront),
+    // never through this legacy route.
+    const { data: link, error: linkError } = await supabase.from('dealer_approved_seed_links')
+      .select('link_id').eq('dealer_profile_id', existing.id).maybeSingle();
+    if (linkError) {
+      const error = new Error('Dealer profile authority check unavailable');
+      error.statusCode = 503;
+      throw error;
+    }
+    if (link) {
+      const error = new Error('Activated dealership profiles are edited through the dealership workspace');
+      error.statusCode = 409;
+      throw error;
+    }
     // The applicant must never silently rewrite an identity previously independently verified.
     // Corrections must go through governance, and only the canonical activation authority
     // may assign tenant_id (never user-supplied profile data).

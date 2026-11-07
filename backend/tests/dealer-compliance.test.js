@@ -142,6 +142,15 @@ test('onboarding: a second call updates the same profile (no duplicate)', async 
   assert.equal(p2.trading_name, 'Acme Renamed');
 });
 
+test('R5 security #6: an activated dealership profile cannot be edited through the legacy route', async () => {
+  installMock();
+  const profile = await onboard('dealer-1', { trading_name: 'Acme' });
+  db.dealer_approved_seed_links = [{ link_id: 'link-1', dealer_profile_id: profile.id }];
+  await assert.rejects(svc.createOrUpdateProfile('dealer-1', { trading_name: 'Official OEM Dealer' }),
+    (e) => e.statusCode === 409 && /dealership workspace/.test(e.message));
+  assert.equal(db.dealer_profiles[0].trading_name, 'Acme');
+});
+
 test('P0 malicious applicant cannot assign a tenant or change verified legal identity', async () => {
   installMock();
   const profile = await onboard('dealer-1', { tenant_id: 'victim-tenant' });

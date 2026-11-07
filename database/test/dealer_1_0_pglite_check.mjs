@@ -446,6 +446,10 @@ try{
     'Attempted to re-adjudicate an already resolved correction request.')`,
     'CORRECTION_REQUEST_ALREADY_RESOLVED');
   await fails(`UPDATE dealer_research_correction_review_events SET decision='REJECTED_NO_CHANGE'`,'APPEND_ONLY_LEDGER');
+  // Security review #1: the reviewer who took a listing down cannot single-handedly put it back.
+  await fails(`SELECT dealer_record_research_publication_review('ZW-DEAL-0003','${reviewer}','PRELISTED_UNCLAIMED',
+    'Same reviewer attempts to reverse their own takedown without a second reviewer.')`,
+    'REPRELISTING_AFTER_TAKEDOWN_REQUIRES_DIFFERENT_REVIEWER');
   console.log('DEALER_R5_T42_CORRECTION_TAKEDOWN PASS: complaint queued without auto-suppression, unauthorized removal denied, independent reviewer suppression atomically withdraws public profile');
 
   // ── R5 S09: Governed duplicate reconciliation & canonical URL redirect ──

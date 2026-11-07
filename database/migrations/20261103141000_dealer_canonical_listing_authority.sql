@@ -1,4 +1,6 @@
 -- +migrate Up
+-- DBA review #7: never queue indefinitely behind long transactions on canonical tables.
+SET lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001-LR01-R4 P0-2 (C17 / C12 / C15): canonical dealer VIN listing authority.
 --
 -- The dealership domain NEVER publishes a vehicle and never invents a seller decision. Publication
@@ -98,9 +100,13 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM dealer_approved_seed_links WHERE tenant_id = p_tenant_id) THEN
     RAISE EXCEPTION 'NOT_A_DEALERSHIP_PROGRAMME_TENANT';
   END IF;
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    -- DBA review #3: a withdrawal must see rows committed by concurrent publishers.
+    RAISE EXCEPTION 'DEALER_LISTING_WITHDRAWAL_REQUIRES_READ_COMMITTED';
+  END IF;
   WITH withdrawn AS (
     UPDATE vehicles SET publication_status = 'publishable'
-     WHERE tenant_id::text = p_tenant_id::text AND publication_status = 'published'
+     WHERE tenant_id = p_tenant_id AND publication_status = 'published'
      RETURNING vin
   ) SELECT count(*)::int INTO v_count FROM withdrawn;
   IF v_count > 0 THEN
@@ -123,15 +129,20 @@ BEGIN
   -- Programme stock may LEAVE its dealer only to "no tenant" (a completed canonical ownership
   -- transfer clears tenant_id); it can never be re-homed into another tenant.
   IF TG_OP = 'UPDATE' AND OLD.tenant_id IS NOT NULL AND NEW.tenant_id IS DISTINCT FROM OLD.tenant_id THEN
-    SELECT true INTO v_old_programme FROM dealer_approved_seed_links WHERE tenant_id::text = OLD.tenant_id::text;
+    SELECT true INTO v_old_programme FROM dealer_approved_seed_links WHERE tenant_id = OLD.tenant_id;
     IF coalesce(v_old_programme, false) AND NEW.tenant_id IS NOT NULL THEN
       RAISE EXCEPTION 'DEALER_TENANT_INVENTORY_REASSIGNMENT_REFUSED';
     END IF;
   END IF;
   IF NEW.tenant_id IS NULL THEN RETURN NEW; END IF;
+  IF current_setting('transaction_isolation') <> 'read committed'
+     AND EXISTS (SELECT 1 FROM dealer_approved_seed_links WHERE tenant_id = NEW.tenant_id) THEN
+    -- DBA review #3: under REPEATABLE READ/SERIALIZABLE the authority read could use a stale snapshot.
+    RAISE EXCEPTION 'DEALER_LISTING_WRITE_REQUIRES_READ_COMMITTED';
+  END IF;
   -- FOR SHARE serialises against a concurrent suspension that holds the link FOR UPDATE: this write
   -- either commits first (and is then withdrawn by the suspension) or sees the suspension's result.
-  SELECT * INTO v_link FROM dealer_approved_seed_links WHERE tenant_id::text = NEW.tenant_id::text FOR SHARE;
+  SELECT * INTO v_link FROM dealer_approved_seed_links WHERE tenant_id = NEW.tenant_id FOR SHARE;
   IF NOT FOUND THEN RETURN NEW; END IF;  -- legacy tenants: untouched
   -- Moving INTO a programme tenant is checked exactly like an INSERT.
   v_entering := TG_OP = 'INSERT' OR OLD.tenant_id IS DISTINCT FROM NEW.tenant_id;
@@ -252,7 +263,7 @@ AS $$
 DECLARE v_tenant UUID;
 BEGIN
   SELECT l.tenant_id INTO v_tenant FROM dealer_approved_seed_links l
-   WHERE l.tenant_id::text = OLD.tenant_id::text AND l.claimant_user_id = OLD.user_id FOR UPDATE;
+   WHERE l.tenant_id = OLD.tenant_id AND l.claimant_user_id = OLD.user_id FOR UPDATE;
   IF v_tenant IS NOT NULL AND NOT dealer_tenant_listing_authority_current(v_tenant) THEN
     PERFORM dealer_withdraw_tenant_public_listings(v_tenant, 'OWNER_MEMBERSHIP_CHANGED', NULL);
   END IF;
@@ -273,7 +284,7 @@ AS $$
 DECLARE v RECORD; v_tenants INTEGER := 0; v_total INTEGER := 0; v_n INTEGER;
 BEGIN
   FOR v IN SELECT DISTINCT l.tenant_id FROM dealer_approved_seed_links l
-            JOIN vehicles x ON x.tenant_id::text = l.tenant_id::text AND x.publication_status = 'published' LOOP
+            JOIN vehicles x ON x.tenant_id = l.tenant_id AND x.publication_status = 'published' LOOP
     IF NOT dealer_tenant_listing_authority_current(v.tenant_id) THEN
       v_n := dealer_withdraw_tenant_public_listings(v.tenant_id, 'OPERATING_AUTHORITY_LAPSED', p_actor);
       v_tenants := v_tenants + 1; v_total := v_total + v_n;
@@ -308,7 +319,7 @@ AS $$
 DECLARE v_link dealer_approved_seed_links%ROWTYPE;
 BEGIN
   IF NEW.seller_tenant_id IS NULL THEN RETURN NEW; END IF;
-  SELECT * INTO v_link FROM dealer_approved_seed_links WHERE tenant_id::text = NEW.seller_tenant_id::text;
+  SELECT * INTO v_link FROM dealer_approved_seed_links WHERE tenant_id::text = NEW.seller_tenant_id FOR SHARE;
   IF NOT FOUND THEN RETURN NEW; END IF;
   IF NOT dealer_tenant_listing_authority_current(v_link.tenant_id) THEN
     RAISE EXCEPTION 'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT';
@@ -333,13 +344,13 @@ BEGIN
     IF OLD.verification_status = 'verified' THEN RETURN NEW; END IF;
   END IF;
   SELECT l.* INTO v_link FROM dealer_approved_seed_links l
-    JOIN vehicles x ON x.tenant_id::text = l.tenant_id::text
+    JOIN vehicles x ON x.tenant_id = l.tenant_id
    WHERE x.vin = NEW.vin;
   IF NOT FOUND THEN RETURN NEW; END IF;
   IF NEW.verified_by IS NULL OR NEW.verified_by = NEW.uploaded_by
      OR NEW.verified_by = v_link.claimant_user_id
      OR EXISTS (SELECT 1 FROM tenant_users tu
-                 WHERE tu.tenant_id::text = v_link.tenant_id::text AND tu.user_id = NEW.verified_by) THEN
+                 WHERE tu.tenant_id = v_link.tenant_id AND tu.user_id = NEW.verified_by) THEN
     RAISE EXCEPTION 'DEALER_VEHICLE_EVIDENCE_REQUIRES_INDEPENDENT_REVIEWER';
   END IF;
   RETURN NEW;
@@ -359,13 +370,13 @@ DECLARE v_link dealer_approved_seed_links%ROWTYPE;
 BEGIN
   IF NEW.status IS DISTINCT FROM 'confirmed' THEN RETURN NEW; END IF;
   SELECT l.* INTO v_link FROM dealer_approved_seed_links l
-    JOIN vehicles x ON x.tenant_id::text = l.tenant_id::text
+    JOIN vehicles x ON x.tenant_id = l.tenant_id
    WHERE x.vin = NEW.vin;
   IF NOT FOUND THEN RETURN NEW; END IF;
   IF NEW.decided_by IS NULL OR NEW.decided_by = NEW.seller_user_id
      OR NEW.decided_by = v_link.claimant_user_id
      OR EXISTS (SELECT 1 FROM tenant_users tu
-                 WHERE tu.tenant_id::text = v_link.tenant_id::text AND tu.user_id = NEW.decided_by) THEN
+                 WHERE tu.tenant_id = v_link.tenant_id AND tu.user_id = NEW.decided_by) THEN
     RAISE EXCEPTION 'DEALER_SELLER_AUTHORITY_REQUIRES_INDEPENDENT_REVIEWER';
   END IF;
   RETURN NEW;
@@ -497,7 +508,7 @@ AS $$
   SELECT x.vin
     FROM dealer_full_storefront_current s
     JOIN dealer_approved_seed_links l ON l.seed_dealer_id = s.seed_dealer_id AND l.operating_status = 'ACTIVE'
-    JOIN vehicles x ON x.tenant_id::text = l.tenant_id::text
+    JOIN vehicles x ON x.tenant_id = l.tenant_id
    WHERE s.seed_dealer_id = p_seed_dealer_id
      AND dealer_tenant_listing_authority_current(l.tenant_id)
      AND x.publication_status = 'published'

@@ -82,7 +82,7 @@ BEGIN
   v_next_status := v_link.operating_status;
   v_next_legal := v_link.legal_review_id;
   SELECT count(*)::int INTO v_published_before FROM vehicles
-   WHERE tenant_id::text = v_link.tenant_id::text AND publication_status = 'published';
+   WHERE tenant_id = v_link.tenant_id AND publication_status = 'published';
 
   IF p_action = 'SUSPEND' THEN
     IF v_link.operating_status <> 'ACTIVE' THEN RAISE EXCEPTION 'ONLY_ACTIVE_DEALER_CAN_BE_SUSPENDED'; END IF;
@@ -176,7 +176,7 @@ BEGIN
   END IF;
   -- Truthful count whichever trigger or call withdrew them inside this transaction.
   SELECT v_published_before - count(*)::int INTO v_withdrawn FROM vehicles
-   WHERE tenant_id::text = v_link.tenant_id::text AND publication_status = 'published';
+   WHERE tenant_id = v_link.tenant_id AND publication_status = 'published';
   INSERT INTO dealer_operating_lifecycle_events(link_id, seed_dealer_id, action, reviewer_user_id, reason,
     previous_operating_status, next_operating_status, previous_legal_review_id, next_legal_review_id,
     public_listings_withdrawn)

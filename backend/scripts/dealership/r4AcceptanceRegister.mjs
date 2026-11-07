@@ -11,7 +11,8 @@
  * Usage: node backend/scripts/dealership/r4AcceptanceRegister.mjs --sha=<40hex> --source-ci=<id>
  *          --native-pg-ci=<id> --browser-ci=<id> --main-ci=<id> [--write]
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 export const R4_RESULTS = Object.freeze(['PASS_ENGINEERING', 'FAIL', 'BLOCKED_EXTERNAL_AUTHORITY', 'BLOCKED_ENVIRONMENT', 'NOT_RUN']);
 const F = 'Explicitly fictional CI fixture';
@@ -95,13 +96,40 @@ function args() {
 }
 // Evidence whose exact-head run had not completed is never counted: any case citing a pending key
 // is rendered NOT_RUN ("pending verdict"), whatever its intended classification.
+// R5 (functional review): browser-phase outcomes are READ from the run's own Playwright JSON, never
+// typed in. A phase that ran and failed turns every case citing it into FAIL; one that did not run
+// (no results file) into NOT_RUN. BR:all needs every phase green.
+export const BROWSER_PHASES = Object.freeze(['prelegal', 'synthetic-legal', 'synthetic-staff', 'synthetic-feedback',
+  'synthetic-retraction', 'synthetic-vin-listing', 'synthetic-dealer-suspension']);
+export function readBrowserPhaseOutcomes(dir) {
+  const out = {};
+  for (const phase of BROWSER_PHASES) {
+    const f = dir + '/' + phase + '-physical-results.json';
+    if (!existsSync(f)) { out[phase] = 'NOT_RUN'; continue; }
+    const st = JSON.parse(readFileSync(f, 'utf8')).stats || {};
+    out[phase] = (st.unexpected === 0 && st.expected > 0 && !st.flaky) ? 'PASS' : 'FAIL';
+  }
+  out.all = BROWSER_PHASES.every((p) => out[p] === 'PASS') ? 'PASS' : 'FAIL';
+  return out;
+}
+export function applyBrowserOutcomes(cases, outcomes) {
+  if (!outcomes) return cases;
+  return cases.map((c) => {
+    if (c[1] !== 'PASS_ENGINEERING') return c;
+    const bad = c[2].filter((k) => k.startsWith('BR:') && outcomes[k.slice(3)] !== 'PASS');
+    if (!bad.length) return c;
+    const failed = bad.some((k) => outcomes[k.slice(3)] === 'FAIL');
+    return [c[0], failed ? 'FAIL' : 'NOT_RUN', c[2], c[3], c[4], c[5], c[6],
+      (failed ? 'Browser phase FAILED at this SHA: ' : 'Browser phase not executed: ') + bad.join(', ')];
+  });
+}
 export function applyPending(cases, pending = []) {
   return cases.map((c) => (c[1] === 'PASS_ENGINEERING' && c[2].some((k) => pending.includes(k)))
     ? [c[0], 'NOT_RUN', c[2], c[3], c[4], c[5], c[6], 'PENDING exact-head verdict of ' + c[2].filter((k) => pending.includes(k)).join(', ')]
     : c);
 }
-export function renderRegister({ sha, sourceCi, nativePgCi, browserCi, mainCi, pending = [] }) {
-  const rows = applyPending(CASES, pending);
+export function renderRegister({ sha, sourceCi, nativePgCi, browserCi, mainCi, pending = [], outcomes = null }) {
+  const rows = applyPending(applyBrowserOutcomes(CASES, outcomes), pending);
   const run = (id) => `[${id}](https://github.com/kudzimusar/carup/actions/runs/${id})`;
   const ev = {
     SRC: `dealer source/contract CI ${run(sourceCi)}`, PG: `native PostgreSQL 17 CI ${run(nativePgCi)}`,
@@ -132,7 +160,16 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop()
   for (const k of ['sha', 'source-ci', 'native-pg-ci', 'browser-ci', 'main-ci']) if (!a[k]) throw new Error('missing --' + k);
   if (!/^[0-9a-f]{40}$/.test(a.sha)) throw new Error('sha must be 40 hex');
   const pending = a.pending ? String(a.pending).split(',') : [];
-  const { markdown, counts, byId } = renderRegister({ sha: a.sha, sourceCi: a['source-ci'], nativePgCi: a['native-pg-ci'], browserCi: a['browser-ci'], mainCi: a['main-ci'], pending });
+  const outcomes = a['browser-results'] ? readBrowserPhaseOutcomes(String(a['browser-results'])) : null;
+  if (outcomes) console.log('DEALER_REGISTER_BROWSER_PHASES ' + JSON.stringify(outcomes));
+  if (a['verify-runs']) {
+    for (const k of ['source-ci', 'native-pg-ci', 'main-ci']) {
+      const c = execFileSync('/usr/local/bin/gh', ['run', 'view', String(a[k]), '--repo', 'kudzimusar/carup', '--json',
+        'conclusion,headSha', '--jq', '.conclusion + " " + .headSha'], { encoding: 'utf8' }).trim().split(' ');
+      if (c[0] !== 'success' || c[1] !== a.sha) throw new Error(k + ' run ' + a[k] + ' is ' + c.join(' ') + ', not success at ' + a.sha);
+    }
+  }
+  const { markdown, counts, byId } = renderRegister({ sha: a.sha, sourceCi: a['source-ci'], nativePgCi: a['native-pg-ci'], browserCi: a['browser-ci'], mainCi: a['main-ci'], pending, outcomes });
   if (a.write) {
     writeFileSync('docs/dealership/R4_67_CASE_EVIDENCE_REGISTER.md', markdown);
     const p = 'docs/dealership/DEV7_DEV10_67_CASE_ACCEPTANCE_MATRIX_2026-11-04.md';
