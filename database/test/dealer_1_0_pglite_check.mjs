@@ -36,6 +36,7 @@ const names=[
   '20261103142000_dealer_operating_lifecycle.sql',
   '20261103143000_dealer_r5_directory_media_corrections_redirects.sql',
   '20261103144000_dealer_activation_workbook_carryover.sql',
+  '20261103145000_dealer_r6_security_hardening.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -395,21 +396,22 @@ try{
   await exec("DELETE FROM dealer_profiles WHERE id='"+uuid(9870)+"'");
   // R5: 35 + 6 (correction review events, duplicate redirects, media items, media review events, public media view, shared media review tickets) = 41.
   // R6 C02: + activation branch crosswalk + activation carry-over provenance = 43.
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,43);
+  // R6 security: + research publication policy authority + reviewer step-up guard = 45.
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,45);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
    VALUES ('ZW-DEAL-0001','${sha}',8,'${sha}',
-     '{"Seed Dealer ID":"ZW-DEAL-0001","Dealer / Company Name":"Fixture Dealer 1","City / Town":"Harare"}',
+     '{"Seed Dealer ID":"ZW-DEAL-0001","Dealer / Company Name":"SYNTHETIC FICTIONAL Fixture Dealer 1","City / Town":"Harare"}',
      'Independent dealer claim'),
      ('ZW-DEAL-0002','${sha}',9,'${sha}',
-     '{"Seed Dealer ID":"ZW-DEAL-0002","Dealer / Company Name":"Fixture Dealer 2","City / Town":"Bulawayo"}',
+     '{"Seed Dealer ID":"ZW-DEAL-0002","Dealer / Company Name":"SYNTHETIC FICTIONAL Fixture Dealer 2","City / Town":"Bulawayo"}',
      'Official dealer / franchise label — UNVERIFIED'),
      ('ZW-DEAL-0003','${sha}',10,'${sha}',
-     '{"Seed Dealer ID":"ZW-DEAL-0003","Dealer / Company Name":"Fixture Dealer 3","City / Town":"Mutare"}',
+     '{"Seed Dealer ID":"ZW-DEAL-0003","Dealer / Company Name":"SYNTHETIC FICTIONAL Fixture Dealer 3","City / Town":"Mutare"}',
      'Importer / auction agent — UNVERIFIED'),
      ('ZW-DEAL-0004','${sha}',11,'${sha}',
-     '{"Seed Dealer ID":"ZW-DEAL-0004","Dealer / Company Name":"Fixture Dealer 2 Duplicate Branch","City / Town":"Bulawayo"}',
+     '{"Seed Dealer ID":"ZW-DEAL-0004","Dealer / Company Name":"SYNTHETIC FICTIONAL Fixture Dealer 2 Duplicate Branch","City / Town":"Bulawayo"}',
      'Independent dealer claim');`);
   assert.equal((await query('SELECT count(*)::int AS n FROM dealer_research_public_profiles')).rows[0].n,0);
   const publish=await query('SELECT dealer_record_research_publication_review($1,$2,$3,$4) AS result',[
@@ -947,13 +949,11 @@ try{
   await fails(`SELECT dealer_consume_storefront_media_review_ticket(
     '${previewJti}','${previewHash}','${reviewer}','ZW-DEAL-0001','STOREFRONT_MEDIA_DECISION')`,
     'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID');
-  await fails(`SELECT dealer_consume_storefront_media_review_ticket(
-    '${previewJti}','${previewHash}','${reviewer}','ZW-DEAL-0001','STOREFRONT_MEDIA_PREVIEW',
-    (now() + interval '1 hour'))`,
-    'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID');
+  // R6 #8c: the app-supplied p_now is IGNORED (server clock only), so a far-future p_now neither
+  // expires a live ticket nor (see the R6 block) revives an expired one.
   // Valid single-use consumption succeeds once and refuses replay
   const consumedTicket=(await query(
-    'SELECT dealer_consume_storefront_media_review_ticket($1,$2,$3,$4,$5) AS r',
+    "SELECT dealer_consume_storefront_media_review_ticket($1,$2,$3,$4,$5,now() + interval '1 hour') AS r",
     [previewJti,previewHash,reviewer,'ZW-DEAL-0001','STOREFRONT_MEDIA_PREVIEW'])).rows[0].r;
   assert.equal(consumedTicket.target_row_id,mediaUpload.media_id);
   await fails(`SELECT dealer_consume_storefront_media_review_ticket(
@@ -1788,6 +1788,274 @@ try{
   assert.deepEqual(cleared,{latitude:null,longitude:null,
     opening_hours_text:null,operating_details_updated_at:null},
     'fictional branch teardown must not hide real retained operating data');
+
+  // ── R6 work package C (20261103145000): security hardening ──
+  {
+    const r6='20261103145000_dealer_r6_security_hardening.sql';
+    const r6Tenant=(await query("SELECT tenant_id::text AS t,link_id::text AS l,legal_review_id::text AS lr FROM dealer_approved_seed_links WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0];
+    await exec(`INSERT INTO users(id,role,is_verified) VALUES
+      ('coireviewer','admin',true),('staffreviewer','reviewer',true),('lateconflict','admin',true)`);
+    // #8c: every ticket SECURITY DEFINER function pins search_path=public,pg_temp.
+    const cfg=(await query(`SELECT proname,array_to_string(proconfig,',') AS cfg,prosecdef FROM pg_proc
+      WHERE proname IN ('dealer_issue_storefront_media_review_ticket','dealer_consume_storefront_media_review_ticket',
+        'dealer_begin_reviewer_step_up','dealer_complete_reviewer_step_up','dealer_reviewer_conflict_of_interest',
+        'dealer_guard_reviewer_conflict_of_interest','dealer_research_seed_is_fictional_fixture',
+        'dealer_real_research_publication_policy_current','dealer_guard_real_research_publication')
+      ORDER BY proname`)).rows;
+    assert.equal(cfg.length,9);
+    for(const row of cfg){
+      assert.equal(row.prosecdef,true,row.proname+' must be SECURITY DEFINER');
+      assert.match(row.cfg,/search_path=public, ?pg_temp/,row.proname+' search_path');
+    }
+    for(const fn of ['dealer_begin_reviewer_step_up(text)','dealer_complete_reviewer_step_up(text,boolean)',
+      'dealer_issue_storefront_media_review_ticket(text,text,text,text,uuid,text,timestamptz)',
+      'dealer_research_seed_is_fictional_fixture(text)']){
+      const g=(await query(`SELECT has_function_privilege('anon',$1,'EXECUTE') AS anon,
+        has_function_privilege('authenticated',$1,'EXECUTE') AS auth,
+        has_function_privilege('service_role',$1,'EXECUTE') AS svc`,[fn])).rows[0];
+      assert.deepEqual(g,{anon:false,auth:false,svc:true},fn);
+    }
+
+    // ── #2 real research publication stays fail-closed without an Owner (O12) policy ──
+    const seedRow=(id,row,wb,snap)=>`('${id}','${wb}',${row},'${'e'.repeat(64)}','${JSON.stringify(snap).replace(/'/g,"''")}','Independent dealer claim')`;
+    const fictionalSnap=(n)=>({'Dealer / Company Name':'SYNTHETIC FICTIONAL CAR DEALER '+n,'City / Town':'Harare',
+      'Physical Address':'Test Lot '+n+' (not a real address)','Phone / WhatsApp':'NO REAL PHONE',
+      'Email':'not-a-dealer@example.invalid','Ownership / Parent Company / Key Principal':'FICTIONAL COMPANY — NO LEGAL PARENT',
+      'Website / Source URL':'https://example.invalid/fictional-dealer-'+n});
+    await exec(`INSERT INTO dealer_research_seed_records(seed_dealer_id,source_workbook_sha256,original_source_row,
+      source_row_sha256,source_snapshot,proposed_source_category) VALUES
+      ${seedRow('ZW-DEAL-0090',90,'f'.repeat(64),{'Dealer / Company Name':'Harare Real Motors','City / Town':'Harare','Phone / WhatsApp':'+263 77 123 4567'})},
+      ${seedRow('ZW-DEAL-0091',91,'f'.repeat(64),{...fictionalSnap(91),'Phone / WhatsApp':'+263 77 123 4567'})},
+      ${seedRow('ZW-DEAL-0092',92,'a9a6ac6f68bed5266c6870958520105fc1c69f75dd80f7020839e8d5fdd4b137',fictionalSnap(92))},
+      ${seedRow('ZW-DEAL-0093',93,'f'.repeat(64),{...fictionalSnap(93),'Email':'sales@realdealer.co.zw'})},
+      ${seedRow('ZW-DEAL-0094',94,'f'.repeat(64),{...fictionalSnap(94),'Website / Source URL':'https://realdealer.co.zw/?x=.invalid'})},
+      ${seedRow('ZW-DEAL-0095',95,'f'.repeat(64),{...fictionalSnap(95),'Physical Address':'12 Samora Machel Ave, Harare'})},
+      ${seedRow('ZW-DEAL-0096',96,'f'.repeat(64),{...fictionalSnap(96),'Ownership / Parent Company / Key Principal':'Mr T. Real Person'})},
+      ${seedRow('ZW-DEAL-0097',97,'f'.repeat(64),{...fictionalSnap(97),'Dealer / Company Name':'Synthetic Fictional lookalike Ltd'})},
+      ${seedRow('ZW-DEAL-0098',98,'f'.repeat(64),fictionalSnap(98))}`);
+    const fictional=(await query(`SELECT seed_dealer_id,dealer_research_seed_is_fictional_fixture(seed_dealer_id) AS f
+      FROM dealer_research_seed_records WHERE seed_dealer_id BETWEEN 'ZW-DEAL-0090' AND 'ZW-DEAL-0098' ORDER BY 1`)).rows;
+    assert.deepEqual(fictional.map(r=>r.f),[false,false,false,false,false,false,false,false,true],
+      'only a self-declared fictional name with no real-looking contact channel and a non-Owner workbook is fictional');
+    assert.equal((await query("SELECT dealer_research_seed_is_fictional_fixture('ZW-DEAL-0001') AS f")).rows[0].f,true);
+    assert.equal((await query("SELECT dealer_research_seed_is_fictional_fixture('ZW-DEAL-9999') AS f")).rows[0].f,false);
+    const pubWhy='Independent research publication review for a seed in the isolated contract suite only.';
+    for(const id of ['ZW-DEAL-0090','ZW-DEAL-0091','ZW-DEAL-0092','ZW-DEAL-0093','ZW-DEAL-0094','ZW-DEAL-0095','ZW-DEAL-0096','ZW-DEAL-0097']){
+      await fails(`SELECT dealer_record_research_publication_review('${id}','${reviewer}','PRELISTED_UNCLAIMED','${pubWhy}')`,
+        'REAL_RESEARCH_PUBLICATION_REQUIRES_OWNER_POLICY');
+    }
+    assert.equal((await query("SELECT count(*)::int AS n FROM dealer_research_public_profiles WHERE seed_dealer_id BETWEEN 'ZW-DEAL-0090' AND 'ZW-DEAL-0097'")).rows[0].n,0);
+    // Takedown / non-public decisions on a real record are never blocked.
+    const withheld=(await query('SELECT dealer_record_research_publication_review($1,$2,$3,$4) AS r',
+      ['ZW-DEAL-0090',reviewer,'WITHHELD',pubWhy])).rows[0].r;
+    assert.equal(withheld.public,false);
+    // The fictional CI fixture path keeps publishing.
+    assert.equal((await query('SELECT dealer_record_research_publication_review($1,$2,$3,$4) AS r',
+      ['ZW-DEAL-0098',reviewer,'PRELISTED_UNCLAIMED',pubWhy])).rows[0].r.public,true);
+    // No API role can create or alter the Owner policy, even if a grant were mistakenly added.
+    await exec('SET ROLE service_role');
+    await fails(`INSERT INTO dealer_research_publication_policy_authority(policy_version,country_code,owner_decision_reference)
+      VALUES ('ZW_REAL_PUBLICATION_V1','ZW','O12')`,'permission denied');
+    await exec('RESET ROLE');
+    await exec('GRANT INSERT,UPDATE,DELETE ON dealer_research_publication_policy_authority TO service_role');
+    await exec('SET ROLE service_role');
+    await fails(`INSERT INTO dealer_research_publication_policy_authority(policy_version,country_code,owner_decision_reference)
+      VALUES ('ZW_REAL_PUBLICATION_V1','ZW','O12')`,'PUBLICATION_POLICY_NOT_WRITABLE_FROM_API');
+    await exec('RESET ROLE');
+    await exec('REVOKE INSERT,UPDATE,DELETE ON dealer_research_publication_policy_authority FROM service_role');
+    assert.equal((await query(`SELECT count(*)::int AS n FROM pg_proc
+      WHERE prosrc ~* '(insert\\s+into|update|delete\\s+from)\\s+dealer_research_publication_policy_authority'`)).rows[0].n,0,
+      'no database function may write the Owner publication policy');
+    assert.equal((await query('SELECT count(*)::int AS n FROM dealer_research_publication_policy_authority')).rows[0].n,0,
+      'migration must not pre-approve real publication');
+    // Operator-recorded Owner policy (outside the API): approver can never also publish; then it publishes.
+    await exec(`INSERT INTO dealer_research_publication_policy_authority(policy_version,country_code,policy_state,
+      owner_decision_reference,approval_evidence_sha256,approved_by,effective_at,expires_at)
+      VALUES ('ZW_REAL_PUBLICATION_V1','ZW','APPROVED','O12','${'9'.repeat(64)}','policyreviewer',
+        now()-interval '1 minute',now()+interval '1 day')`);
+    await fails(`SELECT dealer_record_research_publication_review('ZW-DEAL-0097','policyreviewer','PRELISTED_UNCLAIMED','${pubWhy}')`,
+      'REAL_RESEARCH_PUBLICATION_REQUIRES_OWNER_POLICY');
+    assert.equal((await query('SELECT dealer_record_research_publication_review($1,$2,$3,$4) AS r',
+      ['ZW-DEAL-0097',reviewer,'PRELISTED_UNCLAIMED',pubWhy])).rows[0].r.public,true);
+    await exec(`UPDATE dealer_research_publication_policy_authority SET policy_state='SUSPENDED'`);
+    const contactWhy='Independent review of the research-source address for public display in the isolated contract suite only; no business verification.';
+    await fails(`SELECT dealer_record_research_contact_review('ZW-DEAL-0097','${reviewer}','${contactWhy}',true,false,false,false)`,
+      'REAL_RESEARCH_PUBLICATION_REQUIRES_OWNER_POLICY');
+    assert.equal((await query(`SELECT dealer_record_research_contact_review($1,$2,$3,false,false,false,true) AS r`,
+      ['ZW-DEAL-0097',reviewer,contactWhy])).rows[0].r.public_contact_state,'RETRACTED','retraction always allowed');
+    await fails(`SELECT dealer_record_research_publication_review('ZW-DEAL-0095','${reviewer}','PRELISTED_UNCLAIMED','${pubWhy}')`,
+      'REAL_RESEARCH_PUBLICATION_REQUIRES_OWNER_POLICY');
+    console.log('DEALER_R6_REAL_PUBLICATION_GATE PASS: 8 real/spoofed seeds refused, takedown allowed, fictional fixture published, API roles cannot write the O12 policy, approver≠publisher, suspended policy closes again');
+
+    // ── #7 reviewer conflict of interest (data layer) ──
+    await exec(`INSERT INTO dealer_research_claim_requests(claim_id,seed_dealer_id,claimant_user_id,claimed_scope,
+      representative_relationship,asserted_legal_business_name,claim_statement)
+      VALUES ('${uuid(7701)}','ZW-DEAL-0001','coireviewer','BRANCH','LEGAL_OWNER','Rival Reviewer Co',
+        'A reviewer holding their own competing claim on this seed must never review it.')`);
+    await exec(`INSERT INTO tenant_users(tenant_id,user_id,role) VALUES ('${r6Tenant.t}','staffreviewer','member')`);
+    const coi=(await query(`SELECT u AS reviewer,dealer_reviewer_conflict_of_interest(u,'ZW-DEAL-0001') AS c
+      FROM unnest(ARRAY['coireviewer','staffreviewer','${claimant}','activationreviewer','${reviewer}']) u`)).rows;
+    assert.deepEqual(coi.map(r=>r.c),[true,true,true,false,false]);
+    const anySubmission=(await query("SELECT s.submission_id::text AS s FROM dealer_claim_compliance_submissions s JOIN dealer_research_claim_requests c ON c.claim_id=s.claim_id WHERE c.seed_dealer_id='ZW-DEAL-0001' LIMIT 1")).rows[0].s;
+    const mediaRow=(await query("SELECT media_id::text AS m FROM dealer_storefront_media_items WHERE seed_dealer_id='ZW-DEAL-0001' LIMIT 1")).rows[0].m;
+    const longWhy='Conflict-of-interest probe: this reviewer has a personal stake in the dealer under review and must be refused by the data layer itself.';
+    for(const conflicted of ['coireviewer','staffreviewer']){
+      const ledgerWrites=[
+        `INSERT INTO dealer_claim_review_events(claim_id,reviewer_user_id,verdict,review_reason)
+          VALUES ('${uuid(1)}','${conflicted}','CLAIM_REJECTED','${longWhy}')`,
+        `INSERT INTO dealer_claim_compliance_review_events(submission_id,reviewer_user_id,verdict,decision_reason)
+          VALUES ('${anySubmission}','${conflicted}','NEEDS_CORRECTIONS','${longWhy}')`,
+        `INSERT INTO dealer_legal_application_reviews(submission_id,claimant_user_id,reviewer_user_id,country_code,policy_version,
+          company_registration_evidence_id,signatory_evidence_id,verified_issuer,reviewed_registration_number,approved_scope,
+          legal_expires_at,legal_review_reason,verdict)
+          VALUES ('${anySubmission}','${claimant}','${conflicted}','ZW','CARUP_DEALER_ZW_DRAFT_2026_11_03',
+          '${uuid(7702)}','${uuid(7703)}','Probe Registry','PROBE-1','BRANCH',now()+interval '1 day','${longWhy}','COMPLIANCE_APPROVED')`,
+        `INSERT INTO dealer_approved_seed_links(seed_dealer_id,claim_id,submission_id,legal_review_id,organization_id,tenant_id,
+          dealer_profile_id,claimant_user_id,activated_by)
+          VALUES ('ZW-DEAL-0001','${uuid(7701)}','${anySubmission}','${r6Tenant.lr}','probe-org','${r6Tenant.t}',
+          '${uuid(7704)}','coireviewer','${conflicted}')`,
+        `INSERT INTO dealer_full_storefront_review_events(seed_dealer_id,link_id,reviewer_user_id,disposition,public_name,
+          public_city,approved_branch_snapshot,dealer_declared_sections,reviewer_reason)
+          VALUES ('ZW-DEAL-0001','${r6Tenant.l}','${conflicted}','RETRACTED','Probe','Harare','[]','{}','${longWhy}')`,
+        `INSERT INTO dealer_storefront_media_review_events(media_id,seed_dealer_id,tenant_id,reviewer_user_id,decision,rationale)
+          VALUES ('${mediaRow}','ZW-DEAL-0001','${r6Tenant.t}','${conflicted}','REJECTED','${longWhy}')`,
+        `INSERT INTO dealer_operating_lifecycle_events(link_id,seed_dealer_id,action,reviewer_user_id,reason,
+          previous_operating_status,next_operating_status,previous_legal_review_id,next_legal_review_id)
+          VALUES ('${r6Tenant.l}','ZW-DEAL-0001','WITHDRAW','${conflicted}','${longWhy}','SUSPENDED','WITHDRAWN',
+          '${r6Tenant.lr}','${r6Tenant.lr}')`,
+        `INSERT INTO dealer_research_publication_events(seed_dealer_id,revision,decision,reviewer_id,review_reason)
+          VALUES ('ZW-DEAL-0001',999,'SUPPRESSED','${conflicted}','${longWhy}')`,
+      ];
+      for(const sql of ledgerWrites)await fails(sql,'DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+      // Through the real RPCs as well (whole decision rolled back; nothing recorded).
+      await fails(`SELECT dealer_record_research_publication_review('ZW-DEAL-0001','${conflicted}','WITHHELD','${pubWhy}')`,
+        'DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+      await fails(`SELECT dealer_review_full_storefront_publication('ZW-DEAL-0001','${conflicted}','RETRACTED',
+        ARRAY[]::uuid[],ARRAY[]::text[],'${longWhy}')`,'DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+      await fails(`SELECT dealer_issue_storefront_media_review_ticket('${'1'.repeat(32)}','${'2'.repeat(64)}','${conflicted}',
+        'ZW-DEAL-0001','${mediaRow}'::uuid,'STOREFRONT_MEDIA_PREVIEW',(now()+interval '5 minutes'))`,
+        conflicted==='coireviewer'?'DEALER_REVIEWER_CONFLICT_OF_INTEREST':'INDEPENDENT_MEDIA_REVIEWER_REQUIRED');
+    }
+    // A rival claimant-reviewer cannot dispose of the competing claim either.
+    await fails(`SELECT dealer_record_independent_claim_review('${uuid(2)}','coireviewer','CLAIM_DISPUTED',
+      '${longWhy}',NULL,NULL,NULL)`,'DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+    assert.equal((await query(`SELECT count(*)::int AS n FROM dealer_claim_review_events WHERE reviewer_user_id IN ('coireviewer','staffreviewer')`)).rows[0].n,0);
+    assert.equal((await query(`SELECT count(*)::int AS n FROM dealer_research_publication_events WHERE reviewer_id IN ('coireviewer','staffreviewer')`)).rows[0].n,0);
+    console.log('DEALER_R6_REVIEWER_CONFLICT_OF_INTEREST PASS: own-claim and tenant-member reviewers refused on 8 decision ledgers + RPCs; unconflicted reviewers unaffected');
+
+    // ── #8c hardened ticket custody: server clock, bounded TTL, supersede, outstanding cap ──
+    const issue=(jti,hash,who,media,op,exp)=>query(
+      'SELECT dealer_issue_storefront_media_review_ticket($1,$2,$3,$4,$5::uuid,$6,$7::timestamptz) AS r',
+      [jti,hash,who,'ZW-DEAL-0001',media,op,exp]);
+    const consume=(jti,hash,who,op,pnow=null)=>query(
+      'SELECT dealer_consume_storefront_media_review_ticket($1,$2,$3,$4,$5,$6::timestamptz) AS r',
+      [jti,hash,who,'ZW-DEAL-0001',op,pnow]);
+    const hex=(i,len)=>i.toString(16).padStart(len,'0');
+    await exec('DELETE FROM dealer_storefront_media_review_tickets');
+    const far=(await issue(hex(1,32),hex(1,64),reviewer,mediaRow,'STOREFRONT_MEDIA_PREVIEW',
+      new Date(Date.now()+86400000).toISOString())).rows[0].r;
+    assert.ok(new Date(far.expires_at).getTime()<=Date.now()+10*60000+5000,'TTL bounded to 10 minutes by the DB clock');
+    await fails(`SELECT dealer_issue_storefront_media_review_ticket('${hex(2,32)}','${hex(2,64)}','${reviewer}','ZW-DEAL-0001',
+      '${mediaRow}'::uuid,'STOREFRONT_MEDIA_PREVIEW',(now()-interval '1 second'))`,'INVALID_MEDIA_REVIEW_TICKET_GRANT');
+    // Supersede: the newer grant for the same (reviewer,item,op) is the only live one.
+    await issue(hex(3,32),hex(3,64),reviewer,mediaRow,'STOREFRONT_MEDIA_PREVIEW',new Date(Date.now()+300000).toISOString());
+    await fails(`SELECT dealer_consume_storefront_media_review_ticket('${hex(1,32)}','${hex(1,64)}','${reviewer}','ZW-DEAL-0001','STOREFRONT_MEDIA_PREVIEW')`,
+      'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID');
+    assert.equal((await consume(hex(3,32),hex(3,64),reviewer,'STOREFRONT_MEDIA_PREVIEW')).rows[0].r.target_row_id,mediaRow);
+    // Server clock only: a short ticket expires on the DB clock even when the app claims an old p_now.
+    await issue(hex(4,32),hex(4,64),reviewer,mediaRow,'STOREFRONT_MEDIA_DECISION',new Date(Date.now()+1200).toISOString());
+    await new Promise(r=>setTimeout(r,1600));
+    await fails(`SELECT dealer_consume_storefront_media_review_ticket('${hex(4,32)}','${hex(4,64)}','${reviewer}','ZW-DEAL-0001',
+      'STOREFRONT_MEDIA_DECISION','2000-01-01T00:00:00Z'::timestamptz)`,'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID');
+    // Conflict of interest re-checked at use time: a claim made after the grant voids the ticket.
+    await issue(hex(5,32),hex(5,64),'lateconflict',mediaRow,'STOREFRONT_MEDIA_PREVIEW',new Date(Date.now()+300000).toISOString());
+    await exec(`INSERT INTO dealer_research_claim_requests(claim_id,seed_dealer_id,claimant_user_id,claimed_scope,
+      representative_relationship,asserted_legal_business_name,claim_statement)
+      VALUES ('${uuid(7705)}','ZW-DEAL-0001','lateconflict','BRANCH','LEGAL_OWNER','Late Rival Co',
+        'A reviewer who files a claim after receiving a ticket must not be able to use it.')`);
+    await fails(`SELECT dealer_consume_storefront_media_review_ticket('${hex(5,32)}','${hex(5,64)}','lateconflict','ZW-DEAL-0001','STOREFRONT_MEDIA_PREVIEW')`,
+      'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID');
+    // Outstanding cap: 48 media items × 2 operations = 96 live tickets; the 97th is refused.
+    await exec('DELETE FROM dealer_storefront_media_review_tickets');
+    await exec(`INSERT INTO dealer_storefront_media_items(seed_dealer_id,link_id,tenant_id,dealer_profile_id,branch_id,uploaded_by,
+      storage_bucket,storage_path,content_sha256,mime_type,file_bytes,scan_state,media_category,caption,alt_text,rights_attestation)
+      SELECT seed_dealer_id,link_id,tenant_id,dealer_profile_id,branch_id,uploaded_by,storage_bucket,
+        'dealership-media/r6-cap-'||g||'.png',lpad(to_hex(g),64,'0'),mime_type,file_bytes,scan_state,media_category,caption,alt_text,rights_attestation
+      FROM dealer_storefront_media_items, generate_series(1,49) g WHERE media_id='${mediaRow}'`);
+    const capItems=(await query("SELECT media_id::text AS m FROM dealer_storefront_media_items WHERE storage_path LIKE 'dealership-media/r6-cap-%' ORDER BY storage_path")).rows.map(r=>r.m);
+    assert.equal(capItems.length,49);
+    let n=100;
+    const exp5=new Date(Date.now()+300000).toISOString();
+    for(const m of capItems.slice(0,48)){
+      for(const op of ['STOREFRONT_MEDIA_PREVIEW','STOREFRONT_MEDIA_DECISION']){n+=1;await issue(hex(n,32),hex(n,64),reviewer,m,op,exp5);}
+    }
+    // Re-issuing for an already-held item supersedes rather than accumulates (queue reloads stay bounded).
+    n+=1;await issue(hex(n,32),hex(n,64),reviewer,capItems[0],'STOREFRONT_MEDIA_PREVIEW',exp5);
+    assert.equal((await query(`SELECT count(*)::int AS n FROM dealer_storefront_media_review_tickets
+      WHERE reviewer_id=$1 AND consumed_at IS NULL`,[reviewer])).rows[0].n,96);
+    n+=1;
+    await fails(`SELECT dealer_issue_storefront_media_review_ticket('${hex(n,32)}','${hex(n,64)}','${reviewer}','ZW-DEAL-0001',
+      '${capItems[48]}'::uuid,'STOREFRONT_MEDIA_PREVIEW','${exp5}'::timestamptz)`,'MEDIA_REVIEW_TICKET_OUTSTANDING_LIMIT');
+    // Another reviewer's budget is independent.
+    n+=1;await issue(hex(n,32),hex(n,64),'activationreviewer',capItems[48],'STOREFRONT_MEDIA_PREVIEW',exp5);
+    await exec('DELETE FROM dealer_storefront_media_review_tickets');
+    await exec("DELETE FROM dealer_storefront_media_items WHERE storage_path LIKE 'dealership-media/r6-cap-%'");
+    console.log('DEALER_R6_TICKET_HARDENING PASS: search_path pinned, TTL≤10min on DB clock, p_now ignored, supersede on re-issue, use-time conflict re-check, 96 outstanding/reviewer cap');
+
+    // ── #5 per-reviewer step-up lockout ──
+    const begin=async(who)=>(await query('SELECT dealer_begin_reviewer_step_up($1) AS r',[who])).rows[0].r;
+    const complete=async(who,ok)=>(await query('SELECT dealer_complete_reviewer_step_up($1,$2) AS r',[who,ok])).rows[0].r;
+    await fails(`SELECT dealer_begin_reviewer_step_up('nobody-r6')`,'REVIEWER_STEP_UP_SUBJECT_REQUIRED');
+    await fails(`SELECT dealer_complete_reviewer_step_up('legalreviewer',false)`,'REVIEWER_STEP_UP_NOT_STARTED');
+    for(let i=1;i<=5;i+=1){
+      const g=await begin('legalreviewer');
+      assert.equal(g.allowed,true);assert.equal(g.attempt,i);
+      const done=await complete('legalreviewer',false);
+      assert.equal(done.locked,i===5,'the fifth failure locks the account');
+    }
+    const locked=await begin('legalreviewer');
+    assert.equal(locked.allowed,false);
+    assert.ok(locked.retry_after_seconds>800&&locked.retry_after_seconds<=900);
+    assert.equal((await begin('policyreviewer')).allowed,true,'lockout is per account, not global');
+    await complete('policyreviewer',true);
+    // Lock expiry (simulated on the stored clock) restores a fresh window.
+    await exec(`UPDATE dealer_reviewer_step_up_guard SET locked_until=clock_timestamp()-interval '1 second' WHERE reviewer_user_id='legalreviewer'`);
+    const after=await begin('legalreviewer');
+    assert.equal(after.allowed,true);assert.equal(after.attempt,1);
+    await complete('legalreviewer',true);
+    // Success paths never lock: 4 failures, success resets, then 25 successes.
+    for(let i=0;i<4;i+=1){await begin('activationreviewer');await complete('activationreviewer',false);}
+    await begin('activationreviewer');await complete('activationreviewer',true);
+    for(let i=0;i<25;i+=1){assert.equal((await begin('activationreviewer')).allowed,true);await complete('activationreviewer',true);}
+    assert.equal((await query(`SELECT attempts_in_window,locked_until FROM dealer_reviewer_step_up_guard WHERE reviewer_user_id='activationreviewer'`)).rows[0].attempts_in_window,0);
+    // Reservations are taken BEFORE verification: 5 unfinished attempts block a 6th (parallel guessing bound).
+    for(let i=0;i<5;i+=1)assert.equal((await begin('coireviewer')).allowed,true);
+    assert.equal((await begin('coireviewer')).allowed,false);
+    // The API role can execute the RPCs but never read or rewrite the counters.
+    await exec('SET ROLE service_role');
+    await fails('SELECT * FROM dealer_reviewer_step_up_guard','permission denied');
+    await fails("UPDATE dealer_reviewer_step_up_guard SET locked_until=NULL","permission denied");
+    await exec('RESET ROLE');
+    if(native){
+      const clients=await Promise.all(Array.from({length:10},async()=>{
+        const c=new pg.Client({connectionString:nativeUrl,ssl:false});await c.connect();return c;}));
+      try{
+        const results=await Promise.all(clients.map(c=>c.query("SELECT dealer_begin_reviewer_step_up('staffreviewer') AS r")));
+        const allowed=results.filter(r=>r.rows[0].r.allowed===true).length;
+        assert.equal(allowed,5,'10 parallel step-up attempts on separate sessions: exactly 5 reserved, 5 refused');
+      }finally{await Promise.all(clients.map(c=>c.end()))}
+      console.log('DEALER_R6_NATIVE_PARALLEL_STEP_UP PASS: 10 concurrent sessions → exactly 5 attempts reserved');
+    }
+    console.log('DEALER_R6_STEP_UP_LOCKOUT PASS: 5 failures/15 min per reviewer → 15 min lock; per-account; success resets; reservations bound parallel guesses; counters unreadable by API role');
+
+    // Down refuses while R6 custody exists; then clean up the R6 probes for the rollback test.
+    await fails(read(r6).down,'CANNOT_ROLLBACK_WITH_DEALER_R6_SECURITY_CUSTODY');
+    await exec('DELETE FROM dealer_research_publication_policy_authority');
+    await fails(read(r6).down,'CANNOT_ROLLBACK_WITH_DEALER_R6_SECURITY_CUSTODY');
+    await exec('TRUNCATE dealer_reviewer_step_up_guard');
+    await exec(`DELETE FROM tenant_users WHERE user_id='staffreviewer'`);
+    await exec(`DELETE FROM dealer_research_claim_requests WHERE claim_id IN ('${uuid(7701)}','${uuid(7705)}')`);
+  }
 
   // Dispose R5 custody tables before rollback test (after proving CANNOT_ROLLBACK_WITH_DEALER_R5_CUSTODY above).
   await exec('TRUNCATE dealer_storefront_media_review_tickets, dealer_storefront_media_review_events, dealer_storefront_media_items, dealer_research_duplicate_redirects, dealer_research_correction_review_events');
