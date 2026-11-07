@@ -359,14 +359,26 @@ CREATE FUNCTION dealer_guard_marketplace_inquiry()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
-DECLARE v_link dealer_approved_seed_links%ROWTYPE;
+DECLARE v_link dealer_approved_seed_links%ROWTYPE; v_tenant UUID;
 BEGIN
-  IF NEW.seller_tenant_id IS NULL THEN RETURN NEW; END IF;
-  SELECT * INTO v_link FROM dealer_approved_seed_links WHERE tenant_id::text = NEW.seller_tenant_id FOR SHARE;
-  IF NOT FOUND THEN RETURN NEW; END IF;
-  IF NOT dealer_tenant_listing_authority_current(v_link.tenant_id) THEN
-    RAISE EXCEPTION 'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT';
-  END IF;
+  -- R6: guard EVERY tenant the enquiry can reach. seller_tenant_id is free TEXT, so it is
+  -- parsed only when UUID-shaped (any case) and compared natively as uuid — an upper-case
+  -- or omitted value can no longer skip the guard — and the listed VIN's own tenant is
+  -- checked as well. The vehicle row is read, never locked (lock order: VIN before link).
+  FOR v_tenant IN
+    SELECT DISTINCT t FROM (VALUES
+      (CASE WHEN btrim(coalesce(NEW.seller_tenant_id,'')) ~*
+        '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        THEN btrim(NEW.seller_tenant_id)::uuid END),
+      ((SELECT x.tenant_id FROM vehicles x
+         WHERE coalesce(NEW.listing_type,'vehicle') = 'vehicle' AND x.vin = NEW.listing_id)))
+      AS c(t) WHERE t IS NOT NULL
+  LOOP
+    SELECT * INTO v_link FROM dealer_approved_seed_links WHERE tenant_id = v_tenant FOR SHARE;
+    IF FOUND AND NOT dealer_tenant_listing_authority_current(v_link.tenant_id) THEN
+      RAISE EXCEPTION 'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT';
+    END IF;
+  END LOOP;
   RETURN NEW;
 END;
 $$;

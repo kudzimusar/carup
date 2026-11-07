@@ -1702,6 +1702,13 @@ try{
     'DEALER_LISTING_AUTHORITY_NOT_CURRENT');
   await fails(`INSERT INTO marketplace_inquiries(id,listing_id,seller_tenant_id,status,risk_status)
     VALUES ('${uuid(8899)}','${listingVin}','${tenant}','new','clear')`,'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT');
+  // R6: neither an upper-case seller_tenant_id nor an omitted one can skip the enquiry guard.
+  await fails(`INSERT INTO marketplace_inquiries(id,listing_id,seller_tenant_id,status,risk_status)
+    VALUES ('${uuid(8900)}','${listingVin}','${String(tenant).toUpperCase()}','new','clear')`,'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT');
+  await fails(`INSERT INTO marketplace_inquiries(id,listing_id,seller_tenant_id,status,risk_status)
+    VALUES ('${uuid(8901)}','${listingVin}',NULL,'new','clear')`,'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT');
+  await fails(`INSERT INTO marketplace_inquiries(id,listing_id,seller_tenant_id,status,risk_status)
+    VALUES ('${uuid(8902)}','${listingVin}','not-a-uuid','new','clear')`,'DEALER_INQUIRY_AUTHORITY_NOT_CURRENT');
   await fails(`SELECT dealer_prepare_canonical_listing('${claimant}','${listingVin}','${branchId}',18500,'USD',
     'FICT-CHASSIS-R4-0001','FICT-ENGINE-R4-0001','customs_cleared_cvr_pending',NULL,'Harare',NULL,'public',true)`,
     'NO_ACTIVE_CANONICAL_DEALER_MEMBERSHIP');
