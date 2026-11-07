@@ -1,5 +1,7 @@
 # CARUP-DEALER-ONB-001-LR01-R4 — integration, rollback and release gates
 
+**R6 note:** the database section below describes R4 (20 migrations). The current sequence is 23 migrations with a one-transaction-per-migration runner — see `R6_INTEGRATION_READINESS_PACKAGE.md` §2–§3 and `R6_DBA_OPERATIONS_AND_LOCK_ORDER.md`.
+
 **Status: engineering candidate on Draft PR #258. DO NOT MERGE, DEPLOY, PUBLISH REAL DEALERS OR ACTIVATE PAYMENTS.**
 This document is a proposal for the Owner and Moderator. Nothing in it has been executed against a shared, staging or production system.
 

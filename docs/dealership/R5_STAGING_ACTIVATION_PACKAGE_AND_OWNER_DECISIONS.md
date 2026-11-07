@@ -1,5 +1,7 @@
 # CARUP-DEALER-ONB-001-LR01-R5 — staging activation package (NOT ACTIVATED) and Owner decision register
 
+**R6 note:** §1–§5 and §7 are superseded by `R6_INTEGRATION_READINESS_PACKAGE.md` (23 migrations, the one-transaction-per-migration runner, updated kill switches and review status). The Owner decision register in §6 remains current (O14 added in R6).
+
 **Status:** prepared, not executed. No staging deployment, shared-database migration, preview alias, real dealer publication or payment has been performed. Every step below needs the separate, explicit Owner authority named in its row.
 
 ## 1. Candidate identity
@@ -66,6 +68,7 @@
 | O11 | After an independent claim **revocation**, may the same public URL invite a new claim ("Claim this dealership"), or must it stay closed pending dispute review? (Phase 7 screenshot shows it re-opens.) | Pilot policy | Undecided |
 | O12 | Publication of REAL researched records: single reviewer + password today; require a two-person rule and/or an Owner publication-policy row before any real record is published (Security review #2) | PILOT READY | Not decided; 0 real records published |
 | O13 | T32 contrast fix is **site-wide**: the CarUp logo "Up", primary CTA buttons and several labels on shared public components (Navbar, Footer, MobileNavDrawer, DashboardLayout, VehicleDetail, AllInPricePanel, history/intelligence panels) moved orange-500→orange-700, gray/slate-400→600. Accept the brand shade change, or have design supply an approved AA palette | Merge | Implemented on the branch; Marketplace Reference Regression (which covers VehicleDetail) cannot run until O1 |
+| O14 | Should a dealer be told explicitly that an independent INVESTIGATION is open? R6 shows a neutral 'an independent CarUp review of your dealership is in progress' (no tip-off); suspension, expiry and withdrawal are shown explicitly | Pilot policy | Neutral wording implemented; Owner to confirm |
 
 ## 7. Independent review dispositions (R5, 7 Nov 2026 — agent reviewers, advisory, not named certifiers)
 

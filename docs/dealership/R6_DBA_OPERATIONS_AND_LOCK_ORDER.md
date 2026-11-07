@@ -780,3 +780,7 @@ DEALER_ISOLATED_POSTGRES_URL=postgresql://postgres@127.0.0.1:<port>/carup_dealer
 # backend (node 22, ci.yml env)
 cd backend && NODE_ENV=test … node --test tests/dealer-*.test.js tests/*migration*.test.js
 ```
+
+### Pooler spill-over and recovery (final DBA verification of a31697ff)
+
+The one-transaction guard makes an autocommit session read-only. Through a transaction-mode pooler (pgbouncer by default, probably Supavisor) that setting stays on the reused SERVER connection, so the next client on it gets SQLSTATE 25006 until the pool recycles it. This only happens on the unsupported path (autocommit through a pooler); the runner refuses recognisable poolers and the procedure requires a direct session. Recovery: recycle the pool's server connections (pgbouncer `RECONNECT`/`RELOAD`, or restart the pooler) or run `DISCARD ALL` / `RESET ALL` on them.
