@@ -27,10 +27,19 @@ function query(data) {
     maybeSingle:async()=>({data,error:null}),
   };
 }
-function fakeFrom({claim=approved,user,sub=submission,submissions=[submission],reviews=[]}={}){
+function fakeFrom({claim=approved,user,sub=submission,submissions=[submission],reviews=[],
+  reviewerClaims=[],memberships=[],links=[]}={}){
   const old=supabase.from;
   supabase.from=(table)=>{
-    if(table==='dealer_research_claim_requests')return query(claim);
+    // R6 closure: the reviewer-conflict lookup reads the reviewer's own claims, memberships and
+    // the seeds linked to those tenants (no conflicts unless a test says so).
+    if(table==='dealer_research_claim_requests'){
+      const q=query(claim);let own=false,many=false;
+      return {...q,eq(k){if(k==='claimant_user_id')own=true;return this},in(){many=true;return this},
+        limit:async()=>({data:own?reviewerClaims:many?[claim]:claim,error:null})};
+    }
+    if(table==='tenant_users')return query(memberships);
+    if(table==='dealer_approved_seed_links')return query(links);
     if(table==='users')return query(user||null);
     if(table==='dealer_claim_compliance_submissions'){
       return { ...query(sub),limit:async()=>({data:submissions,error:null})};
@@ -162,4 +171,21 @@ test('D6 qualified independent reviewer can only record nonapproving verdicts',a
     assert.equal(result.compliance_approved,false);
     assert.equal(invoked,1);
   }finally{reset();supabase.rpc=oldRpc}
+});
+
+test('R6 closure: a reviewer who claims the business never sees its case in the queue or its frozen snapshot',async()=>{
+  const seeded={...approved,seed_dealer_id:'ZW-DEAL-0001'};
+  const reviewer={userId:'rival-reviewer',authenticationMethod:'session',isVerified:true,platformRole:'reviewer'};
+  let restore=fakeFrom({claim:seeded,reviewerClaims:[{seed_dealer_id:'ZW-DEAL-0001'}]});
+  try{
+    assert.deepEqual(await service.listDealerComplianceReviewQueue(reviewer),[]);
+    await assert.rejects(service.previewDealerComplianceCase(submissionId,reviewer,'not-checked-first'),
+      e=>e.statusCode===403&&e.code==='DEALER_REVIEWER_CONFLICT_OF_INTEREST',
+      'refused before any password step-up attempt is spent');
+  }finally{restore()}
+  restore=fakeFrom({claim:seeded,memberships:[{tenant_id:'t-1'}],links:[{seed_dealer_id:'ZW-DEAL-0001'}]});
+  try{
+    await assert.rejects(service.previewDealerComplianceCase(submissionId,reviewer,'x'),
+      /DEALER_REVIEWER_CONFLICT_OF_INTEREST/,'staff of the linked dealership are conflicted too');
+  }finally{restore()}
 });

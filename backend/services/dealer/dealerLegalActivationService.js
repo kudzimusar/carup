@@ -6,6 +6,7 @@
  * A draft policy is not approvable by this API and no paid plan confers rights.
  */
 import {supabase} from '../../db/supabase.js';
+import {loadReviewerConflicts} from './dealerReviewerConflicts.js';
 import {throwIfDealerSecurityRefusal} from './dealerSqlRefusalMapper.js';
 import {requireClaimantSession,requireIndependentReviewer,
   requireReviewerPassword} from './dealerClaimApplicationService.js';
@@ -87,17 +88,15 @@ export async function listPendingLegalDealershipCases(actor){
   ]):[{data:[]},{data:[]}];
   if(claimError||evidenceError)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
   const seedByClaim=new Map((claims||[]).map(c=>[c.claim_id,c.seed_dealer_id]));
-  // A reviewer who holds a claim on the same business never sees its case or evidence metadata.
-  const {data:ownClaims,error:ownClaimError}=await supabase.from('dealer_research_claim_requests')
-    .select('seed_dealer_id').eq('claimant_user_id',actor.userId).limit(500);
-  if(ownClaimError)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
-  const conflictedSeeds=new Set((Array.isArray(ownClaims)?ownClaims:[]).map(c=>c?.seed_dealer_id).filter(Boolean));
+  // A reviewer who claims the business, or works for a dealership linked to it, never sees
+  // its case or evidence metadata (shared read-conflict rule, R6 closure).
+  const conflicts=await loadReviewerConflicts(actor);
   const declaredName=(snapshot)=>{
     const v=snapshot?.tab_rows?.BUSINESS?.[0]?.legal_name;
     return typeof v==='string'&&v.trim()?v.trim().slice(0,180):null;
   };
   return cases.filter(row=>row.claimant_user_id!==actor.userId&&
-      !conflictedSeeds.has(seedByClaim.get(row.claim_id))).map(row=>({
+      !conflicts.conflicted(seedByClaim.get(row.claim_id))).map(row=>({
     submission_id:row.submission_id,claim_id:row.claim_id,
     seed_dealer_id:seedByClaim.get(row.claim_id)||null,
     declared_legal_name:declaredName(row.application_snapshot),

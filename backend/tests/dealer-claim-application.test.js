@@ -153,3 +153,48 @@ test('approved claimant can supply later private legal originals, but revoked or
     assert.equal(scanCalls,1,'approved claimant remains owner-scoped');
   }finally{supabase.from=old}
 });
+
+// R6 closure (independent security verification of 7f7432f0, reproduced there): a reviewer who
+// claims the same business, or works for a dealership linked to it, never reads its private
+// evidence list, never receives a signed link to its originals, and never sees it queued.
+function rowsOf(data){
+  const b={select(){return b},eq(){return b},in(){return b},order(){return b},
+    limit:async()=>({data,error:null}),maybeSingle:async()=>({data,error:null})};
+  return b;
+}
+function conflictFrom({reviewerClaims=[],memberships=[],links=[],storageCalls}){
+  return table=>{
+    if(table==='dealer_research_claim_requests'){
+      let own=false;
+      const b={select(){return b},in(){return b},order(){return b},
+        eq(k){if(k==='claimant_user_id')own=true;return b},
+        limit:async()=>({data:own?reviewerClaims:[claim],error:null}),
+        maybeSingle:async()=>({data:claim,error:null})};
+      return b;
+    }
+    if(table==='tenant_users')return rowsOf(memberships);
+    if(table==='dealer_approved_seed_links')return rowsOf(links);
+    if(table==='dealer_claim_private_evidence'){storageCalls.push(table);return rowsOf([])}
+    throw Error('Unexpected table '+table);
+  };
+}
+test('R6 closure: a conflicted reviewer never reads the claim evidence, its signed link or the queue entry',async()=>{
+  const old=supabase.from;const oldRpc=supabase.rpc;const storageCalls=[];const rpcCalls=[];
+  supabase.rpc=async(name)=>{rpcCalls.push(name);return {data:{allowed:true},error:null}};
+  try{
+    for(const conflict of [{reviewerClaims:[{seed_dealer_id:'ZW-DEAL-0001'}]},
+      {memberships:[{tenant_id:'t-1'}],links:[{seed_dealer_id:'ZW-DEAL-0001'}]}]){
+      supabase.from=conflictFrom({...conflict,storageCalls});
+      await assert.rejects(app.listReviewClaimEvidence(CLAIM_ID,reviewer),
+        e=>e.statusCode===403&&e.code==='DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+      await assert.rejects(app.reviewerEvidencePreview(CLAIM_ID,EVIDENCE_ID,reviewer,'correct-horse-battery'),
+        /DEALER_REVIEWER_CONFLICT_OF_INTEREST/);
+      assert.deepEqual(await app.listClaimReviewQueue(reviewer),[]);
+    }
+    assert.deepEqual(storageCalls,[],'no evidence row or signed link is ever read');
+    assert.deepEqual(rpcCalls,[],'refused before any step-up attempt is spent');
+    supabase.from=conflictFrom({storageCalls});
+    assert.deepEqual(await app.listReviewClaimEvidence(CLAIM_ID,reviewer),[],'an unconflicted reviewer may read');
+    assert.equal((await app.listClaimReviewQueue(reviewer)).length,1);
+  }finally{supabase.from=old;supabase.rpc=oldRpc}
+});

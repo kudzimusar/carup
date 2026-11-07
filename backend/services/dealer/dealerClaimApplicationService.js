@@ -14,6 +14,7 @@ import {
 import {buildManualDealerWorkbook} from './dealerManualIntake.js';
 import {inspectDealerCsvImport,stageConfirmedDealerCsv} from './dealerCsvIntake.js';
 import {throwIfDealerSecurityRefusal} from './dealerSqlRefusalMapper.js';
+import {assertReviewerNotConflicted,loadReviewerConflicts} from './dealerReviewerConflicts.js';
 
 const DOCS=new Set(['COMPANY_REGISTRATION','DIRECTOR_AUTHORITY','SIGNATORY_MANDATE',
   'BRANCH_AUTHORITY','PARENT_COMPANY_AUTHORITY']);
@@ -198,6 +199,8 @@ export async function listMyClaimEvidence(claimId,actor){
 export async function listReviewClaimEvidence(claimId,actor){
   const claim=await loadClaim(claimId);
   requireIndependentReviewer(actor,claim.claimant_user_id);
+  // R6 closure: a reviewer who claims this business or works for its dealership sees nothing.
+  await assertReviewerNotConflicted(actor,claim.seed_dealer_id);
   const {data,error}=await supabase.from('dealer_claim_private_evidence')
     .select('evidence_id,document_class,created_at,content_sha256')
     .eq('claim_id',claim.claim_id).order('created_at',{ascending:false}).limit(50);
@@ -206,6 +209,9 @@ export async function listReviewClaimEvidence(claimId,actor){
 }
 export async function reviewerEvidencePreview(claimId,evidenceId,actor,password){
   const claim=await loadClaim(claimId);
+  requireIndependentReviewer(actor,claim.claimant_user_id);
+  // Refused before any step-up attempt is spent and before any signed link exists.
+  await assertReviewerNotConflicted(actor,claim.seed_dealer_id);
   await requireReviewerPassword(actor,claim,password);
   validateId(evidenceId);
   const {data,error}=await supabase.from('dealer_claim_private_evidence')
@@ -359,5 +365,6 @@ export async function listClaimReviewQueue(actor){
     .select('claim_id,seed_dealer_id,claimed_scope,claim_status,created_at')
     .order('created_at',{ascending:false}).limit(100);
   if(error)throw deny('REVIEW_QUEUE_UNAVAILABLE',503);
-  return data||[];
+  const conflicts=await loadReviewerConflicts(actor);
+  return (data||[]).filter(c=>!conflicts.conflicted(c.seed_dealer_id));
 }

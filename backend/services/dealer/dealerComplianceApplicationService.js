@@ -5,6 +5,7 @@
  */
 import {supabase} from '../../db/supabase.js';
 import {throwIfDealerSecurityRefusal} from './dealerSqlRefusalMapper.js';
+import {assertReviewerNotConflicted,loadReviewerConflicts} from './dealerReviewerConflicts.js';
 import {requireClaimantSession,requireIndependentReviewer,
   requireReviewerPassword} from './dealerClaimApplicationService.js';
 
@@ -78,8 +79,15 @@ export async function listDealerComplianceReviewQueue(actor){
     .select('submission_id,claim_id,intake_version,submitted_at,claimant_user_id')
     .order('submitted_at',{ascending:false}).limit(100);
   if(error)throw fail('COMPLIANCE_REVIEW_QUEUE_UNAVAILABLE',503);
+  // R6 closure: cases on a business the reviewer claims or works for are not listed.
+  const claimIds=[...new Set((data||[]).map(s=>s.claim_id))];
+  const {data:claims,error:claimError}=claimIds.length?await supabase.from('dealer_research_claim_requests')
+    .select('claim_id,seed_dealer_id').in('claim_id',claimIds).limit(200):{data:[]};
+  if(claimError)throw fail('COMPLIANCE_REVIEW_QUEUE_UNAVAILABLE',503);
+  const seedByClaim=new Map((Array.isArray(claims)?claims:[]).map(c=>[c.claim_id,c.seed_dealer_id]));
+  const conflicts=await loadReviewerConflicts(actor);
   // Queue contains no private workbook/legal snapshot, and no secure document links.
-  return (data||[]).map(s=>({
+  return (data||[]).filter(s=>!conflicts.conflicted(seedByClaim.get(s.claim_id))).map(s=>({
     submission_id:s.submission_id,claim_id:s.claim_id,
     intake_version:s.intake_version,submitted_at:s.submitted_at,
     independent_review_required:s.claimant_user_id!==actor.userId,
@@ -87,6 +95,12 @@ export async function listDealerComplianceReviewQueue(actor){
 }
 export async function previewDealerComplianceCase(submissionId,actor,password){
   const meta=await reviewerSubmission(submissionId,actor);
+  // R6 closure: no frozen application snapshot for a reviewer who claims the business or
+  // works for its dealership — refused before any step-up attempt is spent.
+  const {data:claim,error:claimError}=await supabase.from('dealer_research_claim_requests')
+    .select('seed_dealer_id').eq('claim_id',meta.claim_id).maybeSingle();
+  if(claimError||!claim)throw fail('PRELIMINARY_CASE_LOOKUP_UNAVAILABLE',503);
+  await assertReviewerNotConflicted(actor,claim.seed_dealer_id);
   await requireReviewerPassword(actor,{claimant_user_id:meta.claimant_user_id},password);
   const {data,error}=await supabase.from('dealer_claim_compliance_submissions')
     .select('submission_id,claim_id,intake_version,submitted_at,schema_version,application_snapshot,snapshot_sha256')
