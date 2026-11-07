@@ -37,4 +37,15 @@ GRANT SELECT, INSERT ON dealer_research_seed_records TO service_role;
 -- Deliberately no RLS policy for visitor or dealer, no public view, no update privilege.
 -- A correction/identity-review flow must be introduced separately with audit custody.
 -- +migrate Down
+-- R6 DBA #6: imported research snapshots are custody (source row hashes, provenance). Rollback is
+-- refused while any exist, before any DDL; dispose of them explicitly, or fix forward.
+DO $$
+BEGIN
+  IF to_regclass('public.dealer_research_seed_records') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM dealer_research_seed_records) THEN
+      RAISE EXCEPTION 'CANNOT_ROLLBACK_WITH_RESEARCH_SEED_CUSTODY';
+    END IF;
+  END IF;
+END;
+$$;
 DROP TABLE IF EXISTS dealer_research_seed_records;

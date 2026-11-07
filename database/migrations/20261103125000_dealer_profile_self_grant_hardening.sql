@@ -39,17 +39,17 @@ COMMENT ON TABLE dealer_profiles IS
   exclusively service-role/independent compliance controlled.';
 
 -- +migrate Down
-DROP POLICY IF EXISTS "dealer_profiles owner update" ON dealer_profiles;
-CREATE POLICY "dealer_profiles owner update" ON dealer_profiles
- FOR UPDATE TO authenticated
- USING (auth.uid() IS NOT NULL AND user_id=auth.uid()::text)
- WITH CHECK (user_id=auth.uid()::text);
-REVOKE INSERT (
-  user_id,legal_name,trading_name,registration_number,tax_id,
-  physical_address,responsible_person,operating_country
-) ON dealer_profiles FROM authenticated;
-REVOKE UPDATE (
-  legal_name,trading_name,registration_number,tax_id,
-  physical_address,responsible_person,operating_country
-) ON dealer_profiles FROM authenticated;
-GRANT INSERT,UPDATE ON dealer_profiles TO authenticated;
+-- R6 DBA #6: this Down deliberately does NOT restore the pre-migration privileges. The exact
+-- pre-migration state (20260626150000: table-wide GRANT INSERT,UPDATE ON dealer_profiles TO
+-- authenticated, and an owner UPDATE policy with no status predicate) is the privilege-escalation
+-- hole this migration closes: a direct PostgREST caller could set identity_status,
+-- compliance_review_state, active_state, suspension/investigation/restriction state or tenant_id
+-- on its own row. No rollback of the dealership programme needs that, and every dealership write
+-- runs as service_role, so restoring it would only re-open the hole. The column-scoped grants and
+-- the status-guarded owner policy therefore STAY in place on rollback (fix forward if they must
+-- change). Re-applying the Up is idempotent: REVOKE/GRANT and DROP POLICY IF EXISTS + CREATE POLICY.
+DO $$
+BEGIN
+  RAISE NOTICE 'dealer_profiles self-grant hardening retained on rollback (security barrier; see 20261103125000)';
+END;
+$$;

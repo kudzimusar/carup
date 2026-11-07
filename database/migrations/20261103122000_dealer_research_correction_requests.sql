@@ -19,4 +19,15 @@ GRANT SELECT,INSERT ON dealer_research_correction_requests TO service_role;
 CREATE INDEX IF NOT EXISTS idx_dealer_research_correction_queue
   ON dealer_research_correction_requests (seed_dealer_id,created_at DESC);
 -- +migrate Down
+-- R6 DBA #6: a public correction/takedown request is a third party's record. Rollback is refused
+-- while any exist, before any DDL; dispose of them explicitly, or fix forward.
+DO $$
+BEGIN
+  IF to_regclass('public.dealer_research_correction_requests') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM dealer_research_correction_requests) THEN
+      RAISE EXCEPTION 'CANNOT_ROLLBACK_WITH_RESEARCH_CORRECTION_REQUESTS';
+    END IF;
+  END IF;
+END;
+$$;
 DROP TABLE IF EXISTS dealer_research_correction_requests;

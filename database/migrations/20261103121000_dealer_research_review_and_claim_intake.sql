@@ -144,6 +144,23 @@ REVOKE ALL ON FUNCTION dealer_record_research_publication_review(TEXT,TEXT,TEXT,
 GRANT EXECUTE ON FUNCTION dealer_record_research_publication_review(TEXT,TEXT,TEXT,TEXT) TO service_role;
 
 -- +migrate Down
+-- R6 DBA #6: claims are business records and the publication ledger is append-only. Rollback is
+-- refused while any exist, before any DDL; dispose of them explicitly, or fix forward.
+DO $$
+BEGIN
+  IF to_regclass('public.dealer_research_claim_requests') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM dealer_research_claim_requests) THEN
+      RAISE EXCEPTION 'CANNOT_ROLLBACK_WITH_DEALER_CLAIM_REQUESTS';
+    END IF;
+  END IF;
+  IF to_regclass('public.dealer_research_publication_events') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM dealer_research_publication_events)
+       OR EXISTS (SELECT 1 FROM dealer_research_public_profiles) THEN
+      RAISE EXCEPTION 'CANNOT_ROLLBACK_WITH_RESEARCH_PUBLICATION_LEDGER';
+    END IF;
+  END IF;
+END;
+$$;
 DROP FUNCTION IF EXISTS dealer_record_research_publication_review(TEXT,TEXT,TEXT,TEXT);
 DROP TABLE IF EXISTS dealer_research_claim_requests;
 DROP TABLE IF EXISTS dealer_research_public_profiles;
