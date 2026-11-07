@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001-LR01-R5 (T22, T42, S08, S09):
 -- 1. T42: Independent reviewer disposition ledger and atomic publication withdrawal for public
 --    correction/takedown requests (no unreviewed complaint can auto-suppress; no unauthorized

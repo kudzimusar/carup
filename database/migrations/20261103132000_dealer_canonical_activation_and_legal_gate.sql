@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 D6/C08-C12: THE canonical approved legal-dealer bridge.
 -- No production country policy is preapproved. Operator/legal policy authority
 -- is a separate controlled database process, not a self-service API or payment.

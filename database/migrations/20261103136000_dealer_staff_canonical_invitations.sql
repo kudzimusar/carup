@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP DEALER D7 C16: existing-CarUp-account staff invitation; no ghost
 -- accounts, global role changes, owner role delegation or parallel tenant auth.
 CREATE TABLE dealer_staff_invitation_records (

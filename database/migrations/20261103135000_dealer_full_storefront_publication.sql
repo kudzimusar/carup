@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- D8 C18/C19/C20-C22: independently approved buyer-safe full storefront.
 -- Keep same research-derived stable slug and never publish private evidence,
 -- tax numbers, staff, finance accounts, VINs, source contacts or unreviewed logos.

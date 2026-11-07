@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 C23 D8: buyer-linked complaint and feedback candidates.
 -- Canonical transaction remains escrow_trust_sessions; this is a private case
 -- and moderation ledger, NOT payment, settlement, buyer verification or review stars.

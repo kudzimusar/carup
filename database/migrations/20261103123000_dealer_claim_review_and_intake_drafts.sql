@@ -1,4 +1,7 @@
 -- +migrate Up
+-- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
+-- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
+SET lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 D3/D6 — independent claim-review custody and private
 -- applicant draft read-model. This does NOT create a second organization, tenant,
 -- staff, VIN or payment authority. Existing canonical activation remains separate.
