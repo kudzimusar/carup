@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { supabase } from '../../db/supabase.js';
 import { ValidationError, NotFoundError, ForbiddenError, DatabaseError } from '../../utils/errors.js';
+import { dealerCanonicalWriteRefusal } from '../dealer/dealerCanonicalWriteRefusal.js';
 import {
   MARKETPLACE_INQUIRY_TYPES,
   MARKETPLACE_INQUIRY_STATUSES,
@@ -221,7 +222,10 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     if (error) throw error;
     inserted = data || row;
   } catch (error) {
-    throw new DatabaseError('Failed to record inquiry.', { reason: error.message });
+    // A dealership whose authority is not current is REFUSED by the data layer
+    // (documented 409), not a server fault. Any other failure stays a 5xx.
+    throw dealerCanonicalWriteRefusal(error)
+      || new DatabaseError('Failed to record inquiry.', { reason: error.message });
   }
 
   // Communications 2.0 invariant: a successful Marketplace inquiry must have its durable canonical

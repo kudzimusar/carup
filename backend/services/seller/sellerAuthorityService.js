@@ -486,7 +486,9 @@ export async function submitSellerClaim(client, { vin, claimType, userContext, r
       });
     // A UNIQUE violation from a concurrent claim is benign — the claim exists.
     if (insertErr && !/duplicate|unique/i.test(insertErr.message || '')) {
-      throw new SellerAuthorityError(`Seller authority claim write failed: ${insertErr.message}`, 'SELLER_AUTHORITY_WRITE_FAILED', 500);
+      // Keep the database error as `cause` so a dealership data-layer refusal can be
+      // answered with its documented 4xx instead of this generic 500 (R6 B).
+      throw Object.assign(new SellerAuthorityError(`Seller authority claim write failed: ${insertErr.message}`, 'SELLER_AUTHORITY_WRITE_FAILED', 500), { cause: insertErr });
     }
   }
 

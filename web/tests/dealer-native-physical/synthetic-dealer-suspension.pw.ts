@@ -10,8 +10,8 @@ import {dirname} from 'node:path'
  * republish and new enquiries. EXPLICITLY FICTIONAL; disposable native PostgreSQL only.
  */
 type Actor={id:string;name:string;email:string;role:string;token:string}
-type Fixture={actors:{claimant:Actor;reviewer:Actor;vehicle_buyer:Actor}
- reviewer_password:string;public_slug:string;seed:string;listing_vin:string;source_type:string
+type Fixture={actors:{claimant:Actor;reviewer:Actor;vehicle_buyer:Actor;activator:Actor}
+ reviewer_password:string;activator_password:string;public_slug:string;seed:string;listing_vin:string;source_type:string
  listing_phase_provenance:string}
 const file=process.env.DEALER_BROWSER_FIXTURE_JSON
 if(!file)throw Error('SUSPENSION_CI_FIXTURE_MISSING')
@@ -28,6 +28,11 @@ async function actorOn(page:Page,actor:Actor){
   localStorage.setItem('carup_token',token)
  },{user:{id:actor.id,name:actor.name,email:actor.email,role:actor.role},token:actor.token})
 }
+function writeReceipt(name:string,receipt:Record<string,unknown>){
+ const out='test-results/'+name
+ mkdirSync(dirname(out),{recursive:true})
+ writeFileSync(out,JSON.stringify(receipt,null,2)+'\n',{mode:0o600})
+}
 const ids=(a:Actor,extra:Record<string,string>={})=>({'x-user-id':a.id,'x-session-token':a.token,...extra})
 async function unsafe(page:Page,a:Actor,method:'POST'|'PATCH',path:string,data:unknown,extra:Record<string,string>={}){
  const t=await page.request.get(API+'/security/csrf-token',{headers:ids(a,extra)})
@@ -35,6 +40,93 @@ async function unsafe(page:Page,a:Actor,method:'POST'|'PATCH',path:string,data:u
  return page.request.fetch(API+path,{method,data,headers:{...ids(a,extra),
   'x-csrf-token':j.csrfToken||j.token||j.csrf_token||'','content-type':'application/json'}})
 }
+
+// R6 E (C12): the lifecycle reviewer WORKBENCH, physically. Suspension withdraws stock and every
+// canonical write is a documented 409; the suspending reviewer cannot reinstate (dual control);
+// a different reviewer reinstates; nothing is republished until the owner deliberately republishes.
+test('FICTIONAL C12 workbench: suspend withdraws stock, dual-control reinstate, deliberate republish',async({browser},info)=>{
+ test.setTimeout(900_000)
+ await pause(70_000)
+ const ownerContext=await browser.newContext({viewport:{width:1280,height:900}})
+ const owner=await ownerContext.newPage()
+ const before=await owner.request.get(API+'/dealer/operational-inventory',{headers:ids(f.actors.claimant)})
+ expect(before.status()).toBe(200)
+ const tenantId=(await before.json() as {inventory:{owner_tenant_id:string}}).inventory.owner_tenant_id
+ const tenantCtx={'x-tenant-id':tenantId,'x-stakeholder-role':'dealer'}
+ expect((await owner.request.get(API+'/marketplace/listings/'+VIN)).status()).toBe(200)
+ const decide=async(page:Page,action:string,password:string,why:string)=>{
+  await page.locator('#lifecycle-action').selectOption(action)
+  await page.locator('#lifecycle-reason').fill(why)
+  await page.locator('#lifecycle-password').fill(password)
+  await page.getByRole('button',{name:'Record immutable lifecycle decision'}).click()
+ }
+ // ── Reviewer A suspends through the workbench (its own queue of activated dealerships) ──
+ const aContext=await browser.newContext({viewport:{width:1280,height:900}})
+ const a=await aContext.newPage()
+ await actorOn(a,f.actors.reviewer)
+ await a.goto('/admin/dealer-operating-lifecycle')
+ await expect(a.getByRole('heading',{name:'Dealership operating lifecycle'})).toBeVisible({timeout:30000})
+ await a.getByRole('button',{name:new RegExp(f.seed+'.*ACTIVE')}).click()
+ await expect(a.getByTestId('lifecycle-status')).toHaveText('ACTIVE',{timeout:30000})
+ await decide(a,'SUSPEND',f.reviewer_password,
+  'Fictional CI C12 suspension: proves the workbench removes public dealer stock immediately. No real business.')
+ await expect(a.getByText(/Lifecycle decision recorded: SUSPEND → SUSPENDED\. Public listings withdrawn: 1\./)).toBeVisible({timeout:40000})
+ await expect(a.getByTestId('lifecycle-status')).toHaveText('SUSPENDED',{timeout:30000})
+ const suspendShot=info.outputPath('r6-c12-workbench-suspended-1280.png')
+ await a.screenshot({path:suspendShot,fullPage:true})
+ await info.attach('r6-c12-workbench-suspended-1280',{path:suspendShot,contentType:'image/png'})
+ // Dual control: the reviewer who suspended cannot reinstate.
+ await decide(a,'REINSTATE',f.reviewer_password,
+  'Fictional CI C12: the suspending reviewer attempts reinstatement, which dual control must refuse.')
+ await expect(a.getByText(/^Not recorded:/)).toBeVisible({timeout:40000})
+ await expect(a.getByTestId('lifecycle-status')).toHaveText('SUSPENDED')
+ await aContext.close()
+ await pause(70_000)
+
+ // ── While suspended: no public detail; canonical republish and new enquiry are documented 409s ──
+ expect((await owner.request.get(API+'/marketplace/listings/'+VIN)).status()).toBe(404)
+ const suspendedPublish=await unsafe(owner,f.actors.claimant,'POST','/vehicles/'+VIN+'/publish',{},tenantCtx)
+ expect(suspendedPublish.status()).toBe(409)
+ expect((await suspendedPublish.json() as {error:{code:string}}).error.code).toBe('DEALER_LISTING_AUTHORITY_NOT_CURRENT')
+ const buyerContext=await browser.newContext({viewport:{width:390,height:844}})
+ const buyer=await buyerContext.newPage()
+ const suspendedEnquiry=await unsafe(buyer,f.actors.vehicle_buyer,'POST','/marketplace/inquiries',{
+  listing_id:VIN,inquiry_type:'vehicle_purchase_interest',source_channel:'web',
+  message:'FICTIONAL CI: enquiry to a suspended dealership must be refused'})
+ expect(suspendedEnquiry.status()).toBe(409)
+ await buyerContext.close()
+ await pause(70_000)
+
+ // ── A DIFFERENT reviewer reinstates; nothing is republished automatically ──
+ const bContext=await browser.newContext({viewport:{width:1280,height:900}})
+ const b=await bContext.newPage()
+ await actorOn(b,f.actors.activator)
+ await b.goto('/admin/dealer-operating-lifecycle')
+ await b.getByRole('button',{name:new RegExp(f.seed+'.*SUSPENDED')}).click()
+ await expect(b.getByTestId('lifecycle-status')).toHaveText('SUSPENDED',{timeout:30000})
+ await decide(b,'REINSTATE',f.activator_password,
+  'Fictional CI C12 dual-control reinstatement by a different independent reviewer after the synthetic review.')
+ await expect(b.getByText(/Lifecycle decision recorded: REINSTATE → ACTIVE\..*Nothing was republished\./)).toBeVisible({timeout:40000})
+ await expect(b.getByTestId('lifecycle-history')).toContainText('SUSPEND')
+ const reinstateShot=info.outputPath('r6-c12-workbench-dual-control-reinstated-1280.png')
+ await b.screenshot({path:reinstateShot,fullPage:true})
+ await info.attach('r6-c12-workbench-dual-control-reinstated-1280',{path:reinstateShot,contentType:'image/png'})
+ await bContext.close()
+ expect((await owner.request.get(API+'/marketplace/listings/'+VIN)).status()).toBe(404)
+ await pause(70_000)
+
+ // ── The owner deliberately republishes through the ONE canonical gate ──
+ const republished=await unsafe(owner,f.actors.claimant,'POST','/vehicles/'+VIN+'/publish',{},tenantCtx)
+ expect(republished.status()).toBe(200)
+ expect((await republished.json() as {publication_status:string}).publication_status).toBe('published')
+ expect((await owner.request.get(API+'/marketplace/listings/'+VIN)).status()).toBe(200)
+ await ownerContext.close()
+ writeReceipt('fictional-native-c12-workbench-browser-receipt.json',{fictional_only:true,vin:VIN,
+  suspended_by:f.actors.reviewer.id,reinstated_by:f.actors.activator.id,
+  suspending_reviewer_reinstate_refused:true,suspended_publish_status:409,suspended_enquiry_status:409,
+  auto_republished_on_reinstatement:false,owner_deliberate_republish_status:200})
+ await pause(70_000)
+})
 
 test('FICTIONAL revocation withdraws the dealer listing and closes every public, seller and enquiry path',async({browser},info)=>{
  test.setTimeout(900_000)
@@ -96,9 +188,15 @@ test('FICTIONAL revocation withdraws the dealer listing and closes every public,
  const workspace=await owner.request.get(API+'/dealer/operational-inventory',{headers:ids(f.actors.claimant)})
  expect([403,404]).toContain(workspace.status())
  const republish=await unsafe(owner,f.actors.claimant,'POST','/vehicles/'+VIN+'/publish',{},tenantCtx)
- expect(republish.status()).toBeGreaterThanOrEqual(400)
- const republishBody=await republish.text()
- expect(republishBody).toContain('DEALER_LISTING_AUTHORITY_NOT_CURRENT')
+ // R6 B: a data-layer refusal is a documented 409 with a stable code — never a 500.
+ expect(republish.status()).toBe(409)
+ const republishBody=await republish.json() as {error:{code:string;message:string}}
+ expect(republishBody.error.code).toBe('DEALER_LISTING_AUTHORITY_NOT_CURRENT')
+ expect(republishBody.error.message).toBe('This dealership is not currently authorised to list vehicles on CarUp.')
+ // Replay of the same publication is refused identically and changes nothing.
+ const replay=await unsafe(owner,f.actors.claimant,'POST','/vehicles/'+VIN+'/publish',{},tenantCtx)
+ expect(replay.status()).toBe(409)
+ expect((await replay.json() as {error:{code:string}}).error.code).toBe('DEALER_LISTING_AUTHORITY_NOT_CURRENT')
  await actorOn(owner,f.actors.claimant)
  await owner.goto('/dealers/stock')
  await expect(owner.getByText(VIN)).toHaveCount(0,{timeout:30000})
@@ -110,7 +208,10 @@ test('FICTIONAL revocation withdraws the dealer listing and closes every public,
  const enquiry=await unsafe(buyer,f.actors.vehicle_buyer,'POST','/marketplace/inquiries',{
   listing_id:VIN,inquiry_type:'vehicle_purchase_interest',source_channel:'web',
   message:'FICTIONAL CI: enquiry after revocation must be refused'})
- expect(enquiry.status()).toBeGreaterThanOrEqual(400)
+ expect(enquiry.status()).toBe(409)
+ const enquiryBody=await enquiry.json() as {error:{code:string}}
+ expect(['DEALER_INQUIRY_AUTHORITY_NOT_CURRENT','DEALER_LISTING_AUTHORITY_NOT_CURRENT'])
+  .toContain(enquiryBody.error.code)
  await buyerContext.close()
  await pause(70_000)
 
@@ -241,7 +342,7 @@ test('FICTIONAL revocation withdraws the dealer listing and closes every public,
 
  const receipt={fictional_only:true,vin:VIN,revocation:'CLAIM_REVOKED via independent claim workbench',
   public_detail_after:detail.status(),storefront_stock_after:0,storefront_media_after:0,workspace_after:workspace.status(),
-  canonical_republish_after:republish.status(),republish_refusal_layer:'DATA_LAYER_DEALER_LISTING_AUTHORITY_NOT_CURRENT',
+  canonical_republish_after:republish.status(),canonical_republish_replay:replay.status(),enquiry_refusal_code:enquiryBody.error.code,republish_refusal_layer:'DATA_LAYER_DEALER_LISTING_AUTHORITY_NOT_CURRENT',
   enquiry_after:enquiry.status(),s08_multi_prelisting_filtered:true,
   t42_unauth_review_status:unauthCorrReview.status(),t42_suppressed_profile_status:afterSuppression.status(),
   s09_hostile_redirect_status:hostileRedirect.status(),s09_canonical_redirect:'ZW-DEAL-0004->zw-deal-0002',

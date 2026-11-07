@@ -25,7 +25,7 @@ const owner = f.actors.claimant.id;
 const db = new pg.Client({ connectionString: url, ssl: false, application_name: 'carup-dealer-r4-listing-custody' });
 await db.connect();
 try {
-  const link = (await db.query(`SELECT tenant_id, claimant_user_id, operating_status, dealer_profile_id
+  const link = (await db.query(`SELECT link_id, tenant_id, claimant_user_id, operating_status, dealer_profile_id
       FROM dealer_approved_seed_links WHERE seed_dealer_id = $1`, [f.seed])).rows[0];
   assert.equal(link.claimant_user_id, owner);
   const v = (await db.query(`SELECT vin, tenant_id::text AS tenant_id, owner_id, current_seller_id,
@@ -110,7 +110,25 @@ try {
   if (afterSuspension) {
     assert.equal(link.operating_status, 'SUSPENDED');
     const withdrawal = events.filter((e) => e.event_type === 'PUBLIC_LISTINGS_WITHDRAWN');
-    assert.deepEqual(withdrawal, [{ event_type: 'PUBLIC_LISTINGS_WITHDRAWN', reason_code: 'OPERATING_LINK_SUSPENDED', affected_listings: 1 }]);
+    // R6 E (C12): the workbench SUSPEND withdrew the listing once (whichever guarded path fired
+    // first inside that transaction), the owner deliberately republished after a dual-control
+    // REINSTATE, and the claim revocation withdrew it again.
+    assert.equal(withdrawal.length, 2, 'exactly two withdrawals: C12 suspension, then revocation');
+    assert.ok(['LIFECYCLE_SUSPEND', 'OPERATING_LINK_SUSPENDED', 'DEALER_PROFILE_AUTHORITY_LOST']
+      .includes(withdrawal[0].reason_code), withdrawal[0].reason_code);
+    assert.equal(withdrawal[0].affected_listings, 1);
+    assert.deepEqual(withdrawal[1], { event_type: 'PUBLIC_LISTINGS_WITHDRAWN', reason_code: 'OPERATING_LINK_SUSPENDED', affected_listings: 1 });
+    const lifecycle = (await db.query(`SELECT action, reviewer_user_id, previous_operating_status,
+        next_operating_status, public_listings_withdrawn FROM dealer_operating_lifecycle_events
+        WHERE link_id = $1 ORDER BY created_at`, [link.link_id])).rows;
+    assert.deepEqual(lifecycle.map((e) => [e.action, e.previous_operating_status, e.next_operating_status]),
+      [['SUSPEND', 'ACTIVE', 'SUSPENDED'], ['REINSTATE', 'SUSPENDED', 'ACTIVE']]);
+    assert.equal(lifecycle[0].reviewer_user_id, f.actors.reviewer.id);
+    assert.equal(lifecycle[1].reviewer_user_id, f.actors.activator.id);
+    assert.notEqual(lifecycle[0].reviewer_user_id, lifecycle[1].reviewer_user_id, 'dual control');
+    assert.equal(lifecycle[0].public_listings_withdrawn, 1);
+    assert.equal(lifecycle[1].public_listings_withdrawn, 0, 'reinstatement republishes nothing');
+    receipt.c12_lifecycle = lifecycle.map((e) => e.action + ':' + e.previous_operating_status + '>' + e.next_operating_status);
     const now = (await db.query(`SELECT dealer_tenant_listing_authority_current($1::uuid) AS current,
         (SELECT count(*)::int FROM dealer_storefront_public_listing_vins($2, 12)) AS storefront_vins,
         (SELECT count(*)::int FROM dealer_public_storefront_media_current WHERE seed_dealer_id = $2) AS public_media_items,
