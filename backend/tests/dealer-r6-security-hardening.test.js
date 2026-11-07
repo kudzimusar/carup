@@ -484,6 +484,9 @@ test('#7/#8b a conflicted row gets no tickets (queue still loads); an exhausted 
   assert.equal(items.length, 6);
   assert.equal(items[0].preview_ticket !== null && items[0].decision_ticket !== null, true);
   assert.equal(items[1].conflict_of_interest, true);
+  assert.equal(items[1].caption, null, 'R6 closure: no non-public caption for a conflicted reviewer');
+  assert.equal(items[1].alt_text, null);
+  assert.equal(items[1].rights_attestation, null);
   assert.equal(items[1].independent_reviewer_required, false);
   assert.equal(items[1].preview_ticket, null);
   assert.equal(items[1].decision_ticket, null);

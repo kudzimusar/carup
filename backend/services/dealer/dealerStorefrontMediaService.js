@@ -586,9 +586,10 @@ export async function listStorefrontMediaReviewQueue(actor, {
       mime_type: row.mime_type,
       file_bytes: row.file_bytes,
       media_category: row.media_category,
-      caption: row.caption,
-      alt_text: row.alt_text,
-      rights_attestation: row.rights_attestation,
+      // R6 closure: a conflicted reviewer's row carries no tickets AND no non-public content.
+      caption: conflictOfInterest ? null : row.caption,
+      alt_text: conflictOfInterest ? null : row.alt_text,
+      rights_attestation: conflictOfInterest ? null : row.rights_attestation,
       review_status: row.review_status,
       created_at: row.created_at,
       updated_at: row.updated_at,

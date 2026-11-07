@@ -116,6 +116,9 @@ test('C19 approved storefront queue uses canonical activated_at, not missing cre
   const calls=[];
   try{
     supabase.from=table=>{
+      // R6 closure: the reviewer-conflict lookup reads the reviewer's own claims and memberships.
+      if(table==='dealer_research_claim_requests'||table==='tenant_users')
+        return {select(){return this},eq(){return this},limit:async()=>({data:[],error:null})};
       assert.equal(table,'dealer_approved_seed_links');
       return {
         select(fields){

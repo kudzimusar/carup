@@ -111,6 +111,8 @@ test('C23 reviewer queue has no private statements and excludes decided cases',a
     seed_dealer_id:'ZW-DEAL-0002',case_type:'REVIEW_CANDIDATE',
     submitted_at:'2026-11-04T00:00:00Z'}]);
   if(name==='dealer_transaction_feedback_review_events')return qb([{case_id:CASE}]);
+  // R6 closure: the reviewer-conflict lookup (no conflicts for this reviewer).
+  if(name==='dealer_research_claim_requests'||name==='tenant_users')return qb([]);
   throw Error('UNEXPECTED_TABLE');
  }};
  const queue=await service.listPrivateBuyerCaseReviewQueue(reviewer,{db});

@@ -16,6 +16,7 @@ import { supabase } from '../../db/supabase.js';
 import { requireReviewerPassword } from './dealerClaimApplicationService.js';
 import { getReviewedFullStorefront, listReviewedFullStorefronts } from './dealerFullStorefrontService.js';
 import { mapDealerSqlRefusal } from './dealerSqlRefusalMapper.js';
+import { loadReviewerConflicts } from './dealerReviewerConflicts.js';
 
 export const PUBLIC_STATUS = 'PRELISTED_UNCLAIMED';
 /**
@@ -552,7 +553,10 @@ export async function listResearchCorrectionsForReviewer(actor) {
     .select('request_id,seed_dealer_id,request_type,request_summary,contact_email,status,created_at,reviewed_at,reviewed_by,resolution_event_id')
     .order('created_at',{ ascending:false }).limit(100);
   if (error) throw domainError(error,'correction queue');
-  return data || [];
+  // R6 closure: requests (incl. takedowns/disputes and their contact e-mail) about a business the
+  // reviewer claims or works for are never shown to that reviewer.
+  const conflicts = await loadReviewerConflicts(actor);
+  return (data || []).filter((r) => !conflicts.conflicted(r.seed_dealer_id));
 }
 
 /**

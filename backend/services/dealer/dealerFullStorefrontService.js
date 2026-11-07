@@ -4,6 +4,7 @@
  */
 import {supabase} from '../../db/supabase.js';
 import {throwIfDealerSecurityRefusal} from './dealerSqlRefusalMapper.js';
+import {assertReviewerNotConflicted,loadReviewerConflicts} from './dealerReviewerConflicts.js';
 import {requireIndependentReviewer,requireReviewerPassword}
   from './dealerClaimApplicationService.js';
 
@@ -60,7 +61,9 @@ export async function listFullStorefrontReviewQueue(actor){
     .select('seed_dealer_id,link_id,operating_status,activated_at,claimant_user_id')
     .order('activated_at',{ascending:false}).limit(100);
   if(error)throw deny('PRIVATE_FULL_STOREFRONT_QUEUE_UNAVAILABLE',503);
-  return (data||[]).map(x=>({
+  // R6 closure: a reviewer who claims the business or works for its dealership never sees it queued.
+  const conflicts=await loadReviewerConflicts(actor);
+  return (data||[]).filter(x=>!conflicts.conflicted(x.seed_dealer_id)).map(x=>({
     seed_dealer_id:x.seed_dealer_id,
     operating_status:x.operating_status,
     independent_reviewer_required:x.claimant_user_id!==actor.userId,
@@ -76,6 +79,9 @@ export async function previewFullStorefrontCandidate(seed,actor,password){
   if(linkError)throw deny('FULL_STOREFRONT_CANDIDATE_LOOKUP_UNAVAILABLE',503);
   if(!link)throw deny('APPROVED_DEALER_NOT_FOUND',404);
   requireIndependentReviewer(actor,link.claimant_user_id);
+  // R6 closure: no private branch addresses or declared terms for a conflicted reviewer,
+  // refused before any step-up attempt is spent.
+  await assertReviewerNotConflicted(actor,id);
   await requireReviewerPassword(actor,{claimant_user_id:link.claimant_user_id},password);
   const [branchesResult,declaredResult]=await Promise.all([
     supabase.from('dealer_branches').select('id,name,address')

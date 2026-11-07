@@ -6,6 +6,7 @@
  */
 import {supabase} from '../../db/supabase.js';
 import {throwIfDealerSecurityRefusal} from './dealerSqlRefusalMapper.js';
+import {assertReviewerNotConflicted,loadReviewerConflicts} from './dealerReviewerConflicts.js';
 import {
   requireClaimantSession,requireIndependentReviewer,requireReviewerPassword
 } from './dealerClaimApplicationService.js';
@@ -108,7 +109,9 @@ export async function listPrivateBuyerCaseReviewQueue(actor,{db=supabase}={}){
   if(cases.error||reviews.error||!Array.isArray(cases.data)||!Array.isArray(reviews.data))
     throw fail('PRIVATE_BUYER_CASE_QUEUE_UNAVAILABLE',503);
   const already=new Set(reviews.data.map(x=>x.case_id));
-  return cases.data.filter(x=>!already.has(x.case_id));
+  // R6 closure: cases about a business the reviewer claims or works for are not queued.
+  const conflicts=await loadReviewerConflicts(actor,{db});
+  return cases.data.filter(x=>!already.has(x.case_id)&&!conflicts.conflicted(x.seed_dealer_id));
 }
 async function getReviewerCase(id,actor,{db=supabase}={}){
   validId(id,'INVALID_PRIVATE_FEEDBACK_CASE_ID');
@@ -124,6 +127,9 @@ async function getReviewerCase(id,actor,{db=supabase}={}){
   if(link.error||!link.data)throw fail('CANONICAL_DEALER_LINK_UNAVAILABLE',503);
   if(link.data.claimant_user_id===actor.userId)
     throw fail('DEALER_CANNOT_REVIEW_OWN_BUYER_FEEDBACK');
+  // R6 closure: staff of the dealership under complaint, or a rival claimant, never see the
+  // complaining buyer or the private statement (retaliation risk); refused before step-up.
+  await assertReviewerNotConflicted(actor,data.seed_dealer_id,{db});
   return data;
 }
 export async function previewPrivateBuyerCase(actor,caseId,password,{db=supabase}={}){

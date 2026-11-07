@@ -149,7 +149,11 @@ test('#7 a conflicted buyer-case finding and a same-reviewer CLOSE_INVESTIGATION
       const data = table === 'dealer_transaction_feedback_cases'
         ? { case_id: caseId, seed_dealer_id: 'ZW-DEAL-0001', buyer_user_id: 'buyer-1' }
         : { claimant_user_id: 'owner-1' };
-      return { select() { return this; }, eq() { return this; }, async maybeSingle() { return { data, error: null }; } };
+      // The read-side conflict lookup (R6 closure) sees no conflict here, so this test still
+      // proves the DATA-LAYER refusal (staff membership found by the SQL guard) maps to 403.
+      return { select() { return this; }, eq() { return this; }, in() { return this; },
+        async limit() { return { data: [], error: null }; },
+        async maybeSingle() { return { data, error: null }; } };
     },
     async rpc() { return { data: null, error: { message: 'DEALER_REVIEWER_CONFLICT_OF_INTEREST' } }; },
   };
