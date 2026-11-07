@@ -222,8 +222,8 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
   const headers=(actor:Actor)=>({
     'x-session-token':actor.token,'x-user-id':actor.id,
   })
-  const claimantContext=await browser.newContext({viewport:{width:1280,height:900},acceptDownloads:true})
-  const claimantPage=await claimantContext.newPage()
+  let claimantContext=await browser.newContext({viewport:{width:1280,height:900},acceptDownloads:true})
+  let claimantPage=await claimantContext.newPage()
   await loginAs(claimantPage,fixture.actors.claimant)
   const claimsResult=await claimantPage.request.get(API+'/dealership/claims/mine',{
     headers:headers(fixture.actors.claimant),
@@ -380,7 +380,15 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
   await expect(publicPage.getByRole('link',{name:'Claim this dealership'}))
     .toHaveCount(0)
   await publicContext.close()
-  await claimantPage.reload()
+  // T10: the claimant CLOSES the browser (the whole context: page, memory,
+  // in-flight state) and comes back in a brand-new one carrying only the
+  // stored sign-in. The saved version must come from the server, not the tab.
+  const resumeUrl=claimantPage.url()
+  await claimantContext.close()
+  claimantContext=await browser.newContext({viewport:{width:1280,height:900},acceptDownloads:true})
+  claimantPage=await claimantContext.newPage()
+  await loginAs(claimantPage,fixture.actors.claimant)
+  await claimantPage.goto(resumeUrl,{waitUntil:'domcontentloaded'})
   await expect(claimantPage.getByRole('heading',{name:'Saved application version 1'}))
     .toBeVisible({timeout:25000})
   // The true CarUp per-IP limit applies across seven synthetic journeys sharing

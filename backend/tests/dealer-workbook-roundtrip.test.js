@@ -120,3 +120,34 @@ test('D3 child references without branch fail before any canonical business writ
   lic.getRow(2).getCell(2).value='UNKNOWN';
   await assert.rejects(parseCompletedDealerWorkbook(await serialized(wb),claim,source),/ORPHAN_BRANCH_REFERENCE/);
 });
+test('T05 one legal entity, two branches and two OEM brand declarations round-trip without merging or verifying',async()=>{
+  const {buildJurisdictionCompliancePreview}=await import('../services/dealer/dealerJurisdictionPreview.js');
+  const put=(sheet,row,vals)=>vals.forEach((v,i)=>{sheet.getRow(row).getCell(i+1).value=v});
+  const wb=await withLegalName();
+  const branches=wb.getWorksheet('BRANCHES');
+  put(branches,3,['BR-SECOND-SITE','ZW-DEAL-0001','Fixture Second Yard','yard',
+    'Fixture only second street','Fixture Suburb 2','Bulawayo','','ZW','','','','','','','YES']);
+  const brands=wb.getWorksheet('BRANDS_FRANCHISES');
+  put(brands,2,['BRAND-A','BR-ZW-DEAL-0001','Fixture OEM Alpha','official franchise','','','','']);
+  put(brands,3,['BRAND-B','BR-SECOND-SITE','Fixture OEM Beta','authorised dealer','','','','']);
+  const {document,record_counts,has_authority_writes}=await parseCompletedDealerWorkbook(await serialized(wb),claim,source);
+  assert.equal(record_counts.BUSINESS,1,'one legal entity');
+  assert.equal(document.tab_rows.BUSINESS[0].legal_name,'Test Legal Business Ltd');
+  assert.equal(record_counts.BRANCHES,2);
+  assert.equal(record_counts.BRANDS_FRANCHISES,2);
+  assert.deepEqual(document.tab_rows.BRANDS_FRANCHISES.map(b=>[b.brand,b.branch_ref]),
+    [['Fixture OEM Alpha','BR-ZW-DEAL-0001'],['Fixture OEM Beta','BR-SECOND-SITE']]);
+  assert.equal(has_authority_writes,false);
+  const p=buildJurisdictionCompliancePreview({tab_rows:{
+    ...document.tab_rows,BUSINESS:[{...document.tab_rows.BUSINESS[0],operating_country:'ZW'}]}});
+  assert.equal(p.declared_branch_count,2);
+  assert.equal(p.requirements.filter(r=>r.requirement_key==='BUSINESS_IDENTITY').length,1,'identity reviewed once for the entity');
+  assert.equal(p.requirements.find(r=>r.requirement_key==='BRANCH_SITE_SCOPE').scope,'EACH_DECLARED_BRANCH');
+  const oem=p.requirements.find(r=>r.requirement_key==='OEM_WRITTEN_AUTHORIZATION');
+  assert.equal(oem.scope,'DECLARED_BRAND_RELATIONSHIP');
+  assert.equal(oem.legal_source_verified,false,'self-declared OEM relationships are never verified');
+  assert.equal(p.can_activate,false);
+  // An orphan brand row (branch not declared in this workbook) is refused, not silently attached.
+  put(brands,4,['BRAND-C','BR-NOT-DECLARED','Fixture OEM Gamma','official franchise','','','','']);
+  await assert.rejects(parseCompletedDealerWorkbook(await serialized(wb),claim,source),/ORPHAN_BRANCH_REFERENCE/);
+});
