@@ -1,7 +1,7 @@
 -- +migrate Up
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
--- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
-SET lock_timeout = '3s';
+-- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001-LR01-R5 (T22, T42, S08, S09):
 -- 1. T42: Independent reviewer disposition ledger and atomic publication withdrawal for public
 --    correction/takedown requests (no unreviewed complaint can auto-suppress; no unauthorized
@@ -950,6 +950,9 @@ CREATE TRIGGER dealer_guard_research_reprelisting
   FOR EACH ROW EXECUTE FUNCTION dealer_guard_research_reprelisting();
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM dealer_research_correction_review_events)

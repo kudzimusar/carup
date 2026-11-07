@@ -1,7 +1,7 @@
 -- +migrate Up
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
--- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
-SET lock_timeout = '3s';
+-- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 D1/D2: reviewer-authorized research publication and initial claims.
 -- The source seed table contains unreviewed private research; it is NEVER publicly exposed.
 -- This projection contains only explicitly reviewed fields, no raw contacts, affiliation badges,
@@ -147,6 +147,9 @@ REVOKE ALL ON FUNCTION dealer_record_research_publication_review(TEXT,TEXT,TEXT,
 GRANT EXECUTE ON FUNCTION dealer_record_research_publication_review(TEXT,TEXT,TEXT,TEXT) TO service_role;
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 -- R6 DBA #6: claims are business records and the publication ledger is append-only. Rollback is
 -- refused while any exist, before any DDL; dispose of them explicitly, or fix forward.
 DO $$

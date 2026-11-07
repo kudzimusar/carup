@@ -1,7 +1,7 @@
 -- +migrate Up
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
--- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
-SET lock_timeout = '3s';
+-- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 D6/C08-C12: THE canonical approved legal-dealer bridge.
 -- No production country policy is preapproved. Operator/legal policy authority
 -- is a separate controlled database process, not a self-service API or payment.
@@ -352,11 +352,21 @@ AFTER UPDATE OF claim_status ON dealer_research_claim_requests
 FOR EACH ROW EXECUTE FUNCTION dealer_suspend_revoked_seed_claim();
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 DO $$
 BEGIN
  IF EXISTS(SELECT 1 FROM dealer_approved_seed_links) OR
     EXISTS(SELECT 1 FROM dealer_legal_application_reviews) THEN
    RAISE EXCEPTION 'CANNOT_ROLLBACK_WITH_LEGAL_ACTIVATION_CUSTODY';
+ END IF;
+ -- R6 DBA review 2 #5: a country policy decision (anything beyond the DRAFT row this
+ -- migration seeds itself) is governance custody; dropping the table would erase it.
+ IF EXISTS(SELECT 1 FROM dealer_country_legal_policy_authority
+           WHERE NOT (country_code='ZW' AND policy_version='CARUP_DEALER_ZW_DRAFT_2026_11_03'
+                      AND policy_state='DRAFT')) THEN
+   RAISE EXCEPTION 'CANNOT_ROLLBACK_WITH_COUNTRY_POLICY_CUSTODY';
  END IF;
 END;
 $$;

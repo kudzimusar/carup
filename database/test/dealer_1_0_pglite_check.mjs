@@ -355,6 +355,8 @@ try{
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role`);
   }
   for(const name of names){await exec(read(name).up);console.log('APPLIED',name)}
+  // R6 DBA review 2 #9: every Up's lock_timeout is SET LOCAL — nothing leaks into the session.
+  assert.equal((await query('SHOW lock_timeout')).rows[0].lock_timeout,'0','an Up leaked lock_timeout into the session');
   // R6 DBA review 2 #8: the SQL intake contract equals the backend TEMPLATE_FIELD_REGISTRY.
   assert.deepEqual((await query('SELECT tab,field FROM dealer_intake_contract_fields() ')).rows.map(r=>r.tab+'.'+r.field).sort(),
     TEMPLATE_FIELD_REGISTRY.filter(t=>!t.name.startsWith('README')).flatMap(t=>t.fields.map(f=>t.name+'.'+f.key)).sort(),
@@ -2380,6 +2382,29 @@ try{
   assert.equal((await query('SELECT count(*)::int AS n FROM dealer_research_correction_requests')).rows[0].n,
     custodyRows.corrections,'a refused Down changed nothing');
   await exec('TRUNCATE dealer_research_claim_requests CASCADE');
+  // R6 DBA review 2 #5: an AWAITING (never reviewed) claim that already holds private documentary
+  // evidence must still block the 123000 Down (proved in a rolled-back sandbox transaction).
+  await exec('BEGIN');
+  try{
+    await exec(`SET LOCAL session_replication_role = replica;
+      INSERT INTO dealer_research_claim_requests(claim_id,seed_dealer_id,claimant_user_id,claimed_scope,representative_relationship,asserted_legal_business_name,claim_statement)
+        VALUES ('00000000-0000-4000-8000-0000000ee001','ZW-DEAL-0001','${claimant}','BRANCH','LEGAL_OWNER','EV Ltd','Synthetic claim awaiting documentary evidence for DBA review');
+      INSERT INTO dealer_claim_private_evidence(claim_id,uploader_user_id,document_class,storage_bucket,storage_path,content_sha256,mime_type,file_bytes,scan_state)
+        VALUES ('00000000-0000-4000-8000-0000000ee001','${claimant}','COMPANY_REGISTRATION','ocr-documents','dealership-claims/00000000-0000-4000-8000-0000000ee001/0000aaaa.pdf',repeat('d',64),'application/pdf',1000,'CLEAN_CLAMAV_AT_UPLOAD');
+      SET LOCAL session_replication_role = origin;`);
+    assert.equal((await query(`SELECT count(*)::int AS n FROM dealer_research_claim_requests WHERE claim_status<>'AWAITING_DOCUMENTARY_EVIDENCE'`)).rows[0].n,0,
+      'only an AWAITING claim exists: the reviewed-claim refusal cannot be what fires');
+    await fails(read('20261103123000_dealer_claim_review_and_intake_drafts.sql').down,
+      'CANNOT_ROLLBACK_WITH_CLAIM_EVIDENCE_OR_INTAKE_CUSTODY');
+  }finally{await exec('ROLLBACK')}
+  // ...and a decided country policy blocks the 132000 Down; only the seeded DRAFT row does not.
+  assert.ok((await query(`SELECT count(*)::int AS n FROM dealer_country_legal_policy_authority WHERE policy_state<>'DRAFT'`)).rows[0].n>0,
+    'R6 custody fixture must hold a decided country policy (no vacuous refusal)');
+  await fails(read('20261103132000_dealer_canonical_activation_and_legal_gate.sql').down,
+    'CANNOT_ROLLBACK_WITH_COUNTRY_POLICY_CUSTODY');
+  await exec(`DELETE FROM dealer_country_legal_policy_authority;
+    INSERT INTO dealer_country_legal_policy_authority(country_code,policy_version,policy_state)
+      VALUES('ZW','CARUP_DEALER_ZW_DRAFT_2026_11_03','DRAFT')`);
   await fails(read('20261103121000_dealer_research_review_and_claim_intake.sql').down,
     'CANNOT_ROLLBACK_WITH_RESEARCH_PUBLICATION_LEDGER');
   // The append-only ledger alone (no current public profile row) still holds custody.
@@ -2393,7 +2418,54 @@ try{
   await exec('TRUNCATE dealer_research_seed_records CASCADE');
   console.log('DEALER_R6_ROLLBACK_CUSTODY PASS: 120000/121000/122000 Downs refuse with seed, claim, publication-ledger and correction custody ('+
     JSON.stringify(custodyRows)+')');
-  for(const name of [...names].reverse()){await exec(read(name).down);console.log('ROLLED_BACK',name)}
+  // R6 DBA review 2 #1/#9: every Down and every lock-taking Up bounds its lock wait with a
+  // TRANSACTION-scoped SET LOCAL (never leaks into the next migration on the same session).
+  const noCanonicalLocks=['20261103120000','20261103122000','20261103124000'];
+  for(const name of names){
+    const {up,down}=read(name);
+    assert.equal(/^\s*SET LOCAL lock_timeout = '3s';/m.test(up),!noCanonicalLocks.includes(name.slice(0,14)),`${name}: Up lock_timeout presence`);
+    assert.match(down.split('\n').filter(l=>l.trim()&&!l.trim().startsWith('--'))[0]||'',/^SET LOCAL lock_timeout = '3s';$/,`${name}: Down starts with SET LOCAL lock_timeout`);
+    assert.doesNotMatch(up+down,/^\s*SET lock_timeout/m,`${name}: no session-scoped lock_timeout`);
+  }
+  // Native: a Down queued behind a reader gives up after ~3 s with 55P03, changes nothing, and
+  // releases the readers that queued behind its ACCESS EXCLUSIVE request (review 2 #1 reproduction).
+  const downProbes=native?{
+    '20261103143000_dealer_r5_directory_media_corrections_redirects.sql':'dealer_profiles',
+    '20261103142000_dealer_operating_lifecycle.sql':'dealer_profiles',
+    '20261103141000_dealer_canonical_listing_authority.sql':'vehicles',
+    '20261103132000_dealer_canonical_activation_and_legal_gate.sql':'tenants',
+    '20261103121000_dealer_research_review_and_claim_intake.sql':'users',
+  }:{};
+  const catalogShape=async()=>(await query(`SELECT (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public') AS rels,
+    (SELECT count(*)::int FROM pg_trigger WHERE NOT tgisinternal) AS triggers,
+    (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public') AS procs`)).rows[0];
+  for(const name of [...names].reverse()){
+    const table=downProbes[name];
+    if(table){
+      const reader=new pg.Client({connectionString:nativeUrl,ssl:false,application_name:'carup-dealer-r6-down-reader'});
+      const app=new pg.Client({connectionString:nativeUrl,ssl:false,application_name:'carup-dealer-r6-down-app'});
+      await reader.connect();await app.connect();
+      try{
+        await reader.query('BEGIN');await reader.query(`SELECT 1 FROM ${table} LIMIT 1`);
+        const before=await catalogShape();
+        await exec("SET lock_timeout = 0; SET statement_timeout = '15s'");
+        const started=Date.now();
+        const downDone=exec(read(name).down).then(()=>null,e=>e);
+        // An application read issued while the Down waits queues behind its ACCESS EXCLUSIVE request.
+        await new Promise(r=>setTimeout(r,300));
+        const appDone=app.query(`SELECT count(*) FROM ${table}`).then(()=>Date.now()-started,e=>e);
+        const error=await downDone;const elapsed=Date.now()-started;
+        const appMs=await appDone;
+        await exec('RESET statement_timeout');
+        assert.equal(error?.code,'55P03',`${name} Down: expected lock_timeout (55P03), got ${error?.code} ${error?.message}`);
+        assert.ok(elapsed>=2500&&elapsed<10000,`${name} Down: lock_timeout fired after ${elapsed} ms`);
+        assert.ok(typeof appMs==='number'&&appMs<elapsed+2000,`${name} Down: the queued application read was released (${appMs})`);
+        assert.deepEqual(await catalogShape(),before,`${name} Down: a lock-timed-out rollback changes nothing`);
+        console.log('DEALER_R6_DOWN_LOCK_TIMEOUT PASS:',name,'gave up with 55P03 after',elapsed,'ms behind a reader on',table,'; queued app read finished at',appMs,'ms');
+      }finally{await reader.query('ROLLBACK');await reader.end();await app.end()}
+    }
+    await exec(read(name).down);console.log('ROLLED_BACK',name);
+  }
   // R6 DBA #6: rolling back 20261103125000 must NOT restore the legacy table-wide self-grant.
   assert.equal((await query("SELECT has_table_privilege('authenticated','dealer_profiles','UPDATE') AS allowed")).rows[0].allowed,false,
     'rollback must not re-open table-wide UPDATE on dealer_profiles');
@@ -2409,11 +2481,6 @@ try{
   // session starts at lock_timeout=0; statement_timeout=15s only bounds a mutant that waits forever.
   // Every dealership migration that locks a canonical table bounds its lock wait (the three exempt
   // ones create only new dealer_* objects and functions, with no canonical FK, trigger or policy).
-  const noCanonicalLocks=['20261103120000','20261103122000','20261103124000'];
-  for(const name of names){
-    const bounded=/^\s*SET lock_timeout = '3s';/m.test(read(name).up);
-    assert.equal(bounded,!noCanonicalLocks.includes(name.slice(0,14)),`${name}: lock_timeout presence`);
-  }
   const lockTimeoutProbes=native?{
     '20261103125000_dealer_profile_self_grant_hardening.sql':'dealer_profiles',
     '20261103138000_dealer_branch_operating_details.sql':'dealer_branches',
@@ -2445,6 +2512,8 @@ try{
     }
     await exec(read(name).up);console.log('REAPPLIED',name);
   }
+  // R6 DBA review 2 #9: SET LOCAL ended with each migration's transaction.
+  assert.equal((await query('SHOW lock_timeout')).rows[0].lock_timeout,'0','no migration leaked lock_timeout into the session');
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
     '23 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, R5 media/corrections/redirects/concurrency, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
   } // End full destructive synthetic contract suite; fresh schema mode stays empty.

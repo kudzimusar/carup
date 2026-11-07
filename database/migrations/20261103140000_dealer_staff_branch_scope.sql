@@ -1,7 +1,7 @@
 -- +migrate Up
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
--- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
-SET lock_timeout = '3s';
+-- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 D7 C16: branch-specific, owner-approved staff operations.
 -- Canonical tenant_users and organization_users are necessary but NOT
 -- sufficient. No parallel membership, no global dealer role, no seller,
@@ -263,6 +263,9 @@ CREATE TRIGGER dealer_branch_scopes_revoke_on_invitation
  FOR EACH ROW EXECUTE FUNCTION dealer_revoke_branch_scopes_with_invitation();
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 DO $$
 BEGIN
  IF EXISTS(SELECT 1 FROM dealer_staff_branch_scopes)

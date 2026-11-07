@@ -19,6 +19,9 @@ GRANT SELECT,INSERT ON dealer_research_correction_requests TO service_role;
 CREATE INDEX IF NOT EXISTS idx_dealer_research_correction_queue
   ON dealer_research_correction_requests (seed_dealer_id,created_at DESC);
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 -- R6 DBA #6: a public correction/takedown request is a third party's record. Rollback is refused
 -- while any exist, before any DDL; dispose of them explicitly, or fix forward.
 DO $$

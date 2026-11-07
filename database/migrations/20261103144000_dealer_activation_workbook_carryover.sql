@@ -1,5 +1,5 @@
 -- +migrate Up
-SET lock_timeout = '3s';
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001-LR01-R6 C02: the independently activated dealership must not
 -- retype what its approved, frozen application already declared.
 --
@@ -532,6 +532,9 @@ REVOKE ALL ON FUNCTION dealer_read_activation_carryover(UUID,UUID) FROM PUBLIC,a
 GRANT EXECUTE ON FUNCTION dealer_read_activation_carryover(UUID,UUID) TO service_role;
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 DO $$
 BEGIN
  IF EXISTS(SELECT 1 FROM dealer_activation_carryover_events)

@@ -1,7 +1,7 @@
 -- +migrate Up
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
--- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
-SET lock_timeout = '3s';
+-- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 C23 D8: buyer-linked complaint and feedback candidates.
 -- Canonical transaction remains escrow_trust_sessions; this is a private case
 -- and moderation ledger, NOT payment, settlement, buyer verification or review stars.
@@ -177,6 +177,9 @@ GRANT EXECUTE ON FUNCTION dealer_record_transaction_feedback_finding(UUID,TEXT,T
  TO service_role;
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 DO $$
 BEGIN
  IF EXISTS(SELECT 1 FROM dealer_transaction_feedback_cases) OR

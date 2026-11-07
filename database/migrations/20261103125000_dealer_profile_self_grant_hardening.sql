@@ -1,7 +1,7 @@
 -- +migrate Up
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
--- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
-SET lock_timeout = '3s';
+-- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 D2 security barrier.
 -- Legacy 20260626150000_dealer_compliance.sql granted authenticated users
 -- table-wide INSERT and UPDATE of dealer_profiles. RLS checked *whose row*,
@@ -42,6 +42,9 @@ COMMENT ON TABLE dealer_profiles IS
   exclusively service-role/independent compliance controlled.';
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 -- R6 DBA #6: this Down deliberately does NOT restore the pre-migration privileges. The exact
 -- pre-migration state (20260626150000: table-wide GRANT INSERT,UPDATE ON dealer_profiles TO
 -- authenticated, and an owner UPDATE policy with no status predicate) is the privilege-escalation

@@ -1,7 +1,7 @@
 -- +migrate Up
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
--- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
-SET lock_timeout = '3s';
+-- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
+SET LOCAL lock_timeout = '3s';
 -- C15 D7: dealer-reported follow-up moves canonical Marketplace inquiry status.
 -- Restrict this to NEW->CONTACTED and CONTACTED->QUALIFIED for clear-risk
 -- inquiries owned by an independently activated dealer tenant. Neither state
@@ -82,6 +82,9 @@ COMMENT ON FUNCTION dealer_advance_marketplace_inquiry(UUID,TEXT,UUID,TEXT)
  IS 'Atomic owner-authorized seller progress only; canonical inquiry state + immutable audit. Does not send messages, close deals or bypass risk moderation.';
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 DO $$
 BEGIN
  IF EXISTS(SELECT 1 FROM dealer_canonical_inquiry_progress_events) THEN

@@ -1,7 +1,7 @@
 -- +migrate Up
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
--- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
-SET lock_timeout = '3s';
+-- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001-LR01-R4 P0-3 (C12): governed dealership operating lifecycle.
 -- Plan v1.1 C12: "Renew, amend, suspend, reinstate, investigate, expire and withdraw public claims;
 -- immediate revocation". Claim revocation (dealer_suspend_revoked_seed_claim), storefront retraction,
@@ -252,6 +252,9 @@ CREATE TRIGGER dealer_guard_linked_profile_reinstatement
   FOR EACH ROW EXECUTE FUNCTION dealer_guard_linked_profile_reinstatement();
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM dealer_operating_lifecycle_events) THEN
