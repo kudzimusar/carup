@@ -85,6 +85,7 @@ test('one transaction per migration; a failure rolls back that migration and sto
 // ── R6 DBA review 3 N1: node-pg honours ?host= / ?port= (and other) query parameters, so the
 // target the runner approved was not always the server it connected to. ──
 import ConnectionParameters from 'pg/lib/connection-parameters.js';
+const SESSION_OK = Object.freeze({ schema: 'public', first_schema: 'public', read_only: 'off' });
 import { verifyConnectedServer, runFromArgs } from '../scripts/dealership/applyDealerMigrations.mjs';
 
 test('N1: connection-string query parameters cannot redirect an approved loopback target', () => {
@@ -131,21 +132,21 @@ test('N1: an implicit port or database is refused, so PGPORT / PGDATABASE can ne
 
 test('N1: after connecting, the server itself must be the approved target', () => {
   const loop = assertSafeTarget('postgresql://postgres@127.0.0.1:55482/carup_dealer_isolated_ci');
-  assert.doesNotThrow(() => verifyConnectedServer(loop, { addr: '127.0.0.1', port: 55482, db: 'carup_dealer_isolated_ci' }));
-  assert.doesNotThrow(() => verifyConnectedServer(loop, { addr: '::1', port: 55482, db: 'carup_dealer_isolated_ci' }));
+  assert.doesNotThrow(() => verifyConnectedServer(loop, { ...SESSION_OK, addr: '127.0.0.1', port: 55482, db: 'carup_dealer_isolated_ci' }));
+  assert.doesNotThrow(() => verifyConnectedServer(loop, { ...SESSION_OK, addr: '::1', port: 55482, db: 'carup_dealer_isolated_ci' }));
   for (const [row, why] of [
-    [{ addr: '10.0.0.5', port: 55482, db: 'carup_dealer_isolated_ci' }, 'a loopback URL that reached a remote server'],
-    [{ addr: '127.0.0.1', port: 6543, db: 'carup_dealer_isolated_ci' }, 'another port (pooler / tunnel)'],
-    [{ addr: '127.0.0.1', port: 55482, db: 'postgres' }, 'another database'],
-    [{ addr: null, port: 55482, db: 'carup_dealer_isolated_ci' }, 'a Unix-socket session'],
+    [{ ...SESSION_OK, addr: '10.0.0.5', port: 55482, db: 'carup_dealer_isolated_ci' }, 'a loopback URL that reached a remote server'],
+    [{ ...SESSION_OK, addr: '127.0.0.1', port: 6543, db: 'carup_dealer_isolated_ci' }, 'another port (pooler / tunnel)'],
+    [{ ...SESSION_OK, addr: '127.0.0.1', port: 55482, db: 'postgres' }, 'another database'],
+    [{ ...SESSION_OK, addr: null, port: 55482, db: 'carup_dealer_isolated_ci' }, 'a Unix-socket session'],
   ]) {
     assert.throws(() => verifyConnectedServer(loop, row), /CONNECTED_SERVER_MISMATCH/, why);
   }
   const remote = assertSafeTarget('postgresql://postgres@clone.example.invalid:5432/rehearsal',
     { allowNonLoopback: true, confirmTarget: 'clone.example.invalid:5432/rehearsal' });
-  assert.doesNotThrow(() => verifyConnectedServer(remote, { addr: '10.20.30.40', port: 5432, db: 'rehearsal' }));
-  assert.throws(() => verifyConnectedServer(remote, { addr: '10.20.30.40', port: 6432, db: 'rehearsal' }), /CONNECTED_SERVER_MISMATCH/);
-  assert.throws(() => verifyConnectedServer(remote, { addr: '10.20.30.40', port: 5432, db: 'postgres' }), /CONNECTED_SERVER_MISMATCH/);
+  assert.doesNotThrow(() => verifyConnectedServer(remote, { ...SESSION_OK, addr: '10.20.30.40', port: 5432, db: 'rehearsal' }));
+  assert.throws(() => verifyConnectedServer(remote, { ...SESSION_OK, addr: '10.20.30.40', port: 6432, db: 'rehearsal' }), /CONNECTED_SERVER_MISMATCH/);
+  assert.throws(() => verifyConnectedServer(remote, { ...SESSION_OK, addr: '10.20.30.40', port: 5432, db: 'postgres' }), /CONNECTED_SERVER_MISMATCH/);
 });
 
 test('N1: the runner checks the connected server BEFORE any migration statement and then disconnects', async () => {
@@ -158,14 +159,51 @@ test('N1: the runner checks the connected server BEFORE any migration statement 
       async query(sql) { seen.sql.push(sql.trim()); return { rows: [identity] }; } }; } };
   };
   const url = 'postgresql://postgres@127.0.0.1:55482/carup_dealer_isolated_ci';
-  const bad = fake({ addr: '10.0.0.5', port: 55482, db: 'carup_dealer_isolated_ci', usr: 'postgres', v: '17' });
+  const bad = fake({ ...SESSION_OK, addr: '10.0.0.5', port: 55482, db: 'carup_dealer_isolated_ci', usr: 'postgres', v: '17' });
   await assert.rejects(runFromArgs(['--url', url], {}, { createClient: bad.createClient, dir, log: () => {} }), /CONNECTED_SERVER_MISMATCH/);
   assert.equal(bad.seen.sql.some((s) => s === 'BEGIN' || s.includes('UP A')), false, 'no migration statement after a mismatch');
   assert.equal(bad.seen.ended, true, 'the refused connection is closed');
-  const good = fake({ addr: '127.0.0.1', port: 55482, db: 'carup_dealer_isolated_ci', usr: 'postgres', v: '17' });
+  const good = fake({ ...SESSION_OK, addr: '127.0.0.1', port: 55482, db: 'carup_dealer_isolated_ci', usr: 'postgres', v: '17' });
   await runFromArgs(['--url', url], {}, { createClient: good.createClient, dir, log: () => {} });
   assert.ok(good.seen.sql.includes('BEGIN') && good.seen.sql.some((s) => s.includes('UP A')) && good.seen.ended);
   assert.equal(good.seen.config.connectionString, url, 'the client connects with the validated URL');
   await assert.rejects(runFromArgs(['--url', url + '?port=55483'], {}, { createClient: good.createClient, dir, log: () => {} }),
     /CONNECTION_QUERY_PARAMETER_REFUSED/);
+});
+
+// ── R6 DBA review 4 R2: PGOPTIONS='-c search_path=shadow,public' made the runner create objects in
+// another schema while it reported APPLIED. ──
+import { assertNoSessionOptionEnv, SESSION_OPTION_ENV } from '../scripts/dealership/applyDealerMigrations.mjs';
+
+test('R2: session options injected through the environment are refused before connecting', async () => {
+  for (const key of SESSION_OPTION_ENV) {
+    assert.throws(() => assertNoSessionOptionEnv({ [key]: '-c search_path=shadow,public' }), /SESSION_OPTION_ENVIRONMENT_REFUSED/, key);
+  }
+  assert.ok(SESSION_OPTION_ENV.includes('PGOPTIONS'));
+  assert.equal(assertNoSessionOptionEnv({ PGOPTIONS: '' }), true, 'an empty value is harmless');
+  const saved = process.env.PGOPTIONS;
+  process.env.PGOPTIONS = '-c search_path=shadow,public';
+  try {
+    assert.throws(() => assertNoSessionOptionEnv({}), /SESSION_OPTION_ENVIRONMENT_REFUSED/, 'the real process environment is checked too');
+    let created = false;
+    await assert.rejects(runFromArgs(['--url', 'postgresql://postgres@127.0.0.1:55482/carup_dealer_isolated_ci'], {},
+      { createClient: () => { created = true; return {}; }, log: () => {} }), /SESSION_OPTION_ENVIRONMENT_REFUSED/);
+    assert.equal(created, false, 'no connection is attempted');
+  } finally {
+    if (saved === undefined) delete process.env.PGOPTIONS; else process.env.PGOPTIONS = saved;
+  }
+});
+
+test('R2: after connecting, objects must land in public and the session must be writable', () => {
+  const loop = assertSafeTarget('postgresql://postgres@127.0.0.1:55482/carup_dealer_isolated_ci');
+  const base = { addr: '127.0.0.1', port: 55482, db: 'carup_dealer_isolated_ci' };
+  assert.doesNotThrow(() => verifyConnectedServer(loop, { ...SESSION_OK, ...base }));
+  for (const [row, why] of [
+    [{ ...SESSION_OK, ...base, schema: 'shadow', first_schema: 'shadow' }, 'search_path = shadow, public'],
+    [{ ...SESSION_OK, ...base, schema: 'public', first_schema: 'shadow' }, 'an empty shadow schema first on the path'],
+    [{ ...SESSION_OK, ...base, schema: null, first_schema: null }, 'no schema on the path at all'],
+    [{ ...SESSION_OK, ...base, read_only: 'on' }, 'a read-only session default'],
+  ]) {
+    assert.throws(() => verifyConnectedServer(loop, row), /CONNECTED_SERVER_MISMATCH/, why);
+  }
 });
