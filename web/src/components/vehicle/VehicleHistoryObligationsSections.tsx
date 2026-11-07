@@ -121,7 +121,7 @@ export function VehicleHistoryObligationsSections({
           <div>
             <div className="flex items-center gap-2">
               <SellerStatedBadge />
-              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Seller’s declaration</span>
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Seller’s declaration</span>
             </div>
             {accident ? (
               <div className="mt-1.5" data-testid="history-accident-statement">
@@ -166,7 +166,7 @@ export function VehicleHistoryObligationsSections({
           <div>
             <div className="flex items-center gap-2">
               <SellerStatedBadge />
-              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Seller’s declaration</span>
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Seller’s declaration</span>
             </div>
             {insurance ? (
               <p className="mt-1.5 text-sm font-bold text-slate-900" data-testid="history-insurance-statement">
@@ -195,7 +195,7 @@ export function VehicleHistoryObligationsSections({
           <div>
             <div className="flex items-center gap-2">
               <SellerStatedBadge />
-              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Seller’s declaration</span>
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Seller’s declaration</span>
             </div>
             {finance ? (
               <div className="mt-1.5" data-testid="history-finance-statement">
@@ -227,7 +227,7 @@ export function VehicleHistoryObligationsSections({
               <div data-testid="history-finance-governed-record">
                 <div className="flex items-center gap-2">
                   <GovernedBadge />
-                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Lender / governed record</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Lender / governed record</span>
                 </div>
                 <ul className="mt-1.5 space-y-2">
                   {liveObligations.map((obligation, index) => (
@@ -286,7 +286,7 @@ export function VehicleHistoryObligationsSections({
         </div>
       </div>
 
-      <p className="flex items-start gap-2 px-1 text-[11px] leading-4 text-slate-400">
+      <p className="flex items-start gap-2 px-1 text-[11px] leading-4 text-slate-600">
         <FileQuestion className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden="true" />
         Seller declarations above are statements by the seller, recorded with their listing. CarUp
         compares them with governed evidence where sources exist; reviewed discrepancies appear in

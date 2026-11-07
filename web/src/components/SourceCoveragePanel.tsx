@@ -25,7 +25,7 @@ const STATUS_UI: Record<SourceCoverageStatus, { label: string; cls: string; icon
   risk_flagged:          { label: 'Risk flagged',           cls: 'bg-red-100 text-red-800 border-red-300', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
   no_record_found:       { label: 'No record found',        cls: 'bg-gray-100 text-gray-600 border-gray-300', icon: <CircleSlash className="w-3.5 h-3.5" /> },
   source_unavailable:    { label: 'Source unavailable',     cls: 'bg-gray-100 text-gray-500 border-gray-200', icon: <HelpCircle className="w-3.5 h-3.5" /> },
-  pending:               { label: 'Not yet checked',        cls: 'bg-gray-50 text-gray-400 border-gray-200', icon: <Clock className="w-3.5 h-3.5" /> },
+  pending:               { label: 'Not yet checked',        cls: 'bg-gray-50 text-gray-600 border-gray-200', icon: <Clock className="w-3.5 h-3.5" /> },
 }
 
 function statusFor(entry: SourceCoverageEntry | undefined): SourceCoverageStatus {
@@ -76,7 +76,7 @@ export function SourceCoveragePanel({ vin, initialData }: { vin: string; initial
             <div key={p} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0" data-testid={`source-row-${p}`}>
               <div>
                 <span className="font-medium text-sm text-gray-800">{PROVIDER_LABELS[p].name}</span>
-                <span className="text-xs text-gray-400 ml-2">{PROVIDER_LABELS[p].what}</span>
+                <span className="text-xs text-gray-600 ml-2">{PROVIDER_LABELS[p].what}</span>
               </div>
               <span className={`text-xs font-medium px-2 py-0.5 rounded border inline-flex items-center gap-1 ${ui.cls}`}>
                 {ui.icon}{ui.label}
@@ -90,7 +90,7 @@ export function SourceCoveragePanel({ vin, initialData }: { vin: string; initial
             they are not live government API confirmations.
           </p>
         )}
-        <p className="text-xs text-gray-400 pt-1">
+        <p className="text-xs text-gray-600 pt-1">
           CarUp shows each source separately and never presents an unchecked or sandbox source as confirmed.
         </p>
       </CardContent>

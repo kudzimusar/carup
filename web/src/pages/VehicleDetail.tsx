@@ -759,7 +759,7 @@ function timelineIcon(source: string) {
     ownership_transfer: { icon: UserCheck,     color: 'text-purple-600 bg-purple-50' },
     insurance:          { icon: Shield,        color: 'text-green-600 bg-green-50' },
     escrow:             { icon: Lock,          color: 'text-amber-600 bg-amber-50' },
-    zimra:              { icon: ClipboardCheck,color: 'text-orange-600 bg-orange-50' },
+    zimra:              { icon: ClipboardCheck,color: 'text-orange-700 bg-orange-50' },
     cvr:                { icon: FileCheck,     color: 'text-teal-600 bg-teal-50' },
     vid:                { icon: CheckCircle,   color: 'text-green-700 bg-green-50' },
     cid:                { icon: Shield,        color: 'text-red-600 bg-red-50' },
@@ -770,7 +770,7 @@ function timelineIcon(source: string) {
     plate_changed:       { icon: Calendar,      color: 'text-purple-600 bg-purple-50' },
     plate_flagged:       { icon: AlertTriangle, color: 'text-red-600 bg-red-50' },
     plate_suspended:     { icon: XCircle,       color: 'text-red-700 bg-red-50' },
-    evidence:            { icon: ImageIcon,     color: 'text-orange-600 bg-orange-50' },
+    evidence:            { icon: ImageIcon,     color: 'text-orange-700 bg-orange-50' },
   }
   return map[source] ?? { icon: Clock, color: 'text-gray-500 bg-gray-50' }
 }
@@ -1548,7 +1548,7 @@ export default function VehicleDetail() {
   ) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+        <Loader2 className="w-8 h-8 animate-spin text-orange-700" />
       </div>
     )
   }
@@ -1562,7 +1562,7 @@ export default function VehicleDetail() {
           <p className="mt-2 text-sm leading-6 text-slate-300">
             CarUp could not confirm this VIN in your owned/current-Seller Garage scope. No unpublished listing has been exposed.
           </p>
-          <Button asChild className="mt-6 rounded-none bg-orange-500 font-black hover:bg-orange-600">
+          <Button asChild className="mt-6 rounded-none bg-orange-700 font-black hover:bg-orange-800">
             <Link to="/dashboard/listings">Back to My Listings</Link>
           </Button>
         </div>
@@ -1581,7 +1581,7 @@ export default function VehicleDetail() {
             VIN is open to everyone.
           </p>
           <div className="flex gap-3 justify-center">
-            <Button className="bg-orange-500 hover:bg-orange-600" asChild>
+            <Button className="bg-orange-700 hover:bg-orange-800" asChild>
               <Link to="/login">Sign in</Link>
             </Button>
             <Button variant="outline" asChild>
@@ -1600,7 +1600,7 @@ export default function VehicleDetail() {
           <Car className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Vehicle Not Found</h1>
           <p className="text-gray-500 mb-6">The vehicle you're looking for doesn't exist or has been removed.</p>
-          <Button className="bg-orange-500 hover:bg-orange-600" asChild>
+          <Button className="bg-orange-700 hover:bg-orange-800" asChild>
             <Link to="/marketplace">Back to Marketplace</Link>
           </Button>
         </div>
@@ -1786,7 +1786,7 @@ export default function VehicleDetail() {
             ) : (
               <form onSubmit={handleLookupSubmit} className="flex gap-2 max-w-sm w-full">
                 <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
                   <Input
                     placeholder="Enter VIN, chassis, plate, or temporary ID"
                     value={lookupQuery}
@@ -1794,7 +1794,7 @@ export default function VehicleDetail() {
                     className="h-10 rounded-none border-slate-700 bg-slate-950 pl-9 text-xs text-white placeholder:text-slate-500 focus-visible:ring-orange-500"
                   />
                 </div>
-                <Button type="submit" size="sm" className="h-10 rounded-none bg-orange-500 px-4 text-xs font-bold text-white hover:bg-orange-600">Lookup</Button>
+                <Button type="submit" size="sm" className="h-10 rounded-none bg-orange-700 px-4 text-xs font-bold text-white hover:bg-orange-800">Lookup</Button>
               </form>
             )}
           </div>
@@ -1809,7 +1809,7 @@ export default function VehicleDetail() {
               <p className="mt-1 text-sm font-bold text-slate-950">This is the shared buyer presentation, shown inside your authenticated Seller scope.</p>
               <p className="mt-1 text-xs leading-5 text-slate-600">Save, compare, share, inquiry, reservation and financing controls are disabled here. Publication state is not changed by previewing.</p>
             </div>
-            <Button asChild className="min-h-11 rounded-none bg-slate-950 font-black hover:bg-orange-600">
+            <Button asChild className="min-h-11 rounded-none bg-slate-950 font-black hover:bg-orange-800">
               <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Return to editing</Link>
             </Button>
           </div>
@@ -1829,7 +1829,7 @@ export default function VehicleDetail() {
               other vehicle-status badges in the identity row below. */}
           <section className="space-y-3" data-testid="listing-media-block">
             <div className="flex items-center gap-2">
-              <ImageIcon className="w-4 h-4 text-gray-400" aria-hidden="true" />
+              <ImageIcon className="w-4 h-4 text-gray-600" aria-hidden="true" />
               <h2 className="text-sm font-semibold text-gray-900">Listing photos</h2>
             </div>
             <p className="text-xs text-gray-500" data-testid="listing-media-caption">
@@ -1877,7 +1877,7 @@ export default function VehicleDetail() {
                         onClick={() => setCurrentImageIdx((activeImageIdx - 1 + galleryItems.length) % galleryItems.length)}
                         aria-label="Previous photo"
                         data-testid="listing-media-previous"
-                        className="absolute left-4 top-1/2 z-[60] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-500"
+                        className="absolute left-4 top-1/2 z-[60] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-700"
                       >
                         <ChevronLeft className="w-5 h-5" />
                       </button>
@@ -1885,7 +1885,7 @@ export default function VehicleDetail() {
                         onClick={() => setCurrentImageIdx((activeImageIdx + 1) % galleryItems.length)}
                         aria-label="Next photo"
                         data-testid="listing-media-next"
-                        className="absolute right-4 top-1/2 z-[60] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-500"
+                        className="absolute right-4 top-1/2 z-[60] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-700"
                       >
                         <ChevronRight className="w-5 h-5" />
                       </button>
@@ -1897,7 +1897,7 @@ export default function VehicleDetail() {
                 </>
               ) : (
                 <div
-                  className="w-full aspect-[16/9] bg-gray-100 flex flex-col items-center justify-center gap-2 px-6 text-center text-gray-400"
+                  className="w-full aspect-[16/9] bg-gray-100 flex flex-col items-center justify-center gap-2 px-6 text-center text-gray-600"
                   data-testid="no-images-placeholder"
                   data-media-state={allListingMediaFailed ? 'published_unavailable' : listingMedia.state}
                 >
@@ -1905,7 +1905,7 @@ export default function VehicleDetail() {
                   {allListingMediaFailed ? (
                     <div data-testid="listing-media-load-failed">
                       <p className="text-sm font-medium text-gray-600">Listing photo unavailable</p>
-                      <p className="mt-1 text-xs text-gray-400">
+                      <p className="mt-1 text-xs text-gray-600">
                         CarUp received a published photo address for this listing, but the browser could
                         not load it. That is a delivery failure, not a statement about the vehicle or
                         whether the seller added photos.
@@ -1929,7 +1929,7 @@ export default function VehicleDetail() {
                           cases differently re-opens the enumeration the gate closed.
                           This line now says only what the block says: nothing is published here,
                           and no reading about the seller follows from that. */}
-                      <p className="mt-1 text-xs text-gray-400">
+                      <p className="mt-1 text-xs text-gray-600">
                         That is a statement about what this page publishes, and about nothing else.
                         Nothing follows from it about what the seller did.
                       </p>
@@ -1942,7 +1942,7 @@ export default function VehicleDetail() {
                       <p className="text-sm font-medium text-gray-600">
                         CarUp did not read this listing’s photo gallery on this page.
                       </p>
-                      <p className="mt-1 text-xs text-gray-400">
+                      <p className="mt-1 text-xs text-gray-600">
                         That is a fact about this request, not a finding about the listing. Nothing is
                         stated either way about whether the seller added photos.
                       </p>
@@ -2039,19 +2039,19 @@ export default function VehicleDetail() {
               {vehicle.year ?? ''} {vehicle.make} {vehicle.model}
             </h1>
             <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300">
-              <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-orange-500" /> {locationLine.label}</span>
+              <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-orange-700" /> {locationLine.label}</span>
               {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) && (
-                <span className="inline-flex items-center gap-1.5"><Gauge className="h-4 w-4 text-orange-500" /> {vehicle.mileage.toLocaleString()} km</span>
+                <span className="inline-flex items-center gap-1.5"><Gauge className="h-4 w-4 text-orange-700" /> {vehicle.mileage.toLocaleString()} km</span>
               )}
             </div>
           </div>
           <div className="mt-7 grid grid-cols-2 border-y border-white/10 py-5">
             <div className="pr-4">
-              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Asking price</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-300">Asking price</p>
               <p className="mt-1 text-2xl font-black tracking-[-0.035em] text-white">{governedPrice(vehicle.price, vehicle.currency)}</p>
             </div>
             <div className="border-l border-white/10 pl-4">
-              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Canonical Trust</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-300">Canonical Trust</p>
               <p className="mt-1 text-2xl font-black tracking-[-0.035em] text-white">{trust.score !== null ? `${trust.score}/100` : trust.headline}</p>
               {trust.score !== null && <p className="mt-0.5 text-[10px] text-slate-400">{trust.headline}</p>}
             </div>
@@ -2063,7 +2063,7 @@ export default function VehicleDetail() {
                 listingId={detail.vin}
                 inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
                 triggerLabel="Ask about this vehicle"
-                triggerClassName="w-full h-12 rounded-none bg-orange-500 font-black text-white hover:bg-orange-600"
+                triggerClassName="w-full h-12 rounded-none bg-orange-700 font-black text-white hover:bg-orange-800"
               />
               <InquiryModal
                 listingId={detail.vin}
@@ -2073,7 +2073,7 @@ export default function VehicleDetail() {
                 triggerVariant="outline"
                 triggerClassName="w-full h-11 rounded-none border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white"
               />
-              <p className="pt-2 text-[10px] leading-4 text-slate-500">CarUp keeps the inquiry inside the governed Communications path. Never pay outside CarUp.</p>
+              <p className="pt-2 text-[10px] leading-4 text-slate-300">CarUp keeps the inquiry inside the governed Communications path. Never pay outside CarUp.</p>
             </div>
           )}
         </section>
@@ -2152,7 +2152,7 @@ export default function VehicleDetail() {
                 } else if (identifiersRedacted) {
                   return (
                     <div className="bg-gray-50 border-l-4 border-gray-300 p-4 rounded-r-lg text-gray-700 flex items-start gap-3" data-testid="plate-advisory-withheld">
-                      <Lock className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
+                      <Lock className="w-5 h-5 text-gray-600 flex-shrink-0 mt-0.5" />
                       <div>
                         <p className="font-semibold text-sm">Registration identifiers are not shown publicly</p>
                         <p className="text-xs mt-0.5">Plate, temporary ID, chassis and engine numbers are withheld from public view. This is a privacy rule for every listing — it says nothing about this vehicle and does not affect its trust score.</p>
@@ -2219,7 +2219,7 @@ export default function VehicleDetail() {
                             {isImageArtifact && item.file_url ? (
                               <img src={item.file_url} alt="" className="h-full w-full object-cover" />
                             ) : (
-                              <FileText className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                              <FileText className="h-5 w-5 text-gray-600" aria-hidden="true" />
                             )}
                           </div>
                           <div className="min-w-0 flex-1">
@@ -2259,7 +2259,7 @@ export default function VehicleDetail() {
                 ) : verifiedEvidence.state === 'none' ? (
                   <div className="rounded-lg border border-dashed border-gray-200 p-4 text-center" data-testid="verified-evidence-empty">
                     <p className="text-sm font-medium text-gray-600">{verifiedEvidence.empty_statement}</p>
-                    <p className="mt-1 text-xs text-gray-400">
+                    <p className="mt-1 text-xs text-gray-600">
                       Whether this listing carries photos is a different question, and it is answered
                       separately above.
                     </p>
@@ -2269,7 +2269,7 @@ export default function VehicleDetail() {
                     <p className="text-sm font-medium text-gray-600">
                       CarUp did not read this vehicle’s evidence record on this page.
                     </p>
-                    <p className="mt-1 text-xs text-gray-400">
+                    <p className="mt-1 text-xs text-gray-600">
                       Nothing is stated either way about whether governed evidence exists for it.
                     </p>
                   </div>
@@ -2368,12 +2368,12 @@ export default function VehicleDetail() {
                     { label: 'Condition (seller-stated)', value: vehicle.seller_stated_condition || null, icon: FileCheck, testId: 'spec-seller-condition' },
                   ].map((item) => (
                     <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center" data-testid={item.testId}>
-                      <item.icon className="w-5 h-5 text-orange-500 mx-auto mb-1" />
+                      <item.icon className="w-5 h-5 text-orange-700 mx-auto mb-1" />
                       <p className="text-xs text-gray-500">{item.label}</p>
                       {item.value ? (
                         <p className="font-semibold text-sm">{item.value}</p>
                       ) : (
-                        <p className="text-sm text-gray-400 italic" data-testid="spec-not-recorded">Not recorded</p>
+                        <p className="text-sm text-gray-600 italic" data-testid="spec-not-recorded">Not recorded</p>
                       )}
                     </div>
                   ))}
@@ -2423,10 +2423,10 @@ export default function VehicleDetail() {
                   <TabsContent value="history" className="mt-4" data-testid="history-tab-content">
                     {lifecycleLoaded ? (
                       lifecycleEvents.length === 0 ? (
-                        <div className="text-center py-8 text-gray-400" data-testid="history-empty-state">
+                        <div className="text-center py-8 text-gray-600" data-testid="history-empty-state">
                           <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
                           <p className="font-medium">No dated lifecycle records in current coverage</p>
-                          <p className="text-xs mt-1 text-gray-400">This is not proof of a clean history. Add governed evidence, service, ownership or inspection records to expand coverage.</p>
+                          <p className="text-xs mt-1 text-gray-600">This is not proof of a clean history. Add governed evidence, service, ownership or inspection records to expand coverage.</p>
                         </div>
                       ) : (
                         <div className="space-y-3" data-testid="history-timeline" data-history-source="canonical-lifecycle">
@@ -2452,7 +2452,7 @@ export default function VehicleDetail() {
                                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                     <p className="font-semibold text-sm text-slate-900">{event.label}</p>
                                     <Badge variant="outline" className="rounded-none text-[10px] capitalize">{event.category.replace(/_/g, ' ')}</Badge>
-                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{lifecycleStatusLabel(event)}</span>
+                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-600">{lifecycleStatusLabel(event)}</span>
                                   </div>
                                   <p className="text-xs text-slate-500 mt-1">
                                     {event.date ? new Date(event.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date unknown'}
@@ -2467,7 +2467,7 @@ export default function VehicleDetail() {
                                       <div className="h-14 w-16 overflow-hidden border border-slate-200 bg-slate-50" data-testid={`history-thumbnail-${evidenceItem.id}`}>
                                         {!evidenceItem.file_url || isDoc ? (
                                           <div className="flex h-full w-full items-center justify-center" data-testid={!evidenceItem.file_url ? 'history-thumbnail-withheld' : undefined}>
-                                            <FileText className="w-6 h-6 text-gray-400" />
+                                            <FileText className="w-6 h-6 text-gray-600" />
                                           </div>
                                         ) : (
                                           <img src={evidenceItem.file_url} className="w-full h-full object-cover" alt="" />
@@ -2483,10 +2483,10 @@ export default function VehicleDetail() {
                         </div>
                       )
                     ) : timeline.length === 0 ? (
-                      <div className="text-center py-8 text-gray-400" data-testid="history-empty-state">
+                      <div className="text-center py-8 text-gray-600" data-testid="history-empty-state">
                         <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
                         <p className="font-medium">Vehicle lifecycle was not loaded</p>
-                        <p className="text-xs mt-1 text-gray-400">CarUp will not turn a missing lifecycle projection into a claim that the vehicle has no history.</p>
+                        <p className="text-xs mt-1 text-gray-600">CarUp will not turn a missing lifecycle projection into a claim that the vehicle has no history.</p>
                       </div>
                     ) : (
                       <div className="space-y-3" data-testid="history-timeline" data-history-source="legacy-audit-fallback">
@@ -2500,7 +2500,7 @@ export default function VehicleDetail() {
                               <div className="flex-1 min-w-0">
                                 <p className="font-medium text-sm">{event.label}</p>
                                 {event.desc && <p className="text-xs text-gray-500 mt-0.5 truncate">{event.desc}</p>}
-                                <p className="text-xs text-gray-400 mt-1">
+                                <p className="text-xs text-gray-600 mt-1">
                                   {event.timestamp ? new Date(event.timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date unknown'}
                                   {event.details?.mileage ? ` · ${event.details.mileage.toLocaleString()} km` : ''}
                                 </p>
@@ -2520,7 +2520,7 @@ export default function VehicleDetail() {
                       <div className="mb-5 rounded-xl border border-gray-200 bg-gray-50 p-4" data-testid="report-owner-actions">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <FileSearch className="h-4 w-4 text-gray-400" aria-hidden="true" />
+                            <FileSearch className="h-4 w-4 text-gray-600" aria-hidden="true" />
                             <span>Snapshot this report or share it with a buyer via an expiring link.</span>
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -2547,7 +2547,7 @@ export default function VehicleDetail() {
                         </div>
                         {shareLink && (
                           <div className="mt-3 flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-2" data-testid="report-share-link">
-                            <Copy className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+                            <Copy className="h-4 w-4 shrink-0 text-gray-600" aria-hidden="true" />
                             <code className="min-w-0 flex-1 truncate text-xs text-gray-600">{shareLink}</code>
                             <Button
                               type="button"
@@ -2563,14 +2563,14 @@ export default function VehicleDetail() {
                     )}
 
                     {reportLoading ? (
-                      <div className="flex flex-col items-center py-12 text-gray-400">
+                      <div className="flex flex-col items-center py-12 text-gray-600">
                         <Loader2 className="h-7 w-7 animate-spin" aria-hidden="true" />
                         <p className="mt-3 text-sm">Loading vehicle history report…</p>
                       </div>
                     ) : report ? (
                       <VehicleHistoryReport report={report} />
                     ) : (
-                      <div className="text-center py-10 text-gray-400" data-testid="history-report-unavailable">
+                      <div className="text-center py-10 text-gray-600" data-testid="history-report-unavailable">
                         <HelpCircle className="w-10 h-10 mx-auto mb-3 opacity-30" aria-hidden="true" />
                         <p className="font-medium">History report unavailable</p>
                         <p className="text-xs mt-1">{reportError || 'The report could not be loaded for this vehicle.'}</p>
@@ -2622,7 +2622,7 @@ export default function VehicleDetail() {
                   {/* ── Verification tab: real trust metrics ── */}
                   <TabsContent value="verification" className="mt-4" data-testid="verification-tab-content">
                     {verificationSources.length === 0 ? (
-                      <div className="text-center py-8 text-gray-400">
+                      <div className="text-center py-8 text-gray-600">
                         <HelpCircle className="w-10 h-10 mx-auto mb-3 opacity-30" />
                         <p className="font-medium">Verification data unavailable</p>
                         <p className="text-xs mt-1">Trust report could not be loaded for this vehicle</p>
@@ -2636,7 +2636,7 @@ export default function VehicleDetail() {
                             : HelpCircle
                           const iconColor = src.status === 'verified' ? 'text-green-600'
                             : src.status === 'warning' ? 'text-amber-600'
-                            : 'text-gray-400'
+                            : 'text-gray-600'
 
                           return (
                             <div key={src.label}
@@ -2674,7 +2674,7 @@ export default function VehicleDetail() {
                       <div className="bg-gray-50 rounded-lg p-4 text-center">
                         <p className="text-xs text-gray-500 mb-1">Service Records</p>
                         {serviceRecordCount === null ? (
-                          <p className="text-sm text-gray-400 italic" data-testid="service-records-unrecorded">Not recorded</p>
+                          <p className="text-sm text-gray-600 italic" data-testid="service-records-unrecorded">Not recorded</p>
                         ) : (
                           <p className="text-xl font-bold">{serviceRecordCount}</p>
                         )}
@@ -2751,7 +2751,7 @@ export default function VehicleDetail() {
                     {sellerContactNumber && sellerWhatsAppLink ? (
                       <div className="flex gap-2 mt-6">
                         <a href={`tel:${sellerContactNumber}`} onClick={() => toast.info(`Calling ${vehicle.sellerName ?? 'the seller'}...`)} className="flex-1">
-                          <Button className="w-full bg-orange-500 hover:bg-orange-600 gap-1"><Phone className="w-4 h-4" /> Call</Button>
+                          <Button className="w-full bg-orange-700 hover:bg-orange-800 gap-1"><Phone className="w-4 h-4" /> Call</Button>
                         </a>
                         <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer" className="flex-1">
                           <Button variant="outline" className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
@@ -2764,11 +2764,11 @@ export default function VehicleDetail() {
                           inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
                           defaultInquiryType="vehicle_purchase_interest"
                           triggerLabel="Contact through CarUp"
-                          triggerClassName="w-full bg-orange-500 text-white hover:bg-orange-400"
+                          triggerClassName="w-full bg-orange-700 text-white hover:bg-orange-800"
                           defaultMessage="I am interested in this vehicle. Please connect me with the seller through CarUp."
                           intentMetadata={{ buyer_intent: 'seller_contact' }}
                         />
-                        <p className="mt-2 text-xs text-gray-400">
+                        <p className="mt-2 text-xs text-gray-600">
                           The seller has not published a direct number. CarUp can route your inquiry without exposing private contact details.
                         </p>
                       </div>
@@ -2794,7 +2794,7 @@ export default function VehicleDetail() {
                           intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}
                           onSubmitted={() => setReserveRequested(true)}
                         />
-                        <p className="mt-2 text-xs text-gray-400">
+                        <p className="mt-2 text-xs text-gray-600">
                           CarUp resolves the current seller, purchase inquiry, listing terms and Trust gates before a reservation or SafePay step can open.
                         </p>
                       </div>
@@ -2816,19 +2816,19 @@ export default function VehicleDetail() {
                           intentMetadata={{ buyer_intent: 'financing_interest' }}
                           onSubmitted={() => setFinanceInterestRequested(true)}
                         />
-                        <p className="mt-2 text-xs text-gray-400">
+                        <p className="mt-2 text-xs text-gray-600">
                           CarUp will not invent a lender, approval, currency or loan terms. A financing application starts only when a real lender path and listing currency are verified.
                         </p>
                       </div>
                     )}
-                    <p className="text-xs text-gray-400 text-center mt-3">🔒 SafePay opens only after CarUp verifies transaction eligibility</p>
+                    <p className="text-xs text-gray-600 text-center mt-3">🔒 SafePay opens only after CarUp verifies transaction eligibility</p>
                   </>
                 ) : (
                   <div className="mt-6 border border-white/15 bg-white/5 p-4" data-testid="marketplace-actions-unavailable">
                     <div className="flex items-center gap-2 text-sm font-semibold text-white">
                       <Lock className="h-4 w-4 text-orange-400" /> Marketplace actions unavailable
                     </div>
-                    <p className="mt-2 text-xs leading-5 text-gray-400">
+                    <p className="mt-2 text-xs leading-5 text-gray-600">
                       This Vehicle Passport is not currently backed by a published Marketplace listing. Contact, reservation, and financing requests stay hidden until a canonical public listing resolves.
                     </p>
                   </div>
@@ -2859,11 +2859,11 @@ export default function VehicleDetail() {
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-gray-400" />
+                    <Phone className="w-4 h-4 text-gray-600" />
                     {sellerContactNumber ? (
                       isSellerPreview
                         ? <span data-testid="seller-phone-preview">{sellerContactNumber}</span>
-                        : <a href={`tel:${sellerContactNumber}`} className="hover:text-orange-500">{sellerContactNumber}</a>
+                        : <a href={`tel:${sellerContactNumber}`} className="hover:text-orange-700">{sellerContactNumber}</a>
                     ) : (
                       <span className="text-gray-500" data-testid="seller-phone-unavailable">No contact number published</span>
                     )}
@@ -2902,7 +2902,7 @@ export default function VehicleDetail() {
                         ) : state === 'withheld' ? (
                           <span className="text-xs text-gray-500 italic" data-testid="identity-field-withheld" data-field={label}>Not shown publicly</span>
                         ) : (
-                          <span className="text-xs text-gray-400 italic" data-testid="identity-field-unrecorded" data-field={label}>Not recorded</span>
+                          <span className="text-xs text-gray-600 italic" data-testid="identity-field-unrecorded" data-field={label}>Not recorded</span>
                         )}
                       </div>
                     )
@@ -2980,11 +2980,11 @@ export default function VehicleDetail() {
                         Plate history could not be read. CarUp is not treating this as an empty history.
                       </p>
                     ) : passport.plateHistoryRedacted ? (
-                      <p className="text-xs text-gray-400" data-testid="plate-history-withheld">
+                      <p className="text-xs text-gray-600" data-testid="plate-history-withheld">
                         Plate registration history is not shown publicly for this vehicle.
                       </p>
                     ) : (
-                      <p className="text-xs text-gray-400" data-testid="plate-history-empty">
+                      <p className="text-xs text-gray-600" data-testid="plate-history-empty">
                         No plate-history rows are held in the CarUp records read for this vehicle.
                       </p>
                     )
@@ -3000,7 +3000,7 @@ export default function VehicleDetail() {
                             ) : plateState === 'withheld' ? (
                               <span className="text-xs text-gray-500 italic" data-testid="plate-history-number-withheld">Plate not shown publicly</span>
                             ) : (
-                              <span className="text-xs text-gray-400 italic" data-testid="plate-history-number-unrecorded">Plate not recorded</span>
+                              <span className="text-xs text-gray-600 italic" data-testid="plate-history-number-unrecorded">Plate not recorded</span>
                             )}
                             <Badge variant="outline" className={`text-[9px] uppercase ${
                               h.status === 'active' ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-200 text-gray-500'
@@ -3008,7 +3008,7 @@ export default function VehicleDetail() {
                               {h.status || 'status not recorded'}
                             </Badge>
                           </div>
-                          <div className="flex justify-between text-[11px] text-gray-400 mt-1">
+                          <div className="flex justify-between text-[11px] text-gray-600 mt-1">
                             <span>Type: {h.plate_type || 'not recorded'}</span>
                             <span>{h.issued_at ? new Date(h.issued_at).toLocaleDateString() : 'date not recorded'}</span>
                           </div>

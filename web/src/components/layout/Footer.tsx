@@ -27,7 +27,7 @@ function SocialButton({ social }: { social: SocialLink }) {
         target="_blank"
         rel="noopener noreferrer"
         aria-label={`CarUp on ${social.label}`}
-        className={`${base} bg-gray-800 hover:bg-orange-500 text-gray-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(222,47%,8%)]`}
+        className={`${base} bg-gray-800 hover:bg-orange-700 text-gray-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(222,47%,8%)]`}
         data-testid={`footer-social-${social.platform}`}
       >
         <Icon className="w-4 h-4" />
@@ -72,7 +72,7 @@ export default function Footer() {
                 <Car className="w-5 h-5 text-white" />
               </div>
               <span className="text-xl font-bold text-white tracking-tight">
-                Car<span className="text-orange-500">Up</span>
+                Car<span className="text-orange-700">Up</span>
               </span>
             </Link>
             <p className="text-sm text-gray-400 mb-4 max-w-xs">

@@ -124,7 +124,7 @@ export default function DashboardLayout({ role }: { role: string }) {
               <Car className="w-4 h-4 text-white" />
             </div>
             <span className="text-lg font-bold">
-              Car<span className="text-orange-500">Up</span>
+              Car<span className="text-orange-700">Up</span>
             </span>
           </Link>
           <Button

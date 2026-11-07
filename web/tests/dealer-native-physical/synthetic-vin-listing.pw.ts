@@ -55,7 +55,8 @@ function fictionalPdf(){
   'endstream endobj','5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj',
   'trailer<</Root 1 0 R>>','%%EOF'].join('\n'))
 }
-type AxeSummary={label:string;scope:string;violations:Array<{id:string;impact:string|null;nodes:number}>}
+type AxeSummary={label:string;scope:string;violations:Array<{id:string;impact:string|null;nodes:number;
+ targets:Array<{target:string;message:string}>}>}
 // T32: WCAG 2 A/AA automated scan, RECORDED (not asserted) so a finding never aborts the rest of
 // the physical journey. The receipt counts critical/serious violations inside the R4 surfaces and on
 // the full pages; T32 is classified from those recorded numbers, never assumed.
@@ -64,7 +65,10 @@ async function axeScan(page:Page,info:import('@playwright/test').TestInfo,label:
  if(include)builder=builder.include(include)
  const result=await builder.analyze()
  const summary:AxeSummary={label,scope:include||'full page',violations:result.violations.map(v=>
-  ({id:v.id,impact:v.impact??null,nodes:v.nodes.length}))}
+  ({id:v.id,impact:v.impact??null,nodes:v.nodes.length,
+   // Selectors and the measured contrast message make a CI failure fixable without a rerun.
+   targets:v.nodes.slice(0,12).map(n=>({target:n.target.join(' '),
+    message:(n.any[0]?.message||n.failureSummary||'').slice(0,240)}))}))}
  await info.attach('axe-'+label,{body:JSON.stringify(summary,null,2),contentType:'application/json'})
  return summary
 }
