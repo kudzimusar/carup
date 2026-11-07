@@ -1,7 +1,7 @@
 -- +migrate Up
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
--- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
-SET lock_timeout = '3s';
+-- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 C14 D7: private canonical branch operating declarations.
 -- No GPS coordinate or dealer-entered schedule establishes public verification.
 ALTER TABLE dealer_branches
@@ -30,6 +30,9 @@ COMMENT ON COLUMN dealer_branches.longitude IS 'Private dealer-declared coordina
 COMMENT ON COLUMN dealer_branches.opening_hours_text IS 'Private dealer-declared schedule, never an open-now assertion';
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 -- Protect user business data; rollback cannot silently discard declarations.
 DO $$
 BEGIN

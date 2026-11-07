@@ -1,7 +1,7 @@
 -- +migrate Up
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
--- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
-SET lock_timeout = '3s';
+-- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001 D3/D6 — independent claim-review custody and private
 -- applicant draft read-model. This does NOT create a second organization, tenant,
 -- staff, VIN or payment authority. Existing canonical activation remains separate.
@@ -257,6 +257,9 @@ GRANT EXECUTE ON FUNCTION dealer_save_claim_intake_draft(UUID,TEXT,TEXT,TEXT,TEX
  TO service_role;
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 -- A rollback to the historical single pending-only claim status must fail closed
 -- while any reviewed/appealed/revoked claim remains in custody. Operators must
 -- migrate the legal records deliberately; never silently rewrite claim truth.
@@ -267,6 +270,17 @@ BEGIN
     WHERE claim_status <> 'AWAITING_DOCUMENTARY_EVIDENCE'
   ) THEN
     RAISE EXCEPTION 'CANNOT_ROLLBACK_WITH_REVIEWED_CLAIMS';
+  END IF;
+  -- R6 DBA review 2 #5: an AWAITING claim can already hold a claimant's private documentary
+  -- evidence, saved intake drafts or workbook receipts; dropping those tables destroys them.
+  IF to_regclass('public.dealer_claim_private_evidence') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM dealer_claim_private_evidence)
+       OR EXISTS (SELECT 1 FROM dealer_claim_intake_drafts)
+       OR EXISTS (SELECT 1 FROM dealer_claim_intake_receipts)
+       OR EXISTS (SELECT 1 FROM dealer_claim_review_events)
+       OR EXISTS (SELECT 1 FROM dealer_claim_appeals) THEN
+      RAISE EXCEPTION 'CANNOT_ROLLBACK_WITH_CLAIM_EVIDENCE_OR_INTAKE_CUSTODY';
+    END IF;
   END IF;
 END;
 $$;

@@ -112,4 +112,7 @@ GRANT EXECUTE ON FUNCTION dealer_record_atomic_compliance_decision(UUID,TEXT,TEX
   TO service_role;
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 DROP FUNCTION IF EXISTS dealer_record_atomic_compliance_decision(UUID,TEXT,TEXT,TEXT,TEXT,JSONB);

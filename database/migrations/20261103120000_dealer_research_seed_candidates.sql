@@ -37,6 +37,9 @@ GRANT SELECT, INSERT ON dealer_research_seed_records TO service_role;
 -- Deliberately no RLS policy for visitor or dealer, no public view, no update privilege.
 -- A correction/identity-review flow must be introduced separately with audit custody.
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 -- R6 DBA #6: imported research snapshots are custody (source row hashes, provenance). Rollback is
 -- refused while any exist, before any DDL; dispose of them explicitly, or fix forward.
 DO $$

@@ -1,7 +1,7 @@
 -- +migrate Up
 -- R6 DBA #7: never queue indefinitely behind long transactions on canonical tables (fail with
--- 55P03 after 3 s instead; re-run the migration). Session-scoped, exactly as 20261103141000.
-SET lock_timeout = '3s';
+-- 55P03 after 3 s instead; re-run the migration). Transaction-scoped (SET LOCAL): never leaks into a later migration.
+SET LOCAL lock_timeout = '3s';
 -- D8 C18/C19/C20-C22: independently approved buyer-safe full storefront.
 -- Keep same research-derived stable slug and never publish private evidence,
 -- tax numbers, staff, finance accounts, VINs, source contacts or unreviewed logos.
@@ -191,6 +191,9 @@ COMMENT ON VIEW dealer_full_storefront_current IS
  'Private-service-role read projection only: display-reviewed company facts, branches and dealer-declared sections; no private custody, payment, seller/VIN authorization or OEM badge.';
 
 -- +migrate Down
+-- R6 DBA review 2 #1: a Down takes ACCESS EXCLUSIVE on canonical tables (FKs, triggers, policies);
+-- never queue readers behind it indefinitely. Fails with 55P03 after 3 s; re-run the rollback.
+SET LOCAL lock_timeout = '3s';
 DO $$
 BEGIN
  IF EXISTS(SELECT 1 FROM dealer_full_storefront_review_events) THEN

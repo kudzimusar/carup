@@ -1,5 +1,5 @@
 -- +migrate Up
-SET lock_timeout = '3s';
+SET LOCAL lock_timeout = '3s';
 -- CARUP-DEALER-ONB-001-LR01-R6 work package C: security hardening from the R5 advisory review
 -- (docs/dealership/R5_STAGING_ACTIVATION_PACKAGE_AND_OWNER_DECISIONS.md §7).
 --   #2  Real research publication stays FAIL-CLOSED (Owner decision O12 undecided): a non-fictional
@@ -551,7 +551,7 @@ GRANT EXECUTE ON FUNCTION dealer_consume_storefront_media_review_ticket(TEXT, TE
   TO service_role;
 
 -- +migrate Down
-SET lock_timeout = '3s';
+SET LOCAL lock_timeout = '3s';
 -- Refuse while security custody this Down would destroy exists: an Owner publication-policy record
 -- or any reviewer step-up counter/lockout row. An operator must consciously archive and clear them.
 DO $$
