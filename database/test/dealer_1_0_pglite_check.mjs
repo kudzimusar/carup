@@ -37,6 +37,7 @@ const names=[
   '20261103143000_dealer_r5_directory_media_corrections_redirects.sql',
   '20261103144000_dealer_activation_workbook_carryover.sql',
   '20261103145000_dealer_r6_security_hardening.sql',
+  '20261103146000_dealer_r6_review_hardening.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -343,6 +344,15 @@ try{
     ' FROM vehicles LIMIT 0');
   console.log('DEALER_CANONICAL_PUBLIC_VEHICLE_SCHEMA_CONTRACT PASS: '+
     PUBLIC_VEHICLE_FIELDS.length+' fields, zero public data');
+  // R6 round 2 (default privileges): the full contract suite emulates Supabase, which grants ALL on new
+  // tables, sequences and functions in public to anon, authenticated and service_role. Every assertion
+  // below therefore runs against production-equivalent default grants. (The fresh browser schema mode
+  // keeps the plain baseline because its fixture grants service_role explicitly.)
+  if(process.env.DEALER_NATIVE_SCHEMA_ONLY!=='1'){
+    await exec(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role`);
+  }
   for(const name of names){await exec(read(name).up);console.log('APPLIED',name)}
   if(process.env.DEALER_NATIVE_SCHEMA_ONLY==='1'){
     if(!native)throw Error('SCHEMA_ONLY_REQUIRES_GUARDED_NATIVE_LOOPBACK');
@@ -397,7 +407,8 @@ try{
   // R5: 35 + 6 (correction review events, duplicate redirects, media items, media review events, public media view, shared media review tickets) = 41.
   // R6 C02: + activation branch crosswalk + activation carry-over provenance = 43.
   // R6 security: + research publication policy authority + reviewer step-up guard = 45.
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,45);
+  // R6 round 2: + dealer_research_public_profiles_current (read-time real-publication gate view) = 46.
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,46);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -1031,6 +1042,36 @@ try{
   assert.equal((await query(
     "SELECT count(*)::int AS n FROM dealer_full_storefront_current")).rows[0].n,1);
   console.log('DEALER_NATIVE_PUBLIC_LIVE_REVOCATION PASS: synthetic policy expiry and canonical tenant suspension suppress full public display and media immediately; both isolated simulations rolled back');
+  // R6 round 2 (#1): a WITHHELD status gap after the storefront approval, even when a DIFFERENT reviewer
+  // re-prelists, never revives the old full storefront/media by itself — a new storefront review is needed.
+  await exec('BEGIN');
+  try{
+    await query('SELECT dealer_record_research_publication_review($1,$2,$3,$4)',['ZW-DEAL-0001','legalreviewer','WITHHELD',
+      'R6 round 2 probe: status gap on the fictional storefront dealer inside a rolled-back transaction only.']);
+    await query('SELECT dealer_record_research_publication_review($1,$2,$3,$4)',['ZW-DEAL-0001','policyreviewer','PRELISTED_UNCLAIMED',
+      'R6 round 2 probe: a different reviewer re-prelists the fictional dealer inside a rolled-back transaction only.']);
+    assert.equal((await query("SELECT count(*)::int AS n FROM dealer_full_storefront_current WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0].n,0,
+      'storefront approved before a WITHHELD gap must not revive');
+    assert.equal((await query("SELECT count(*)::int AS n FROM dealer_public_storefront_media_current WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0].n,0);
+  }finally{await exec('ROLLBACK')}
+  // R6 round 2 (#2): the real-publication gate is enforced at READ time on every public projection.
+  // Turning the storefront seed into a real-looking record (rolled back) removes the research profile,
+  // full storefront, media and storefront inventory at once, without touching any publication row.
+  await exec('BEGIN');
+  try{
+    assert.equal((await query("SELECT count(*)::int AS n FROM dealer_research_public_profiles_current WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0].n,1);
+    await exec(`UPDATE dealer_research_seed_records SET source_snapshot=source_snapshot||'{"Phone / WhatsApp":"+263 77 123 4567"}'::jsonb
+      WHERE seed_dealer_id='ZW-DEAL-0001'`);
+    for(const [sql,label] of [
+      ["SELECT count(*)::int AS n FROM dealer_research_public_profiles_current WHERE seed_dealer_id='ZW-DEAL-0001'",'research profile'],
+      ["SELECT count(*)::int AS n FROM dealer_full_storefront_current WHERE seed_dealer_id='ZW-DEAL-0001'",'full storefront'],
+      ["SELECT count(*)::int AS n FROM dealer_public_storefront_media_current WHERE seed_dealer_id='ZW-DEAL-0001'",'media'],
+      ["SELECT count(*)::int AS n FROM dealer_storefront_public_listing_vins('ZW-DEAL-0001',12)",'storefront inventory'],
+    ])assert.equal((await query(sql)).rows[0].n,0,'real seed without a live Owner policy: '+label+' must not be public');
+    assert.equal((await query("SELECT publication_status FROM dealer_research_public_profiles WHERE seed_dealer_id='ZW-DEAL-0001'")).rows[0].publication_status,
+      'PRELISTED_UNCLAIMED','no publication row is mutated; the gate is a read-time predicate');
+  }finally{await exec('ROLLBACK')}
+  console.log('DEALER_R6R2_READ_TIME_GATE_AND_GAP PASS: WITHHELD gap needs a new storefront review; a non-fictional seed without a live O12 policy is absent from profile, storefront, media and inventory reads');
   await fails('UPDATE dealer_full_storefront_review_events SET disposition=\'RETRACTED\'',
     'APPEND_ONLY_LEDGER');
   await exec('SET ROLE anon');
@@ -1412,7 +1453,13 @@ try{
   assert.equal(investigation.operating_authority_current,false);
   assert.equal(investigation.public_listings_withdrawn,1);
   assert.equal(await listingState(),'publishable');
-  const closedInvestigation=await lifecycle(reviewer,'CLOSE_INVESTIGATION');
+  // R6 round 2 (#7): closing an investigation is dual control — never the reviewer who opened it.
+  await refusesLifecycle(['ZW-DEAL-0001',reviewer,'CLOSE_INVESTIGATION',lifecycleWhy,null],
+    'CLOSE_INVESTIGATION_REQUIRES_DIFFERENT_REVIEWER');
+  assert.equal((await query(`SELECT investigation_state FROM dealer_profiles d JOIN dealer_approved_seed_links l
+    ON l.dealer_profile_id=d.id WHERE l.seed_dealer_id='ZW-DEAL-0001'`)).rows[0].investigation_state,'under_investigation',
+    'a refused close leaves the investigation open');
+  const closedInvestigation=await lifecycle('activationreviewer','CLOSE_INVESTIGATION');
   assert.equal(closedInvestigation.operating_authority_current,true);
   assert.equal(closedInvestigation.listings_republished,false);
   assert.equal(await listingState(),'publishable','closing an investigation never silently republishes');
@@ -1809,7 +1856,8 @@ try{
     }
     for(const fn of ['dealer_begin_reviewer_step_up(text)','dealer_complete_reviewer_step_up(text,boolean)',
       'dealer_issue_storefront_media_review_ticket(text,text,text,text,uuid,text,timestamptz)',
-      'dealer_research_seed_is_fictional_fixture(text)']){
+      // R6 round 2: the fictional classifier is an internal helper (no API EXECUTE); see P1 below.
+      ]){
       const g=(await query(`SELECT has_function_privilege('anon',$1,'EXECUTE') AS anon,
         has_function_privilege('authenticated',$1,'EXECUTE') AS auth,
         has_function_privilege('service_role',$1,'EXECUTE') AS svc`,[fn])).rows[0];
@@ -2048,6 +2096,184 @@ try{
     }
     console.log('DEALER_R6_STEP_UP_LOCKOUT PASS: 5 failures/15 min per reviewer → 15 min lock; per-account; success resets; reservations bound parallel guesses; counters unreadable by API role');
 
+    // ── R6 round 2 (20261103146000): reproductions of the independent review of b2da0a74 as permanent
+    // regressions. Every probe runs; all failures are reported together (each FAILED before the fix).
+    {
+      const r2='20261103146000_dealer_r6_review_hardening.sql';
+      const failures=[];
+      const probe=async(name,fn)=>{try{await fn()}catch(e){failures.push(name+': '+String(e.message).slice(0,200))}};
+      const refusal=async(sql,args,phrase)=>{
+        let err=null;try{await query(sql,args)}catch(e){err=e}
+        if(!err)throw new Error('expected refusal '+phrase+' but the statement succeeded');
+        if(!new RegExp(phrase).test(String(err.message)))throw new Error('expected '+phrase+', got '+err.message);
+      };
+      const pub='SELECT dealer_record_research_publication_review($1,$2,$3,$4) AS r';
+      const why='R6 round 2 regression probe inside the disposable harness only; not a real decision of any kind.';
+      const status=async id=>(await query('SELECT publication_status AS s FROM dealer_research_public_profiles WHERE seed_dealer_id=$1',[id])).rows[0]?.s||null;
+      await exec(`INSERT INTO dealer_research_seed_records(seed_dealer_id,source_workbook_sha256,original_source_row,
+        source_row_sha256,source_snapshot,proposed_source_category) VALUES
+        ${seedRow('ZW-DEAL-0081',81,'f'.repeat(64),fictionalSnap(81))},
+        ${seedRow('ZW-DEAL-0082',82,'f'.repeat(64),fictionalSnap(82))},
+        ${seedRow('ZW-DEAL-0083',83,'f'.repeat(64),fictionalSnap(83))},
+        ${seedRow('ZW-DEAL-0084',84,'f'.repeat(64),fictionalSnap(84))}`);
+      await exec(`INSERT INTO tenant_users(tenant_id,user_id,role) VALUES ('${r6Tenant.t}','staffreviewer','member')
+        ON CONFLICT (tenant_id,user_id) DO NOTHING`);
+
+      // E1 (#1 HIGH): SUPPRESSED -> WITHHELD -> PRELISTED by the same reviewer launders the takedown.
+      await probe('E1 takedown laundering through WITHHELD',async()=>{
+        await query(pub,['ZW-DEAL-0081',reviewer,'PRELISTED_UNCLAIMED',why]);
+        await query(pub,['ZW-DEAL-0081','activationreviewer','SUPPRESSED',why]);
+        await query(pub,['ZW-DEAL-0081','activationreviewer','WITHHELD',why]);
+        await refusal(pub,['ZW-DEAL-0081','activationreviewer','PRELISTED_UNCLAIMED',why],'REPRELISTING_AFTER_TAKEDOWN_REQUIRES_DIFFERENT_REVIEWER');
+        // a reviewer who recorded ANY takedown in the chain is refused, not only the latest one
+        await query(pub,['ZW-DEAL-0081','legalreviewer','WITHHELD',why]);
+        await refusal(pub,['ZW-DEAL-0081','activationreviewer','PRELISTED_UNCLAIMED',why],'REPRELISTING_AFTER_TAKEDOWN_REQUIRES_DIFFERENT_REVIEWER');
+        await refusal(pub,['ZW-DEAL-0081','legalreviewer','PRELISTED_UNCLAIMED',why],'REPRELISTING_AFTER_TAKEDOWN_REQUIRES_DIFFERENT_REVIEWER');
+        assert.equal(await status('ZW-DEAL-0081'),'WITHHELD');
+        // a reviewer uninvolved in every takedown since the last public state may re-prelist
+        assert.equal((await query(pub,['ZW-DEAL-0081','policyreviewer','PRELISTED_UNCLAIMED',why])).rows[0].r.public,true);
+        // after a fresh public prelisting, the earlier takedown reviewers are no longer blocked
+        await query(pub,['ZW-DEAL-0081',reviewer,'WITHHELD',why]);
+        assert.equal((await query(pub,['ZW-DEAL-0081','activationreviewer','PRELISTED_UNCLAIMED',why])).rows[0].r.public,true);
+      });
+      await probe('E1b a never-public WITHHELD is not a takedown',async()=>{
+        await query(pub,['ZW-DEAL-0083','legalreviewer','WITHHELD',why]);
+        assert.equal((await query(pub,['ZW-DEAL-0083','legalreviewer','PRELISTED_UNCLAIMED',why])).rows[0].r.public,true);
+      });
+
+      // E2 (#7 HIGH): a tenant member of ZW-DEAL-0001 folds a competitor into their employer's page.
+      const redirectWhy='R6 round 2 probe: the competitor research row is asserted to be a duplicate of the reviewer employer page.';
+      await probe('E2 conflicted duplicate reconciliation (canonical side)',async()=>{
+        assert.equal(await status('ZW-DEAL-0001'),'PRELISTED_UNCLAIMED');
+        await query(pub,['ZW-DEAL-0082',reviewer,'PRELISTED_UNCLAIMED',why]);
+        await refusal('SELECT dealer_reconcile_duplicate_research_seed($1,$2,$3,$4)',['ZW-DEAL-0082','ZW-DEAL-0001','staffreviewer',redirectWhy],
+          'DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+        assert.equal(await status('ZW-DEAL-0082'),'PRELISTED_UNCLAIMED','refused reconciliation changes nothing');
+        await refusal('SELECT dealer_record_research_grouping_review($1,$2,$3,$4,$5)',
+          ['ZW-DEAL-0082','ZW-DEAL-0001','staffreviewer','POTENTIAL_SAME_PARENT',redirectWhy],'DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+        // Direct ledger insert with VALID foreign keys: only the redirect COI trigger can refuse it.
+        const fk=(await query(`SELECT (SELECT event_id::text FROM dealer_research_grouping_review_events LIMIT 1) AS g,
+          (SELECT event_id::text FROM dealer_research_publication_events WHERE seed_dealer_id='ZW-DEAL-0082' LIMIT 1) AS p`)).rows[0];
+        assert.ok(fk.g&&fk.p,'redirect probe needs real grouping/publication events');
+        await refusal(`INSERT INTO dealer_research_duplicate_redirects(duplicate_seed_dealer_id,canonical_seed_dealer_id,canonical_slug,
+          grouping_event_id,publication_event_id,reviewer_user_id,rationale) VALUES ('ZW-DEAL-0082','ZW-DEAL-0001','zw-deal-0001',
+          '${fk.g}','${fk.p}','staffreviewer','${redirectWhy}')`,[],'DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+        // an unconflicted reviewer still reconciles (both seeds unrelated to that reviewer)
+        await query(pub,['ZW-DEAL-0084',reviewer,'PRELISTED_UNCLAIMED',why]);
+        const ok=(await query('SELECT dealer_reconcile_duplicate_research_seed($1,$2,$3,$4) AS r',
+          ['ZW-DEAL-0084','ZW-DEAL-0081','legalreviewer',redirectWhy])).rows[0].r;
+        assert.equal(ok.canonical_seed_dealer_id,'ZW-DEAL-0081');
+        assert.equal(await status('ZW-DEAL-0084'),'DUPLICATE');
+      });
+
+      // E3 (#7 HIGH): a tenant member records the one-shot finding on a complaint about their own employer.
+      await probe('E3 conflicted buyer-case finding',async()=>{
+        await exec(`INSERT INTO escrow_trust_sessions(id,buyer_id,tenant_id,status) VALUES ('${uuid(8801)}','${outsider}','${r6Tenant.t}','released_sandbox')
+          ON CONFLICT (id) DO NOTHING`);
+        const c=(await query('SELECT dealer_record_transaction_feedback_case($1,$2,$3,$4,$5,$6) AS receipt',
+          ['ZW-DEAL-0001',uuid(8801),outsider,'BUYER_COMPLAINT','R6 round 2 probe complaint: the buyer reports a serious problem with this dealership sale.',null])).rows[0].receipt;
+        const finding='R6 round 2 probe: a staff member of the dealership under complaint tries to dispose of the buyer case about their own employer.';
+        await refusal('SELECT dealer_record_transaction_feedback_finding($1,$2,$3,$4)',[c.case_id,'staffreviewer','NOT_ELIGIBLE_FOR_PUBLIC_REVIEW',finding],
+          'DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+        await refusal('SELECT dealer_record_transaction_feedback_finding($1,$2,$3,$4)',[c.case_id,'coireviewer','NOT_ELIGIBLE_FOR_PUBLIC_REVIEW',finding],
+          'DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+        assert.equal((await query('SELECT dealer_record_transaction_feedback_finding($1,$2,$3,$4) AS r',[c.case_id,'legalreviewer','REFERRED_TO_CANONICAL_DISPUTE',
+          'R6 round 2 probe: an unconflicted independent reviewer refers the complaint to the canonical dispute process instead.'])).rows[0].r.finding,
+          'REFERRED_TO_CANONICAL_DISPUTE','the independent reviewer keeps the one-shot finding');
+      });
+
+      // E4 (#7 HIGH): legacy single-reviewer compliance decision on an ACTIVATED profile.
+      await probe('E4 legacy decision on an activated dealer',async()=>{
+        const prof=(await query("SELECT d.id::text id,d.expiry_date FROM dealer_profiles d JOIN dealer_approved_seed_links l ON l.dealer_profile_id=d.id WHERE l.seed_dealer_id='ZW-DEAL-0001'")).rows[0];
+        const legacy=`SELECT dealer_record_atomic_compliance_decision($1::uuid,$2,'set_expiry',NULL,$3,$4::jsonb)`;
+        for(const by of ['staffreviewer','legalreviewer']){
+          for(const exp of ['2001-01-01T00:00:00Z','2099-01-01T00:00:00Z']){
+            await refusal(legacy,[prof.id,by,why,JSON.stringify({expiry_date:exp})],'ACTIVATED_DEALER_GOVERNED_BY_OPERATING_LIFECYCLE');
+          }
+        }
+        for(const d of ['suspend','restrict'])
+          await refusal(`SELECT dealer_record_atomic_compliance_decision($1::uuid,'legalreviewer',$2,NULL,$3,'{}'::jsonb)`,[prof.id,d,why],
+            'ACTIVATED_DEALER_GOVERNED_BY_OPERATING_LIFECYCLE');
+        const after=(await query('SELECT expiry_date FROM dealer_profiles WHERE id=$1',[prof.id])).rows[0].expiry_date;
+        assert.equal(new Date(after).toISOString(),new Date(prof.expiry_date).toISOString(),'expiry unchanged');
+      });
+
+      // E5 (#2 MEDIUM): a real seed published under a since-SUSPENDED Owner policy must not stay public.
+      await probe('E5 read-time real-publication gate',async()=>{
+        assert.equal(await status('ZW-DEAL-0097'),'PRELISTED_UNCLAIMED','fixture: the raw publication row is untouched');
+        const visible=async id=>(await query('SELECT count(*)::int AS n FROM dealer_research_public_profiles_current WHERE seed_dealer_id=$1',[id])).rows[0].n;
+        assert.equal(await visible('ZW-DEAL-0097'),0,'suspended policy: real seed not public');
+        assert.equal(await visible('ZW-DEAL-0098'),1,'fictional fixture stays public');
+        await exec(`UPDATE dealer_research_publication_policy_authority SET policy_state='APPROVED'`);
+        assert.equal(await visible('ZW-DEAL-0097'),1,'live policy: public again');
+        await exec(`UPDATE dealer_research_publication_policy_authority SET expires_at=now()-interval '1 second'`);
+        assert.equal(await visible('ZW-DEAL-0097'),0,'expired policy: not public');
+        await exec(`UPDATE dealer_research_publication_policy_authority SET expires_at=now()+interval '1 day',approved_by='${reviewer}'`);
+        assert.equal(await visible('ZW-DEAL-0097'),0,'policy approved by the publishing reviewer never counts');
+        await exec(`UPDATE dealer_research_publication_policy_authority SET policy_state='SUSPENDED',approved_by='policyreviewer'`);
+      });
+
+      // Default privileges (LOW): with Supabase-equivalent defaults the API role holds only what it needs.
+      await probe('P1 least privilege under Supabase default grants',async()=>{
+        const tables=(await query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname='public' AND c.relkind='r' AND c.relname LIKE 'dealer\\_%'
+            AND c.relname NOT IN ('dealer_profiles','dealer_branches','dealer_compliance_requirements','dealer_compliance_documents','dealer_compliance_decisions')
+          ORDER BY 1`)).rows.map(r=>r.relname);
+        assert.equal(tables.length,39);
+        const allowedWrites={dealer_research_claim_requests:['INSERT'],dealer_research_correction_requests:['INSERT','UPDATE'],
+          dealer_claim_private_evidence:['INSERT']};
+        const bad=[];
+        for(const t of tables){
+          for(const priv of ['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']){
+            const has=(await query('SELECT has_table_privilege($1,$2,$3) AS h',['service_role',t,priv])).rows[0].h;
+            if(has!==(allowedWrites[t]||[]).includes(priv))bad.push(`service_role ${priv} ${t}=${has}`);
+          }
+          for(const role of ['anon','authenticated']){
+            const any=(await query(`SELECT has_table_privilege($1,$2,'SELECT') OR has_table_privilege($1,$2,'INSERT') OR has_table_privilege($1,$2,'UPDATE')
+              OR has_table_privilege($1,$2,'DELETE') OR has_table_privilege($1,$2,'TRUNCATE') AS h`,[role,t])).rows[0].h;
+            if(any)bad.push(role+' privilege on '+t);
+          }
+        }
+        for(const v of ['dealer_research_public_profiles_current','dealer_full_storefront_current','dealer_public_storefront_media_current']){
+          for(const priv of ['INSERT','UPDATE','DELETE','TRUNCATE'])
+            if((await query('SELECT has_table_privilege($1,$2,$3) AS h',['service_role',v,priv])).rows[0].h)bad.push(`service_role ${priv} view ${v}`);
+          if(!(await query('SELECT has_table_privilege($1,$2,$3) AS h',['service_role',v,'SELECT'])).rows[0].h)bad.push('service_role cannot SELECT '+v);
+        }
+        const fns=(await query(`SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+          WHERE n.nspname='public' AND p.proname LIKE 'dealer\\_%' AND (p.prorettype='trigger'::regtype OR p.proname IN (
+            'dealer_carryover_note','dealer_carryover_text','dealer_assert_staff_owner','dealer_lock_tenant_public_listings',
+            'dealer_withdraw_tenant_public_listings','dealer_reviewer_conflict_of_interest','dealer_research_seed_is_fictional_fixture',
+            'dealer_real_research_publication_policy_current'))`)).rows.map(r=>r.f);
+        assert.ok(fns.length>=25,'internal helper inventory '+fns.length);
+        for(const f of fns)for(const role of ['service_role','anon','authenticated'])
+          if((await query(`SELECT has_function_privilege($1,$2,'EXECUTE') AS h`,[role,f])).rows[0].h)bad.push(role+' EXECUTE '+f);
+        const apiFns=(await query(`SELECT p.oid::regprocedure::text AS f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+          WHERE n.nspname='public' AND p.proname LIKE 'dealer\\_%' AND p.prorettype<>'trigger'::regtype`)).rows.map(r=>r.f);
+        for(const f of apiFns)for(const role of ['anon','authenticated'])
+          if((await query(`SELECT has_function_privilege($1,$2,'EXECUTE') AS h`,[role,f])).rows[0].h)bad.push(role+' EXECUTE '+f);
+        assert.deepEqual(bad,[]);
+        // What the backend legitimately needs still works as service_role.
+        await exec('SET ROLE service_role');
+        try{
+          await query('SELECT count(*) FROM dealer_research_public_profiles_current');
+          await query('SELECT count(*) FROM dealer_full_storefront_current');
+          await query('SELECT count(*) FROM dealer_public_storefront_media_current');
+          await query("SELECT * FROM dealer_storefront_public_listing_vins('ZW-DEAL-0001',12)");
+          await query(`SELECT dealer_tenant_listing_authority_current('${r6Tenant.t}'::uuid)`);
+          await refusal('UPDATE dealer_research_public_profiles_current SET public_name=$1',['tampered'],'permission denied');
+          await refusal('DELETE FROM dealer_research_publication_events',[],'permission denied');
+          await refusal('TRUNCATE dealer_activation_carryover_events',[],'permission denied');
+          await refusal(`UPDATE dealer_research_seed_records SET source_snapshot='{}'::jsonb`,[],'permission denied');
+          await refusal(`SELECT dealer_withdraw_tenant_public_listings('${r6Tenant.t}'::uuid,'probe','probe')`,[],'permission denied');
+        }finally{await exec('RESET ROLE')}
+      });
+
+      assert.deepEqual(failures,[],'R6 round 2 regressions:\n'+failures.join('\n'));
+      await fails(read(r2).down,'CANNOT_ROLLBACK_WITH_DEALER_R6_ROUND2_CUSTODY');
+      await exec(`DELETE FROM tenant_users WHERE user_id='staffreviewer'`);
+      console.log('DEALER_R6R2_REVIEW_REGRESSIONS PASS: E1 takedown laundering, E2 two-seed duplicate/grouping COI, E3 buyer-case COI, E4 legacy decisions on activated dealers, E5 read-time O12 gate, least privilege under Supabase default grants');
+    }
+
     // Down refuses while R6 custody exists; then clean up the R6 probes for the rollback test.
     await fails(read(r6).down,'CANNOT_ROLLBACK_WITH_DEALER_R6_SECURITY_CUSTODY');
     await exec('DELETE FROM dealer_research_publication_policy_authority');
@@ -2157,7 +2383,7 @@ try{
     await exec(read(name).up);console.log('REAPPLIED',name);
   }
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
-    '22 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, R5 media/corrections/redirects/concurrency, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
+    '23 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, R5 media/corrections/redirects/concurrency, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
   } // End full destructive synthetic contract suite; fresh schema mode stays empty.
 }catch(error){
   console.error(native?'DEALER_NATIVE_POSTGRES_RESULT FAIL':'DEALER_PGLITE_RESULT FAIL',error);
