@@ -17,7 +17,7 @@ import {listFullStorefrontReviewQueue,recordFullStorefrontPublication,
 import {
   listLegalCountryPolicyReadiness,listPendingLegalDealershipCases,listPendingLegalDealerActivations,
   certifyLegalDealerCase,activateLegallyApprovedDealer,
-  readMyOperationalDealerAuthority
+  readMyOperationalDealerStatus
 } from '../services/dealer/dealerLegalActivationService.js';
 import {
   submitDealerApplication,listMyDealerApplicationSubmissions,
@@ -95,7 +95,7 @@ function errorResponse(res, next, error) {
 router.get('/api/dealership/claims/:claimId/operational-authority',
   session,async(req,res,next)=>{
   try{
-    const authority=await readMyOperationalDealerAuthority(
+    const authority=await readMyOperationalDealerStatus(
       req.params.claimId,req.userContext);
     res.set('Cache-Control','no-store').json({authority});
   }catch(error){errorResponse(res,next,error)}

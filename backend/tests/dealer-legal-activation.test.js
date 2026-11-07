@@ -150,7 +150,7 @@ test('R6 a withdrawn dealer is told a new claim is required',async()=>{
   try{
     const r=await legal.readMyOperationalDealerAuthority(submitted,claimant);
     assert.equal(r.state,'DEALER_OPERATIONS_WITHDRAWN');
-    assert.equal(r.next_step,'NEW_CLAIM_REQUIRED');
+    assert.equal(r.next_step,'INDEPENDENT_TRANSFER_OR_DISPUTE_REVIEW_REQUIRED');
   }finally{done()}
 });
 test('R6 an expired legal review explains itself and points to renewal',async()=>{
@@ -170,4 +170,67 @@ test('R6 an expired legal review explains itself and points to renewal',async()=
     assert.equal(r.next_step,'SUBMIT_UPDATED_APPLICATION_FOR_RENEWAL');
     assert.equal(r.operational,false);
   }finally{done()}
+});
+
+test('R6 the legal reviewer sees the dealer and PICKS evidence; finished cases leave the queue; no storage path',async()=>{
+  const original=supabase.from;
+  const pending='3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e', finished='4f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e';
+  const tables={
+    dealer_claim_compliance_review_events:[{submission_id:pending,reviewer_user_id:'prelim-1',verdict:'READY_FOR_REGULATORY_REVIEW'},
+      {submission_id:finished,reviewer_user_id:'prelim-1',verdict:'READY_FOR_REGULATORY_REVIEW'}],
+    dealer_claim_compliance_submissions:[
+      {submission_id:pending,claim_id:submitted,claimant_user_id:'customer-1',intake_version:2,submitted_at:'2026-11-07T00:00:00Z',
+        application_snapshot:{tab_rows:{BUSINESS:[{legal_name:'Fixture Legal Co'}]}}},
+      {submission_id:finished,claim_id:submitted,claimant_user_id:'customer-1',intake_version:1,submitted_at:'2026-11-06T00:00:00Z',
+        application_snapshot:{}}],
+    dealer_legal_application_reviews:[{submission_id:finished}],
+    dealer_research_claim_requests:[{claim_id:submitted,seed_dealer_id:'ZW-DEAL-0001'}],
+    dealer_claim_private_evidence:[
+      {evidence_id:'e-new',claim_id:submitted,document_class:'COMPANY_REGISTRATION',mime_type:'application/pdf',
+        file_bytes:2048,created_at:'2026-11-07T00:00:00Z',storage_path:'dealership-claims/x/y.pdf'}],
+  };
+  supabase.from=table=>{
+    const rows=tables[table]??[];
+    const b={select(){return b},eq(){return b},in(){return b},order(){return b},
+      limit(){return Promise.resolve({data:rows,error:null})},
+      then(resolve){return Promise.resolve({data:rows,error:null}).then(resolve)}};
+    return b;
+  };
+  try{
+    const cases=await legal.listPendingLegalDealershipCases(reviewer);
+    assert.deepEqual(cases.map(c=>c.submission_id),[pending],'a case with a legal review is no longer pending');
+    assert.equal(cases[0].seed_dealer_id,'ZW-DEAL-0001');
+    assert.equal(cases[0].declared_legal_name,'Fixture Legal Co');
+    assert.deepEqual(cases[0].evidence,[{evidence_id:'e-new',document_class:'COMPANY_REGISTRATION',
+      mime_type:'application/pdf',file_bytes:2048,uploaded_at:'2026-11-07T00:00:00Z'}]);
+    assert.equal(JSON.stringify(cases).includes('dealership-claims/'),false,'no storage path leaves the service');
+  }finally{supabase.from=original}
+});
+test('R6 claimant status reports listings truthfully; the gating authority read never queries vehicles',async()=>{
+  const original=supabase.from;
+  const seen=[];
+  const make=(published)=>table=>{
+    seen.push(table);
+    const values={
+      dealer_research_claim_requests:{claim_id:submitted,claimant_user_id:'customer-1',claim_status:'CLAIM_APPROVED'},
+      dealer_approved_seed_links:{...activeLink,operating_status:'SUSPENDED'},
+      vehicles:published,
+    };
+    const data=values[table]??null;
+    const b={select(){return b},eq(){return b},in(){return b},order(){return b},
+      limit(){return Promise.resolve({data,error:null})},maybeSingle:async()=>({data,error:null})};
+    return b;
+  };
+  try{
+    supabase.from=make([]);
+    const pure=await legal.readMyOperationalDealerAuthority(submitted,claimant);
+    assert.equal(seen.includes('vehicles'),false,'the gating read stays a pure authority check');
+    assert.equal('public_listings_withdrawn' in pure,false);
+    const done=await legal.readMyOperationalDealerStatus(submitted,claimant);
+    assert.equal(done.public_listings_withdrawn,true);assert.equal(done.public_listings_withdrawal_pending,false);
+    supabase.from=make([{vin:'SYNTHVIN0000001'}]);
+    const pending=await legal.readMyOperationalDealerStatus(submitted,claimant);
+    assert.equal(pending.public_listings_withdrawn,false,'never claims withdrawn while a listing is public');
+    assert.equal(pending.public_listings_withdrawal_pending,true);
+  }finally{supabase.from=original}
 });

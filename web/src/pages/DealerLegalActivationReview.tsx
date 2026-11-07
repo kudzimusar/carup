@@ -102,7 +102,7 @@ export default function DealerLegalActivationReview(){
       })
       setNotice('Independent legal review recorded: '+result.review.legal_review_id+
         '. No tenant, public verified status, stock or payments were activated.')
-      setPassword('');setReason('')
+      setPassword('');setReason('');setCompanyEvidence('');setSignerEvidence('')
       await reload()
     }catch(problem){setError(problem instanceof Error?problem.message:'Legal policy or evidence refused')}
     finally{setBusy(false);setPassword('')}

@@ -64,10 +64,16 @@ export async function listPendingLegalDealershipCases(actor){
   if(eventError)throw deny('LEGAL_REVIEW_QUEUE_UNAVAILABLE',503);
   if(!(events||[]).length)return [];
   const ids=events.map(x=>x.submission_id);
-  const {data:cases,error:caseError}=await supabase.from('dealer_claim_compliance_submissions')
-    .select('submission_id,claim_id,claimant_user_id,intake_version,submitted_at,application_snapshot')
-    .in('submission_id',ids).limit(100);
-  if(caseError)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
+  const [{data:allCases,error:caseError},{data:decided,error:decidedError}]=await Promise.all([
+    supabase.from('dealer_claim_compliance_submissions')
+      .select('submission_id,claim_id,claimant_user_id,intake_version,submitted_at,application_snapshot')
+      .in('submission_id',ids).limit(100),
+    supabase.from('dealer_legal_application_reviews').select('submission_id').in('submission_id',ids).limit(100),
+  ]);
+  if(caseError||decidedError)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
+  // A case that already has an independent legal review is no longer pending.
+  const finished=new Set((Array.isArray(decided)?decided:[]).map(x=>x.submission_id));
+  const cases=(allCases||[]).filter(c=>!finished.has(c.submission_id));
   const preliminary=new Map(events.map(x=>[x.submission_id,x]));
   // R6 functional: a real legal reviewer must be able to PICK the evidence records and
   // recognise the dealership — never type a UUID shown nowhere. Reviewer-only route;
@@ -77,7 +83,7 @@ export async function listPendingLegalDealershipCases(actor){
     supabase.from('dealer_research_claim_requests').select('claim_id,seed_dealer_id').in('claim_id',claimIds),
     supabase.from('dealer_claim_private_evidence')
       .select('evidence_id,claim_id,document_class,mime_type,file_bytes,created_at')
-      .in('claim_id',claimIds).order('created_at',{ascending:true}).limit(500),
+      .in('claim_id',claimIds).order('created_at',{ascending:false}).limit(500),
   ]):[{data:[]},{data:[]}];
   if(claimError||evidenceError)throw deny('LEGAL_APPLICATION_LOOKUP_UNAVAILABLE',503);
   const seedByClaim=new Map((claims||[]).map(c=>[c.claim_id,c.seed_dealer_id]));
@@ -85,7 +91,7 @@ export async function listPendingLegalDealershipCases(actor){
     const v=snapshot?.tab_rows?.BUSINESS?.[0]?.legal_name;
     return typeof v==='string'&&v.trim()?v.trim().slice(0,180):null;
   };
-  return (cases||[]).map(row=>({
+  return cases.map(row=>({
     submission_id:row.submission_id,claim_id:row.claim_id,
     seed_dealer_id:seedByClaim.get(row.claim_id)||null,
     declared_legal_name:declaredName(row.application_snapshot),
@@ -192,13 +198,12 @@ export async function readMyOperationalDealerAuthority(claimId,actor){
     state:'DEALER_OPERATIONS_SUSPENDED',tenant_id:null,operational:false,
     claim_status:claim.claim_status,operating_status:'SUSPENDED',
     blocking_reasons:['SUSPENDED_BY_INDEPENDENT_REVIEW'],
-    next_step:'REINSTATEMENT_BY_A_DIFFERENT_INDEPENDENT_REVIEWER',
-    public_listings_withdrawn:true};
+    next_step:'REINSTATEMENT_BY_A_DIFFERENT_INDEPENDENT_REVIEWER'};
   if(link.operating_status==='WITHDRAWN')return {
     state:'DEALER_OPERATIONS_WITHDRAWN',tenant_id:null,operational:false,
     claim_status:claim.claim_status,operating_status:'WITHDRAWN',
-    blocking_reasons:['PERMANENTLY_WITHDRAWN'],next_step:'NEW_CLAIM_REQUIRED',
-    public_listings_withdrawn:true};
+    blocking_reasons:['PERMANENTLY_WITHDRAWN'],
+    next_step:'INDEPENDENT_TRANSFER_OR_DISPUTE_REVIEW_REQUIRED'};
   const [profileResult,memberResult,tenantResult,legalResult]=await Promise.all([
     supabase.from('dealer_profiles').select('identity_status,compliance_review_state,active_state,restriction_state,suspension_state,investigation_state,expiry_date')
       .eq('id',link.dealer_profile_id).eq('user_id',actor.userId).maybeSingle(),
@@ -254,6 +259,25 @@ function blockedAuthority({d,m,t,l,policyValid}){
   return {state:'DEALER_AUTHORITY_BLOCKED',tenant_id:null,operational:false,
     blocking_reasons:reasons.length?reasons:['CANONICAL_AUTHORITY_NOT_CURRENT'],
     legal_expires_at:l?.legal_expires_at??null,
-    next_step:renewal?'SUBMIT_UPDATED_APPLICATION_FOR_RENEWAL':'WAIT_FOR_INDEPENDENT_REVIEW_OUTCOME',
-    public_listings_withdrawn:true};
+    next_step:renewal?'SUBMIT_UPDATED_APPLICATION_FOR_RENEWAL':'WAIT_FOR_INDEPENDENT_REVIEW_OUTCOME'};
+}
+/**
+ * Claimant-facing status = the PURE authority read (also used to gate the owner workspace, so it
+ * stays free of extra lookups) + a truthful listing state for a dealer that cannot operate: the data
+ * layer withdraws synchronously on suspension/withdrawal, but a pure time lapse is withdrawn by the
+ * scheduled sweep — never claim "withdrawn" while a listing is still public.
+ */
+export async function readMyOperationalDealerStatus(claimId,actor){
+  const authority=await readMyOperationalDealerAuthority(claimId,actor);
+  if(authority.operational||!Array.isArray(authority.blocking_reasons))return authority;
+  const {data:link,error}=await supabase.from('dealer_approved_seed_links').select('tenant_id')
+    .eq('claim_id',claimId).eq('claimant_user_id',actor.userId).maybeSingle();
+  if(error||!link?.tenant_id)return {...authority,public_listings_withdrawn:null,public_listings_withdrawal_pending:null};
+  return {...authority,...(await publicListingState(link.tenant_id))};
+}
+async function publicListingState(tenantId){
+  const {data,error}=await supabase.from('vehicles').select('vin')
+    .eq('tenant_id',tenantId).eq('publication_status','published').limit(1);
+  if(error||!Array.isArray(data))return {public_listings_withdrawn:null,public_listings_withdrawal_pending:null};
+  return {public_listings_withdrawn:data.length===0,public_listings_withdrawal_pending:data.length>0};
 }

@@ -1,7 +1,7 @@
 /**
  * CARUP-DEALER-ONB-001: behavioural PostgreSQL 17 / PGlite proof.
  * No staging/production secrets, URLs, payments or database daemon.
- * Applies all 20 dealership migrations (D1–D8, R4, R5), tests maker-checker / isolation /
+ * Applies all 23 dealership migrations (D1–D8, R4, R5, R6 C02 + security + review hardening), tests maker-checker / isolation /
  * disputes / claim-prefill / atomic idempotent workbook receipts / T22 storefront media /
  * T42 correction takedowns / S09 duplicate redirects / two-session publish-vs-suspend concurrency,
  * then rolls back and reapplies.

@@ -55,14 +55,14 @@ const AUTHORITY_REASON_TEXT:Record<string,string>={
 }
 const NEXT_STEP_TEXT:Record<string,string>={
   REINSTATEMENT_BY_A_DIFFERENT_INDEPENDENT_REVIEWER:'a different independent CarUp reviewer must review and reinstate your dealership; contact CarUp compliance.',
-  NEW_CLAIM_REQUIRED:'a new claim and application would be required.',
+  INDEPENDENT_TRANSFER_OR_DISPUTE_REVIEW_REQUIRED:'withdrawal is permanent for this activation. Any return needs an independent CarUp transfer or dispute review — contact CarUp compliance; a new claim on the same business is not accepted automatically.',
   SUBMIT_UPDATED_APPLICATION_FOR_RENEWAL:'submit an updated application below for renewal; it goes through preliminary review, a separate legal review and an independent renewal decision.',
   WAIT_FOR_INDEPENDENT_REVIEW_OUTCOME:'wait for the independent review outcome; CarUp compliance can explain the process.',
 }
 type OperationalAuthority = {
   state:string;operational:boolean;tenant_member_role?:string;
   blocking_reasons?:string[];next_step?:string;legal_expires_at?:string|null;
-  public_listings_withdrawn?:boolean;
+  public_listings_withdrawn?:boolean|null;public_listings_withdrawal_pending?:boolean|null;
   organization_id?:string;public_storefront_approved?:boolean;
   vehicle_listing_authority_granted?:boolean
 }
@@ -660,8 +660,11 @@ export default function DealerClaimWorkspace() {
                               {(operationalAuthority.blocking_reasons||[]).map(r=><li key={r}>
                                 {AUTHORITY_REASON_TEXT[r]||r.replaceAll('_',' ').toLowerCase()}</li>)}
                             </ul>
-                            {operationalAuthority.public_listings_withdrawn&&<p>
+                            {operationalAuthority.public_listings_withdrawn===true&&<p>
                               Your vehicles are not public while this applies. Nothing is republished automatically.</p>}
+                            {operationalAuthority.public_listings_withdrawal_pending===true&&<p>
+                              Your remaining public listings are being withdrawn automatically (normally within minutes).
+                              Nothing is republished automatically.</p>}
                             {operationalAuthority.next_step&&<p className="font-medium">
                               Next step: {NEXT_STEP_TEXT[operationalAuthority.next_step]||operationalAuthority.next_step}</p>}
                           </div>}
