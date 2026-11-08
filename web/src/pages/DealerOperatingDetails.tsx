@@ -1,5 +1,6 @@
 import {useCallback,useEffect,useState,type ChangeEvent} from 'react'
 import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
+import PrivateMediaThumb from '@/components/dealer/PrivateMediaThumb'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
@@ -17,6 +18,17 @@ type ReadModel={sections:Section[];latest:Partial<Record<Section,Versioned>>;
   owner_scope:string;publication_approval:false;verified_complaint_count:null;
   measured_sales_revenue:null}
 type MediaCategory='SHOWROOM_EXTERIOR'|'SHOWROOM_INTERIOR'|'BRANCH_FACILITY'|'SERVICE_BAY'
+  |'COMPANY_PROFILE_IMAGE'|'COMPANY_COVER_IMAGE'
+// UAT-R1: company profile/cover images are dealer MEDIA (never legal evidence); public only after review.
+const COMPANY_IMAGE_CATEGORIES:MediaCategory[]=['COMPANY_PROFILE_IMAGE','COMPANY_COVER_IMAGE']
+const MEDIA_LABELS:Record<MediaCategory,string>={
+  SHOWROOM_EXTERIOR:'Showroom exterior',SHOWROOM_INTERIOR:'Showroom interior',BRANCH_FACILITY:'Branch facility',
+  SERVICE_BAY:'Service bay / workshop',COMPANY_PROFILE_IMAGE:'Company profile image',COMPANY_COVER_IMAGE:'Cover image',
+}
+const REVIEW_LABELS:Record<string,string>={
+  PENDING_INDEPENDENT_REVIEW:'Awaiting independent review — only you can see it',
+  APPROVED_PUBLIC_DISPLAY:'Approved for your public profile',REJECTED:'Not approved',RETRACTED:'Withdrawn from public display',
+}
 type StorefrontMediaItem={
   media_id:string;seed_dealer_id:string;branch_id:string|null;mime_type:string;
   file_bytes:number;media_category:MediaCategory;caption:string;alt_text:string;
@@ -170,7 +182,7 @@ export default function DealerOperatingDetails(){
         baseUrl:API,path:'/dealer/operational-media',
         options:{method:'POST',body:JSON.stringify({
           media_category:mediaCategory,
-          branch_id:mediaBranchId||null,
+          branch_id:COMPANY_IMAGE_CATEGORIES.includes(mediaCategory)?null:(mediaBranchId||null),
           caption:mediaCaption.trim(),
           alt_text:mediaAltText.trim(),
           mime_type:mediaMimeType,
@@ -179,8 +191,9 @@ export default function DealerOperatingDetails(){
           oem_or_brand_logo_claimed:false,
         })},authHeaders:header(user.id,token),
       })
-      setNotice('Uploaded dealership facility photo ('+result.receipt.media_id+
-        ') · status '+result.receipt.review_status+'. Independent reviewer approval is required before public display.')
+      setNotice((COMPANY_IMAGE_CATEGORIES.includes(mediaCategory)?'Uploaded '+MEDIA_LABELS[mediaCategory].toLowerCase():'Uploaded dealership facility photo')+
+        ' ('+result.receipt.media_id+') · status '+result.receipt.review_status+
+        '. Independent reviewer approval is required before public display.')
       setMediaCaption('');setMediaAltText('');setMediaDataUrl('');setMediaAttested(false)
       await reload()
     }catch(problem){
@@ -275,32 +288,46 @@ export default function DealerOperatingDetails(){
         data-testid="dealer-owner-media-section"
         className="mt-8 border border-slate-200 bg-white rounded-xl p-6 space-y-4">
         <div>
-          <h2 className="text-xl font-semibold">Dealership facility &amp; showroom media gallery</h2>
+          <h2 className="text-xl font-semibold">Company images &amp; facility photos</h2>
           <p className="text-sm text-slate-600 mt-1">
-            Upload dealer-owned facility or showroom photographs (JPEG/PNG, ClamAV-scanned into private
-            storage). OEM and third-party brand logos are not permitted. Every photo requires descriptive
-            accessible alt text and independent reviewer approval before public storefront display.
+            Upload dealer-owned photographs (JPEG/PNG, ClamAV-scanned into private storage): a square
+            company profile image, a wide cover image for your public profile, or facility and showroom
+            photos. OEM and third-party brand logos are not permitted. Every photo needs accessible alt text
+            and independent reviewer approval before public display. These are never legal evidence.
           </p>
         </div>
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
             <label htmlFor="dealer-media-category" className="block text-sm font-medium mb-1">
-              Facility media category
+              Photo type
             </label>
             <select id="dealer-media-category" className="w-full border rounded-lg p-3 bg-white"
               value={mediaCategory} onChange={e=>setMediaCategory(e.target.value as MediaCategory)}>
-              <option value="SHOWROOM_EXTERIOR">Showroom exterior</option>
-              <option value="SHOWROOM_INTERIOR">Showroom interior</option>
-              <option value="BRANCH_FACILITY">Branch facility</option>
-              <option value="SERVICE_BAY">Service bay / workshop</option>
+              <optgroup label="Company profile">
+                <option value="COMPANY_PROFILE_IMAGE">Company profile image (square)</option>
+                <option value="COMPANY_COVER_IMAGE">Cover image (wide banner)</option>
+              </optgroup>
+              <optgroup label="Facility photos">
+                <option value="SHOWROOM_EXTERIOR">Showroom exterior</option>
+                <option value="SHOWROOM_INTERIOR">Showroom interior</option>
+                <option value="BRANCH_FACILITY">Branch facility</option>
+                <option value="SERVICE_BAY">Service bay / workshop</option>
+              </optgroup>
             </select>
+            {COMPANY_IMAGE_CATEGORIES.includes(mediaCategory)&&<p className="mt-1 text-xs text-slate-600"
+              data-testid="dealer-company-image-help">
+              {mediaCategory==='COMPANY_PROFILE_IMAGE'
+                ?'Shown as the round/square picture beside your name. Use your own photo of the business — not a manufacturer or franchise logo.'
+                :'Shown across the top of your public profile and cropped to fit phones. Choose a wide, landscape photo you own.'}
+            </p>}
           </div>
           <div>
             <label htmlFor="dealer-media-branch" className="block text-sm font-medium mb-1">
               Associated branch (optional)
             </label>
             <select id="dealer-media-branch" className="w-full border rounded-lg p-3 bg-white"
-              value={mediaBranchId} onChange={e=>setMediaBranchId(e.target.value)}>
+              disabled={COMPANY_IMAGE_CATEGORIES.includes(mediaCategory)}
+              value={COMPANY_IMAGE_CATEGORIES.includes(mediaCategory)?'':mediaBranchId} onChange={e=>setMediaBranchId(e.target.value)}>
               <option value="">General dealership facility</option>
               {workspace.branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
@@ -345,21 +372,28 @@ export default function DealerOperatingDetails(){
           disabled={busy||!mediaDataUrl||!mediaAttested||
             mediaCaption.trim().length<5||mediaAltText.trim().length<5}
           onClick={()=>{void uploadMedia()}}>
-          Upload dealership facility photo for independent review
+          {COMPANY_IMAGE_CATEGORIES.includes(mediaCategory)
+            ?`Upload ${MEDIA_LABELS[mediaCategory].toLowerCase()} for independent review`
+            :'Upload dealership facility photo for independent review'}
         </Button>
         {mediaModel&&mediaModel.items.length>0&&<div className="border-t pt-4 space-y-2">
           <h3 className="font-semibold text-sm">Recorded tenant media items ({mediaModel.items.length})</h3>
           {mediaModel.items.map(item=><div key={item.media_id}
             data-testid={`dealer-owner-media-item-${item.media_id}`}
-            className="rounded-lg border p-3 text-sm flex flex-wrap justify-between gap-2">
-            <div>
-              <strong>{item.caption}</strong>
-              <span className="block text-xs text-slate-600">
-                Alt: {item.alt_text} · {item.media_category.replaceAll('_',' ')}
-              </span>
+            className="rounded-lg border p-3 text-sm flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <PrivateMediaThumb apiBase={API} mediaId={item.media_id} headers={user&&token?{...header(user.id,token)}:{}}
+                alt={item.alt_text} className={'h-14 shrink-0 rounded-md object-cover '+
+                  (item.media_category==='COMPANY_COVER_IMAGE'?'w-24':'w-14')}/>
+              <div className="min-w-0 [overflow-wrap:anywhere]">
+                <strong>{item.caption}</strong>
+                <span className="block text-xs text-slate-600">
+                  {MEDIA_LABELS[item.media_category]||item.media_category.replaceAll('_',' ')} · Alt: {item.alt_text}
+                </span>
+              </div>
             </div>
             <span className="text-xs font-medium text-slate-700">
-              {item.review_status} · Logo rights approved: false
+              {REVIEW_LABELS[item.review_status]||item.review_status} · Logo rights approved: false
             </span>
           </div>)}
         </div>}

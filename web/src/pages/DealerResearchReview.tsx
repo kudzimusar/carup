@@ -6,6 +6,7 @@ import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import ReviewerStepUpField from '@/components/dealer/ReviewerStepUpField'
 
 type Candidate={
   seed_dealer_id:string;source_row:number;source_display_name:string;source_city:string
@@ -289,8 +290,7 @@ export default function DealerResearchReview(){
             <label htmlFor="source-reviewer-password" className="block text-sm font-semibold">
               Reenter your own reviewer password
             </label>
-            <Input id="source-reviewer-password" type="password" autoComplete="current-password"
-              value={password} onChange={e=>setPassword(e.target.value)}/>
+            <ReviewerStepUpField id="source-reviewer-password" value={password} onChange={setPassword} username={user?.email}/>
             <Button className={DEALER_WRAP_BUTTON} disabled={busy||reason.trim().length<minimum||password.length<8}
               onClick={()=>{void record()}}>Record independent eligibility decision</Button>
             <p className="text-xs text-amber-800">

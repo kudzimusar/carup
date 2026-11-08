@@ -6,11 +6,30 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, type AuthHeaders } from '@/lib/apiClient'
+import ReviewerStepUpField from '@/components/dealer/ReviewerStepUpField'
+import { dealerReviewerErrorMessage } from '@/lib/dealerReviewerErrors'
+import { dealerDateTime } from '@/lib/dealerDates'
 
 type QueueClaim = {
   claim_id:string;seed_dealer_id:string;claimed_scope:string;claim_status:string;created_at:string
 }
-type PrivateEvidence={evidence_id:string;document_class:string;created_at:string;content_sha256:string}
+type PrivateEvidence={evidence_id:string;document_class:string;created_at:string;content_sha256:string
+  mime_type?:string;file_bytes?:number;quarantined?:boolean
+  quarantine?:{actor_kind:string;reason_code:string;recorded_at:string}|null}
+type QuarantineReason='NOT_THE_DECLARED_DOCUMENT_TYPE'|'UNREADABLE_OR_INCOMPLETE'|'NOT_ISSUED_BY_STATED_AUTHORITY'
+const QUARANTINE_REASONS:[QuarantineReason,string][]=[
+  ['NOT_THE_DECLARED_DOCUMENT_TYPE','It is not the document type it was filed as (e.g. a photo of premises)'],
+  ['UNREADABLE_OR_INCOMPLETE','It is unreadable or incomplete'],
+  ['NOT_ISSUED_BY_STATED_AUTHORITY','It was not issued by the stated authority'],
+]
+const DOCUMENT_LABELS:Record<string,string>={
+  COMPANY_REGISTRATION:'company registration certificate',DIRECTOR_AUTHORITY:'director authority',
+  SIGNATORY_MANDATE:'signatory mandate',BRANCH_AUTHORITY:'branch operating authority',
+  PARENT_COMPANY_AUTHORITY:'parent company authority',
+}
+const evidenceOption=(item:PrivateEvidence)=>`${item.document_class.replaceAll('_',' ')}`+
+  `${item.mime_type?' · '+item.mime_type:''}${item.file_bytes?' · '+Math.max(1,Math.round(item.file_bytes/1024))+' KB':''}`+
+  ` · ${dealerDateTime(item.created_at)} (${item.evidence_id.slice(0,8)})${item.quarantined?' — QUARANTINED, not usable':''}`
 type Verdict='CLAIM_APPROVED'|'CLAIM_REJECTED'|'CLAIM_DISPUTED'|'CLAIM_REVOKED'
 const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
   typeof window==='undefined'?undefined:window.location.hostname)
@@ -37,7 +56,13 @@ export default function DealerClaimReview() {
   const [scope,setScope]=useState<'BRANCH'|'PARENT_ORGANIZATION'>('BRANCH')
   const [evidenceId,setEvidenceId]=useState('')
   const [verdict,setVerdict]=useState<Verdict>('CLAIM_DISPUTED')
-  const [preview,setPreview]=useState<{url:string;expires:number}|null>(null)
+  const [preview,setPreview]=useState<{url:string;expires:number;evidenceId:string}|null>(null)
+  // UAT-R1: approval needs the reviewer to have OPENED the selected original in this session and to
+  // confirm it is what it was filed as; a mis-filed document can be quarantined instead.
+  const [opened,setOpened]=useState<string[]>([])
+  const [documentConfirmed,setDocumentConfirmed]=useState(false)
+  const [quarantineReason,setQuarantineReason]=useState<QuarantineReason|''>('')
+  const [quarantineNote,setQuarantineNote]=useState('')
 
   const reload=useCallback(async()=>{
     if(!authorized||!user||!token)return
@@ -49,7 +74,7 @@ export default function DealerClaimReview() {
       setClaims(result.claims||[])
       setSelected(current=>current&&result.claims.some(c=>c.claim_id===current)
         ?current:result.claims[0]?.claim_id||'')
-    }catch(problem){setError(problem instanceof Error?problem.message:'Claim-review queue unavailable')}
+    }catch(problem){setError(dealerReviewerErrorMessage(problem,'Claim-review queue unavailable'))}
   },[authorized,user,token])
   useEffect(()=>{
     // Defer request-driven state to the async phase, avoiding a redundant
@@ -64,7 +89,7 @@ export default function DealerClaimReview() {
     let active=true
     // Clear the previous claim's private artifacts before new evidence resolves.
     void Promise.resolve().then(()=>{
-      if(active){setPreview(null);setEvidence([]);setEvidenceId('')}
+      if(active){setPreview(null);setEvidence([]);setEvidenceId('');setDocumentConfirmed(false)}
     })
     apiRequest<{evidence:PrivateEvidence[]}>({
       baseUrl:API,path:'/admin/dealership/claims/'+encodeURIComponent(selected)+'/evidence',
@@ -72,8 +97,8 @@ export default function DealerClaimReview() {
     }).then(result=>{
       if(!active)return
       setEvidence(result.evidence||[])
-      setEvidenceId(result.evidence?.[0]?.evidence_id||'')
-    }).catch(problem=>{if(active)setError(problem instanceof Error?problem.message:'Evidence unavailable')})
+      setEvidenceId((result.evidence||[]).find(e=>!e.quarantined)?.evidence_id||'')
+    }).catch(problem=>{if(active)setError(dealerReviewerErrorMessage(problem,'Evidence unavailable'))})
     return()=>{active=false}
   },[selected,user,token,authorized])
   const currentClaimId=current?.claim_id
@@ -99,9 +124,10 @@ export default function DealerClaimReview() {
         authHeaders:headers(token,user.id),
       })
       // URL expires after 60 sec; it is never placed in app analytics, public projections or storage.
-      setPreview({url:result.preview.signed_url,expires:result.preview.expires_seconds})
+      setPreview({url:result.preview.signed_url,expires:result.preview.expires_seconds,evidenceId})
+      setOpened(previous=>previous.includes(evidenceId)?previous:[...previous,evidenceId])
       setNotice('Private original available temporarily. Verify the issuing authority and legal scope independently.')
-    }catch(problem){setError(problem instanceof Error?problem.message:'Private evidence preview refused')}
+    }catch(problem){setError(dealerReviewerErrorMessage(problem,'Private evidence preview refused'))}
     finally{setBusy(false);setPassword('')}
   }
   async function decide(){
@@ -113,6 +139,7 @@ export default function DealerClaimReview() {
         evidence_id:verdict==='CLAIM_APPROVED'?evidenceId:null,
         reviewed_issuer:verdict==='CLAIM_APPROVED'?issuer.trim():null,
         verified_scope:verdict==='CLAIM_APPROVED'?scope:null,
+        evidence_document_confirmed:verdict==='CLAIM_APPROVED'?documentConfirmed:undefined,
       }
       const result=await apiRequest<{review:{status:string}}>({
         baseUrl:API,path:'/admin/dealership/claims/'+encodeURIComponent(current.claim_id)+'/review',
@@ -120,11 +147,35 @@ export default function DealerClaimReview() {
         authHeaders:headers(token,user.id),
       })
       setNotice(`Independent claim decision recorded: ${result.review.status}. No business-compliance or tenant activation was executed.`)
-      setReason('');setIssuer('')
+      setReason('');setIssuer('');setDocumentConfirmed(false)
       await reload()
-    }catch(problem){setError(problem instanceof Error?problem.message:'Independent decision refused')}
+    }catch(problem){setError(dealerReviewerErrorMessage(problem,'Independent decision refused'))}
     finally{setBusy(false);setPassword('')}
   }
+  async function quarantine(){
+    if(!current||!user||!token||!password||!evidenceId||!quarantineReason||busy)return
+    setBusy(true);setError('');setNotice('');setPreview(null)
+    try{
+      await apiRequest({
+        baseUrl:API,path:'/admin/dealership/claims/'+encodeURIComponent(current.claim_id)
+          +'/evidence/'+encodeURIComponent(evidenceId)+'/quarantine',
+        options:{method:'POST',body:JSON.stringify({reviewer_password:password,
+          reason_code:quarantineReason,note:quarantineNote.trim()||undefined})},
+        authHeaders:headers(token,user.id),
+      })
+      setNotice('Document quarantined. It keeps its original label for the record but can never support a claim, legal or activation decision.')
+      setQuarantineReason('');setQuarantineNote('');setDocumentConfirmed(false)
+      const result=await apiRequest<{evidence:PrivateEvidence[]}>({
+        baseUrl:API,path:'/admin/dealership/claims/'+encodeURIComponent(current.claim_id)+'/evidence',
+        authHeaders:headers(token,user.id),
+      })
+      setEvidence(result.evidence||[])
+      setEvidenceId((result.evidence||[]).find(e=>!e.quarantined)?.evidence_id||'')
+    }catch(problem){setError(dealerReviewerErrorMessage(problem,'Quarantine refused'))}
+    finally{setBusy(false);setPassword('')}
+  }
+  const selectedEvidence=evidence.find(e=>e.evidence_id===evidenceId)
+  const selectedOpened=Boolean(evidenceId&&opened.includes(evidenceId))
 
   return <main className="min-h-screen bg-gray-50 section-padding">
     <div className="max-w-6xl mx-auto py-10">
@@ -150,7 +201,7 @@ export default function DealerClaimReview() {
               className={`block w-full text-left mt-3 p-3 rounded-lg border ${selected===claim.claim_id?'border-blue-700 bg-blue-50':'border-gray-200'}`}
               onClick={()=>{
                 setSelected(claim.claim_id);setError('');setNotice('');setPassword('')
-                setPreview(null);setEvidence([]);setEvidenceId('')
+                setPreview(null);setEvidence([]);setEvidenceId('');setDocumentConfirmed(false)
               }}>
               <strong>{claim.seed_dealer_id}</strong>
               <span className="block text-xs text-gray-600 mt-1">{claim.claim_status.replaceAll('_',' ')}</span>
@@ -166,20 +217,45 @@ export default function DealerClaimReview() {
                 <h3 className="font-semibold pt-3">Private original document evidence</h3>
                 <label htmlFor="dealer-evidence-selection" className="block text-sm font-medium">Select original document</label>
                 <select id="dealer-evidence-selection" className="w-full border p-2 rounded-md"
-                  value={evidenceId} onChange={event=>{setEvidenceId(event.target.value);setPreview(null)}}>
+                  value={evidenceId} onChange={event=>{setEvidenceId(event.target.value);setPreview(null);setDocumentConfirmed(false)}}>
                   <option value="">No document selected</option>
-                  {evidence.map(item=><option key={item.evidence_id} value={item.evidence_id}>
-                    {item.document_class.replaceAll('_',' ')} ({item.evidence_id.slice(0,8)})
+                  {evidence.map(item=><option key={item.evidence_id} value={item.evidence_id} disabled={item.quarantined}>
+                    {evidenceOption(item)}
                   </option>)}
                 </select>
+                {evidence.some(e=>e.quarantined)&&<p className="text-xs text-amber-900 bg-amber-50 rounded-md p-2" data-testid="claim-quarantined-evidence">
+                  {evidence.filter(e=>e.quarantined).length} document(s) quarantined
+                  ({evidence.filter(e=>e.quarantined).map(e=>(e.quarantine?.actor_kind==='CLAIMANT_WITHDRAWAL'?'withdrawn by the applicant':'quarantined by a reviewer')).join('; ')}) — they cannot support any decision.
+                </p>}
                 <p className="text-xs text-gray-600">
                   A clean malware scan does not establish that a certificate is genuine. Examine
                   original issuer, dates, names, branch/parent authority and possible competing claims.
                 </p>
-                {preview&&<p className="text-sm">
-                  <a href={preview.url} target="_blank" rel="noopener noreferrer"
-                    className="underline text-blue-700">Open private original (expires in {preview.expires}s)</a>
-                </p>}
+                {preview&&<div className="space-y-2">
+                  {/* UAT-R1: an image is SHOWN, so a photo filed as a certificate is obvious at a glance. */}
+                  {selectedEvidence?.mime_type?.startsWith('image/')&&preview.evidenceId===evidenceId&&
+                    <img src={preview.url} alt={'Private original: '+(DOCUMENT_LABELS[selectedEvidence.document_class]||'document')+' as uploaded'}
+                      className="max-h-80 w-auto max-w-full rounded-md border bg-white object-contain" data-testid="claim-evidence-inline-preview"/>}
+                  <p className="text-sm">
+                    <a href={preview.url} target="_blank" rel="noopener noreferrer"
+                      className="underline text-blue-700">Open private original (expires in {preview.expires}s)</a>
+                  </p>
+                </div>}
+                {selectedEvidence&&!selectedEvidence.quarantined&&<details className="rounded-md border p-3 text-sm">
+                  <summary className="cursor-pointer font-medium">Not the document it was filed as?</summary>
+                  <p className="mt-2 text-xs text-gray-600">Quarantine it so it can never support a claim, legal or activation decision.
+                    It keeps its original label for the record. Uses the password below.</p>
+                  <label htmlFor="claim-quarantine-reason" className="block text-sm font-medium mt-2">Why</label>
+                  <select id="claim-quarantine-reason" className="w-full border p-2 rounded-md" value={quarantineReason}
+                    onChange={e=>setQuarantineReason(e.target.value as QuarantineReason|'')}>
+                    <option value="">Choose a reason</option>
+                    {QUARANTINE_REASONS.map(([code,label])=><option key={code} value={code}>{label}</option>)}
+                  </select>
+                  <label htmlFor="claim-quarantine-note" className="block text-sm font-medium mt-2">Note (optional)</label>
+                  <Input id="claim-quarantine-note" maxLength={1000} value={quarantineNote} onChange={e=>setQuarantineNote(e.target.value)}/>
+                  <Button className={DEALER_WRAP_BUTTON+' mt-2'} variant="outline" disabled={busy||!password||!quarantineReason}
+                    onClick={()=>{void quarantine()}}>Quarantine this document</Button>
+                </details>}
               </CardContent></Card>
               <Card><CardContent className="p-5 space-y-4">
                 <h3 className="font-semibold text-lg">Record independent determination</h3>
@@ -209,6 +285,13 @@ export default function DealerClaimReview() {
                     </select>
                   </div>
                 </>}
+                {verdict==='CLAIM_APPROVED'&&<label htmlFor="claim-document-confirmed" className="flex items-start gap-2 text-sm">
+                  <input id="claim-document-confirmed" type="checkbox" className="mt-1 shrink-0" checked={documentConfirmed}
+                    disabled={!selectedOpened} onChange={e=>setDocumentConfirmed(e.target.checked)}/>
+                  <span className="min-w-0">{selectedOpened
+                    ?`I opened this original and it is a genuine ${DOCUMENT_LABELS[selectedEvidence?.document_class||'']||'document of the stated type'} from the issuer I entered — not a photo of premises or any other document.`
+                    :'Open the selected original (“View selected original securely”) before you can confirm what it is.'}</span>
+                </label>}
                 <div>
                   <label htmlFor="claim-review-reason" className="block text-sm font-medium mb-1">
                     Specific independent review findings (40–3000 characters)
@@ -221,8 +304,7 @@ export default function DealerClaimReview() {
                   <label htmlFor="claim-reviewer-password" className="block text-sm font-medium mb-1">
                     Re-enter your own CarUp account password
                   </label>
-                  <Input id="claim-reviewer-password" type="password" value={password}
-                    autoComplete="off" onChange={e=>setPassword(e.target.value)} />
+                  <ReviewerStepUpField id="claim-reviewer-password" value={password} onChange={setPassword} username={user?.email}/>
                   <p className="mt-2 text-xs text-gray-600">
                     This one-time password challenge is for the decision or document preview only.
                     Passwordless/SSO-only reviewer accounts cannot certify through this path until
@@ -233,7 +315,7 @@ export default function DealerClaimReview() {
                   <Button className={DEALER_WRAP_BUTTON} variant="outline" disabled={busy||!password||!evidenceId}
                     onClick={()=>{void viewOriginal()}}>View selected original securely</Button>
                   <Button className={DEALER_WRAP_BUTTON} disabled={busy||!password||reason.trim().length<40||
-                    (verdict==='CLAIM_APPROVED'&&(!evidenceId||issuer.trim().length<3))}
+                    (verdict==='CLAIM_APPROVED'&&(!evidenceId||issuer.trim().length<3||!documentConfirmed))}
                     onClick={()=>{void decide()}}>Record immutable review decision</Button>
                 </div>
                 <p className="text-xs text-gray-600">A claim approval does not award a verification badge or enable inventory listing.</p>

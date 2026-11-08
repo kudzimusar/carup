@@ -258,11 +258,19 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
   await expect(claimantPage.getByRole('heading',{name:'My dealership claim applications'}))
     .toBeVisible({timeout:25000})
   const pdf=fictionalEvidencePdf()
+  // Owner UAT-R1 P0: no document type is preselected and nothing uploads until the applicant both
+  // chooses the type and confirms what the file is (a showroom photo was once filed as a certificate).
+  await expect(claimantPage.locator('#claim-document-class')).toHaveValue('')
   await claimantPage.locator('#claim-document-file').setInputFiles({
     name:'EXPLICITLY_FICTIONAL_NO_LEGAL_AUTHORITY.pdf',
     mimeType:'application/pdf',buffer:pdf,
   })
-  await claimantPage.getByRole('button',{name:'Upload private evidence'}).click()
+  const uploadEvidence=claimantPage.getByRole('button',{name:'Upload private evidence'})
+  await expect(uploadEvidence).toBeDisabled()
+  await claimantPage.locator('#claim-document-class').selectOption('COMPANY_REGISTRATION')
+  await expect(uploadEvidence).toBeDisabled()
+  await claimantPage.locator('#claim-document-class-confirmed').check()
+  await uploadEvidence.click()
   await expect(claimantPage.getByText('Original document stored privately.',{exact:false}))
     .toBeVisible({timeout:55000})
   await expect(claimantPage.getByText('1 private evidence record(s)')).toBeVisible()
@@ -299,6 +307,10 @@ test('Native PG + private Storage · evidence, separate approval, claim-specific
       'FICTIONAL_UNAUTHORIZED_PUBLIC_PATH')
   expect(originalDigest.status()).not.toBe(200)
   await reviewerPage.locator('#claim-verdict').selectOption('CLAIM_APPROVED')
+  // UAT-R1: the reviewer confirms the OPENED original is what it was filed as (enabled only after preview).
+  await expect(reviewerPage.getByTestId('reviewer-step-up-explanation'))
+    .toHaveText('Enter your account password again to confirm this sensitive independent decision. It is not stored.')
+  await reviewerPage.locator('#claim-document-confirmed').check()
   await reviewerPage.locator('#claim-issuer').fill('EXPLICITLY FICTIONAL CI DOCUMENT ISSUER')
   await reviewerPage.locator('#claim-review-reason').fill(
     'Synthetic engineering review only. The company and document are explicitly fictional, do not constitute legal registration, and do not authorize any real dealership or national regulator.')

@@ -2,6 +2,7 @@ import {useCallback,useEffect,useState} from 'react'
 import {Link} from 'react-router-dom'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import ReviewerStepUpField from '@/components/dealer/ReviewerStepUpField'
 
 type QueueRow={case_id:string;seed_dealer_id:string;case_type:string;submitted_at:string}
 type PrivateCase={
@@ -142,10 +143,8 @@ export default function DealerBuyerFeedbackReview(){
        <label htmlFor="buyer-feedback-review-password" className="block text-sm font-medium">
         Current reviewer account password
        </label>
-       <input id="buyer-feedback-review-password" type="password"
-        autoComplete="current-password" value={password}
-        onChange={e=>setPassword(e.target.value)}
-        className="rounded-lg border p-3 w-full"/>
+       <ReviewerStepUpField plain id="buyer-feedback-review-password" value={password} onChange={setPassword}
+        username={user?.email} inputClassName="rounded-lg border p-3 w-full"/>
        <button type="button" onClick={()=>{void inspect()}}
         disabled={password.length<8||busy}
         className="border rounded-lg px-4 py-2 disabled:opacity-50">

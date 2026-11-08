@@ -88,6 +88,7 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
   name:'FICTIONAL_SIGNATORY_MANDATE_NOT_LEGAL.pdf',
   mimeType:'application/pdf',buffer:fictionalSignatoryPdf(),
  })
+ await claimant.locator('#claim-document-class-confirmed').check()
  await claimant.getByRole('button',{name:'Upload private evidence'}).click()
  await expect(claimant.getByText('Original document stored privately.',{exact:false}))
   .toBeVisible({timeout:60000})
@@ -171,13 +172,27 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  await legal.locator('#legal-company-evidence').selectOption(company!.evidence_id)
  await legal.locator('#legal-signatory-evidence').selectOption(signatory!.evidence_id)
  await legal.getByLabel('Verified issuing authority').fill('FICTIONAL CI DOCUMENT ISSUER - NOT REAL')
- await legal.getByLabel('Reviewed company registration number').fill('SYNTHETIC-REG-001')
+ // Owner UAT-R1: a browser once autofilled the reviewer's e-mail into the registration number. The field
+ // opts out of autofill, a hidden username anchor sits right before the password, the step-up says why
+ // the password is asked again, and an e-mail is refused in the form (and by the server).
+ const registration=legal.getByLabel('Reviewed company registration number')
+ await expect(registration).toHaveAttribute('autocomplete','off')
+ await expect(legal.getByTestId('legal-password-username-anchor')).toHaveAttribute('autocomplete','username')
+ await expect(legal.locator('#legal-password')).toHaveAttribute('autocomplete','current-password')
+ await expect(legal.locator('#legal-password-help'))
+  .toHaveText('Enter your account password again to confirm this sensitive independent decision. It is not stored.')
+ await registration.fill('fictional-legal-reviewer@example.invalid')
+ await expect(legal.locator('#legal-registration-help')).toContainText('cannot be an e-mail address')
+ await registration.fill('SYNTHETIC-REG-001')
  await legal.locator('#legal-scope').selectOption('BRANCH')
  await legal.locator('#legal-expiry').fill(new Date(Date.now()+10*86400000).toISOString().slice(0,10))
  await legal.locator('#legal-reason').fill(
   'Synthetic-only legal authority demonstration in an isolated database, based on two fake scanned documents and an explicitly fictional CI country-policy fixture. No actual regulator approved this company.')
  await legal.locator('#legal-password').fill(fixture.legal_reviewer_password)
- await legal.getByRole('button',{name:/Record independent legal approval/}).click()
+ const recordLegal=legal.getByRole('button',{name:/Record independent legal approval/})
+ await expect(recordLegal).toBeDisabled()
+ await legal.locator('#legal-documents-confirmed').check()
+ await recordLegal.click()
  await expect(legal.getByText('Independent legal review recorded:',{exact:false}))
   .toBeVisible({timeout:40000})
  const legalShot=info.outputPath('fictional-separate-legal-review.png')

@@ -4,9 +4,9 @@ import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
-import {Input} from '@/components/ui/input'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import ReviewerStepUpField from '@/components/dealer/ReviewerStepUpField'
 
 type Submission={
   submission_id:string;claim_id:string;intake_version:number;submitted_at:string;
@@ -151,8 +151,7 @@ export default function DealerComplianceApplicationReview(){
               <label htmlFor="case-password" className="block text-sm font-semibold">
                 Reenter your reviewer password to open private application
               </label>
-              <Input id="case-password" type="password" autoComplete="current-password"
-                value={password} onChange={e=>setPassword(e.target.value)}/>
+              <ReviewerStepUpField id="case-password" value={password} onChange={setPassword} username={user?.email}/>
               <Button className={DEALER_WRAP_BUTTON} disabled={busy||password.length<8||!current.independent_review_required}
                 onClick={()=>{void openFrozenCase()}}>
                 Inspect private frozen application
@@ -206,8 +205,7 @@ export default function DealerComplianceApplicationReview(){
               <label htmlFor="finding-password" className="block text-sm font-semibold">
                 Reenter reviewer password for final preliminary finding
               </label>
-              <Input id="finding-password" type="password" autoComplete="current-password"
-                value={password} onChange={e=>setPassword(e.target.value)}/>
+              <ReviewerStepUpField id="finding-password" value={password} onChange={setPassword} username={user?.email}/>
               <Button className={DEALER_WRAP_BUTTON} disabled={busy||reason.trim().length<40||password.length<8}
                 onClick={()=>{void recordFinding()}}>Record immutable preliminary finding</Button>
               <Button variant="outline" onClick={()=>setPreview(null)}>Close private case</Button>

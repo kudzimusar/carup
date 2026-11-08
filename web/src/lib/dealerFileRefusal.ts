@@ -29,6 +29,8 @@ export const DEALER_FILE_REFUSAL_MESSAGES: Readonly<Record<string, string>> = Ob
   FIELD_REGISTRY_DRIFT: 'a required column is missing or renamed. ' + FRESH_COPY,
   UNEXPECTED_WORKBOOK_TABS: 'the workbook must keep exactly its 12 CarUp tabs. Do not add, rename or delete tabs.',
   WORKBOOK_ROW_OR_COLUMN_LIMIT: 'a tab has more rows or columns than CarUp accepts. Delete extra or empty rows and columns.',
+  INVALID_REGISTRATION_NUMBER:
+    'the registration number may contain only letters, digits, spaces and . / ( ) - — not an e-mail address. Type it exactly as printed on the certificate.',
   SINGLE_BUSINESS_REQUIRED: 'the BUSINESS tab must contain exactly one business row.',
   WORKBOOK_CLAIM_REFERENCE_MISMATCH:
     'this workbook was downloaded for a different claim. Download the prefilled workbook for this claim and use that one.',
@@ -79,7 +81,35 @@ export function describeDealerFileLocation(location?: string): string {
 
 const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 
+/**
+ * UAT-R1: Google Sheets exports every tab as ~1,000 rows x 26 columns of formatted-but-empty cells; those
+ * are now ignored. When REAL data is out of bounds the backend says which tab, what it found and the
+ * maximum ("BRANCHES:rows=312;max=249"), and this turns it into what to fix.
+ */
+const DIMENSION = /^([A-Z][A-Z_]{1,39}):(?:rows=(\d{1,7});max=(\d{1,7})|column=([A-Z]{1,3});max=([A-Z]{1,3})|size=(\d{1,7})x(\d{1,5});max=(\d{1,7})x(\d{1,5}))$/
+const n = (v: string) => Number(v).toLocaleString('en-GB')
+export function describeWorkbookDimensionRefusal(code?: string, location?: string): string | null {
+  if (typeof location !== 'string' || location.length > 140) return null
+  const m = DIMENSION.exec(location)
+  if (!m) return null
+  const [, tab, rows, maxRows, column, maxColumn, sizeRows, sizeColumns, maxSizeRows, maxSizeColumns] = m
+  const tail = ' Nothing was saved — correct the file and upload it again.'
+  if (code === 'WORKBOOK_TOO_MANY_DATA_ROWS' && rows && maxRows)
+    return `${tab} tab: it has data in ${n(rows)} rows below the heading, but CarUp accepts at most ${n(maxRows)}. ` +
+      'Delete the rows you do not need (or move them to a separate application). Empty formatted rows, such as the ones Google Sheets adds, are ignored.' + tail
+  if (code === 'WORKBOOK_EXTRA_COLUMNS_WITH_DATA' && column && maxColumn)
+    return `${tab} tab: column ${column} contains a value, but this tab's last column is ${maxColumn}. ` +
+      `Delete or move anything typed to the right of column ${maxColumn}. Empty formatted columns are ignored.` + tail
+  if (code === 'WORKBOOK_SHEET_TOO_LARGE' && sizeRows && sizeColumns && maxSizeRows && maxSizeColumns)
+    return `${tab} tab is ${n(sizeRows)} rows × ${n(sizeColumns)} columns — larger than CarUp can safely read ` +
+      `(at most ${n(maxSizeRows)} rows × ${n(maxSizeColumns)} columns). Delete the unused rows below and columns to the right ` +
+      'of your data (in Google Sheets: select them, right-click, Delete), then download as .xlsx again.' + tail
+  return null
+}
+
 export function describeDealerFileRefusal(code?: string, location?: string): string {
+  const dimension = describeWorkbookDimensionRefusal(code, location)
+  if (dimension) return dimension
   const where = describeDealerFileLocation(location)
   const known = code ? DEALER_FILE_REFUSAL_MESSAGES[code] : undefined
   const tail = ' Nothing was saved — correct the file and upload it again.'

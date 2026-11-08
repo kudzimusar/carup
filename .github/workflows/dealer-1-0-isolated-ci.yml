@@ -168,6 +168,7 @@ jobs:
           src/lib/dealerFileRefusal.test.ts
           src/lib/dealerDraftReview.test.ts
           src/lib/dealerDates.test.ts
+          src/lib/dealerReviewerErrors.test.ts
       - name: Web production build (artifact not deployed)
         run: npm run build
       - name: Confirm no external DB tests silently ran

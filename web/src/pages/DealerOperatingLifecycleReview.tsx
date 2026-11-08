@@ -2,6 +2,7 @@ import {useEffect,useState} from 'react'
 import { dealerDate, dealerDateTime } from '@/lib/dealerDates'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import ReviewerStepUpField from '@/components/dealer/ReviewerStepUpField'
 
 /**
  * R4 P0-3 (C12) — independent reviewer workbench for a dealership's operating lifecycle.
@@ -110,9 +111,9 @@ export default function DealerOperatingLifecycleReview(){
      <label className="block text-sm">Reason (40–3000 characters, recorded permanently)
       <textarea id="lifecycle-reason" className={field+' min-h-28'} value={reason} minLength={40} maxLength={3000}
        required onChange={e=>setReason(e.target.value)}/></label>
-     <label className="block text-sm">Your password (step-up for this decision only)
-      <input id="lifecycle-password" type="password" autoComplete="current-password" className={field}
-       value={password} onChange={e=>setPassword(e.target.value)} required/></label>
+     <label className="block text-sm" htmlFor="lifecycle-password">Your password (step-up for this decision only)</label>
+     <ReviewerStepUpField plain id="lifecycle-password" value={password} onChange={setPassword}
+      username={user?.email} inputClassName={field}/>
      <button type="submit" disabled={busy||!password||reason.trim().length<40||(action==='RENEW'&&!legalReview)}
       className="min-h-11 rounded bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-60">
       {busy?'Recording…':'Record immutable lifecycle decision'}</button>

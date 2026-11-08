@@ -3,9 +3,9 @@ import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
-import {Input} from '@/components/ui/input'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import ReviewerStepUpField from '@/components/dealer/ReviewerStepUpField'
 
 type QueueItem={seed_dealer_id:string;operating_status:string;
   independent_reviewer_required:boolean}
@@ -35,6 +35,10 @@ type MediaPreview={
   logo_rights_approved:false;
 }
 type MediaDecision='APPROVED_PUBLIC_DISPLAY'|'REJECTED'|'RETRACTED'
+const MEDIA_CATEGORY_LABELS:Record<string,string>={
+ SHOWROOM_EXTERIOR:'Showroom exterior',SHOWROOM_INTERIOR:'Showroom interior',BRANCH_FACILITY:'Branch facility',
+ SERVICE_BAY:'Service bay / workshop',COMPANY_PROFILE_IMAGE:'Company profile image',COMPANY_COVER_IMAGE:'Cover image',
+}
 const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
   typeof window==='undefined'?undefined:window.location.hostname)
 function headers(id:string,token:string):AuthHeaders{
@@ -217,9 +221,7 @@ export default function DealerFullStorefrontReview(){
        <label htmlFor="storefront-password" className="block text-sm font-medium">
         Reviewer password (required before preview and independently before decision)
        </label>
-       <Input id="storefront-password" type="password"
-        autoComplete="current-password" value={password}
-        onChange={e=>setPassword(e.target.value)}/>
+       <ReviewerStepUpField id="storefront-password" value={password} onChange={setPassword} username={user?.email}/>
        <Button variant="outline" disabled={busy||password.length<8||
          !item.independent_reviewer_required} onClick={()=>{void inspect()}}>
         Inspect review candidate</Button>
@@ -301,11 +303,18 @@ export default function DealerFullStorefrontReview(){
          value={selectedMediaKey}
          onChange={e=>{setSelectedMediaKey(e.target.value);setMediaPreview(null)}}>
          {mediaQueue.map(m=><option key={m.media_id} value={m.media_id}>
-          {m.seed_dealer_id} · {m.media_category} · {m.caption} ({m.review_status})
+          {m.seed_dealer_id} · {MEDIA_CATEGORY_LABELS[m.media_category]||m.media_category} · {m.caption} ({m.review_status})
          </option>)}
         </select>
         {currentMedia&&<div className="rounded-lg border bg-slate-50 p-3 text-sm space-y-2">
-         <p><strong>Seed:</strong> {currentMedia.seed_dealer_id} · <strong>Category:</strong> {currentMedia.media_category} · <strong>Status:</strong> {currentMedia.review_status}</p>
+         <p><strong>Seed:</strong> {currentMedia.seed_dealer_id} · <strong>Category:</strong> {MEDIA_CATEGORY_LABELS[currentMedia.media_category]||currentMedia.media_category} · <strong>Status:</strong> {currentMedia.review_status}</p>
+         {/* UAT-R1: company profile/cover images are reviewed like facility photos — dealer-owned, no OEM logo, never legal evidence. */}
+         {(currentMedia.media_category==='COMPANY_PROFILE_IMAGE'||currentMedia.media_category==='COMPANY_COVER_IMAGE')&&
+          <p className="text-xs text-slate-700" data-testid="dealer-media-review-company-image-note">
+           Company {currentMedia.media_category==='COMPANY_PROFILE_IMAGE'?'profile':'cover'} image: approve only the dealer’s own
+           photograph — never a manufacturer, franchise or third-party logo. It is shown on the public profile while the
+           dealership and its storefront are current, and is not legal evidence.
+          </p>}
          <p data-testid="dealer-media-review-caption"><strong>Caption:</strong> {currentMedia.caption}</p>
          <p data-testid="dealer-media-review-alt"><strong>Alt text:</strong> {currentMedia.alt_text}</p>
          <Button variant="outline" size="sm"

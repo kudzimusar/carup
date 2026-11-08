@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { dealerDate, dealerDateTime } from '@/lib/dealerDates'
-import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
+import { DEALER_WRAP_BUTTON, DEALER_WRAP_BUTTON_SM } from '@/components/dealer/dealerButtonWrap'
+import { dealerReviewerErrorMessage } from '@/lib/dealerReviewerErrors'
 import { dealerFileRefusalFromError } from '@/lib/dealerFileRefusal'
 import { DealerDraftReview } from '@/components/dealer/DealerDraftReview'
 import type { DraftReviewPreview } from '@/lib/dealerDraftReview'
@@ -16,7 +17,19 @@ type ClaimState = 'AWAITING_DOCUMENTARY_EVIDENCE' | 'CLAIM_APPROVED' |
 type ClaimItem = {
   claim_id:string;seed_dealer_id:string;claimed_scope:string;claim_status:ClaimState;created_at:string
 }
-type EvidenceItem = {evidence_id:string;document_class:string;created_at:string}
+type EvidenceItem = {evidence_id:string;document_class:string;created_at:string
+  mime_type?:string;file_bytes?:number;quarantined?:boolean
+  quarantine?:{actor_kind:string;reason_code:string;recorded_at:string}|null}
+// UAT-R1 P0: no document type is preselected (a showroom photo was once stored as a registration
+// certificate because the form defaulted to it). Each type says what belongs there.
+const DOCUMENT_CLASSES:[string,string,string][]=[
+  ['COMPANY_REGISTRATION','Company registration certificate','The certificate of incorporation / registration issued by the registrar.'],
+  ['DIRECTOR_AUTHORITY','Director authority','A document showing who the company directors are, or a director resolution.'],
+  ['SIGNATORY_MANDATE','Authorized representative mandate','A signed mandate or letter authorising you to act for the company.'],
+  ['BRANCH_AUTHORITY','Branch operating authority','A document authorising this specific branch to operate.'],
+  ['PARENT_COMPANY_AUTHORITY','Parent legal company authority','A document from the parent company authorising this business.'],
+]
+const documentLabel=(code:string)=>DOCUMENT_CLASSES.find(([c])=>c===code)?.[1]||code.replaceAll('_',' ')
 type OcrCandidate = {
   event_id:string;evidence_id:string;document_class:string;extraction_state:string;
   pages_processed:number;review_flags:string[];created_at:string;
@@ -70,7 +83,7 @@ type OperationalAuthority = {
   blocking_reasons?:string[];next_step?:string;legal_expires_at?:string|null;
   public_listings_withdrawn?:boolean|null;public_listings_withdrawal_pending?:boolean|null;
   organization_id?:string;public_storefront_approved?:boolean;
-  vehicle_listing_authority_granted?:boolean
+  vehicle_listing_authority_granted?:boolean;attach_status?:string
 }
 const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
   typeof window==='undefined' ? undefined : window.location.hostname)
@@ -96,7 +109,8 @@ export default function DealerClaimWorkspace() {
   const [notice,setNotice]=useState('')
   const [busy,setBusy]=useState(false)
   const [evidence,setEvidence]=useState<EvidenceItem[]>([])
-  const [documentClass,setDocumentClass]=useState('COMPANY_REGISTRATION')
+  const [documentClass,setDocumentClass]=useState('')
+  const [documentClassConfirmed,setDocumentClassConfirmed]=useState(false)
   const [documentFile,setDocumentFile]=useState<File|null>(null)
   const [workbookFile,setWorkbookFile]=useState<File|null>(null)
   // Owner UAT D2: a refused workbook/CSV is explained in plain language right under its own upload
@@ -121,6 +135,9 @@ export default function DealerClaimWorkspace() {
   const [appealReason,setAppealReason]=useState('')
   const [manualLegalName,setManualLegalName]=useState('')
   const [manualTradingName,setManualTradingName]=useState('')
+  // UAT-R1: the applicant can correct the company registration details without re-uploading the workbook.
+  const [manualRegistrationNumber,setManualRegistrationNumber]=useState('')
+  const [manualRegistrationAuthority,setManualRegistrationAuthority]=useState('')
   const [manualCity,setManualCity]=useState('')
   const [manualCountry,setManualCountry]=useState('ZW')
   const [manualBranchName,setManualBranchName]=useState('')
@@ -197,7 +214,7 @@ export default function DealerClaimWorkspace() {
   },[loadDetails])
 
   async function uploadEvidence(){
-    if(!user||!token||!selected||!documentFile||busy)return
+    if(!user||!token||!selected||!documentFile||busy||!documentClass||!documentClassConfirmed)return
     setError('');setNotice('');setBusy(true)
     try{
       if(documentFile.size>6*1024*1024)throw new Error('Document exceeds 6MB maximum')
@@ -207,13 +224,27 @@ export default function DealerClaimWorkspace() {
       await apiRequest({
         baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/evidence',
         options:{method:'POST',body:JSON.stringify({
-          document_class:documentClass,mime_type:documentFile.type,document:fileData,
+          document_class:documentClass,document_class_confirmed:documentClassConfirmed,
+          mime_type:documentFile.type,document:fileData,
         })},authHeaders:authHeaders(token,user.id),
       })
       setNotice('Original document stored privately. This is not proof of independent approval.')
-      setDocumentFile(null)
+      setDocumentFile(null);setDocumentClass('');setDocumentClassConfirmed(false)
       await loadDetails()
     }catch(problem){setError(problem instanceof Error?problem.message:'Document upload failed')}
+    finally{setBusy(false)}
+  }
+  async function withdrawEvidence(evidenceId:string){
+    if(!user||!token||!selected||busy)return
+    setBusy(true);setError('');setNotice('')
+    try{
+      await apiRequest({
+        baseUrl:API,path:'/dealership/claims/'+encodeURIComponent(selected)+'/evidence/'+encodeURIComponent(evidenceId)+'/withdraw',
+        options:{method:'POST',body:JSON.stringify({})},authHeaders:authHeaders(token,user.id),
+      })
+      setNotice('Document withdrawn as uploaded by mistake. It stays in your private record but can never be used as legal proof.')
+      await loadDetails()
+    }catch(problem){setError(dealerReviewerErrorMessage(problem,'The document could not be withdrawn'))}
     finally{setBusy(false)}
   }
   async function extractEvidenceCandidates(evidenceId:string){
@@ -329,12 +360,16 @@ export default function DealerClaimWorkspace() {
     setBusy(true);setError('');setNotice('')
     try{
       if(!manualLegalName.trim())throw new Error('Enter the registered legal company name')
+      if(manualRegistrationNumber.trim()&&!/^[A-Za-z0-9][A-Za-z0-9 ./()-]{1,79}$/.test(manualRegistrationNumber.trim()))
+        throw new Error('The registration number may contain only letters, digits, spaces and . / ( ) - — not an e-mail address.')
       const fields={
         BUSINESS:{
           legal_name:manualLegalName.trim(),
           trading_name:manualTradingName.trim(),
           operating_country:manualCountry.trim().toUpperCase(),
           research_confirmation:manualResearchConfirmation,
+          ...(manualRegistrationNumber.trim()?{registration_number:manualRegistrationNumber.trim()}:{}),
+          ...(manualRegistrationAuthority.trim()?{registration_authority:manualRegistrationAuthority.trim()}:{}),
         },
         CONSENTS_DECLARATIONS:{
           signer_name:manualSigner.trim(),
@@ -451,23 +486,45 @@ export default function DealerClaimWorkspace() {
                       </p>
                       <label htmlFor="claim-document-class" className="text-sm font-medium block">Evidence type</label>
                       <select id="claim-document-class" className="border rounded-lg p-2 w-full" value={documentClass}
-                        onChange={e=>setDocumentClass(e.target.value)}>
-                        <option value="COMPANY_REGISTRATION">Company registration certificate</option>
-                        <option value="DIRECTOR_AUTHORITY">Director authority</option>
-                        <option value="SIGNATORY_MANDATE">Authorized representative mandate</option>
-                        <option value="BRANCH_AUTHORITY">Branch operating authority</option>
-                        <option value="PARENT_COMPANY_AUTHORITY">Parent legal company authority</option>
+                        onChange={e=>{setDocumentClass(e.target.value);setDocumentClassConfirmed(false)}}>
+                        <option value="">Choose what this document is…</option>
+                        {DOCUMENT_CLASSES.map(([code,label])=><option key={code} value={code}>{label}</option>)}
                       </select>
+                      {documentClass&&<p className="text-xs text-gray-600" data-testid="claim-document-class-help">
+                        {DOCUMENT_CLASSES.find(([c])=>c===documentClass)?.[2]}</p>}
                       <label htmlFor="claim-document-file" className="text-sm font-medium block">Original document</label>
                       <Input id="claim-document-file" type="file" accept="image/jpeg,image/png,application/pdf"
-                        onChange={e=>setDocumentFile(e.target.files?.[0]||null)} />
-                      <Button disabled={busy||!documentFile} onClick={()=>{void uploadEvidence()}}>Upload private evidence</Button>
+                        onChange={e=>{setDocumentFile(e.target.files?.[0]||null);setDocumentClassConfirmed(false)}} />
+                      {documentFile&&<p className="text-xs text-gray-600 [overflow-wrap:anywhere]">
+                        Selected: {documentFile.name} · {documentFile.type||'unknown type'} · {Math.max(1,Math.round(documentFile.size/1024))} KB</p>}
+                      <label htmlFor="claim-document-class-confirmed" className="flex items-start gap-2 text-sm">
+                        <input id="claim-document-class-confirmed" type="checkbox" className="mt-1 shrink-0"
+                          checked={documentClassConfirmed} disabled={!documentClass||!documentFile}
+                          onChange={e=>setDocumentClassConfirmed(e.target.checked)}/>
+                        <span className="min-w-0">{documentClass
+                          ?`This file is my ${documentLabel(documentClass).toLowerCase()}.`
+                          :'Choose the evidence type first.'} It is not a photo of the showroom or premises — add those
+                          later as company profile or facility photos in your dealer workspace.</span>
+                      </label>
+                      <Button disabled={busy||!documentFile||!documentClass||!documentClassConfirmed}
+                        onClick={()=>{void uploadEvidence()}}>Upload private evidence</Button>
                       {evidence.length>0 && (
                         <div className="text-sm mt-3">
                           <strong>{evidence.length} private evidence record(s)</strong>
-                          {evidence.map(e=><p className="mt-1" key={e.evidence_id}>
-                            {e.document_class.replaceAll('_',' ')} · Submitted {dealerDate(e.created_at)}
-                          </p>)}
+                          {evidence.map(e=><div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border p-2" key={e.evidence_id}
+                            data-testid="claim-evidence-record">
+                            <p className="min-w-0 [overflow-wrap:anywhere]">
+                              <span className={e.quarantined?'line-through text-gray-500':'font-medium'}>{documentLabel(e.document_class)}</span>
+                              {e.mime_type?' · '+e.mime_type:''}{e.file_bytes?' · '+Math.max(1,Math.round(e.file_bytes/1024))+' KB':''}
+                              {' · '}Submitted {dealerDate(e.created_at)}
+                              {e.quarantined&&<span className="block text-xs text-amber-900">
+                                {e.quarantine?.actor_kind==='CLAIMANT_WITHDRAWAL'
+                                  ?'Withdrawn by you as uploaded by mistake — never used as legal proof.'
+                                  :'Quarantined by a CarUp reviewer — not usable as legal proof. Upload the correct document.'}</span>}
+                            </p>
+                            {!e.quarantined&&<Button size="sm" variant="outline" className={DEALER_WRAP_BUTTON_SM} disabled={busy}
+                              onClick={()=>{void withdrawEvidence(e.evidence_id)}}>Uploaded by mistake — withdraw</Button>}
+                          </div>)}
                         </div>
                       )}
                     </CardContent></Card>
@@ -620,6 +677,17 @@ export default function DealerClaimWorkspace() {
                         <label htmlFor="manual-trading-name" className="block text-sm font-medium">Trading name (if different)</label>
                         <Input id="manual-trading-name" value={manualTradingName} maxLength={180}
                           onChange={e=>setManualTradingName(e.target.value)}/>
+                        <label htmlFor="manual-registration-number" className="block text-sm font-medium">Company registration number (leave blank to keep {draft?.content.tab_rows.BUSINESS?.[0]?.registration_number?'“'+draft.content.tab_rows.BUSINESS[0].registration_number+'”':'the saved value'})</label>
+                        <Input id="manual-registration-number" name="company_registration_number" autoComplete="off" spellCheck={false}
+                          data-1p-ignore="true" data-lpignore="true" maxLength={80} value={manualRegistrationNumber}
+                          onChange={e=>setManualRegistrationNumber(e.target.value)} placeholder="As printed on the registration certificate"/>
+                        <label htmlFor="manual-registration-authority" className="block text-sm font-medium">Registration authority (leave blank to keep the saved value)</label>
+                        <Input id="manual-registration-authority" autoComplete="off" maxLength={180} value={manualRegistrationAuthority}
+                          onChange={e=>setManualRegistrationAuthority(e.target.value)}
+                          placeholder={draft?.content.tab_rows.BUSINESS?.[0]?.registration_authority||'The registrar that issued the certificate'}/>
+                        <p className="text-xs text-gray-600">If this location belongs to a company you already operate on CarUp, enter that
+                          company’s exact legal name and registration number — CarUp can then attach it to your existing dealership
+                          after independent legal review.</p>
                         <label htmlFor="manual-country" className="block text-sm font-medium">Operating country (ISO two-letter code)</label>
                         <Input id="manual-country" value={manualCountry} maxLength={2}
                           onChange={e=>setManualCountry(e.target.value)}/>
@@ -684,6 +752,17 @@ export default function DealerClaimWorkspace() {
                               Nothing is republished automatically.</p>}
                             {operationalAuthority.next_step&&<p className="font-medium">
                               Next step: {NEXT_STEP_TEXT[operationalAuthority.next_step]||operationalAuthority.next_step}</p>}
+                          </div>}
+                        {operationalAuthority.state==='ATTACHED_TO_EXISTING_DEALERSHIP'&&
+                          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-1 text-blue-950"
+                            data-testid="dealer-claim-attached-status">
+                            <p className="font-medium">This branch is part of your existing dealership.</p>
+                            <p>An independent reviewer attached this approved claim to your dealership
+                              {operationalAuthority.attach_status&&operationalAuthority.attach_status!=='ACTIVE'
+                                ?` (attachment ${operationalAuthority.attach_status.toLowerCase()})`:''}. Its branches and
+                              declarations are managed from your dealer workspace; no separate company account was created.</p>
+                            <Link to="/dealer/dashboard" className="inline-block text-blue-700 underline">
+                              Open my dealer workspace</Link>
                           </div>}
                         {operationalAuthority.operational&&<Link to="/dealer/dashboard"
                           className="inline-block text-blue-700 underline">

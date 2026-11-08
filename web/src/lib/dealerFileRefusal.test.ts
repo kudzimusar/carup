@@ -48,4 +48,17 @@ describe('Owner UAT D2 — plain-language claim workbook refusals', () => {
       .toBe('Upload one valid .xlsx file no larger than 8MB')
     expect(dealerFileRefusalFromError('boom', 'Workbook import rejected')).toBe('Workbook import rejected')
   })
+
+  it('UAT-R1: Google Sheets dimension refusals name the tab, what was found, the maximum and the fix', () => {
+    expect(describeDealerFileRefusal('WORKBOOK_TOO_MANY_DATA_ROWS', 'BRANCHES:rows=312;max=249'))
+      .toBe('BRANCHES tab: it has data in 312 rows below the heading, but CarUp accepts at most 249. Delete the rows you do not need (or move them to a separate application). Empty formatted rows, such as the ones Google Sheets adds, are ignored. Nothing was saved — correct the file and upload it again.')
+    expect(describeDealerFileRefusal('WORKBOOK_EXTRA_COLUMNS_WITH_DATA', 'BRANCHES:column=R;max=P'))
+      .toMatch(/^BRANCHES tab: column R contains a value, but this tab's last column is P\./)
+    expect(describeDealerFileRefusal('WORKBOOK_SHEET_TOO_LARGE', 'DIGITAL_MEDIA:size=20001x26;max=20000x200'))
+      .toMatch(/^DIGITAL_MEDIA tab is 20,001 rows × 26 columns .*\(at most 20,000 rows × 200 columns\)/)
+  })
+  it('UAT-R1: an e-mail in the registration number is explained at its cell', () => {
+    expect(describeDealerFileRefusal('INVALID_REGISTRATION_NUMBER', 'BUSINESS!2.registration_number'))
+      .toMatch(/^BUSINESS tab, row 2 \(registration number\): the registration number may contain only letters/)
+  })
 })
