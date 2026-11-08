@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useState,type ChangeEvent} from 'react'
+import {useCallback,useEffect,useRef,useState,type ChangeEvent} from 'react'
 import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import PrivateMediaThumb from '@/components/dealer/PrivateMediaThumb'
 import {Link} from 'react-router-dom'
@@ -84,6 +84,7 @@ const header=(userId:string,token:string):AuthHeaders=>({
 })
 export default function DealerOperatingDetails(){
   const {user,token}=useAuth()
+  const mediaSectionRef=useRef<HTMLElement>(null)
   const [read,setRead]=useState<ReadModel|null>(null)
   const [workspace,setWorkspace]=useState<Workspace|null>(null)
   const [mediaModel,setMediaModel]=useState<MediaReadModel|null>(null)
@@ -139,6 +140,14 @@ export default function DealerOperatingDetails(){
     })
     return()=>{active=false}
   },[selected,read])
+  useEffect(()=>{
+    if(status!=='ready'||window.location.hash!=='#dealer-profile-images')return
+    const frame=window.requestAnimationFrame(()=>{
+      mediaSectionRef.current?.scrollIntoView({block:'start'})
+      mediaSectionRef.current?.focus({preventScroll:true})
+    })
+    return()=>window.cancelAnimationFrame(frame)
+  },[status])
   async function recordBranch(){
     if(!user||!token||busy||!workspace||branchName.trim().length<2||
       branchAddress.trim().length<3)return
@@ -284,9 +293,9 @@ export default function DealerOperatingDetails(){
           Staff headcount, individual licence validity and sales revenue are not inferred.
         </p>
       </section>}
-      {status==='ready'&&workspace&&<section
+      {status==='ready'&&workspace&&<section id="dealer-profile-images" ref={mediaSectionRef} tabIndex={-1}
         data-testid="dealer-owner-media-section"
-        className="mt-8 border border-slate-200 bg-white rounded-xl p-6 space-y-4">
+        className="mt-8 scroll-mt-6 border border-slate-200 bg-white rounded-xl p-6 space-y-4 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-orange-700">
         <div>
           <h2 className="text-xl font-semibold">Company images &amp; facility photos</h2>
           <p className="text-sm text-slate-600 mt-1">

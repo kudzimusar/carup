@@ -107,6 +107,7 @@ const QUICK_ACTIONS:Array<[string,string,LucideIcon]>=[
   ['Manage stock','/dealers/stock',Car],
   ['Buyer enquiries','/dealers/inquiries',MessageSquare],
   ['Operating details','/dealers/operating-details',Store],
+  ['Edit profile images','/dealers/operating-details#dealer-profile-images',ImagePlus],
   ['Staff','/dealers/staff',Users],
 ]
 const CLAIM_STATUS:Record<string,{label:string;className:string}>={
@@ -478,7 +479,7 @@ export default function DealerDashboard(){
                 <span data-testid="dealer-canonical-registered-legal-name">{p.legal_name||'Not recorded'}</span>
                 {p.registration_number&&<span className="text-slate-600"> · Reg. {p.registration_number}</span>}
               </p>
-              {(!ownerMedia.cover||!ownerMedia.avatar)&&<Link to="/dealers/operating-details"
+              {(!ownerMedia.cover||!ownerMedia.avatar)&&<Link to="/dealers/operating-details#dealer-profile-images"
                 className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-orange-700 underline underline-offset-4 hover:text-orange-800">
                 <ImagePlus className="h-4 w-4" aria-hidden="true"/>Add a company profile image
               </Link>}
