@@ -1,10 +1,11 @@
-import {useCallback,useEffect,useState} from 'react'
+import {useCallback,useEffect,useRef,useState} from 'react'
 import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import {dealerRefusalCode,dealerReviewerErrorMessage} from '@/lib/dealerReviewerErrors'
 import ReviewerStepUpField from '@/components/dealer/ReviewerStepUpField'
 
 type QueueItem={seed_dealer_id:string;operating_status:string;
@@ -22,11 +23,14 @@ type MediaQueueItem={
   caption:string;alt_text:string;rights_attestation:string;
   review_status:string;created_at:string;
   independent_reviewer_required:boolean;
+  conflict_of_interest?:boolean;
+  ticket_issuance_deferred?:boolean;
   preview_ticket:string|null;
   decision_ticket:string|null;
   ticket_expires_at:string|null;
   logo_rights_approved:false;
 }
+type MediaRefusal={message:string;ticketInvalid:boolean;operation:'preview'|'decision'}
 type MediaPreview={
   media_id:string;seed_dealer_id:string;mime_type:string;
   media_category:string;caption:string;alt_text:string;
@@ -65,8 +69,14 @@ export default function DealerFullStorefrontReview(){
  const [busy,setBusy]=useState(false)
  const [status,setStatus]=useState('')
  const [error,setError]=useState('')
- const reload=useCallback(async()=>{
-  if(!reviewer||!user||!token)return
+ // Media review tickets are single-use: a ticket that an attempt presented is never presented again from
+ // this page. Its refusal stays next to the media actions until a refresh brings newly issued tickets.
+ const [spentTickets,setSpentTickets]=useState<string[]>([])
+ const [mediaRefusal,setMediaRefusal]=useState<MediaRefusal|null>(null)
+ const refreshRef=useRef<HTMLButtonElement>(null)
+ /** Resolves to the refreshed media queue, or null when it could not be read. */
+ const reload=useCallback(async():Promise<MediaQueueItem[]|null>=>{
+  if(!reviewer||!user||!token)return null
   try{
    const [result,mediaResult]=await Promise.all([
     apiRequest<{cases:QueueItem[]}>({
@@ -76,17 +86,20 @@ export default function DealerFullStorefrontReview(){
     apiRequest<{items:MediaQueueItem[]}>({
      baseUrl:API,path:'/admin/dealership/storefront-media/queue',
      authHeaders:headers(user.id,token),
-    }).catch(()=>({items:[] as MediaQueueItem[]})),
+    }).catch(()=>null),
    ])
+   const mediaItems=mediaResult?.items||[]
    setQueue(result.cases||[])
-   setMediaQueue(mediaResult.items||[])
+   setMediaQueue(mediaItems)
    setSeed(previous=>result.cases.some(x=>x.seed_dealer_id===previous)
     ?previous:result.cases[0]?.seed_dealer_id||'')
-   setSelectedMediaKey(previous=>(mediaResult.items||[]).some(m=>m.media_id===previous)
-    ?previous:mediaResult.items?.[0]?.media_id||'')
+   setSelectedMediaKey(previous=>mediaItems.some(m=>m.media_id===previous)
+    ?previous:mediaItems[0]?.media_id||'')
+   return mediaResult?mediaItems:null
   }catch(problem){
    setQueue([])
-   setError(problem instanceof Error?problem.message:'Could not load independent publication queue')
+   setError(dealerReviewerErrorMessage(problem,'Could not load independent publication queue'))
+   return null
   }
  },[reviewer,user,token])
  useEffect(()=>{
@@ -105,6 +118,39 @@ export default function DealerFullStorefrontReview(){
  },[seed])
  const item=queue.find(x=>x.seed_dealer_id===seed)
  const currentMedia=mediaQueue.find(m=>m.media_id===selectedMediaKey)
+ const previewSpent=Boolean(currentMedia?.preview_ticket&&spentTickets.includes(currentMedia.preview_ticket))
+ const decisionSpent=Boolean(currentMedia?.decision_ticket&&spentTickets.includes(currentMedia.decision_ticket))
+ const showMediaRefusal=Boolean(mediaRefusal&&(previewSpent||decisionSpent))
+ useEffect(()=>{if(mediaRefusal)refreshRef.current?.focus()},[mediaRefusal])
+ /** The attempt presented `ticket`: whatever the outcome, it is spent and never presented again. */
+ function refuseMedia(problem:unknown,ticket:string,operation:MediaRefusal['operation'],fallback:string){
+  setSpentTickets(previous=>[...previous,ticket])
+  setMediaRefusal({
+   message:dealerReviewerErrorMessage(problem,fallback),
+   ticketInvalid:dealerRefusalCode(problem)==='STOREFRONT_MEDIA_REVIEW_TICKET_INVALID',
+   operation,
+  })
+ }
+ /** Reviewer-initiated only: a new queue read issues new tickets; nothing is re-sent or retried. */
+ async function refreshReviewQueue(){
+  if(busy)return
+  const key=selectedMediaKey
+  setBusy(true);setError('');setStatus('');setMediaPreview(null)
+  try{
+   const items=await reload()
+   if(!items){
+    setError(previous=>previous||'The review queue could not be refreshed. Check your connection, then try again.')
+    return
+   }
+   setSpentTickets([]);setMediaRefusal(null)
+   const fresh=items.find(m=>m.media_id===key)
+   if(!fresh){setStatus('Review queue refreshed. That media item is no longer waiting for your review.');return}
+   if(fresh.preview_ticket&&fresh.decision_ticket){
+    setStatus('Review queue refreshed with new single-use review tickets. Enter your password again to continue.')
+    document.getElementById('storefront-password')?.focus()
+   }
+  }finally{setBusy(false)}
+ }
  async function inspect(){
   if(!user||!token||busy||!seed||password.length<8)return
   setBusy(true);setError('');setStatus('')
@@ -117,17 +163,18 @@ export default function DealerFullStorefrontReview(){
    setCandidate(result.candidate)
    setStatus('Private applicant content opened. Verify each branch and declared section independently before selecting it.')
   }catch(problem){
-   setError(problem instanceof Error?problem.message:'Independent review password not accepted')
+   setError(dealerReviewerErrorMessage(problem,'Independent review password not accepted'))
   }finally{setPassword('');setBusy(false)}
  }
  async function inspectMedia(){
-  if(!user||!token||busy||!currentMedia?.preview_ticket||password.length<8)return
+  const ticket=currentMedia?.preview_ticket
+  if(!user||!token||busy||!currentMedia||!ticket||previewSpent||password.length<8)return
   setBusy(true);setError('');setStatus('')
   try{
    const result=await apiRequest<{preview:MediaPreview}>({
     baseUrl:API,path:'/admin/dealership/storefront-media/'+encodeURIComponent(currentMedia.seed_dealer_id)+'/preview',
     options:{method:'POST',body:JSON.stringify({
-      review_ticket:currentMedia.preview_ticket,
+      review_ticket:ticket,
       reviewer_password:password,
     })},
     authHeaders:headers(user.id,token),
@@ -135,17 +182,18 @@ export default function DealerFullStorefrontReview(){
    setMediaPreview(result.preview)
    setStatus('Opened private storefront media preview ('+result.preview.media_id+'). Check alt text, caption and absence of OEM/brand logos before approving.')
   }catch(problem){
-   setError(problem instanceof Error?problem.message:'Storefront media preview refused')
+   refuseMedia(problem,ticket,'preview','Storefront media preview refused')
   }finally{setPassword('');setBusy(false)}
  }
  async function recordMediaDecision(){
-  if(!user||!token||busy||!currentMedia?.decision_ticket||password.length<8||mediaReason.trim().length<40)return
+  const ticket=currentMedia?.decision_ticket
+  if(!user||!token||busy||!currentMedia||!ticket||decisionSpent||password.length<8||mediaReason.trim().length<40)return
   setBusy(true);setError('');setStatus('')
   try{
    const result=await apiRequest<{review:{media_id:string;decision:string;public_display_approved:boolean}}>({
     baseUrl:API,path:'/admin/dealership/storefront-media/'+encodeURIComponent(currentMedia.seed_dealer_id)+'/review',
     options:{method:'POST',body:JSON.stringify({
-      review_ticket:currentMedia.decision_ticket,
+      review_ticket:ticket,
       decision:mediaDecision,
       reason:mediaReason.trim(),
       reviewer_password:password,
@@ -154,9 +202,10 @@ export default function DealerFullStorefrontReview(){
    })
    setStatus('Recorded storefront media decision '+result.review.decision+' for '+result.review.media_id+'.')
    setMediaPreview(null);setMediaReason('')
+   setSpentTickets([]);setMediaRefusal(null)
    await reload()
   }catch(problem){
-   setError(problem instanceof Error?problem.message:'Storefront media decision refused')
+   refuseMedia(problem,ticket,'decision','Storefront media decision refused')
   }finally{setPassword('');setBusy(false)}
  }
  async function record(){
@@ -178,9 +227,18 @@ export default function DealerFullStorefrontReview(){
    setCandidate(null);setApprovedBranches([]);setApprovedSections([]);setReason('')
    await reload()
   }catch(problem){
-   setError(problem instanceof Error?problem.message:'Publication decision refused')
+   setError(dealerReviewerErrorMessage(problem,'Publication decision refused'))
   }finally{setBusy(false);setPassword('')}
  }
+ const refusalPanel=mediaRefusal&&<div data-testid="dealer-media-review-refusal"
+   className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-2">
+   <p role="alert" className="text-red-800">{mediaRefusal.message}</p>
+   {!mediaRefusal.ticketInvalid&&<p className="text-slate-700">
+    Each review ticket works once. Refresh the review queue before you try again.
+   </p>}
+   <Button ref={refreshRef} type="button" variant="outline" size="sm" disabled={busy}
+    onClick={()=>{void refreshReviewQueue()}}>Refresh review queue</Button>
+  </div>
  return <main className="min-h-screen bg-slate-50 px-4 py-10">
   <div className="mx-auto max-w-6xl">
    <Link to="/admin/dealer-claims" className="text-sm text-blue-700 underline">
@@ -317,11 +375,20 @@ export default function DealerFullStorefrontReview(){
           </p>}
          <p data-testid="dealer-media-review-caption"><strong>Caption:</strong> {currentMedia.caption}</p>
          <p data-testid="dealer-media-review-alt"><strong>Alt text:</strong> {currentMedia.alt_text}</p>
+         {currentMedia.independent_reviewer_required&&currentMedia.ticket_issuance_deferred&&
+          <div className="space-y-2" data-testid="dealer-media-review-tickets-deferred">
+           <p className="text-amber-800">
+            New review tickets could not be issued for this item just now. Wait a few minutes, then refresh the review queue.
+           </p>
+           <Button type="button" variant="outline" size="sm" disabled={busy}
+            onClick={()=>{void refreshReviewQueue()}}>Refresh review queue</Button>
+          </div>}
          <Button variant="outline" size="sm"
-          disabled={busy||password.length<8||!currentMedia.independent_reviewer_required||!currentMedia.preview_ticket}
+          disabled={busy||password.length<8||!currentMedia.independent_reviewer_required||!currentMedia.preview_ticket||previewSpent}
           onClick={()=>{void inspectMedia()}}>
           Preview private media binary
          </Button>
+         {showMediaRefusal&&mediaRefusal?.operation==='preview'&&refusalPanel}
          {mediaPreview&&mediaPreview.media_id===currentMedia.media_id&&<figure className="mt-2 border rounded-lg bg-white p-3">
           <img src={mediaPreview.signed_url} alt={mediaPreview.alt_text}
            className="max-h-48 rounded-md object-contain"/>
@@ -346,10 +413,11 @@ export default function DealerFullStorefrontReview(){
           onChange={e=>setMediaReason(e.target.value)}
           className="w-full rounded-lg border p-3 min-h-24 bg-white"/>
          <Button className={DEALER_WRAP_BUTTON} variant="outline"
-          disabled={busy||password.length<8||mediaReason.trim().length<40||!currentMedia.independent_reviewer_required||!currentMedia.decision_ticket}
+          disabled={busy||password.length<8||mediaReason.trim().length<40||!currentMedia.independent_reviewer_required||!currentMedia.decision_ticket||decisionSpent}
           onClick={()=>{void recordMediaDecision()}}>
           Record storefront media decision
          </Button>
+         {showMediaRefusal&&mediaRefusal?.operation==='decision'&&refusalPanel}
         </div>}
        </>}
       </section>

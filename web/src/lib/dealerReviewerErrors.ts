@@ -52,15 +52,23 @@ export const DEALER_REVIEWER_MESSAGES: Readonly<Record<string, string>> = Object
     'A reviewer already relied on this document, so you cannot withdraw it yourself. Ask CarUp review to quarantine it.',
   INVALID_EVIDENCE_QUARANTINE_REQUEST: 'Choose why this document is not usable as legal evidence.',
   DOCUMENT_CLASS_CONFIRMATION_REQUIRED: 'Confirm what this document is before uploading it.',
+  // Storefront media review tickets are single-use and expire after 10 minutes (expired, already used,
+  // superseded or for another reviewer/dealership/operation — the API does not say which, by design).
+  STOREFRONT_MEDIA_REVIEW_TICKET_INVALID:
+    'This review session has expired or is no longer valid. Refresh the review queue and try again.',
 })
 
 const CODE = /^[A-Z][A-Z0-9_]{2,80}$/
 
 /** Reads the refusal code from an apiRequest failure (`.data.code` or an Error whose message is a code). */
-export function dealerReviewerErrorMessage(problem: unknown, fallback: string): string {
+export function dealerRefusalCode(problem: unknown): string | undefined {
   const data = (problem as { data?: { code?: unknown } } | null)?.data
   const message = problem instanceof Error ? problem.message : ''
-  const code = typeof data?.code === 'string' ? data.code : CODE.test(message) ? message : undefined
+  return typeof data?.code === 'string' ? data.code : CODE.test(message) ? message : undefined
+}
+
+export function dealerReviewerErrorMessage(problem: unknown, fallback: string): string {
+  const code = dealerRefusalCode(problem)
   if (code && DEALER_REVIEWER_MESSAGES[code]) return DEALER_REVIEWER_MESSAGES[code]
-  return message || fallback
+  return (problem instanceof Error ? problem.message : '') || fallback
 }

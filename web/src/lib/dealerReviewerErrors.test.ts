@@ -15,6 +15,13 @@ describe('dealerReviewerErrorMessage (Owner UAT-R1)', () => {
   it('names an autofilled e-mail in the registration number', () => {
     expect(dealerReviewerErrorMessage(new Error('REGISTRATION_NUMBER_FORMAT_INVALID'), 'x')).toMatch(/e-mail/)
   })
+  it('explains a spent or expired storefront media review ticket and says to refresh the queue', () => {
+    const problem = Object.assign(new Error('STOREFRONT_MEDIA_REVIEW_TICKET_INVALID'), {
+      status: 403, data: { error: 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID', code: 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID' },
+    })
+    expect(dealerReviewerErrorMessage(problem, 'x'))
+      .toBe('This review session has expired or is no longer valid. Refresh the review queue and try again.')
+  })
   it('shows an unknown code verbatim and falls back for non-errors', () => {
     expect(dealerReviewerErrorMessage(new Error('SOMETHING_NEW_HAPPENED'), 'x')).toBe('SOMETHING_NEW_HAPPENED')
     expect(dealerReviewerErrorMessage(null, 'Fallback text')).toBe('Fallback text')
