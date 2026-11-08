@@ -207,6 +207,7 @@ test('#7 wiring: every reviewer service that collapses RPC errors routes them th
     ['dealerComplianceApplicationService.js', 'INDEPENDENT_PRELIMINARY_REVIEW_REFUSED'],
     ['dealerLegalActivationService.js', 'LEGAL_COUNTRY_POLICY_OR_CASE_AUTHORITY_BLOCKED'],
     ['dealerLegalActivationService.js', 'CANONICAL_ACTIVATION_GATES_NOT_MET'],
+    ['dealerLegalActivationService.js', 'RECONCILIATION_GATES_NOT_MET'],
     ['dealerFullStorefrontService.js', 'INDEPENDENT_FULL_STORE_FRONT_PUBLICATION_REFUSED'],
   ]) {
     const src = readFileSync(new URL('../services/dealer/' + file, import.meta.url), 'utf8');

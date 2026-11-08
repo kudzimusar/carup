@@ -26,7 +26,7 @@ import {getMyVerifiedDealerWorkspace,addDeclaredDealerBranch,updateDeclaredDeale
   from '../services/dealer/dealerVerifiedWorkspaceService.js';
 import {listMyOperationalDeclarations,recordMyOperationalDeclaration,readMyActivationCarryover}
   from '../services/dealer/dealerOperationalDeclarationsService.js';
-import {listMyStorefrontMedia,uploadMyStorefrontMedia,readMyStorefrontMediaImage}
+import {listMyStorefrontMedia,uploadMyStorefrontMedia,readMyCompanyImage}
   from '../services/dealer/dealerStorefrontMediaService.js';
 import {getMyDealerPerformanceSummary}
   from '../services/dealer/dealerPerformanceSummaryService.js';
@@ -176,12 +176,14 @@ router.get('/api/dealer/performance-summary',authorizeSessionRole([]),async(req,
     sendDealerRouteError(res,next,error);
   }
 });
-// UAT-R1: private owner preview of an uploaded image (profile/cover awaiting review). No public URL.
-router.get('/api/dealer/operational-media/:mediaId/image',authorizeSessionRole([]),async(req,res,next)=>{
+// UAT-R1: private owner preview of the current company profile/cover image, addressed by kind within
+// the owner's own tenant (never by a media identity). No public URL, never cached.
+router.get('/api/dealer/operational-media/company-image/:kind',authorizeSessionRole([]),async(req,res,next)=>{
   try{
-    const image=await readMyStorefrontMediaImage(req.userContext,req.params.mediaId);
+    const image=await readMyCompanyImage(req.userContext,req.params.kind);
     res.set('Cache-Control','private, no-store').set('X-Content-Type-Options','nosniff')
       .set('Content-Security-Policy',"default-src 'none'; sandbox")
+      .set('X-CarUp-Review-Status',image.review_status)
       .type(image.mime_type).send(image.bytes);
   }catch(error){
     sendDealerRouteError(res,next,error);

@@ -251,12 +251,9 @@ export async function activateLegallyApprovedDealer(reviewId,actor,payload={}){
     p_approver_id:actor.userId,
     p_activation_reason:payload.activation_reason.trim(),
   });
-  if(error){
-    const named=namedGovernedRefusal(error);
-    if(named&&['PREEXISTING_DEALER_REQUIRES_INDEPENDENT_RECONCILIATION','SEED_ALREADY_ATTACHED_TO_EXISTING_DEALERSHIP',
-      'LEGAL_EVIDENCE_QUARANTINED'].includes(named.code))throw named;
-    throwIfDealerSecurityRefusal(error);throw deny('CANONICAL_ACTIVATION_GATES_NOT_MET',409);
-  }
+  // R6 #7: the security mapper runs first; then a governed refusal is named (e.g. the applicant already
+  // operates a dealership → reconcile instead), otherwise the generic gate refusal.
+  if(error){throwIfDealerSecurityRefusal(error);throw namedGovernedRefusal(error)||deny('CANONICAL_ACTIVATION_GATES_NOT_MET',409);}
   return data;
 }
 /** The research seed of a legal decision — for the reviewer read-conflict rule before any private read. */
@@ -302,12 +299,7 @@ export async function reconcileApprovedBranchClaim(reviewId,actor,payload={}){
     p_legal_review_id:decision.legal_review_id,p_approver_id:actor.userId,
     p_reason:reason,p_expected_organization_id:target,
   });
-  if(error){
-    const named=namedGovernedRefusal(error);
-    if(named)throw named;
-    throwIfDealerSecurityRefusal(error);
-    throw deny('RECONCILIATION_GATES_NOT_MET',409);
-  }
+  if(error){throwIfDealerSecurityRefusal(error);throw namedGovernedRefusal(error)||deny('RECONCILIATION_GATES_NOT_MET',409);}
   return data;
 }
 export async function readMyOperationalDealerAuthority(claimId,actor){

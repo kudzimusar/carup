@@ -426,22 +426,29 @@ export async function listMyStorefrontMedia(actor, {
 }
 
 /**
- * UAT-R1: the approved owner's PRIVATE preview of their own uploaded media (e.g. a company profile or
- * cover image still awaiting independent review). Tenant-scoped, current owner authority re-checked,
- * never cached and never a public URL.
+ * UAT-R1: the approved owner's PRIVATE preview of their own current company image ('profile' = the
+ * square COMPANY_PROFILE_IMAGE, 'cover' = COMPANY_COVER_IMAGE) — the newest one that is pending or
+ * approved. Addressed by KIND within the owner's own tenant, never by a media identity from the
+ * request (Issue #164 Phase 5: a media id is an answer, never a question). Current owner authority is
+ * re-checked; the bytes are never cached and never become a public URL.
  */
-export async function readMyStorefrontMediaImage(actor, mediaId, {
+const COMPANY_IMAGE_KINDS = Object.freeze({ profile: 'COMPANY_PROFILE_IMAGE', cover: 'COMPANY_COVER_IMAGE' });
+export async function readMyCompanyImage(actor, kind, {
   db = supabase,
   resolveOwner = requireApprovedOwnerWorkspace,
 } = {}) {
-  if (typeof mediaId !== 'string' || !UUID_RE.test(mediaId)) throw refuse('INVALID_DEALER_MEDIA_ID', 400);
+  const category = COMPANY_IMAGE_KINDS[kind];
+  if (!category) throw refuse('INVALID_COMPANY_IMAGE_KIND', 400);
   const owner = await resolveOwner(actor);
-  const { data: item, error } = await db.from('dealer_storefront_media_items')
-    .select('media_id,tenant_id,storage_bucket,storage_path,mime_type,review_status')
-    .eq('media_id', mediaId).eq('tenant_id', owner.tenant_id).maybeSingle();
-  if (error) throw refuse('DEALER_STOREFRONT_MEDIA_READ_UNAVAILABLE', 503);
+  const { data: items, error } = await db.from('dealer_storefront_media_items')
+    .select('storage_bucket,storage_path,mime_type,review_status,created_at')
+    .eq('tenant_id', owner.tenant_id).eq('media_category', category)
+    .in('review_status', ['PENDING_INDEPENDENT_REVIEW', 'APPROVED_PUBLIC_DISPLAY'])
+    .order('created_at', { ascending: false }).limit(1);
+  if (error || !Array.isArray(items)) throw refuse('DEALER_STOREFRONT_MEDIA_READ_UNAVAILABLE', 503);
+  const item = items[0];
   if (!item || item.storage_bucket !== 'ocr-documents' || !String(item.storage_path || '').startsWith('dealership-media/')) {
-    throw refuse('DEALER_STOREFRONT_MEDIA_NOT_FOUND', 404);
+    throw refuse('COMPANY_IMAGE_NOT_UPLOADED', 404);
   }
   const { data: blob, error: downloadError } = await db.storage.from('ocr-documents').download(item.storage_path);
   if (downloadError || !blob) throw refuse('DEALER_STOREFRONT_MEDIA_READ_UNAVAILABLE', 503);

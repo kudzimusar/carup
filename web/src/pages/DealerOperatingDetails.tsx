@@ -382,9 +382,14 @@ export default function DealerOperatingDetails(){
             data-testid={`dealer-owner-media-item-${item.media_id}`}
             className="rounded-lg border p-3 text-sm flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <PrivateMediaThumb apiBase={API} mediaId={item.media_id} headers={user&&token?{...header(user.id,token)}:{}}
-                alt={item.alt_text} className={'h-14 shrink-0 rounded-md object-cover '+
-                  (item.media_category==='COMPANY_COVER_IMAGE'?'w-24':'w-14')}/>
+              {(item.media_category==='COMPANY_PROFILE_IMAGE'||item.media_category==='COMPANY_COVER_IMAGE')&&
+                item.media_id===mediaModel.items.find(x=>x.media_category===item.media_category&&
+                  (x.review_status==='PENDING_INDEPENDENT_REVIEW'||x.review_status==='APPROVED_PUBLIC_DISPLAY'))?.media_id
+                ?<PrivateMediaThumb apiBase={API} kind={item.media_category==='COMPANY_PROFILE_IMAGE'?'profile':'cover'}
+                  headers={user&&token?{...header(user.id,token)}:{}} version={item.media_id}
+                  alt={item.alt_text} className={'h-14 shrink-0 rounded-md object-cover '+
+                    (item.media_category==='COMPANY_COVER_IMAGE'?'w-24':'w-14')}/>
+                :<div className="h-14 w-14 shrink-0 rounded-md bg-slate-100" aria-hidden="true"/>}
               <div className="min-w-0 [overflow-wrap:anywhere]">
                 <strong>{item.caption}</strong>
                 <span className="block text-xs text-slate-600">

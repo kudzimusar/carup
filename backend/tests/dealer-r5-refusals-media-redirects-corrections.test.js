@@ -246,6 +246,10 @@ test('S08 listPublicResearch filters multiple reviewed fictional prelistings by 
           },
         };
       }
+      // UAT-R1: the public storefront checks whether a displayed branch came from a withdrawn attached claim.
+      if (table === 'dealer_attachment_branch_crosswalk' || table === 'dealer_branch_claim_attachments') {
+        return { select() { return this; }, async in() { return { data: [], error: null }; } };
+      }
       throw new Error('Unexpected table ' + table);
     };
 
@@ -412,6 +416,10 @@ test('S09 reconcileDuplicateResearchSeed and getPublicResearchDuplicateRedirect 
       }
       if (table === 'dealer_research_claim_requests') {
         return { select() { return this; }, in() { return this; }, async eq() { return { data: [], error: null }; } };
+      }
+      // UAT-R1: the public storefront checks whether a displayed branch came from a withdrawn attached claim.
+      if (table === 'dealer_attachment_branch_crosswalk' || table === 'dealer_branch_claim_attachments') {
+        return { select() { return this; }, async in() { return { data: [], error: null }; } };
       }
       throw new Error('Unexpected table ' + table);
     };

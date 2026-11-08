@@ -52,6 +52,8 @@ for (const mode of ['claim', 'staff']) {
         }
         if (table === 'dealer_research_claim_requests') return rows(c.dealer_research_claim_requests);
         if (table === 'tenant_users') return rows(c.tenant_users);
+        // UAT-R1: seeds attached to a dealership (second branch claim) are read by the conflict rule too.
+        if (table === 'dealer_branch_claim_attachments') return rows([]);
         throw Error('UNEXPECTED_TABLE ' + table);
       },
       async rpc(name) { rpc.push(name); return { data: { allowed: true }, error: null }; },
@@ -76,6 +78,8 @@ test('R6 closure: correction requests about a business the reviewer claims or wo
         if (table === 'dealer_research_claim_requests') return rows(c.dealer_research_claim_requests);
         if (table === 'tenant_users') return rows(c.tenant_users);
         if (table === 'dealer_approved_seed_links') return rows(c.links_for_tenants);
+        // UAT-R1: seeds attached to a dealership (second branch claim) are read by the conflict rule too.
+        if (table === 'dealer_branch_claim_attachments') return rows([]);
         throw Error('UNEXPECTED_TABLE ' + table);
       };
       const list = await research.listResearchCorrectionsForReviewer(reviewer);
@@ -107,6 +111,8 @@ test('R6 closure: a conflicted reviewer never previews a storefront candidate an
         }
         if (table === 'dealer_research_claim_requests') return rows(c.dealer_research_claim_requests);
         if (table === 'tenant_users') return rows(c.tenant_users);
+        // UAT-R1: seeds attached to a dealership (second branch claim) are read by the conflict rule too.
+        if (table === 'dealer_branch_claim_attachments') return rows([]);
         throw Error('UNEXPECTED_TABLE ' + table);
       };
       await assert.rejects(storefront.previewFullStorefrontCandidate('ZW-DEAL-0001', reviewer, 'correct-horse-battery'),
