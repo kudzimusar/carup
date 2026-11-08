@@ -295,7 +295,7 @@ export default function DealerOperatingDetails(){
       </section>}
       {status==='ready'&&workspace&&<section id="dealer-profile-images" ref={mediaSectionRef} tabIndex={-1}
         data-testid="dealer-owner-media-section"
-        className="mt-8 scroll-mt-6 border border-slate-200 bg-white rounded-xl p-6 space-y-4 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-orange-700">
+        className="mt-8 scroll-mt-24 border border-slate-200 bg-white rounded-xl p-6 space-y-4 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-orange-700">
         <div>
           <h2 className="text-xl font-semibold">Company images &amp; facility photos</h2>
           <p className="text-sm text-slate-600 mt-1">
