@@ -15,6 +15,9 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 
 const { supabase } = await import('../db/supabase.js');
 const dealer = await import('../services/dealer/dealerComplianceService.js');
+const { hashPassword } = await import('../utils/passwordAuth.js');
+const REVIEW_PASSWORD = 'DifferentiatorReviewerPassword!2026';
+const REVIEW_HASH = await hashPassword(REVIEW_PASSWORD);
 const sv = await import('../services/sourceVerification/sourceVerificationService.js');
 const fraud = await import('../services/fraud/fraudEngine.js');
 const fraudCases = await import('../services/fraud/fraudCaseService.js');
@@ -29,7 +32,7 @@ const { CALCULATION_VERSION, toPublicTrust, publicTrustViolations } =
 let db;
 function reset() {
   db = {
-    users: [{ id: 'dealer-u', role: 'dealer', is_verified: true }, { id: 'admin-u', role: 'admin', is_verified: true }, { id: 'buyer-u', role: 'buyer', is_verified: true }],
+    users: [{ id: 'dealer-u', role: 'dealer', is_verified: true }, { id: 'admin-u', role: 'admin', is_verified: true, password_hash:REVIEW_HASH }, { id: 'buyer-u', role: 'buyer', is_verified: true }],
     vehicles: [], dealer_profiles: [], dealer_branches: [], dealer_compliance_documents: [], dealer_compliance_requirements: [], dealer_compliance_decisions: [],
     vehicle_evidence: [], source_verification_results: [], fraud_signals: [], fraud_cases: [], fraud_case_events: [], fraud_case_resolutions: [],
     eligibility_requests: [], eligibility_decisions: [], eligibility_webhook_events: [], escrow_trust_sessions: [], escrow_trust_events: [], escrow_trust_webhook_events: [],
@@ -116,11 +119,48 @@ function upsertTransactionIntentAtomic(a = {}) {
   return { data: session, error: null };
 }
 
+function atomicDealerComplianceDecision(a={}) {
+  const profile=db.dealer_profiles.find(p=>p.id===a.p_dealer_id);
+  const reviewer=db.users.find(u=>u.id===a.p_reviewer_id);
+  const requirement=db.dealer_compliance_requirements.find(
+    r=>r.dealer_id===a.p_dealer_id && r.requirement_key===a.p_requirement_key);
+  if (!profile || !reviewer?.is_verified || reviewer.role!=='admin' ||
+      reviewer.id===profile.user_id || !requirement ||
+      a.p_decision!=='approve_requirement' || a.p_reason?.length < 40) {
+    return {data:null,error:{message:'INDEPENDENT_COMPLIANCE_DECISION_REFUSED'}};
+  }
+  const event={id:'dealer-compliance-decisions-'+(db.dealer_compliance_decisions.length+1),
+    dealer_id:profile.id,decision:a.p_decision,
+    requirement_key:a.p_requirement_key, actor_id:reviewer.id,
+    reason:a.p_reason,created_at:'2026-06-26T00:00:00Z'};
+  db.dealer_compliance_decisions.push(event);
+  requirement.status='verified';
+  return {data:{audit_atomic:true,decision:event,profile},error:null};
+}
+
 test('CarUp differentiator journey (30 steps) through real services', async () => {
   reset(); supabase.from = (t) => builder(t); sv.initSourceVerification(); elig.initEligibility();
+  // R6 #5: reviewer decisions go through the shared per-reviewer step-up guard
+  // (dealer_begin/complete_reviewer_step_up). Model it faithfully — 5 failures lock, a
+  // success resets — instead of bypassing the step-up.
+  const stepUpGuard = new Map();
+  const reviewerStepUp = (fn, args) => {
+    const state = stepUpGuard.get(args.p_reviewer_id) || { failures: 0, locked: false };
+    if (fn === 'dealer_begin_reviewer_step_up') {
+      return { data: state.locked ? { allowed: false, retry_after_seconds: 900 } : { allowed: true }, error: null };
+    }
+    if (args.p_succeeded === true) state.failures = 0;
+    else if (++state.failures >= 5) state.locked = true;
+    stepUpGuard.set(args.p_reviewer_id, state);
+    return { data: { recorded: true, locked: state.locked }, error: null };
+  };
   supabase.rpc = async (fn, args) => (fn === 'issue164_upsert_transaction_intent_atomic'
     ? upsertTransactionIntentAtomic(args)
-    : { data: null, error: { message: `unexpected rpc: ${fn}` } });
+    : fn === 'dealer_record_atomic_compliance_decision'
+      ? atomicDealerComplianceDecision(args)
+      : fn === 'dealer_begin_reviewer_step_up' || fn === 'dealer_complete_reviewer_step_up'
+        ? reviewerStepUp(fn, args)
+        : { data: null, error: { message: `unexpected rpc: ${fn}` } });
   // Phase 6 fails every eligibility/escrow gate CLOSED on unknowns (bd23975b), so an "all clear"
   // context must state each fact rather than omitting it. dealer_suspended/seller_suspended and
   // listing_snapshot_changed were previously absent, which silently routed step 22 to manual_review
@@ -141,7 +181,12 @@ test('CarUp differentiator journey (30 steps) through real services', async () =
 
   // 1-3. Dealer onboarding -> admin approves identity + compliance.
   const profile = await dealer.createOrUpdateProfile('dealer-u', { legal_name: 'Croco Motors', registration_number: 'BR-1', tax_id: 'TAX-1' });
-  await dealer.recordDecision(profile.id, { decision: 'approve_requirement', requirement_key: 'business_registration', reason: 'verified' }, { id: 'admin-u', role: 'admin' });
+  await dealer.upsertRequirement(profile.id,{requirement_key:'business_registration',status:'pending',is_blocking:true});
+  await dealer.recordDecision(profile.id, {
+    decision:'approve_requirement',requirement_key:'business_registration',
+    reason:'Independent compliance reviewer inspected the original registration evidence for this business',
+  }, {id:'admin-u',role:'admin',authenticationMethod:'session',isVerified:true,
+    reviewer_password:REVIEW_PASSWORD});
   // mark identity verified + compliance passed via decisions
   const prof = db.dealer_profiles[0];
   prof.identity_status = 'verified'; prof.compliance_review_state = 'passed'; prof.active_state = 'active';
@@ -187,7 +232,7 @@ test('CarUp differentiator journey (30 steps) through real services', async () =
   assert.ok(db.fraud_case_events.length >= 1, 'step18: case event recorded');
 
   // 19-21. Dealer compliant + completeness passes -> publication eligible (no fraud block now).
-  assert.equal(dealer.deriveCanPublish({ identity_status: 'verified', compliance_review_state: 'passed', suspension_state: 'none', restriction_state: 'none' }, []), true, 'step19: dealer can publish');
+  assert.equal(dealer.deriveCanPublish({ identity_status: 'verified', compliance_review_state: 'passed', active_state: 'active', investigation_state: 'none', suspension_state: 'none', restriction_state: 'none' }, []), true, 'step19: dealer can publish');
   // `now` is supplied because step 25 below reads this decision as the buyer's passport position:
   // an UNSTAMPED decision is not canonical (a score that cannot be shown to be current or stale is
   // reported `not_evaluated`), and the real path — getTrustDecision — always stamps. Without it the

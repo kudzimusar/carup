@@ -19,7 +19,7 @@ on:
 
 jobs:
   backend-and-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       NODE_ENV: test
       DIASPORA_DRIVE_MOCK: 'true'
@@ -83,7 +83,7 @@ jobs:
         run: npm run build
 
   playwright:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -137,7 +137,9 @@ jobs:
           retention-days: 7
 
   staging-integration:
-    runs-on: ubuntu-latest
+    # Cross-programme safety: an isolated dealership PR may never rotate/write shared staging identities.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref != 'feat/carup-dealer-1-0-unified-longrun'
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

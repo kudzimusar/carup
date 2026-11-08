@@ -119,7 +119,7 @@ export function VehicleIntelligenceStory({ report }: { report: VehicleHistoryRep
             </p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-right backdrop-blur">
-            <p className="text-[10px] uppercase tracking-wide text-slate-400">Source diversity</p>
+            <p className="text-[10px] uppercase tracking-wide text-slate-600">Source diversity</p>
             <p className="text-xl font-bold">{report.completeness.source_diversity}</p>
             <p className="text-[10px] text-slate-500">recorded source{report.completeness.source_diversity === 1 ? '' : 's'}</p>
           </div>

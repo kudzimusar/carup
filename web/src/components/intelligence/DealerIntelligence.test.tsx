@@ -166,17 +166,26 @@ describe('DealerDashboard no longer draws invented performance', () => {
 
   it('has no hardcoded inventory-aging bars', () => {
     expect(DEALER_DASHBOARD).not.toMatch(/Progress value=\{?(60|30|10)\}?/)
-    expect(DEALER_DASHBOARD).toContain('days on market cannot be measured')
+    // The new legal-tenant dashboard refuses age calculations entirely: it reads
+    // first-100 canonical VINs and does not possess a publish/first-listed clock.
+    expect(DEALER_DASHBOARD).not.toMatch(/(?:<Progress|mockInventoryAging|daysOnMarket)/)
+    expect(DEALER_DASHBOARD).toContain('Actual staff headcount, sales, reviews and revenue: Not measured.')
   })
 
   it('counts the dealer\'s OWN inventory, not the whole marketplace', () => {
     // `fetchVehicles` is the public, platform-wide, publication-gated read.
     expect(DEALER_DASHBOARD).not.toContain('fetchVehicles')
-    expect(DEALER_DASHBOARD).toContain('fetchDealerInventory')
+    // C17 converged from a legacy hook to the canonical, owner-scoped private API.
+    // Both the verified workspace and the inventory must resolve to the same tenant.
+    expect(DEALER_DASHBOARD).toContain("path:'/dealer/operational-inventory'")
+    expect(DEALER_DASHBOARD).toContain("response.inventory.owner_tenant_id===result.workspace.tenant_id")
+    expect(DEALER_DASHBOARD).toContain("count_scope:'FIRST_100_CANONICAL_TENANT_VEHICLES_ONLY'")
   })
 
   it('does not report a failed inventory read as a count of zero', () => {
-    expect(DEALER_DASHBOARD).toMatch(/inventoryState === 'ready' \? liveInventory\.length : 'Not available'/)
+    expect(DEALER_DASHBOARD).toContain("stockStatus==='ready'?vehicles.length:'Not available'")
+    expect(DEALER_DASHBOARD).toContain('Scoped inventory could not be read. This is not proof of zero vehicles.')
+    expect(DEALER_DASHBOARD).toContain("actual_total:null")
   })
 })
 

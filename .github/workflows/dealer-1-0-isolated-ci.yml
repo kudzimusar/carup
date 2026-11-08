@@ -1,0 +1,178 @@
+name: CarUp Dealership 1.0 — isolated source/contract CI
+
+# This workflow deliberately has no repository secrets, no deployment,
+# no external database connection, no deployed migrations and no payment provider calls.
+on:
+  push:
+    branches:
+      - feat/carup-dealer-1-0-unified-longrun
+    paths:
+      - 'backend/services/dealer/**'
+      - 'backend/scripts/dealership/**'
+      - 'backend/tests/dealer-*.test.js'
+      - 'backend/routes/dealerRoutes.js'
+      - 'backend/routes/dealerResearchRoutes.js'
+      - 'backend/server.js'
+      - 'web/src/pages/Dealer*.tsx'
+      - 'web/src/pages/dashboard/dealer/**'
+      - 'web/src/App.tsx'
+      - 'backend/tests/differentiator-journey.test.js'
+      - 'database/migrations/*dealer*.sql'
+      - 'database/test/dealer_1_0_pglite_check.mjs'
+      - 'web/tests/dealer-native-physical/**'
+      - 'web/playwright.dealer-native-physical.config.ts'
+      - 'docs/dealership/**'
+      - '.github/workflows/dealer-1-0-isolated-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/services/dealer/**'
+      - 'backend/scripts/dealership/**'
+      - 'backend/tests/dealer-*.test.js'
+      - 'backend/tests/differentiator-journey.test.js'
+      - 'backend/routes/dealerRoutes.js'
+      - 'backend/routes/dealerResearchRoutes.js'
+      - 'web/src/pages/Dealer*.tsx'
+      - 'web/src/pages/dashboard/dealer/**'
+      - 'web/src/App.tsx'
+      - 'database/migrations/*dealer*.sql'
+      - 'database/test/dealer_1_0_pglite_check.mjs'
+      - 'web/tests/dealer-native-physical/**'
+      - 'web/playwright.dealer-native-physical.config.ts'
+      - 'docs/dealership/**'
+      - '.github/workflows/dealer-1-0-isolated-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dealer-1-0-isolated-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-source-tests:
+    name: Offline, no shared DB or payment
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: dummy-dealer-1-0-key-not-a-secret
+      SUPABASE_ANON_KEY: dummy-dealer-1-0-anon-key
+      JWT_SECRET: dummy-dealer-1-0-jwt-key
+      ALLOW_OCR_MOCK: 'true'
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # Pull requests normally checkout a synthetic merge SHA, which is
+          # NOT the actual branch commit. Pin the true immutable head instead.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact unmerged branch source SHA
+        env:
+          EXPECTED_DEALER_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_DEALER_SOURCE_HEAD"
+          echo "DEALER_EXACT_SOURCE_SHA PASS: $EXPECTED_DEALER_SOURCE_HEAD"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Check seed-importer syntax
+        run: |
+          node --check backend/scripts/dealership/importResearchSeed.mjs
+          node --check backend/scripts/dealership/proveOwnerOriginal104NativePostgres.mjs
+      - name: Parse all physical Playwright files before native browser start
+        run: |
+          node --input-type=module <<'DEALER_PARSE_PHYSICAL'
+          import assert from 'node:assert/strict'
+          import {readdirSync,readFileSync} from 'node:fs'
+          import ts from 'typescript'
+          const dir='web/tests/dealer-native-physical'
+          const scripts=readdirSync(dir).filter(name=>name.endsWith('.pw.ts')).sort()
+          assert.ok(scripts.length>=5,'Mandatory physical scripts missing')
+          let count=0
+          for(const script of scripts){
+            const path=dir+'/'+script
+            const ast=ts.createSourceFile(path,readFileSync(path,'utf8'),
+              ts.ScriptTarget.Latest,true,ts.ScriptKind.TS)
+            for(const diagnostic of ast.parseDiagnostics){
+              count++
+              const pos=ast.getLineAndCharacterOfPosition(diagnostic.start||0)
+              console.error(path+':'+(pos.line+1)+':'+(pos.character+1)+': '+
+                ts.flattenDiagnosticMessageText(diagnostic.messageText,' '))
+            }
+          }
+          assert.equal(count,0,'Physical browser TypeScript syntax invalid')
+          console.log('DEALER_PHYSICAL_PARSE PASS: '+scripts.length+' browser scripts')
+          DEALER_PARSE_PHYSICAL
+      - name: Syntax check canonical inventory unit tests before full suite
+        run: |
+          node --check backend/tests/dealer-tenant-inventory.test.js
+          node --check backend/services/dealer/dealerTenantInventoryReadService.js
+      - name: Run dealership compliance & seed-source negative-path contracts
+        run: |
+          node --test \
+            backend/tests/dealer-compliance.test.js \
+            backend/tests/dealer-routes.test.js \
+            backend/tests/dealer-research-seed-contract.test.js \
+            backend/tests/dealer-research-service.test.js \
+            backend/tests/dealer-intake-workbook.test.js \
+            backend/tests/dealer-workbook-roundtrip.test.js \
+            backend/tests/dealer-manual-intake.test.js \
+            backend/tests/dealer-claim-application.test.js \
+            backend/tests/dealer-document-candidates.test.js \
+            backend/tests/dealer-jurisdiction-preview.test.js \
+            backend/tests/dealer-12-synthetic-scenarios.test.js \
+            backend/tests/dealer-operations-membership.test.js \
+            backend/tests/dealer-research-review-queue.test.js \
+            backend/tests/dealer-compliance-application.test.js \
+            backend/tests/dealer-source-104-integrity.test.js \
+            backend/tests/dealer-csv-migration.test.js \
+            backend/tests/dealer-legal-activation.test.js \
+            backend/tests/dealer-operational-declarations.test.js \
+            backend/tests/dealer-full-storefront.test.js \
+            backend/tests/dealer-commercial-readiness.test.js \
+            backend/tests/dealer-staff-membership.test.js \
+            backend/tests/dealer-tenant-inventory.test.js \
+            backend/tests/dealer-dashboard-authority-route.test.js \
+            backend/tests/dealer-branch-operating-details.test.js \
+            backend/tests/dealer-tenant-leads.test.js \
+            backend/tests/dealer-canonical-inquiry-progress.test.js \
+            backend/tests/dealer-original-source-proof-guards.test.js \
+            backend/tests/dealer-canonical-listing.test.js \
+            backend/tests/dealer-operating-lifecycle.test.js \
+            backend/tests/dealer-workbook-negative-paths.test.js \
+            backend/tests/dealer-uat-workbook-refusal-clarity.test.js \
+            backend/tests/dealer-uat-draft-review-preview.test.js \
+            backend/tests/dealer-uat-r1-workbook-dimensions.test.js \
+            backend/tests/dealer-uat-r1-reconciliation-services.test.js \
+            backend/tests/differentiator-journey.test.js
+      - name: Isolated PostgreSQL migration and claim authority proof (PGlite)
+        run: |
+          set -o pipefail
+          node database/test/dealer_1_0_pglite_check.mjs | tee "${RUNNER_TEMP}/dealer-pglite-result.log"
+          # The job must fail if an internal harness error gets swallowed or
+          # only prints FAIL; success status alone is not sufficient evidence.
+          grep -q '^DEALER_PGLITE_RESULT PASS:' "${RUNNER_TEMP}/dealer-pglite-result.log"
+      - name: Verify exact 12 phases, 25 capabilities and 67 Owner acceptance outcomes
+        run: node backend/scripts/dealership/checkR3AcceptanceLedgers.mjs
+      - name: Web TypeScript validation
+        run: npx tsc --noEmit --project web/tsconfig.app.json
+      - name: Dealership web unit contracts (Owner visual UAT fixes D2/D4/D5)
+        run: >-
+          npm run test:unit --workspace=web --
+          src/lib/dealerFileRefusal.test.ts
+          src/lib/dealerDraftReview.test.ts
+          src/lib/dealerDates.test.ts
+          src/lib/dealerReviewerErrors.test.ts
+      - name: Web production build (artifact not deployed)
+        run: npm run build
+      - name: Confirm no external DB tests silently ran
+        run: |
+          test -z "${DEALER_SEED_DATABASE_URL:-}"
+          test -z "${CARUP_DEALER_RESEARCH_XLSX:-}"
+          echo 'CI is limited to in-memory/synthetic and pure source contract tests.'

@@ -29,7 +29,7 @@ on:
 jobs:
   # ── Fast DB-free structural + unit gates ────────────────────────────────────
   navigation-gates:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # Dummy values: governance/analytics tests use an in-memory fake client and
       # the server import constructs the Supabase client without connecting.
@@ -99,7 +99,7 @@ jobs:
 
   # ── Navigation E2E (desktop/mobile/footer/role/route-boundary/console) ───────
   navigation-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       NODE_ENV: test
     steps:
@@ -126,7 +126,7 @@ jobs:
 
   # ── Navigation accessibility gate (Milestone H, @axe-core/playwright) ───────
   navigation-accessibility:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       NODE_ENV: test
     steps:

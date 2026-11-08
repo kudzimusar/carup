@@ -318,3 +318,43 @@ describe('resolveApiBaseUrl', () => {
     expect(resolveApiBaseUrl('http://localhost:5001/api', 'localhost')).toBe('http://localhost:5001/api')
   })
 })
+
+// CARUP-DEALER-UX-PROFILE-IMAGES-01-R1: an unsafe request is re-sent only after the CSRF middleware's own
+// refusal (stale token). Any other 403 is the handler's final answer: re-sending it re-presents a single-use
+// reviewer ticket the first attempt already spent (whose refusal then hides the real one) or re-runs a
+// password step-up, spending a second lockout attempt.
+describe('apiClient 403 handling for unsafe requests', () => {
+  // Body sent by backend/middleware/securityMiddleware.js when the CSRF token is missing or stale.
+  const CSRF_REFUSAL = { error: 'CSRF validation failed. Request untrusted.' }
+
+  it('re-sends an unsafe request once, with a fresh CSRF token, after the CSRF middleware refusal', async () => {
+    let posts = 0
+    let tokens = 0
+    const { impl, calls } = makeFetch({
+      csrf: () => makeResponse({ csrfToken: `csrf-tok-${++tokens}` }),
+      api: () => (++posts === 1 ? makeResponse(CSRF_REFUSAL, { ok: false, status: 403 }) : makeResponse({ saved: true })),
+    })
+    await expect(apiRequest({
+      baseUrl: BASE, path: '/dealer/thing', options: { method: 'POST', body: '{}' }, authHeaders: BUYER, fetchImpl: impl,
+    })).resolves.toEqual({ saved: true })
+    const sent = calls.filter((c) => c.url === `${BASE}/dealer/thing`)
+    expect(sent).toHaveLength(2)
+    expect((sent[0].init.headers as Record<string, string>)['x-csrf-token']).toBe('csrf-tok-1')
+    expect((sent[1].init.headers as Record<string, string>)['x-csrf-token']).toBe('csrf-tok-2')
+  })
+
+  it.each([
+    ['a spent or expired single-use review ticket', 'STOREFRONT_MEDIA_REVIEW_TICKET_INVALID'],
+    ['a wrong step-up password', 'REAUTHENTICATION_FAILED'],
+  ])('never re-sends an unsafe request after a handler 403 (%s)', async (_label, code) => {
+    const { impl, calls } = makeFetch({ api: () => makeResponse({ error: code, code }, { ok: false, status: 403 }) })
+    const failure = await apiRequest({
+      baseUrl: BASE, path: '/admin/dealership/storefront-media/ZW-DEAL-0901/review',
+      options: { method: 'POST', body: '{}' }, authHeaders: BUYER, fetchImpl: impl,
+    }).then(() => null, (problem: unknown) => problem as Error & { status?: number; code?: string })
+    expect(failure?.message).toBe(code)
+    expect(failure?.status).toBe(403)
+    expect(failure?.code).toBe(code)
+    expect(calls.filter((c) => c.url.endsWith('/review'))).toHaveLength(1)
+  })
+})

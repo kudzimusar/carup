@@ -1,0 +1,945 @@
+{
+  "schema": "CARUP_DEALER_SOURCE_104_SAFE_MANIFEST_1",
+  "not_publication_authority": true,
+  "original_source_sha256": "a9a6ac6f68bed5266c6870958520105fc1c69f75dd80f7020839e8d5fdd4b137",
+  "source_range": "Car Dealers Database!A8:K111",
+  "catalogue_range": "DEV 8 - Seed Catalogue!A2:U105",
+  "rows": [
+    {
+      "seed_id": "ZW-DEAL-0001",
+      "row": 8,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0002",
+      "row": 9,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0003",
+      "row": 10,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0004",
+      "row": 11,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0005",
+      "row": 12,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0006",
+      "row": 13,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0007",
+      "row": 14,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0008",
+      "row": 15,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0009",
+      "row": 16,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0010",
+      "row": 17,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0011",
+      "row": 18,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0012",
+      "row": 19,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Mutare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0013",
+      "row": 20,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Kadoma",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0014",
+      "row": 21,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Chiredzi",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0015",
+      "row": 22,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Masvingo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0016",
+      "row": 23,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Selous",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0017",
+      "row": 24,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0018",
+      "row": 25,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0019",
+      "row": 26,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0020",
+      "row": 27,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0021",
+      "row": 28,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Mutare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0022",
+      "row": 29,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Gweru",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0023",
+      "row": 30,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0024",
+      "row": 31,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0025",
+      "row": 32,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0026",
+      "row": 33,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0027",
+      "row": 34,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0028",
+      "row": 35,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0029",
+      "row": 36,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0030",
+      "row": 37,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0031",
+      "row": 38,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0032",
+      "row": 39,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Victoria Falls",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0033",
+      "row": 40,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0034",
+      "row": 41,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Mutare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0035",
+      "row": 42,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0036",
+      "row": 43,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Gweru",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0037",
+      "row": 44,
+      "category": "Assembler / manufacturing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0038",
+      "row": 45,
+      "category": "Assembler / manufacturing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0039",
+      "row": 46,
+      "category": "Assembler / manufacturing claim",
+      "city": "Mutare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0040",
+      "row": 47,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0041",
+      "row": 48,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0042",
+      "row": 49,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0043",
+      "row": 50,
+      "category": "Official dealer / franchise label — UNVERIFIED",
+      "city": "Chinhoyi",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0044",
+      "row": 51,
+      "category": "Premium / luxury dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0045",
+      "row": 52,
+      "category": "Importer / bonded / clearing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0046",
+      "row": 53,
+      "category": "Importer / bonded / clearing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0047",
+      "row": 54,
+      "category": "Importer / sourcing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0048",
+      "row": 55,
+      "category": "Importer / sourcing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0049",
+      "row": 56,
+      "category": "Importer / sourcing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0050",
+      "row": 57,
+      "category": "Dealer and service centre claim",
+      "city": "Masvingo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0051",
+      "row": 58,
+      "category": "Dealer / seller claim — categorize in D0",
+      "city": "Gweru",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0052",
+      "row": 59,
+      "category": "Dealer / seller claim — categorize in D0",
+      "city": "Mutare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0053",
+      "row": 60,
+      "category": "Dealer / seller claim — categorize in D0",
+      "city": "Masvingo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0054",
+      "row": 61,
+      "category": "Dealer / seller claim — categorize in D0",
+      "city": "Victoria Falls",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0055",
+      "row": 62,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0056",
+      "row": 63,
+      "category": "Importer / sourcing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0057",
+      "row": 64,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0058",
+      "row": 65,
+      "category": "Importer / sourcing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0059",
+      "row": 66,
+      "category": "Premium / luxury dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0060",
+      "row": 67,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0061",
+      "row": 68,
+      "category": "Premium / luxury dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0062",
+      "row": 69,
+      "category": "Premium / luxury dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0063",
+      "row": 70,
+      "category": "Premium / luxury dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0064",
+      "row": 71,
+      "category": "Commercial / heavy vehicle claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0065",
+      "row": 72,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0066",
+      "row": 73,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0067",
+      "row": 74,
+      "category": "Marketplace / brokerage claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0068",
+      "row": 75,
+      "category": "Importer / sourcing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0069",
+      "row": 76,
+      "category": "Importer / sourcing claim",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0070",
+      "row": 77,
+      "category": "Importer / sourcing claim",
+      "city": "Mutare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0071",
+      "row": 78,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0072",
+      "row": 79,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0073",
+      "row": 80,
+      "category": "Importer / sourcing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0074",
+      "row": 81,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0075",
+      "row": 82,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0076",
+      "row": 83,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0077",
+      "row": 84,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0078",
+      "row": 85,
+      "category": "Importer / sourcing claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0079",
+      "row": 86,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0080",
+      "row": 87,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0081",
+      "row": 88,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0082",
+      "row": 89,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0083",
+      "row": 90,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0084",
+      "row": 91,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0085",
+      "row": 92,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0086",
+      "row": 93,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0087",
+      "row": 94,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0088",
+      "row": 95,
+      "category": "Independent dealer claim",
+      "city": "Harare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0089",
+      "row": 96,
+      "category": "Marketplace / brokerage claim",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0090",
+      "row": 97,
+      "category": "Importer / sourcing claim",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0091",
+      "row": 98,
+      "category": "Marketplace / brokerage claim",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0092",
+      "row": 99,
+      "category": "Importer / bonded / clearing claim",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0093",
+      "row": 100,
+      "category": "Independent dealer claim",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0094",
+      "row": 101,
+      "category": "Independent dealer claim",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0095",
+      "row": 102,
+      "category": "Independent dealer claim",
+      "city": "Bulawayo",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0096",
+      "row": 103,
+      "category": "Independent dealer claim",
+      "city": "Gweru",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0097",
+      "row": 104,
+      "category": "Independent dealer claim",
+      "city": "Gweru",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0098",
+      "row": 105,
+      "category": "Importer / sourcing claim",
+      "city": "Mutare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0099",
+      "row": 106,
+      "category": "Independent dealer claim",
+      "city": "Mutare",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0100",
+      "row": 107,
+      "category": "Independent dealer claim",
+      "city": "Bindura",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0101",
+      "row": 108,
+      "category": "Importer / sourcing claim",
+      "city": "Beitbridge",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0102",
+      "row": 109,
+      "category": "Importer / bonded / clearing claim",
+      "city": "Beitbridge",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0103",
+      "row": 110,
+      "category": "Importer / bonded / clearing claim",
+      "city": "Beitbridge",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    },
+    {
+      "seed_id": "ZW-DEAL-0104",
+      "row": 111,
+      "category": "Importer / bonded / clearing claim",
+      "city": "Beitbridge",
+      "group_state": "UNREVIEWED_PARENT_BRANCH_MATCH",
+      "publication_eligibility": "PENDING_HUMAN_SOURCE_ELIGIBILITY",
+      "candidate_state": "RESEARCH_ONLY_NOT_LEGAL_ENTITY"
+    }
+  ]
+}

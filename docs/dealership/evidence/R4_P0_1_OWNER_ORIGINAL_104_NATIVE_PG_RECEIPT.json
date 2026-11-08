@@ -1,0 +1,143 @@
+{
+  "receipt": "CARUP-DEALER-ONB-001-LR01-R4 P0-1 — Owner-original 104-row PRIVATE native PostgreSQL import",
+  "disposition": "PASS_ENGINEERING (private research custody only; NOT verification, NOT publication)",
+  "code_sha": "79cb68904f462ce05ca87c217fc85e79ace357c6",
+  "script": "backend/scripts/dealership/proveOwnerOriginal104NativePostgres.mjs",
+  "run_window_utc": {
+    "start": "2026-11-06T09:21:27Z",
+    "end": "2026-11-06T09:21:27Z"
+  },
+  "source_bytes": {
+    "sha256": "a9a6ac6f68bed5266c6870958520105fc1c69f75dd80f7020839e8d5fdd4b137",
+    "bytes": 175756,
+    "worksheets": 20,
+    "custody": "Located on the Owner's own machine (local Downloads folder; Chrome-downloaded export of spreadsheet 10YntHvtk9PhrRjZQEMHWfnZgqT84hisTW_oOnt2ZhNQ, local mtime 2026-11-03 02:25:15Z). Byte-identical to the custody checksum recorded since D0. Copied (mode 600) into a private evidence directory outside every Git worktree; never committed, uploaded to CI, screenshotted or logged.",
+    "google_native_reexport_substituted": false
+  },
+  "database": {
+    "engine": "PostgreSQL 17.11 native (embedded-postgres darwin-arm64 binaries), throwaway cluster, listen_addresses=127.0.0.1",
+    "server_version_num": 170011,
+    "server_address": "127.0.0.1/32",
+    "database": "carup_dealer_owner_original_isolated",
+    "schema": "stub base + the 17 dealership migrations via DEALER_NATIVE_SCHEMA_ONLY=1 database/test/dealer_1_0_pglite_check.mjs, then CREATE DATABASE … TEMPLATE; fictional preseeded users deleted so the target held zero rows of any business authority",
+    "after_proof": "database and cluster destroyed after this receipt (re-creatable in seconds; the command is below)"
+  },
+  "negative_controls_before_run": [
+    "wrong --expect-sha256 → DEALER_SEED_REJECTED: source SHA does not match explicitly approved Owner-original workbook (exit 1)",
+    "synthetic CI database name carup_dealer_isolated_ci → DEALER_SEED_REJECTED: original import requires the dedicated disposable localhost PostgreSQL database (exit 1)",
+    "non-loopback host → DEALER_SEED_REJECTED: refusing any database host other than loopback (exit 1)",
+    "privacy self-check refused an earlier run's output (a suburb equal to its own city); refined to exempt only exact public-safe manifest tokens; that run's database was dropped and the proof re-run from an empty target",
+    "the receipt prose itself was privacy-checked against the private original; the bare ownership word \"Private\" was the only hit and is exempt (79cb6890), named principals stay strict"
+  ],
+  "evidence": {
+    "result": "PASS",
+    "source_status": "OWNER_ORIGINAL_REAL_RESEARCH_OBSERVATIONS_NOT_VERIFIED_NOT_PUBLISHED",
+    "workbook_sha256": "a9a6ac6f68bed5266c6870958520105fc1c69f75dd80f7020839e8d5fdd4b137",
+    "workbook_bytes": 175756,
+    "worksheets": 20,
+    "source_range": "Car Dealers Database!A8:K111",
+    "seed_catalogue_range": "DEV 8 - Seed Catalogue!A2:U105",
+    "postgres_server_version_num": 170011,
+    "database": "carup_dealer_owner_original_isolated",
+    "server_address": "127.0.0.1/32",
+    "first_import": {
+      "inserted": 104,
+      "identical": 0,
+      "read_back": 104,
+      "public_profiles_created": 0
+    },
+    "readback_rows": 104,
+    "readback_fields_compared": 2288,
+    "row_hashes_recomputed_from_stored_snapshot": 104,
+    "safe_manifest_rows_matched": 104,
+    "seed_id_first": "ZW-DEAL-0001",
+    "seed_id_last": "ZW-DEAL-0104",
+    "category_counts_from_db": {
+      "Assembler / manufacturing claim": 3,
+      "Commercial / heavy vehicle claim": 1,
+      "Dealer / seller claim — categorize in D0": 4,
+      "Dealer and service centre claim": 1,
+      "Importer / bonded / clearing claim": 6,
+      "Importer / sourcing claim": 13,
+      "Independent dealer claim": 28,
+      "Marketplace / brokerage claim": 3,
+      "Official dealer / franchise label — UNVERIFIED": 40,
+      "Premium / luxury dealer claim": 5
+    },
+    "city_counts_from_db": {
+      "Harare": 62,
+      "Bulawayo": 15,
+      "Mutare": 8,
+      "Gweru": 5,
+      "Beitbridge": 4,
+      "Masvingo": 3,
+      "Victoria Falls": 2,
+      "Bindura": 1,
+      "Chinhoyi": 1,
+      "Chiredzi": 1,
+      "Kadoma": 1,
+      "Selous": 1
+    },
+    "identity_review_signals_from_db": {
+      "potential_duplicate_pairs": 26,
+      "repeated_parent_branch_hint_groups": 11,
+      "largest_unverified_hint_group": 10,
+      "auto_merged_legal_entities": 0,
+      "automatic_publication_decisions": 0,
+      "requires_independent_review": true
+    },
+    "idempotent_reimport": {
+      "inserted": 0,
+      "identical": 104,
+      "read_back": 104,
+      "public_profiles_created": 0
+    },
+    "altered_row_reimport": "REJECTED_IMMUTABLE_SOURCE_CONFLICT_ROLLED_BACK",
+    "after_conflict_state": {
+      "n": 104,
+      "unpublished": 104,
+      "unclaimed": 104,
+      "pending": 104
+    },
+    "aggregate_row_digest_sha256": "548fbdf6c6e611ab8307fc7b8782a12e0d462932fd0305d4d72c1581f53b6fec",
+    "authority_after_import": {
+      "public_profiles": 0,
+      "claims": 0,
+      "legal_profiles": 0,
+      "tenants": 0,
+      "organizations": 0,
+      "tenant_memberships": 0,
+      "vehicles": 0
+    },
+    "verified_legal_companies": 0,
+    "publication_approved": 0,
+    "contacts_publicly_authorized": false
+  },
+  "result_lines": [
+    "DEALER_ORIGINAL_104_PRIVACY_SELF_CHECK PASS: 763 restricted source values absent from this evidence",
+    "DEALER_ORIGINAL_104_NATIVE_RESULT PASS: Owner-original SHA a9a6ac6f68be… · PostgreSQL 170011 loopback · 104/104 inserted and field-by-field read back · manifest 104/104 · reimport 104 identical · conflict rolled back · 0 public/legal/tenant/org/claim"
+  ],
+  "status_boundaries": {
+    "real_research_observations": 104,
+    "independently_verified_businesses": 0,
+    "publication_approved": 0,
+    "claims": 0,
+    "tenants": 0,
+    "public_profiles": 0,
+    "note": "The 104 records are REAL researched source observations, not fictional, and remain unverified/unpublished until the separate human source-eligibility, claim, legal and publication decisions occur."
+  },
+  "reproduce": [
+    "~/carup-launch-evidence/carup-dealer-r4/scripts/pg17-disposable.sh up orig 55471 carup_dealer_isolated_ci",
+    "DEALER_ISOLATED_POSTGRES_URL=postgresql://postgres@127.0.0.1:55471/carup_dealer_isolated_ci DEALER_NATIVE_SCHEMA_ONLY=1 node database/test/dealer_1_0_pglite_check.mjs",
+    "psql … -c 'CREATE DATABASE carup_dealer_owner_original_isolated TEMPLATE carup_dealer_isolated_ci'; psql … -d carup_dealer_owner_original_isolated -c 'DELETE FROM users'",
+    "DEALER_SEED_DATABASE_URL=postgresql://postgres@127.0.0.1:55471/carup_dealer_owner_original_isolated node backend/scripts/dealership/proveOwnerOriginal104NativePostgres.mjs <private original path> --expect-sha256=a9a6ac6f68bed5266c6870958520105fc1c69f75dd80f7020839e8d5fdd4b137"
+  ],
+  "earlier_identical_runs": [
+    {
+      "code_sha": "d8be4706e57bf96c3d66633cd66497a6af7ded16",
+      "start": "2026-11-06T09:19:13Z",
+      "aggregate_row_digest_sha256": "548fbdf6c6e611ab8307fc7b8782a12e0d462932fd0305d4d72c1581f53b6fec",
+      "restricted_values_checked": 786
+    }
+  ]
+}

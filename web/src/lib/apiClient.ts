@@ -164,6 +164,17 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
 const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS']
 
 /**
+ * The CSRF middleware (backend/middleware/securityMiddleware.js) refuses a missing or stale token with
+ * 403 { error: 'CSRF validation failed. Request untrusted.' }. Only that refusal is re-sent with a fresh
+ * token. Any other 403 is the handler's final answer and is never re-sent: a re-send can present a
+ * single-use reviewer ticket that the first attempt already spent (its refusal then hides the real one,
+ * e.g. a wrong password) or run a reviewer password step-up a second time.
+ */
+function isCsrfRefusal(message: string | undefined): boolean {
+  return typeof message === 'string' && /\bcsrf\b/i.test(message)
+}
+
+/**
  * Extract a human-readable STRING message from a backend error body, regardless of shape, so the
  * thrown Error never carries a non-string (which would render as "[object Object]"). Handles the
  * standard errorMiddleware shape `{ error: { message, code } }`, the authMiddleware shape
@@ -325,7 +336,7 @@ export async function apiRequest<T = any>({
     const errorData = await response.json().catch(() => ({}))
     const message = extractApiErrorMessage(errorData)
 
-    if (response.status === 403 && !SAFE_METHODS.includes(method)) {
+    if (response.status === 403 && !SAFE_METHODS.includes(method) && isCsrfRefusal(message)) {
       // Stale CSRF token: bust cache and retry exactly once.
       cachedCsrfToken = null
       cachedCsrfIdentity = null

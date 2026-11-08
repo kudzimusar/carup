@@ -204,7 +204,7 @@ export default function Navbar() {
               <Car className="w-5 h-5 text-white" />
             </div>
             <span className="text-xl font-bold tracking-tight">
-              Car<span className="text-orange-500">Up</span>
+              Car<span className="text-orange-700">Up</span>
             </span>
           </Link>
 
@@ -263,7 +263,7 @@ export default function Navbar() {
                 >
                   <Bell className="w-5 h-5" aria-hidden="true" />
                   {unreadCount > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center bg-orange-500 text-[10px]" aria-hidden="true">
+                    <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center bg-orange-700 text-[10px]" aria-hidden="true">
                       {unreadCount}
                     </Badge>
                   )}
@@ -288,7 +288,7 @@ export default function Navbar() {
                 {liveNotifications.slice(0, 5).map((n) => (
                   <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-1 p-3 cursor-pointer">
                     <div className="flex items-center gap-2 w-full">
-                      <span className={`w-2 h-2 rounded-full ${n.read ? 'bg-gray-300' : 'bg-orange-500'}`} />
+                      <span className={`w-2 h-2 rounded-full ${n.read ? 'bg-gray-300' : 'bg-orange-700'}`} />
                       <span className="font-medium text-sm flex-1">{n.title}</span>
                     </div>
                     <p className="text-xs text-gray-500 ml-4 line-clamp-2">{n.message}</p>
@@ -362,7 +362,7 @@ export default function Navbar() {
                 <Button variant="ghost" size="sm" asChild>
                   <Link to="/login">Sign In</Link>
                 </Button>
-                <Button size="sm" className="bg-orange-500 hover:bg-orange-600" asChild>
+                <Button size="sm" className="bg-orange-700 hover:bg-orange-800" asChild>
                   <Link to={sellerPath} data-testid="nav-sell-cta">Sell Your Car</Link>
                 </Button>
               </div>

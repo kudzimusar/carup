@@ -16,6 +16,7 @@
  *     never returns private documents, contacts, internal reasons, or raw decision payloads.
  */
 import { supabase } from '../../db/supabase.js';
+import { requireReviewerPassword } from './dealerClaimApplicationService.js';
 
 const PROFILES = 'dealer_profiles';
 const BRANCHES = 'dealer_branches';
@@ -25,7 +26,7 @@ const DECISIONS = 'dealer_compliance_decisions';
 
 const PROFILE_FIELDS = [
   'legal_name', 'trading_name', 'registration_number', 'tax_id',
-  'physical_address', 'responsible_person', 'operating_country', 'tenant_id',
+  'physical_address', 'responsible_person', 'operating_country',
 ];
 
 const DECISIONS_ALLOWED = [
@@ -48,6 +49,22 @@ export async function createOrUpdateProfile(userId, data = {}) {
   }
 
   if (existing) {
+    // Security review #6: once a profile is bound to an approved dealership claim, its business facts
+    // change only through the canonical dealership workflows (versioned declarations, reviewed storefront),
+    // never through this legacy route.
+    await refuseActivatedDealerProfile(existing.id);
+    // The applicant must never silently rewrite an identity previously independently verified.
+    // Corrections must go through governance, and only the canonical activation authority
+    // may assign tenant_id (never user-supplied profile data).
+    if (existing.identity_status === 'verified' || existing.compliance_review_state === 'passed') {
+      for (const immutableFact of ['legal_name','registration_number','tax_id','operating_country']) {
+        if (patch[immutableFact] !== undefined && patch[immutableFact] !== existing[immutableFact]) {
+          const error = new Error('Verified legal identity change requires independent correction review');
+          error.statusCode = 409;
+          throw error;
+        }
+      }
+    }
     patch.updated_at = new Date().toISOString();
     const { data: row, error } = await supabase
       .from(PROFILES).update(patch).eq('id', existing.id).select().single();
@@ -86,6 +103,28 @@ export async function getProfile(dealerOrUserId) {
   return getProfileByUser(dealerOrUserId);
 }
 
+/**
+ * Security review #6 / R6 round 2: a profile bound to an approved dealership claim
+ * (dealer_approved_seed_links) is governed ONLY by the canonical dealership workspace and the
+ * dual-control C12 operating lifecycle — never by the legacy profile, branch, document or
+ * governance-decision routes. Same 409 as the legacy profile route.
+ */
+async function refuseActivatedDealerProfile(profileId) {
+  const { data: link, error: linkError } = await supabase.from('dealer_approved_seed_links')
+    .select('link_id').eq('dealer_profile_id', profileId).maybeSingle();
+  if (linkError) {
+    const error = new Error('Dealer profile authority check unavailable');
+    error.statusCode = 503;
+    throw error;
+  }
+  if (link) {
+    const error = new Error('Activated dealership profiles are edited through the dealership workspace');
+    error.statusCode = 409;
+    error.code = 'ACTIVATED_DEALER_PROFILE_LEGACY_ROUTE_REFUSED';
+    throw error;
+  }
+}
+
 async function requireProfile(dealerId) {
   const profile = await getProfileById(dealerId);
   if (!profile) throw new Error(`Dealer not found: ${dealerId}`);
@@ -105,6 +144,7 @@ export async function listProfiles({ tenantId } = {}) {
 
 export async function addBranch(dealerId, { name, address } = {}) {
   await requireProfile(dealerId);
+  await refuseActivatedDealerProfile(dealerId);
   const { data, error } = await supabase
     .from(BRANCHES).insert({ dealer_id: dealerId, name: name || null, address: address || null })
     .select().single();
@@ -157,15 +197,18 @@ export async function listRequirements(dealerId) {
 
 // ── documents (metadata only) ──────────────────────────────────────────────────────
 
-/** Record compliance document metadata. The binary lives elsewhere; we keep only file_ref. */
-export async function uploadDocument(dealerId, { doc_type, status, file_ref, expiry_date } = {}) {
+/** Record unverified document-intake metadata only; a claimant cannot set verified or select arbitrary private storage refs. */
+export async function uploadDocument(dealerId, { doc_type, expiry_date } = {}) {
   await requireProfile(dealerId);
+  await refuseActivatedDealerProfile(dealerId);
   if (!doc_type) throw new Error('uploadDocument requires a doc_type');
   const row = {
     dealer_id: dealerId,
     doc_type,
-    status: status || 'present',
-    file_ref: file_ref || null,
+    // The existing metadata route is NOT a governed Document Intelligence upload.
+    // Until an owned private document is bound through that authority, no binary ref exists.
+    status: 'pending',
+    file_ref: null,
     expiry_date: expiry_date || null,
   };
   const { data, error } = await supabase.from(DOCUMENTS).insert(row).select().single();
@@ -209,56 +252,75 @@ export function applyDecisionToProfile(decision, payload = {}) {
  * @returns { decision, profile } the ledger row and the resulting profile.
  */
 export async function recordDecision(dealerId, { decision, requirement_key, reason, payload } = {}, actor = {}) {
-  const profile = await requireProfile(dealerId);
+  // This legacy route is now a fail-closed façade over a single DB transaction.
+  // Actor identity, role and step-up come from the authenticated server-side session
+  // and password hash, never the client-provided governance payload.
   if (!DECISIONS_ALLOWED.includes(decision)) {
     throw new Error(`decision must be one of ${DECISIONS_ALLOWED.join('|')}`);
   }
-  if (!actor || !actor.id) throw new Error('a decision requires an authenticated actor');
-
-  const requirementDecisions = {
-    approve_requirement: 'verified',
-    reject_requirement: 'rejected',
-    request_more_info: 'pending',
-  };
-  if (decision in requirementDecisions) {
-    if (!requirement_key) throw new Error(`${decision} requires a requirement_key`);
+  if (!actor?.id) throw new Error('a decision requires an authenticated actor');
+  if (typeof reason !== 'string' || reason.trim().length < 40 || reason.length > 3000) {
+    const error = new Error('A documented 40–3000 character independent decision reason is required');
+    error.statusCode = 400;
+    throw error;
   }
-
-  // 1. Write the immutable ledger row first (the durable record of intent).
-  const ledgerRow = {
-    dealer_id: dealerId,
-    decision,
-    requirement_key: requirement_key || null,
-    actor_id: actor.id,
-    actor_role: actor.role || null,
-    reason: reason || null,
-    payload: payload || {},
-  };
-  const { data: ledger, error: ledgerErr } = await supabase
-    .from(DECISIONS).insert(ledgerRow).select().single();
-  if (ledgerErr) throw new Error(`failed to record decision: ${ledgerErr.message}`);
-
-  // 2. Apply the effect.
-  if (decision in requirementDecisions) {
-    await upsertRequirement(dealerId, { requirement_key, status: requirementDecisions[decision] });
+  if (['approve_requirement','reject_requirement','request_more_info'].includes(decision) &&
+      (!requirement_key || typeof requirement_key !== 'string')) {
+    throw new Error(`${decision} requires a requirement_key`);
   }
-
-  const patch = applyDecisionToProfile(decision, payload || {});
-  let updatedProfile = profile;
-  if (Object.keys(patch).length > 0) {
-    patch.updated_at = new Date().toISOString();
-    const { data: row, error } = await supabase
-      .from(PROFILES).update(patch).eq('id', dealerId).select().single();
-    if (error) throw new Error(`failed to apply decision effect: ${error.message}`);
-    updatedProfile = row;
-  } else {
-    // re-read so callers always see current statuses (e.g. after a requirement change)
-    updatedProfile = await getProfileById(dealerId);
+  if (actor.authenticationMethod !== 'session' || actor.isVerified !== true ||
+      !['admin','reviewer','platform_admin','super_admin'].includes(actor.role)) {
+    const error = new Error('Independent verified reviewer session is required');
+    error.statusCode = 403;
+    throw error;
   }
-
-  return { decision: ledger, profile: updatedProfile };
+  if (typeof actor.reviewer_password !== 'string' || actor.reviewer_password.length < 8) {
+    const error = new Error('Independent reviewer password reauthentication is required');
+    error.statusCode = 403;
+    throw error;
+  }
+  const profile = await requireProfile(dealerId);
+  // R6 round 2: an activated dealership is governed only by the dual-control C12 lifecycle. Refuse
+  // before any step-up attempt is consumed; the database refuses independently as well.
+  await refuseActivatedDealerProfile(profile.id);
+  if (profile.user_id === actor.id) {
+    const error = new Error('Independent reviewer reauthentication failed');
+    error.statusCode = 403;
+    throw error;
+  }
+  // R6 round 2 (#5): the SAME per-reviewer step-up lockout as every dealership reviewer action
+  // (5 unsuccessful attempts / 15 min -> 429 for 15 min; guard unavailable -> 503).
+  try {
+    await requireReviewerPassword(
+      { userId: actor.id, authenticationMethod: actor.authenticationMethod,
+        isVerified: actor.isVerified, platformRole: actor.role },
+      { claimant_user_id: profile.user_id }, actor.reviewer_password);
+  } catch (stepUpError) {
+    if (stepUpError?.statusCode === 429 || stepUpError?.statusCode === 503) throw stepUpError;
+    const error = new Error('Independent reviewer reauthentication failed');
+    error.statusCode = 403;
+    throw error;
+  }
+  // Do not permit a partial ledger write followed by a failed profile/requirement
+  // update. Postgres executes all effects in one transaction, or none of them.
+  const { data, error } = await supabase.rpc('dealer_record_atomic_compliance_decision', {
+    p_dealer_id: dealerId, p_reviewer_id: actor.id, p_decision: decision,
+    p_requirement_key: requirement_key || null, p_reason: reason.trim(),
+    p_payload: payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {},
+  });
+  if (error && /ACTIVATED_DEALER_GOVERNED_BY_OPERATING_LIFECYCLE/.test(String(error.message || ''))) {
+    const refused = new Error('Activated dealerships are governed only by the dealership operating lifecycle');
+    refused.statusCode = 409;
+    refused.code = 'ACTIVATED_DEALER_GOVERNED_BY_OPERATING_LIFECYCLE';
+    throw refused;
+  }
+  if (error || !data?.audit_atomic || !data?.decision || !data?.profile) {
+    const refused = new Error('Atomic dealer governance decision rejected; no state change confirmed');
+    refused.statusCode = 409;
+    throw refused;
+  }
+  return { decision: data.decision, profile: data.profile };
 }
-
 /** Full, immutable decision history for a dealer (admin/owner surface). */
 export async function listDecisions(dealerId) {
   const { data, error } = await supabase
@@ -274,7 +336,8 @@ export async function listDecisions(dealerId) {
  * PURE: given a profile and its blocking requirement statuses, decide whether the dealer
  * may publish listings. No I/O. A dealer can publish ONLY when:
  *   - not suspended, AND
- *   - not restriction-blocked, AND
+ *   - not restriction-blocked or under investigation, AND
+ *   - active_state === 'active', AND
  *   - compliance_review_state === 'passed', AND
  *   - identity_status === 'verified', AND
  *   - no blocking requirement is still unsatisfied, AND
@@ -284,6 +347,8 @@ export function deriveCanPublish(profile = {}, blockingRequirements = []) {
   if (!profile) return false;
   if (profile.suspension_state === 'suspended') return false;
   if (profile.restriction_state === 'restricted') return false;
+  if (profile.investigation_state === 'under_investigation') return false;
+  if (profile.active_state !== 'active') return false;
   if (profile.compliance_review_state !== 'passed') return false;
   if (profile.identity_status !== 'verified') return false;
   if (deriveExpiryState(profile) === 'expired') return false;
@@ -353,7 +418,7 @@ export function deriveEvidenceBand(profile = {}, requirements = []) {
 
 /**
  * Buyer-safe summary. Returns ONLY a coarse status, the compliance review date, an evidence
- * completeness band, and a count of unresolved serious complaints. NEVER returns private
+ * completeness band, and a nullable unresolved-serious-complaints measurement. NEVER returns private
  * documents, contacts, internal notes, reasons, or raw decision payloads.
  */
 export async function getBuyerSafeSummary(dealerId) {
@@ -371,7 +436,9 @@ export async function getBuyerSafeSummary(dealerId) {
     status: deriveBuyerStatus(profile),
     compliance_review_date: compliance_review_date || null,
     evidence_completeness_band: deriveEvidenceBand(profile, requirements),
-    unresolved_serious_complaints: 0,
+    // No authoritative complaints counter is joined in this lineage. Unknown is NOT zero.
+    // Wire only transaction-backed, correctly scoped complaint evidence in a separately reviewed change.
+    unresolved_serious_complaints: null,
   };
 }
 

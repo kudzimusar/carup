@@ -64,7 +64,7 @@ export function AllInPricePanel({ pricing }: { pricing: MarketplacePricingSummar
         {typeof pricing.estimated_total === 'number' && (
           <div className="mt-2 flex items-center justify-between border-t border-gray-100 pt-2">
             <span className="font-semibold text-gray-900">Estimated total</span>
-            <span className="text-lg font-bold text-orange-600" data-testid="marketplace-allin-total">{fmt(pricing.estimated_total)}</span>
+            <span className="text-lg font-bold text-orange-700" data-testid="marketplace-allin-total">{fmt(pricing.estimated_total)}</span>
           </div>
         )}
       </div>

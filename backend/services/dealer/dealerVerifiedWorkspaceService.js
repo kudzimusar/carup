@@ -1,0 +1,106 @@
+/**
+ * CARUP-DEALER-ONB-001 D7 — active claim-linked canonical dealership owner
+ * workspace. Global user.role is deliberately NOT an authorization criterion:
+ * legal activation preserves ordinary member roles. The actual legal/tenant/
+ * organization/member authority is checked on every request.
+ */
+import {supabase} from '../../db/supabase.js';
+import {requireClaimantSession} from './dealerClaimApplicationService.js';
+import {readMyOperationalDealerAuthority} from './dealerLegalActivationService.js';
+import {parsePrivateBranchDetails} from './dealerBranchDetailsValidation.js';
+const refuse=(code,status=403)=>Object.assign(new Error(code),{statusCode:status,code});
+const clean=(v,max=180)=>typeof v==='string'&&v.trim().length>0&&v.trim().length<=max
+  ?v.trim():null;
+export async function requireApprovedOwnerWorkspace(actor){
+  requireClaimantSession(actor);
+  const {data:links,error:linkError}=await supabase.from('dealer_approved_seed_links')
+    .select('claim_id,seed_dealer_id,tenant_id,dealer_profile_id,organization_id')
+    .eq('claimant_user_id',actor.userId).eq('operating_status','ACTIVE').limit(2);
+  if(linkError)throw refuse('APPROVED_DEALER_LINK_UNAVAILABLE',503);
+  if(!links?.length)throw refuse('NO_ACTIVE_CANONICAL_DEALER_MEMBERSHIP',404);
+  if(links.length!==1)throw refuse('MULTIPLE_DEALERS_REQUIRE_EXPLICIT_TENANT_SELECTION',409);
+  const link=links[0];
+  const authority=await readMyOperationalDealerAuthority(link.claim_id,actor);
+  if(!authority.operational||authority.tenant_id!==link.tenant_id||
+    authority.dealer_profile_id!==link.dealer_profile_id)
+    throw refuse('CANONICAL_DEALER_AUTHORITY_NOT_ACTIVE');
+  return Object.freeze({actor_id:actor.userId,claim_id:link.claim_id,
+    seed_dealer_id:link.seed_dealer_id,tenant_id:link.tenant_id,
+    organization_id:link.organization_id,dealer_profile_id:link.dealer_profile_id,
+    owner_membership_confirmed:true});
+}
+export async function getMyVerifiedDealerWorkspace(actor){
+  const authority=await requireApprovedOwnerWorkspace(actor);
+  const [profileResult,branchesResult,memberResult]=await Promise.all([
+    supabase.from('dealer_profiles')
+      .select('id,legal_name,trading_name,registration_number,operating_country,tenant_id,identity_status,compliance_review_state,active_state,restriction_state,suspension_state,investigation_state,expiry_date,updated_at')
+      .eq('id',authority.dealer_profile_id).eq('user_id',actor.userId).maybeSingle(),
+    supabase.from('dealer_branches')
+      .select('id,dealer_id,name,address,latitude,longitude,opening_hours_text,created_at')
+      .eq('dealer_id',authority.dealer_profile_id).order('created_at',{ascending:true}).limit(100),
+    supabase.from('tenant_users').select('user_id',{head:true,count:'exact'})
+      .eq('tenant_id',authority.tenant_id),
+  ]);
+  if(profileResult.error||!profileResult.data||branchesResult.error||
+    memberResult.error||!Number.isInteger(memberResult.count)||memberResult.count<1)
+    throw refuse('CANONICAL_DEALER_WORKSPACE_READ_UNAVAILABLE',503);
+  const branches=branchesResult.data||[];
+  // UAT-R1: which approved claim each branch came from (primary activation or an attached second
+  // branch claim of the same company) and every attached claim with its own status. Read failures
+  // only hide this provenance; they never widen authority.
+  const branchIds=branches.map(b=>b.id);
+  const [attachedResult,primaryWalk,attachedWalk]=await Promise.all([
+    supabase.rpc('dealer_read_branch_attachments',{p_profile_id:authority.dealer_profile_id,p_tenant_id:authority.tenant_id}),
+    branchIds.length?supabase.from('dealer_activation_branch_crosswalk').select('branch_id').in('branch_id',branchIds):{data:[]},
+    branchIds.length?supabase.from('dealer_attachment_branch_crosswalk').select('branch_id,attachment_id').in('branch_id',branchIds):{data:[]},
+  ]);
+  const attachedClaims=!attachedResult.error&&Array.isArray(attachedResult.data)?attachedResult.data:null;
+  const seedByAttachment=new Map((attachedClaims||[]).map(a=>[a.attachment_id,{seed:a.seed_dealer_id,status:a.effective_status}]));
+  const fromPrimary=new Set((primaryWalk.data||[]).map(x=>x.branch_id));
+  const fromAttachment=new Map((attachedWalk.data||[]).map(x=>[x.branch_id,x.attachment_id]));
+  const provenanceKnown=!primaryWalk.error&&!attachedWalk.error;
+  const branchSources=Object.fromEntries(branches.map(b=>{
+    const attachment=fromAttachment.get(b.id);
+    const source=!provenanceKnown?null:attachment?{kind:'ATTACHED_BRANCH_CLAIM',
+      seed_dealer_id:seedByAttachment.get(attachment)?.seed||null,status:seedByAttachment.get(attachment)?.status||null}:
+      fromPrimary.has(b.id)?{kind:'PRIMARY_ACTIVATION',seed_dealer_id:authority.seed_dealer_id,status:'ACTIVE'}:
+      {kind:'OWNER_DECLARED',seed_dealer_id:null,status:null};
+    return [b.id,source];
+  }));
+  return {...authority,operational:true,
+    profile:profileResult.data,branches,branch_sources:branchSources,
+    attached_claims:attachedClaims,attached_claims_available:attachedClaims!==null,
+    recorded_tenant_member_count:memberResult.count,
+    current_staff_headcount:null,actual_revenue:null,
+    public_verified_badge:false,vehicle_listing_authority:false,
+    no_unverified_metrics_generated:true};
+}
+/**
+ * An active approved owner may add a PRIVATE declaration of a branch. It does
+ * not qualify a new public approved branch or inherit an OEM licence.
+ */
+export async function addDeclaredDealerBranch(actor,payload={}){
+  const authority=await requireApprovedOwnerWorkspace(actor);
+  const details=parsePrivateBranchDetails(payload);
+  const {data,error}=await supabase.from('dealer_branches')
+    .insert({dealer_id:authority.dealer_profile_id,...details,
+      operating_details_updated_at:new Date().toISOString()})
+    .select('id,dealer_id,name,address,latitude,longitude,opening_hours_text,created_at').single();
+  if(error)throw refuse('CANONICAL_BRANCH_WRITE_UNAVAILABLE',503);
+  return {...data,public_verified:false,private_declaration_only:true};
+}
+/** Modify PRIVATE branch details with a fresh canonical owner/tenant check. */
+export async function updateDeclaredDealerBranch(actor,branchId,payload={}){
+  const authority=await requireApprovedOwnerWorkspace(actor);
+  if(typeof branchId!=='string'||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(branchId))
+    throw refuse('INVALID_CANONICAL_BRANCH_ID',400);
+  const details=parsePrivateBranchDetails(payload);
+  const {data,error}=await supabase.from('dealer_branches')
+    .update({...details,operating_details_updated_at:new Date().toISOString()})
+    .eq('id',branchId).eq('dealer_id',authority.dealer_profile_id)
+    .select('id,dealer_id,name,address,latitude,longitude,opening_hours_text,created_at').maybeSingle();
+  if(error)throw refuse('CANONICAL_BRANCH_WRITE_UNAVAILABLE',503);
+  if(!data)throw refuse('CANONICAL_BRANCH_NOT_FOUND',404);
+  return {...data,public_verified:false,private_declaration_only:true};
+}
