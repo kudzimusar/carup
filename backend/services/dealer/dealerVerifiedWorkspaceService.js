@@ -44,8 +44,32 @@ export async function getMyVerifiedDealerWorkspace(actor){
   if(profileResult.error||!profileResult.data||branchesResult.error||
     memberResult.error||!Number.isInteger(memberResult.count)||memberResult.count<1)
     throw refuse('CANONICAL_DEALER_WORKSPACE_READ_UNAVAILABLE',503);
+  const branches=branchesResult.data||[];
+  // UAT-R1: which approved claim each branch came from (primary activation or an attached second
+  // branch claim of the same company) and every attached claim with its own status. Read failures
+  // only hide this provenance; they never widen authority.
+  const branchIds=branches.map(b=>b.id);
+  const [attachedResult,primaryWalk,attachedWalk]=await Promise.all([
+    supabase.rpc('dealer_read_branch_attachments',{p_profile_id:authority.dealer_profile_id,p_tenant_id:authority.tenant_id}),
+    branchIds.length?supabase.from('dealer_activation_branch_crosswalk').select('branch_id').in('branch_id',branchIds):{data:[]},
+    branchIds.length?supabase.from('dealer_attachment_branch_crosswalk').select('branch_id,attachment_id').in('branch_id',branchIds):{data:[]},
+  ]);
+  const attachedClaims=!attachedResult.error&&Array.isArray(attachedResult.data)?attachedResult.data:null;
+  const seedByAttachment=new Map((attachedClaims||[]).map(a=>[a.attachment_id,{seed:a.seed_dealer_id,status:a.effective_status}]));
+  const fromPrimary=new Set((primaryWalk.data||[]).map(x=>x.branch_id));
+  const fromAttachment=new Map((attachedWalk.data||[]).map(x=>[x.branch_id,x.attachment_id]));
+  const provenanceKnown=!primaryWalk.error&&!attachedWalk.error;
+  const branchSources=Object.fromEntries(branches.map(b=>{
+    const attachment=fromAttachment.get(b.id);
+    const source=!provenanceKnown?null:attachment?{kind:'ATTACHED_BRANCH_CLAIM',
+      seed_dealer_id:seedByAttachment.get(attachment)?.seed||null,status:seedByAttachment.get(attachment)?.status||null}:
+      fromPrimary.has(b.id)?{kind:'PRIMARY_ACTIVATION',seed_dealer_id:authority.seed_dealer_id,status:'ACTIVE'}:
+      {kind:'OWNER_DECLARED',seed_dealer_id:null,status:null};
+    return [b.id,source];
+  }));
   return {...authority,operational:true,
-    profile:profileResult.data,branches:branchesResult.data||[],
+    profile:profileResult.data,branches,branch_sources:branchSources,
+    attached_claims:attachedClaims,attached_claims_available:attachedClaims!==null,
     recorded_tenant_member_count:memberResult.count,
     current_staff_headcount:null,actual_revenue:null,
     public_verified_badge:false,vehicle_listing_authority:false,

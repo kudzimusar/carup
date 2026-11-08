@@ -148,6 +148,8 @@ jobs:
             backend/tests/dealer-workbook-negative-paths.test.js \
             backend/tests/dealer-uat-workbook-refusal-clarity.test.js \
             backend/tests/dealer-uat-draft-review-preview.test.js \
+            backend/tests/dealer-uat-r1-workbook-dimensions.test.js \
+            backend/tests/dealer-uat-r1-reconciliation-services.test.js \
             backend/tests/differentiator-journey.test.js
       - name: Isolated PostgreSQL migration and claim authority proof (PGlite)
         run: |

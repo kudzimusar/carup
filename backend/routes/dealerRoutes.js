@@ -26,8 +26,10 @@ import {getMyVerifiedDealerWorkspace,addDeclaredDealerBranch,updateDeclaredDeale
   from '../services/dealer/dealerVerifiedWorkspaceService.js';
 import {listMyOperationalDeclarations,recordMyOperationalDeclaration,readMyActivationCarryover}
   from '../services/dealer/dealerOperationalDeclarationsService.js';
-import {listMyStorefrontMedia,uploadMyStorefrontMedia}
+import {listMyStorefrontMedia,uploadMyStorefrontMedia,readMyStorefrontMediaImage}
   from '../services/dealer/dealerStorefrontMediaService.js';
+import {getMyDealerPerformanceSummary}
+  from '../services/dealer/dealerPerformanceSummaryService.js';
 import {sendDealerRouteError}
   from '../services/dealer/dealerSqlRefusalMapper.js';
 import {getDealerCommercialReadiness}
@@ -160,6 +162,27 @@ router.get('/api/dealer/operational-media',authorizeSessionRole([]),async(req,re
   try{
     const media=await listMyStorefrontMedia(req.userContext);
     res.set('Cache-Control','no-store').json({media});
+  }catch(error){
+    sendDealerRouteError(res,next,error);
+  }
+});
+// UAT-R1: performance cards from existing canonical records only (exact counts, labelled scope;
+// ratings/reviews/dealership saves/likes are DEFERRED — not existing CarUp capabilities).
+router.get('/api/dealer/performance-summary',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const summary=await getMyDealerPerformanceSummary(req.userContext);
+    res.set('Cache-Control','no-store').json({summary});
+  }catch(error){
+    sendDealerRouteError(res,next,error);
+  }
+});
+// UAT-R1: private owner preview of an uploaded image (profile/cover awaiting review). No public URL.
+router.get('/api/dealer/operational-media/:mediaId/image',authorizeSessionRole([]),async(req,res,next)=>{
+  try{
+    const image=await readMyStorefrontMediaImage(req.userContext,req.params.mediaId);
+    res.set('Cache-Control','private, no-store').set('X-Content-Type-Options','nosniff')
+      .set('Content-Security-Policy',"default-src 'none'; sandbox")
+      .type(image.mime_type).send(image.bytes);
   }catch(error){
     sendDealerRouteError(res,next,error);
   }

@@ -1,7 +1,7 @@
 /**
  * CARUP-DEALER-ONB-001: behavioural PostgreSQL 17 / PGlite proof.
  * No staging/production secrets, URLs, payments or database daemon.
- * Applies all 23 dealership migrations (D1–D8, R4, R5, R6 C02 + security + review hardening), tests maker-checker / isolation /
+ * Applies all 24 dealership migrations (D1–D8, R4, R5, R6 C02 + security + review hardening, UAT-R1), tests maker-checker / isolation /
  * disputes / claim-prefill / atomic idempotent workbook receipts / T22 storefront media /
  * T42 correction takedowns / S09 duplicate redirects / two-session publish-vs-suspend concurrency,
  * then rolls back and reapplies.
@@ -39,6 +39,7 @@ const names=[
   '20261103144000_dealer_activation_workbook_carryover.sql',
   '20261103145000_dealer_r6_security_hardening.sql',
   '20261103146000_dealer_r6_review_hardening.sql',
+  '20261103147000_dealer_uat_r1_branch_reconciliation_and_profile_media.sql',
 ];
 const read=(name)=>{
   const all=readFileSync(join(ROOT,name),'utf8');
@@ -415,7 +416,8 @@ try{
   // R6 C02: + activation branch crosswalk + activation carry-over provenance = 43.
   // R6 security: + research publication policy authority + reviewer step-up guard = 45.
   // R6 round 2: + dealer_research_public_profiles_current (read-time real-publication gate view) = 46.
-  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,46);
+  // UAT-R1: + evidence quarantine + branch-claim attachments + attachment crosswalk + attachment carry-over = 50.
+  assert.equal((await query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name LIKE 'dealer_%'")).rows[0].n,50);
   await exec(`INSERT INTO dealer_research_seed_records(
     seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,
     source_snapshot,proposed_source_category)
@@ -854,6 +856,213 @@ try{
   await fails(read('20261103144000_dealer_activation_workbook_carryover.sql').down,
     'CANNOT_ROLLBACK_WITH_ACTIVATION_CARRYOVER_CUSTODY');
   console.log('DEALER_R6_C02_CARRYOVER PASS: 3/5 branches carried with GPS/hours (duplicate, markup and invalid GPS refused), 5 private v1 sections, conflicts and retained fields recorded by digest, no verification or publication');
+  // ── CARUP-DEALER-1.0-VISUAL-UAT-R1: governed branch-claim reconciliation + evidence quarantine ──
+  // Sandboxed in one transaction (rolled back) so every later assertion sees the pre-R1 dealership.
+  {
+    const primaryOrg=activated.rows[0].receipt.organization_id;
+    const r1Expiry=new Date(Date.now()+9*86400000).toISOString();
+    const r1Reason='Independent reconciliation reviewer compared both independent legal reviews: same registration number, same legal name, branch scope.';
+    let probe=0;
+    const r1fails=async(sql,phrase,args)=>{
+      const sp='r1_probe_'+(++probe);
+      await exec('SAVEPOINT '+sp);
+      let error=null;
+      try{if(args)await query(sql,args);else await exec(sql)}catch(e){error=e}
+      await exec('ROLLBACK TO SAVEPOINT '+sp);
+      assert.ok(error,`UAT-R1: SQL was expected to refuse: ${phrase}`);
+      assert.match(String(error?.message||''),new RegExp(phrase,'i'));
+    };
+    const one=async(sql,args=[])=>(await query(sql,args)).rows[0];
+    const counts=async()=>one(`SELECT (SELECT count(*)::int FROM organizations) AS orgs,
+      (SELECT count(*)::int FROM tenants) AS tenants,(SELECT count(*)::int FROM tenant_users) AS members,
+      (SELECT count(*)::int FROM organization_users) AS org_members,(SELECT count(*)::int FROM dealer_profiles) AS profiles,
+      (SELECT count(*)::int FROM dealer_approved_seed_links) AS links,(SELECT count(*)::int FROM vehicles) AS vehicles,
+      (SELECT count(*)::int FROM dealer_full_storefront_review_events) AS storefront_reviews,
+      (SELECT count(*)::int FROM dealer_research_publication_events) AS publications`);
+    const incumbent=async()=>(await query(`SELECT id,name,address,latitude::text AS lat,longitude::text AS lng,opening_hours_text AS hours
+      FROM dealer_branches WHERE dealer_id=$1 AND id NOT IN (SELECT branch_id FROM dealer_attachment_branch_crosswalk) ORDER BY id`,[activeProfileId])).rows;
+    let evidenceSeq=0;
+    const evidence=async(claimId,docClass,mime='application/pdf')=>{
+      const id=uuid(7800+(++evidenceSeq));
+      await query(`INSERT INTO dealer_claim_private_evidence(evidence_id,claim_id,uploader_user_id,document_class,storage_path,content_sha256,mime_type,file_bytes,scan_state)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,2048,'CLEAN_CLAMAV_AT_UPLOAD')`,
+        [id,claimId,claimant,docClass,`dealership-claims/${claimId}/${uuid(7900+evidenceSeq)}.${mime==='image/jpeg'?'jpg':'pdf'}`,
+          String(evidenceSeq).padStart(2,'0').repeat(32),mime]);
+      return id;
+    };
+    const application=(claimId,seed,business,branches,extra={})=>({schema:'CARUP_DEALER_INTAKE_1_0',claim_id:claimId,seed_id:seed,source_row_sha256:sha,
+      tab_rows:{BUSINESS:[{claim_reference:claimId,source_seed_id:seed,operating_country:'ZW',research_confirmation:'CORRECT',...business}],
+        BRANCHES:branches,CONSENTS_DECLARATIONS:[{signer_name:'Fixture Director',signer_role:'Director',privacy_acknowledgment:'YES'}],...extra}});
+    // claim → (optional mis-filed photo) → independent claim approval → draft → submission → preliminary → legal review
+    const chain=async(seed,claimId,app,{registration,photo=false}={})=>{
+      await query(`INSERT INTO dealer_research_claim_requests(claim_id,seed_dealer_id,claimant_user_id,claimed_scope,representative_relationship,asserted_legal_business_name,claim_statement)
+        VALUES ($1,$2,$3,'BRANCH','LEGAL_OWNER',$4,'Second branch of my existing fictional dealership; documents provided for independent review')`,
+        [claimId,seed,claimant,app.tab_rows.BUSINESS[0].legal_name]);
+      let photoId=null;
+      if(photo){
+        photoId=await evidence(claimId,'COMPANY_REGISTRATION','image/jpeg');
+        // the claimant withdraws the showroom photo they filed as a registration certificate
+        await r1fails(`SELECT dealer_quarantine_claim_evidence('${photoId}','${outsider}','CLAIMANT_WITHDRAWAL','UPLOADED_IN_ERROR',NULL)`,'CLAIM_EVIDENCE_NOT_OWNED');
+        await r1fails(`SELECT dealer_quarantine_claim_evidence('${photoId}','${claimant}','CLAIMANT_WITHDRAWAL','NOT_THE_DECLARED_DOCUMENT_TYPE',NULL)`,'INVALID_EVIDENCE_QUARANTINE_REQUEST');
+        const w=(await one(`SELECT dealer_quarantine_claim_evidence($1,$2,'CLAIMANT_WITHDRAWAL','UPLOADED_IN_ERROR','Showroom measurement photo uploaded as a certificate by mistake') AS r`,[photoId,claimant])).r;
+        assert.equal(w.quarantined,true);assert.equal(w.can_satisfy_legal_gate,false);
+        assert.equal((await one(`SELECT dealer_quarantine_claim_evidence($1,$2,'CLAIMANT_WITHDRAWAL','UPLOADED_IN_ERROR',NULL) AS r`,[photoId,claimant])).r.idempotent,true);
+        await r1fails(`SELECT dealer_record_independent_claim_review('${claimId}','${reviewer}','CLAIM_APPROVED',
+          'Reviewer tried to approve the claim on a quarantined, mis-filed showroom photograph.','${photoId}','Fixture Registry','BRANCH')`,
+          'QUARANTINED_EVIDENCE_CANNOT_SUPPORT_DECISION');
+      }
+      const reg=await evidence(claimId,'COMPANY_REGISTRATION'),sign=await evidence(claimId,'SIGNATORY_MANDATE');
+      await query('SELECT dealer_record_independent_claim_review($1,$2,$3,$4,$5,$6,$7)',[claimId,reviewer,'CLAIM_APPROVED',
+        'Independently inspected the original fictional registration certificate and branch mandate.',reg,'Fixture Registry','BRANCH']);
+      if(photo)await r1fails(`SELECT dealer_quarantine_claim_evidence('${reg}','${claimant}','CLAIMANT_WITHDRAWAL','UPLOADED_IN_ERROR',NULL)`,'EVIDENCE_ALREADY_RELIED_ON_BY_A_REVIEW');
+      await query('SELECT dealer_save_claim_intake_draft($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)',[claimId,claimant,'CARUP_DEALER_INTAKE_1_0',sha,
+        'e'.repeat(64),JSON.stringify(app),JSON.stringify({BUSINESS:1,BRANCHES:app.tab_rows.BRANCHES.length,CONSENTS_DECLARATIONS:1}),0]);
+      const sub=(await one('SELECT dealer_submit_compliance_application($1,$2,1,$3,true) AS r',[claimId,claimant,'CARUP_DEALER_APPLICANT_DECLARATION_1'])).r.submission_id;
+      await query('SELECT dealer_review_compliance_submission($1,$2,$3,$4)',[sub,reviewer,'READY_FOR_REGULATORY_REVIEW',
+        'Synthetic independent preliminary escalation of the second fictional branch application.']);
+      return {sub,reg,sign,photoId,legal:async()=>(await one(
+        'SELECT dealer_record_legal_application_approval($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS r',
+        [sub,'legalreviewer','CARUP_DEALER_ZW_DRAFT_2026_11_03',reg,sign,'Fixture Synthetic Registry',registration,'BRANCH',r1Expiry,testPolicyReview])).r.legal_review_id};
+    };
+    await exec('BEGIN');
+    try{
+      await exec(`INSERT INTO dealer_research_seed_records(seed_dealer_id,source_workbook_sha256,original_source_row,source_row_sha256,source_snapshot,proposed_source_category)
+        VALUES ('ZW-DEAL-0007','${sha}',14,'${sha}','{"Seed Dealer ID":"ZW-DEAL-0007","Dealer / Company Name":"SYNTHETIC FICTIONAL Fixture Dealer 7","City / Town":"Harare"}','Independent dealer claim'),
+          ('ZW-DEAL-0008','${sha}',15,'${sha}','{"Seed Dealer ID":"ZW-DEAL-0008","Dealer / Company Name":"SYNTHETIC FICTIONAL Fixture Dealer 8","City / Town":"Gweru"}','Independent dealer claim'),
+          ('ZW-DEAL-0009','${sha}',16,'${sha}','{"Seed Dealer ID":"ZW-DEAL-0009","Dealer / Company Name":"SYNTHETIC FICTIONAL Fixture Dealer 9","City / Town":"Masvingo"}','Independent dealer claim');
+        INSERT INTO users(id,role,is_verified) VALUES ('r1staffreviewer','reviewer',true) ON CONFLICT DO NOTHING;
+        INSERT INTO tenant_users(tenant_id,user_id,role) VALUES ('${tenant}','r1staffreviewer','member');`);
+      // The owner already edited FINANCE_TERMS to version 2: reconciliation must never overwrite it.
+      const v2=(await one(`SELECT max(section_version)::int AS v FROM dealer_operational_declaration_events WHERE dealer_profile_id=$1 AND section='FINANCE_TERMS'`,[activeProfileId])).v;
+      assert.equal(v2,1,'the primary activation carried FINANCE_TERMS v1');
+      await query(`INSERT INTO dealer_operational_declaration_events(dealer_profile_id,tenant_id,actor_user_id,section,section_version,declared_values,content_sha256)
+        VALUES ($1,$2,$3,'FINANCE_TERMS',2,'{"deposit_terms":"Owner edited v2 (fixture)"}'::jsonb,repeat('9',64))`,[activeProfileId,tenant,claimant]);
+      assert.equal((await one(`SELECT count(*)::int AS n FROM dealer_operational_declaration_events WHERE dealer_profile_id=$1 AND section='BUYER_ASSURANCE'`,[activeProfileId])).n,0);
+      // ── Scenario A: same independently reviewed legal company, scope BRANCH ──
+      const a=await chain('ZW-DEAL-0007',uuid(7001),application(uuid(7001),'ZW-DEAL-0007',
+        {legal_name:'Fixture  Legal Co.',registration_number:'fixture reg 001',trading_name:'Fixture Trading Seven'},
+        [{branch_ref:'BR-7A',source_seed_id:'ZW-DEAL-0007',branch_name:'Fixture seventh yard',city:'Harare',physical_address:'7 Fictional Road',
+          gps_latitude:'-17.80',gps_longitude:'31.09',visiting_hours:'Mon-Fri 08:00-17:00'},
+         {branch_ref:'BR-7B',branch_name:'Fixture showroom',city:'Harare',visiting_hours:'Sat 09:00-13:00'}],
+        {BUYER_PROTECTION:[{buyer_policy_ref:'P7',complaint_process:'Call the fixture complaints desk',deposit_policy:'Refundable within 7 days (fixture)'}],
+         FINANCE_PAYMENTS:[{policy_ref:'F7',payment_methods:'Mobile money (fixture)',refund_conditions:'Refund on cancellation (fixture)'}]}),
+        {registration:'fixture reg 001',photo:true});
+      // a quarantined document can never back a legal review (attempted BEFORE any legal review exists)
+      await r1fails(`SELECT dealer_record_legal_application_approval('${a.sub}','legalreviewer','CARUP_DEALER_ZW_DRAFT_2026_11_03',
+        '${a.photoId}','${a.sign}','Fixture Synthetic Registry','fixture reg 001','BRANCH','${r1Expiry}','${testPolicyReview}')`,
+        'QUARANTINED_EVIDENCE_CANNOT_SUPPORT_DECISION');
+      const legalA=await a.legal();
+      // The unchanged activation guard still refuses a second organization for this claimant.
+      await r1fails(`SELECT dealer_activate_approved_legal_claim('${legalA}','activationreviewer','${r1Reason}')`,
+        'PREEXISTING_DEALER_REQUIRES_INDEPENDENT_RECONCILIATION');
+      const pv=async(actor)=>(await one('SELECT dealer_preview_branch_claim_reconciliation($1,$2) AS r',[legalA,actor])).r;
+      assert.equal((await pv('legalreviewer')).blocker,'SEPARATE_RECONCILIATION_APPROVER_REQUIRED');
+      assert.equal((await pv(claimant)).blocker,'SEPARATE_RECONCILIATION_APPROVER_REQUIRED');
+      assert.equal((await pv('r1staffreviewer')).blocker,'DEALER_REVIEWER_CONFLICT_OF_INTEREST');
+      const preview=await pv('activationreviewer');
+      assert.equal(preview.state,'READY_TO_ATTACH',JSON.stringify(preview.checks));
+      assert.equal(preview.target.organization_id,primaryOrg);
+      assert.equal(preview.target.primary_seed_dealer_id,'ZW-DEAL-0001');
+      assert.ok(preview.checks.every(c=>c.ok===true));
+      assert.equal(preview.effects.branches_to_add,2);
+      assert.equal(preview.effects.organization_created,false);
+      assert.deepEqual(preview.effects.sections_to_carry,['BUYER_ASSURANCE']);
+      assert.deepEqual(preview.effects.sections_preserved,['FINANCE_TERMS']);
+      const before=await counts(),beforeBranches=await incumbent();
+      const reconcile=(actor,reason=r1Reason,org=primaryOrg)=>query('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4) AS r',[legalA,actor,reason,org]);
+      await r1fails('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4)','SEPARATE_RECONCILIATION_APPROVER_REQUIRED',[legalA,claimant,r1Reason,primaryOrg]);
+      await r1fails('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4)','SEPARATE_RECONCILIATION_APPROVER_REQUIRED',[legalA,'legalreviewer',r1Reason,primaryOrg]);
+      await r1fails('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4)','DEALER_REVIEWER_CONFLICT_OF_INTEREST',[legalA,'r1staffreviewer',r1Reason,primaryOrg]);
+      await r1fails('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4)','RECONCILIATION_TARGET_CHANGED',[legalA,'activationreviewer',r1Reason,'dealer_org_someone_else']);
+      await r1fails('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4)','RECONCILIATION_REASON_REQUIRED',[legalA,'activationreviewer','too short',primaryOrg]);
+      const done=(await reconcile('activationreviewer')).rows[0].r;
+      assert.equal(done.idempotent,false);
+      assert.equal(done.organization_id,primaryOrg);
+      assert.equal(done.tenant_id,tenant);
+      assert.equal(done.dealer_profile_id,activeProfileId);
+      assert.equal(done.organization_created,false);assert.equal(done.tenant_created,false);
+      assert.equal(done.membership_changed,false);assert.equal(done.public_publication_granted,false);
+      assert.equal(done.carryover.branches_added,2);
+      assert.deepEqual(done.carryover.sections_carried,['BUYER_ASSURANCE']);
+      assert.deepEqual(done.carryover.sections_preserved,['FINANCE_TERMS']);
+      // ZW-DEAL-0001 intact: no second org/tenant/membership/profile/link, no publication, stock untouched.
+      assert.deepEqual(await counts(),before,'reconciliation created no organization, tenant, membership, profile, link, vehicle or publication');
+      assert.deepEqual(await incumbent(),beforeBranches,'incumbent branches are byte-for-byte unchanged');
+      const attachedBranches=(await query(`SELECT x.branch_ref,b.name,b.latitude::float AS lat,b.longitude::float AS lng,b.opening_hours_text AS hours,b.dealer_id
+        FROM dealer_attachment_branch_crosswalk x JOIN dealer_branches b ON b.id=x.branch_id ORDER BY x.source_row`)).rows;
+      assert.deepEqual(attachedBranches.map(b=>[b.branch_ref,b.name,b.lat,b.lng,b.hours]),
+        [['BR-7A','Fixture seventh yard',-17.8,31.09,'Mon-Fri 08:00-17:00'],['BR-7B','Fixture showroom',null,null,'Sat 09:00-13:00']]);
+      assert.ok(attachedBranches.every(b=>b.dealer_id===activeProfileId));
+      assert.match((await one(`SELECT reason FROM dealer_attachment_carryover_events WHERE source_tab='BRANCHES' AND source_row=2 AND source_field='branch_name'`)).reason,/NOT merged/);
+      const fin=await one(`SELECT section_version AS v,declared_values->>'deposit_terms' AS d FROM dealer_operational_declaration_events
+        WHERE dealer_profile_id=$1 AND section='FINANCE_TERMS' ORDER BY section_version DESC LIMIT 1`,[activeProfileId]);
+      assert.deepEqual([fin.v,fin.d],[2,'Owner edited v2 (fixture)'],'the owner v2 declaration is never overwritten');
+      const buyer=await one(`SELECT section_version AS v,declared_values AS d FROM dealer_operational_declaration_events WHERE dealer_profile_id=$1 AND section='BUYER_ASSURANCE'`,[activeProfileId]);
+      assert.equal(buyer.v,1);assert.equal(buyer.d.dispute_resolution,'Call the fixture complaints desk');
+      const att=await one(`SELECT * FROM dealer_branch_claim_attachments WHERE claim_id=$1`,[uuid(7001)]);
+      assert.equal(att.attach_status,'ACTIVE');assert.equal(att.verified_registration_key,'FIXTUREREG001');
+      assert.equal((await one(`SELECT count(*)::int AS n FROM dealer_research_public_profiles WHERE seed_dealer_id='ZW-DEAL-0007'`)).n,0,'no public profile created for the attached seed');
+      // Replays are idempotent no-ops; conflicting actors refuse.
+      assert.equal((await reconcile('activationreviewer')).rows[0].r.idempotent,true);
+      assert.equal((await reconcile(reviewer)).rows[0].r.idempotent,true);
+      await r1fails('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4)','SEPARATE_RECONCILIATION_APPROVER_REQUIRED',[legalA,claimant,r1Reason,primaryOrg]);
+      await r1fails('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4)','DEALER_REVIEWER_CONFLICT_OF_INTEREST',[legalA,'r1staffreviewer',r1Reason,primaryOrg]);
+      await r1fails('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4)','SEPARATE_RECONCILIATION_APPROVER_REQUIRED',[legalA,'legalreviewer',r1Reason,primaryOrg]);
+      await r1fails('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4)','RECONCILIATION_EXISTS_OR_SUSPENDED',[legalA,'activationreviewer',r1Reason,'dealer_org_someone_else']);
+      assert.deepEqual(await counts(),before);
+      assert.equal((await one(`SELECT count(*)::int AS n FROM dealer_attachment_branch_crosswalk`)).n,2,'replays add nothing');
+      assert.equal((await pv('activationreviewer')).state,'ALREADY_ATTACHED');
+      // The attached seed/claim can never also become its own dealership; rows are immutable.
+      await r1fails(`INSERT INTO dealer_approved_seed_links(seed_dealer_id,claim_id,submission_id,legal_review_id,organization_id,tenant_id,dealer_profile_id,claimant_user_id,activated_by)
+        VALUES ('ZW-DEAL-0007','${uuid(7001)}','${a.sub}','${legalA}','${primaryOrg}','${tenant}','${activeProfileId}','${claimant}','activationreviewer')`,
+        'SEED_ALREADY_ATTACHED_TO_EXISTING_DEALERSHIP');
+      await r1fails(`UPDATE dealer_branch_claim_attachments SET tenant_id=gen_random_uuid()`,'DEALER_ATTACHMENT_IMMUTABLE');
+      await r1fails(`DELETE FROM dealer_branch_claim_attachments`,'APPEND_ONLY|governance');
+      await r1fails(`DELETE FROM dealer_attachment_carryover_events`,'APPEND_ONLY|governance');
+      // Conflict of interest now covers the attached seed (tenant staff are conflicted on it).
+      assert.equal((await one(`SELECT dealer_reviewer_conflict_of_interest('r1staffreviewer','ZW-DEAL-0007') AS c`)).c,true);
+      assert.equal((await one(`SELECT dealer_reviewer_conflict_of_interest('activationreviewer','ZW-DEAL-0007') AS c`)).c,false);
+      // Owner read model: one ACTIVE attachment, its two branches, carried and preserved sections.
+      const ownerRead=(await one('SELECT dealer_read_branch_attachments($1,$2) AS r',[activeProfileId,tenant])).r;
+      assert.equal(ownerRead.length,1);
+      assert.deepEqual([ownerRead[0].seed_dealer_id,ownerRead[0].effective_status,ownerRead[0].branches.length],['ZW-DEAL-0007','ACTIVE',2]);
+      assert.deepEqual(ownerRead[0].sections_carried,['BUYER_ASSURANCE']);assert.deepEqual(ownerRead[0].sections_preserved,['FINANCE_TERMS']);
+      // ── Scenario B: a separately registered company under the same owner is never attached ──
+      const b=await chain('ZW-DEAL-0008',uuid(7002),application(uuid(7002),'ZW-DEAL-0008',
+        {legal_name:'Separate Fixture Holdings',registration_number:'SEPARATE-REG-777'},
+        [{branch_ref:'BR-8',branch_name:'Separate yard',city:'Gweru'}]),{registration:'SEPARATE-REG-777'});
+      const legalB=await b.legal();
+      const pb=(await one('SELECT dealer_preview_branch_claim_reconciliation($1,$2) AS r',[legalB,'activationreviewer'])).r;
+      assert.equal(pb.blocker,'SEPARATE_LEGAL_ORGANIZATION_REQUIRES_GOVERNED_ONBOARDING');
+      assert.equal(pb.checks.find(c=>c.check==='SAME_INDEPENDENTLY_REVIEWED_REGISTRATION_NUMBER').ok,false);
+      await r1fails('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4)','SEPARATE_LEGAL_ORGANIZATION_REQUIRES_GOVERNED_ONBOARDING',[legalB,'activationreviewer',r1Reason,primaryOrg]);
+      // ── Ambiguous: same registration number but a different legal name → specific refusal ──
+      const c=await chain('ZW-DEAL-0009',uuid(7003),application(uuid(7003),'ZW-DEAL-0009',
+        {legal_name:'Different Name Motors',registration_number:'FIXTURE-REG-001'},
+        [{branch_ref:'BR-9',branch_name:'Name conflict yard',city:'Masvingo'}]),{registration:'FIXTURE-REG-001'});
+      const legalC=await c.legal();
+      await r1fails('SELECT dealer_reconcile_approved_branch_claim($1,$2,$3,$4)','LEGAL_IDENTITY_CONFLICT_REQUIRES_INDEPENDENT_REVIEW',[legalC,'activationreviewer',r1Reason,primaryOrg]);
+      assert.equal((await one(`SELECT count(*)::int AS n FROM dealer_branch_claim_attachments`)).n,1);
+      // A legal review whose evidence is later quarantined cannot back a reconciliation.
+      await query(`SELECT dealer_quarantine_claim_evidence($1,'activationreviewer','INDEPENDENT_REVIEWER','NOT_THE_DECLARED_DOCUMENT_TYPE','Not a registration certificate (fixture)')`,[c.reg]);
+      assert.equal((await one('SELECT dealer_preview_branch_claim_reconciliation($1,$2) AS r',[legalC,'activationreviewer'])).r.checks
+        .find(x=>x.check==='LEGAL_EVIDENCE_NOT_QUARANTINED').ok,false);
+      await r1fails(`SELECT dealer_quarantine_claim_evidence('${c.sign}','r1staffreviewer','INDEPENDENT_REVIEWER','UNREADABLE_OR_INCOMPLETE',NULL)`,'DEALER_REVIEWER_CONFLICT_OF_INTEREST|INDEPENDENT_REVIEWER_REQUIRED');
+      // ── Revoking the ATTACHED branch claim withdraws only that attachment ──
+      await query('SELECT dealer_record_independent_claim_review($1,$2,$3,$4)',[uuid(7001),reviewer,'CLAIM_REVOKED',
+        'Independent reviewer revoked only the second branch research claim after new evidence.']);
+      assert.equal((await one(`SELECT attach_status FROM dealer_branch_claim_attachments WHERE claim_id=$1`,[uuid(7001)])).attach_status,'REVOKED');
+      assert.equal((await one(`SELECT operating_status FROM dealer_approved_seed_links WHERE seed_dealer_id='ZW-DEAL-0001'`)).operating_status,'ACTIVE');
+      assert.equal((await one(`SELECT dealer_tenant_listing_authority_current($1) AS c`,[tenant])).c,true,'the company keeps operating');
+      assert.deepEqual(await incumbent(),beforeBranches,'revoking the branch claim kept every incumbent branch');
+      assert.equal((await one('SELECT dealer_read_branch_attachments($1,$2) AS r',[activeProfileId,tenant])).r[0].effective_status,'REVOKED');
+      await r1fails(`UPDATE dealer_branch_claim_attachments SET attach_status='ACTIVE'`,'DEALER_ATTACHMENT_STATUS_TRANSITION_REFUSED');
+      // The UAT-R1 Down refuses while reconciliation/quarantine custody exists (proved before the rollback).
+      await r1fails(read('20261103147000_dealer_uat_r1_branch_reconciliation_and_profile_media.sql').down,'CANNOT_ROLLBACK_WITH_DEALER_UAT_R1_CUSTODY');
+      console.log('DEALER_UAT_R1_RECONCILIATION PASS: same-company BRANCH claim attached to the existing org/tenant/profile (2 branches carried, owner v2 kept, BUYER_ASSURANCE v1 carried, 0 new org/tenant/membership/profile/link/publication), replays idempotent, claimant/legal reviewer/conflicted staff/wrong target refused, separate company → SEPARATE_LEGAL_ORGANIZATION_REQUIRES_GOVERNED_ONBOARDING, name conflict → LEGAL_IDENTITY_CONFLICT_REQUIRES_INDEPENDENT_REVIEW, quarantined evidence refused at claim/legal/reconciliation gates, branch-claim revocation left the company active');
+    }finally{await exec('ROLLBACK')}
+    assert.equal((await one(`SELECT count(*)::int AS n FROM dealer_research_seed_records WHERE seed_dealer_id IN ('ZW-DEAL-0007','ZW-DEAL-0008','ZW-DEAL-0009')`)).n,0,'UAT-R1 sandbox rolled back');
+  }
   // ── R6 DBA review 2 #8: the carry-over trigger is bounded by the intake contract ──
   // Sandboxed (rolled back): the activation trigger is forced to fire for a synthetic link loaded
   // under replica role, so hostile and maximal submissions can be measured without a governed flow.
@@ -2325,7 +2534,8 @@ try{
           WHERE n.nspname='public' AND c.relkind='r' AND c.relname LIKE 'dealer\\_%'
             AND c.relname NOT IN ('dealer_profiles','dealer_branches','dealer_compliance_requirements','dealer_compliance_documents','dealer_compliance_decisions')
           ORDER BY 1`)).rows.map(r=>r.relname);
-        assert.equal(tables.length,39);
+        // UAT-R1: + evidence quarantine, branch-claim attachments, attachment crosswalk, attachment carry-over = 43.
+        assert.equal(tables.length,43);
         const allowedWrites={dealer_research_claim_requests:['INSERT'],dealer_research_correction_requests:['INSERT','UPDATE'],
           dealer_claim_private_evidence:['INSERT']};
         const bad=[];
@@ -2349,7 +2559,8 @@ try{
           WHERE n.nspname='public' AND p.proname LIKE 'dealer\\_%' AND (p.prorettype='trigger'::regtype OR p.proname IN (
             'dealer_carryover_note','dealer_carryover_text','dealer_assert_staff_owner','dealer_lock_tenant_programme_vins','dealer_intake_contract_fields',
             'dealer_withdraw_tenant_public_listings','dealer_reviewer_conflict_of_interest','dealer_research_seed_is_fictional_fixture',
-            'dealer_real_research_publication_policy_current'))`)).rows.map(r=>r.f);
+            'dealer_real_research_publication_policy_current','dealer_registration_key','dealer_legal_name_key',
+            'dealer_claim_evidence_quarantined','dealer_attachment_note','dealer_carry_over_attachment_workbook'))`)).rows.map(r=>r.f);
         assert.ok(fns.length>=25,'internal helper inventory '+fns.length);
         for(const f of fns)for(const role of ['service_role','anon','authenticated'])
           if((await query(`SELECT has_function_privilege($1,$2,'EXECUTE') AS h`,[role,f])).rows[0].h)bad.push(role+' EXECUTE '+f);
@@ -2938,11 +3149,11 @@ try{
     +(SELECT count(*)::int FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='r6_shadow') AS n`)).rows[0].n;
   assert.equal(shadowObjects,0,'R2: no migration object may land in a schema placed first on the session search_path');
   await exec('RESET search_path; DROP SCHEMA r6_shadow');
-  console.log('DEALER_R6_SEARCH_PATH PASS: 23 Ups reapplied under search_path = r6_shadow, public created 0 objects outside public');
+  console.log('DEALER_R6_SEARCH_PATH PASS: 24 Ups reapplied under search_path = r6_shadow, public created 0 objects outside public');
   // R6 DBA review 2 #9: SET LOCAL ended with each migration's transaction.
   assert.equal((await query('SHOW lock_timeout')).rows[0].lock_timeout,'0','no migration leaked lock_timeout into the session');
   console.log((native?'DEALER_NATIVE_POSTGRES_RESULT PASS: ':'DEALER_PGLITE_RESULT PASS: ')+
-    '23 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, R5 media/corrections/redirects/concurrency, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
+    '24 migration apply/rollback/reapply, canonical dealer listing authority, C12 lifecycle, R5 media/corrections/redirects/concurrency, scoped staff grants, no anon private read, independent review, dispute, appeal and versioned intake');
   } // End full destructive synthetic contract suite; fresh schema mode stays empty.
 }catch(error){
   console.error(native?'DEALER_NATIVE_POSTGRES_RESULT FAIL':'DEALER_PGLITE_RESULT FAIL',error);

@@ -15,6 +15,35 @@ const MAX_FILE = 8 * 1024 * 1024;
 const MAX_UNCOMPRESSED = 24 * 1024 * 1024;
 const MAX_ZIP_PARTS = 180;
 const MAX_ROWS_PER_TAB = 250;
+// UAT-R1: Google Sheets exports every tab as ~1,000 rows x 26 columns of formatted-but-empty cells.
+// Those are ignored; only cells holding a value (or a formula) count. A tab whose PHYSICAL size is
+// beyond these bounds is refused before any cell is examined (resource safety), with the size found.
+const MAX_PHYSICAL_ROWS = 20000;
+const MAX_PHYSICAL_COLUMNS = 200;
+const REGISTRATION_NUMBER_FORMAT = /^[A-Za-z0-9][A-Za-z0-9 .\/()-]{1,79}$/;
+export function workbookColumnLetter(n) {
+  let x = n, out = '';
+  while (x > 0) { const r = (x - 1) % 26; out = String.fromCharCode(65 + r) + out; x = Math.floor((x - 1) / 26); }
+  return out || 'A';
+}
+/** The last row/column that actually holds a value or formula; formatting-only cells never count. */
+export function usedWorksheetExtent(sheet) {
+  let lastDataRow = 0, lastDataColumn = 0;
+  sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+      const v = cell.value;
+      const hasFormula = cell.type === ExcelJS.ValueType.Formula || Boolean(cell.formula || cell.sharedFormula);
+      const empty = v == null || (typeof v === 'string' && v.trim() === '') ||
+        (typeof v === 'object' && !(v instanceof Date) && !hasFormula && !v.richText && !v.hyperlink &&
+          (typeof v.text !== 'string' || v.text.trim() === ''));
+      if (hasFormula || !empty) {
+        if (rowNumber > lastDataRow) lastDataRow = rowNumber;
+        if (colNumber > lastDataColumn) lastDataColumn = colNumber;
+      }
+    });
+  });
+  return { lastDataRow, lastDataColumn };
+}
 const ALLOWED_COUNTRIES = /^[A-Z]{2}$/;
 const SOURCE = Object.freeze({
   name: 'Dealer / Company Name',
@@ -185,6 +214,9 @@ function checkValue(field,v,tab,row) {
     throw error('INVALID_LATITUDE',tab+'!'+row);
   if(field.key==='gps_longitude' && Math.abs(Number(v))>180)
     throw error('INVALID_LONGITUDE',tab+'!'+row);
+  // UAT-R1: an e-mail (or anything else) autofilled into the registration number is refused here too.
+  if(field.key==='registration_number' && !REGISTRATION_NUMBER_FORMAT.test(v))
+    throw error('INVALID_REGISTRATION_NUMBER',tab+'!'+row+'.'+field.key);
 }
 
 /** Never maps workbook "verified", "role", "tenant", "paid" or "approved" fields. */
@@ -202,13 +234,21 @@ export async function parseCompletedDealerWorkbook(bytes, claim,source) {
     tab_rows:{},applicant_verified:false,compliance_approved:false};
   for(const contract of TEMPLATE_FIELD_REGISTRY){
     const sheet=workbook.getWorksheet(contract.name);
-    if(sheet.columnCount>contract.fields.length || sheet.rowCount>MAX_ROWS_PER_TAB)
-      throw error('WORKBOOK_ROW_OR_COLUMN_LIMIT',contract.name);
+    if(sheet.rowCount>MAX_PHYSICAL_ROWS || sheet.columnCount>MAX_PHYSICAL_COLUMNS)
+      throw error('WORKBOOK_SHEET_TOO_LARGE',
+        `${contract.name}:size=${sheet.rowCount}x${sheet.columnCount};max=${MAX_PHYSICAL_ROWS}x${MAX_PHYSICAL_COLUMNS}`);
+    const extent=usedWorksheetExtent(sheet);
+    if(extent.lastDataColumn>contract.fields.length)
+      throw error('WORKBOOK_EXTRA_COLUMNS_WITH_DATA',
+        `${contract.name}:column=${workbookColumnLetter(extent.lastDataColumn)};max=${workbookColumnLetter(contract.fields.length)}`);
+    if(extent.lastDataRow>MAX_ROWS_PER_TAB)
+      throw error('WORKBOOK_TOO_MANY_DATA_ROWS',
+        `${contract.name}:rows=${extent.lastDataRow-1};max=${MAX_ROWS_PER_TAB-1}`);
     const names=contract.fields.map((field,i)=>cellValue(sheet.getRow(1).getCell(i+1),contract.name,1,i+1));
     if(JSON.stringify(names)!==JSON.stringify(contract.fields.map(f=>f.label)))
       throw error('WORKBOOK_HEADER_DRIFT',contract.name);
     const rows=[];
-    for(let row=2;row<=sheet.rowCount;row++){
+    for(let row=2;row<=extent.lastDataRow;row++){
       const record={};
       let filled=false;
       for(let i=0;i<contract.fields.length;i++){

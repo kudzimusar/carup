@@ -160,6 +160,9 @@ export async function uploadPrivateClaimEvidence(claimId,actor,payload,{scan=sca
     'CLAIM_APPROVED'].includes(claim.claim_status))
     throw deny('CLAIM_EVIDENCE_INTAKE_CLOSED',409);
   if(!DOCS.has(payload?.document_class))throw deny('UNKNOWN_DOCUMENT_CLASS',400);
+  // UAT-R1 P0: a showroom photo was once stored as a company registration certificate because the
+  // form preselected that class. The applicant must now explicitly confirm what the file is.
+  if(payload?.document_class_confirmed!==true)throw deny('DOCUMENT_CLASS_CONFIRMATION_REQUIRED',400);
   const bytes=decodeClaimDocument(payload?.document,payload?.mime_type);
   const digest=SHA(bytes);
   const {data:existing,error:existingError}=await supabase.from('dealer_claim_private_evidence')
@@ -187,15 +190,28 @@ export async function uploadPrivateClaimEvidence(claimId,actor,payload,{scan=sca
   }
   return {...data,duplicate:false,reviewed:false,verified:false};
 }
+/** UAT-R1: evidence rows carry their preserved file type/size and any quarantine (never usable for a gate). */
+async function withQuarantine(claimId,rows,code){
+  const {data,error}=await supabase.from('dealer_claim_evidence_quarantine_events')
+    .select('evidence_id,actor_kind,reason_code,created_at').eq('claim_id',claimId).limit(100);
+  if(error)throw deny(code,503);
+  const byId=new Map((data||[]).map(q=>[q.evidence_id,q]));
+  return (rows||[]).map(row=>{
+    const q=byId.get(row.evidence_id);
+    return {...row,quarantined:Boolean(q),
+      quarantine:q?{actor_kind:q.actor_kind,reason_code:q.reason_code,recorded_at:q.created_at}:null,
+      usable_for_legal_review:!q};
+  });
+}
 export async function listMyClaimEvidence(claimId,actor){
   requireClaimantSession(actor);
   const claim=await loadClaim(claimId);
   assertClaimOwner(claim,actor);
   const {data,error}=await supabase.from('dealer_claim_private_evidence')
-    .select('evidence_id,document_class,created_at,content_sha256')
+    .select('evidence_id,document_class,created_at,content_sha256,mime_type,file_bytes')
     .eq('claim_id',claim.claim_id).order('created_at',{ascending:false}).limit(50);
   if(error)throw deny('EVIDENCE_LIST_UNAVAILABLE',503);
-  return data||[];
+  return withQuarantine(claim.claim_id,data,'EVIDENCE_LIST_UNAVAILABLE');
 }
 export async function listReviewClaimEvidence(claimId,actor){
   const claim=await loadClaim(claimId);
@@ -203,10 +219,61 @@ export async function listReviewClaimEvidence(claimId,actor){
   // R6 closure: a reviewer who claims this business or works for its dealership sees nothing.
   await assertReviewerNotConflicted(actor,claim.seed_dealer_id);
   const {data,error}=await supabase.from('dealer_claim_private_evidence')
-    .select('evidence_id,document_class,created_at,content_sha256')
+    .select('evidence_id,document_class,created_at,content_sha256,mime_type,file_bytes')
     .eq('claim_id',claim.claim_id).order('created_at',{ascending:false}).limit(50);
   if(error)throw deny('REVIEW_EVIDENCE_LIST_UNAVAILABLE',503);
-  return data||[];
+  return withQuarantine(claim.claim_id,data,'REVIEW_EVIDENCE_LIST_UNAVAILABLE');
+}
+const QUARANTINE_REFUSALS=Object.freeze({INVALID_EVIDENCE_QUARANTINE_REQUEST:400,CLAIM_EVIDENCE_NOT_FOUND:404,
+  CLAIM_EVIDENCE_NOT_OWNED:403,EVIDENCE_ALREADY_RELIED_ON_BY_A_REVIEW:409,INDEPENDENT_REVIEWER_REQUIRED:403,
+  DEALER_REVIEWER_CONFLICT_OF_INTEREST:403});
+function quarantineRefusal(error){
+  const text=String(error?.message||'').trim();
+  const code=Object.keys(QUARANTINE_REFUSALS).find(c=>text===c);
+  return code?deny(code,QUARANTINE_REFUSALS[code]):deny('EVIDENCE_QUARANTINE_UNAVAILABLE',503);
+}
+async function evidenceOfClaim(claim,evidenceId){
+  validateId(evidenceId);
+  const {data,error}=await supabase.from('dealer_claim_private_evidence').select('evidence_id,claim_id')
+    .eq('evidence_id',evidenceId).eq('claim_id',claim.claim_id).maybeSingle();
+  if(error)throw deny('EVIDENCE_LOOKUP_UNAVAILABLE',503);
+  if(!data)throw deny('CLAIM_EVIDENCE_NOT_FOUND',404);
+  return data;
+}
+/** UAT-R1: the applicant withdraws a file they uploaded by mistake, while no review relies on it. */
+export async function withdrawMyClaimEvidence(claimId,evidenceId,actor){
+  requireClaimantSession(actor);
+  const claim=await loadClaim(claimId);
+  assertClaimOwner(claim,actor);
+  const evidence=await evidenceOfClaim(claim,evidenceId);
+  const {data,error}=await supabase.rpc('dealer_quarantine_claim_evidence',{
+    p_evidence_id:evidence.evidence_id,p_actor_id:actor.userId,p_actor_kind:'CLAIMANT_WITHDRAWAL',
+    p_reason_code:'UPLOADED_IN_ERROR',p_note:null,
+  });
+  if(error)throw quarantineRefusal(error);
+  return data;
+}
+const REVIEWER_QUARANTINE_REASONS=new Set(['NOT_THE_DECLARED_DOCUMENT_TYPE','UNREADABLE_OR_INCOMPLETE','NOT_ISSUED_BY_STATED_AUTHORITY']);
+/**
+ * UAT-R1: an independent reviewer (password step-up, conflict-of-interest checked) quarantines
+ * evidence that is not what it was filed as. It keeps its original class for audit and can never
+ * satisfy a claim, application, legal, activation or reconciliation gate again.
+ */
+export async function quarantineReviewClaimEvidence(claimId,evidenceId,actor,payload={}){
+  const claim=await loadClaim(claimId);
+  requireIndependentReviewer(actor,claim.claimant_user_id);
+  await assertReviewerNotConflicted(actor,claim.seed_dealer_id);
+  if(!REVIEWER_QUARANTINE_REASONS.has(payload?.reason_code))throw deny('INVALID_EVIDENCE_QUARANTINE_REQUEST',400);
+  const note=typeof payload?.note==='string'&&payload.note.trim()?payload.note.trim():null;
+  if(note&&(note.length<10||note.length>1000||/<\s*[/!a-zA-Z]/.test(note)))throw deny('INVALID_EVIDENCE_QUARANTINE_REQUEST',400);
+  const evidence=await evidenceOfClaim(claim,evidenceId);
+  await requireReviewerPassword(actor,claim,payload?.reviewer_password);
+  const {data,error}=await supabase.rpc('dealer_quarantine_claim_evidence',{
+    p_evidence_id:evidence.evidence_id,p_actor_id:actor.userId,p_actor_kind:'INDEPENDENT_REVIEWER',
+    p_reason_code:payload.reason_code,p_note:note,
+  });
+  if(error)throw quarantineRefusal(error);
+  return data;
 }
 export async function reviewerEvidencePreview(claimId,evidenceId,actor,password){
   const claim=await loadClaim(claimId);
@@ -235,6 +302,10 @@ export async function reviewDealerClaim(claimId,actor,payload){
   if(payload.verdict==='CLAIM_APPROVED' && (!UUID.test(payload?.evidence_id||'') ||
     typeof payload?.reviewed_issuer!=='string'||payload.reviewed_issuer.trim().length<3 ||
     payload?.verified_scope!==claim.claimed_scope))throw deny('REVIEWED_AUTHORITY_PROOF_REQUIRED',400);
+  // UAT-R1 P0: the reviewer confirms they opened THIS document and that it is what it was filed as
+  // (never an image-only or class-label approval).
+  if(payload.verdict==='CLAIM_APPROVED'&&payload?.evidence_document_confirmed!==true)
+    throw deny('REVIEWER_DOCUMENT_CONFIRMATION_REQUIRED',400);
   const {data,error}=await supabase.rpc('dealer_record_independent_claim_review',{
     p_claim_id:claim.claim_id,p_reviewer_id:actor.userId,p_verdict:payload.verdict,
     p_reason:payload.reason,p_evidence_id:payload.evidence_id||null,

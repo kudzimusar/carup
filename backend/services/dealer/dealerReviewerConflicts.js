@@ -23,13 +23,19 @@ export async function loadReviewerConflicts(actor, { db = supabase } = {}) {
   if (claims.error || members.error) throw refuse('REVIEWER_CONFLICT_LOOKUP_UNAVAILABLE', 503);
   const tenants = ids(members.data, 'tenant_id');
   let linkedSeeds = new Set();
+  let attachedSeeds = new Set();
   if (tenants.size) {
-    const { data, error } = await db.from('dealer_approved_seed_links').select('seed_dealer_id')
-      .in('tenant_id', [...tenants]).limit(500);
-    if (error) throw refuse('REVIEWER_CONFLICT_LOOKUP_UNAVAILABLE', 503);
-    linkedSeeds = ids(data, 'seed_dealer_id');
+    // UAT-R1: a research seed ATTACHED to a dealership (second branch claim of the same company)
+    // conflicts that dealership's members exactly like its primary seed does.
+    const [links, attachments] = await Promise.all([
+      db.from('dealer_approved_seed_links').select('seed_dealer_id').in('tenant_id', [...tenants]).limit(500),
+      db.from('dealer_branch_claim_attachments').select('seed_dealer_id').in('tenant_id', [...tenants]).limit(500),
+    ]);
+    if (links.error || attachments.error) throw refuse('REVIEWER_CONFLICT_LOOKUP_UNAVAILABLE', 503);
+    linkedSeeds = ids(links.data, 'seed_dealer_id');
+    attachedSeeds = ids(attachments.data, 'seed_dealer_id');
   }
-  const seeds = new Set([...ids(claims.data, 'seed_dealer_id'), ...linkedSeeds]);
+  const seeds = new Set([...ids(claims.data, 'seed_dealer_id'), ...linkedSeeds, ...attachedSeeds]);
   return Object.freeze({
     seeds, tenants,
     conflicted: (seedId) => typeof seedId === 'string' && seeds.has(seedId),

@@ -105,7 +105,12 @@ export const DEALER_MEDIA_CATEGORIES = Object.freeze([
   'SHOWROOM_INTERIOR',
   'BRANCH_FACILITY',
   'SERVICE_BAY',
+  // UAT-R1: the dealer-owned company profile image (square avatar) and cover/hero image. Media, never
+  // legal evidence; public only after the same independent T22 review, withdrawn with the storefront.
+  'COMPANY_PROFILE_IMAGE',
+  'COMPANY_COVER_IMAGE',
 ]);
+export const DEALER_COMPANY_IMAGE_CATEGORIES = Object.freeze(['COMPANY_PROFILE_IMAGE', 'COMPANY_COVER_IMAGE']);
 export const DEALER_MEDIA_RIGHTS_ATTESTATION = 'DEALER_OWNED_PHOTOGRAPH_NO_OEM_OR_THIRD_PARTY_LOGO';
 export const DEALER_MEDIA_REVIEW_DECISIONS = Object.freeze([
   'APPROVED_PUBLIC_DISPLAY',
@@ -420,6 +425,31 @@ export async function listMyStorefrontMedia(actor, {
   });
 }
 
+/**
+ * UAT-R1: the approved owner's PRIVATE preview of their own uploaded media (e.g. a company profile or
+ * cover image still awaiting independent review). Tenant-scoped, current owner authority re-checked,
+ * never cached and never a public URL.
+ */
+export async function readMyStorefrontMediaImage(actor, mediaId, {
+  db = supabase,
+  resolveOwner = requireApprovedOwnerWorkspace,
+} = {}) {
+  if (typeof mediaId !== 'string' || !UUID_RE.test(mediaId)) throw refuse('INVALID_DEALER_MEDIA_ID', 400);
+  const owner = await resolveOwner(actor);
+  const { data: item, error } = await db.from('dealer_storefront_media_items')
+    .select('media_id,tenant_id,storage_bucket,storage_path,mime_type,review_status')
+    .eq('media_id', mediaId).eq('tenant_id', owner.tenant_id).maybeSingle();
+  if (error) throw refuse('DEALER_STOREFRONT_MEDIA_READ_UNAVAILABLE', 503);
+  if (!item || item.storage_bucket !== 'ocr-documents' || !String(item.storage_path || '').startsWith('dealership-media/')) {
+    throw refuse('DEALER_STOREFRONT_MEDIA_NOT_FOUND', 404);
+  }
+  const { data: blob, error: downloadError } = await db.storage.from('ocr-documents').download(item.storage_path);
+  if (downloadError || !blob) throw refuse('DEALER_STOREFRONT_MEDIA_READ_UNAVAILABLE', 503);
+  const bytes = Buffer.from(await blob.arrayBuffer());
+  if (bytes.length < 32 || bytes.length > 4194304) throw refuse('DEALER_STOREFRONT_MEDIA_READ_UNAVAILABLE', 503);
+  return { bytes, mime_type: item.mime_type, review_status: item.review_status };
+}
+
 export async function uploadMyStorefrontMedia(actor, payload = {}, {
   db = supabase,
   resolveOwner = requireApprovedOwnerWorkspace,
@@ -445,6 +475,9 @@ export async function uploadMyStorefrontMedia(actor, payload = {}, {
       throw refuse('INVALID_MEDIA_BRANCH_ID', 400);
     }
     branchId = payload.branch_id;
+  }
+  if (branchId && DEALER_COMPANY_IMAGE_CATEGORIES.includes(category)) {
+    throw refuse('COMPANY_IMAGE_IS_NOT_BRANCH_MEDIA', 400);
   }
   const bytes = decodeStorefrontMediaImage(payload?.image_data_url, payload?.mime_type);
   const digest = sha256Hex(bytes);

@@ -8,7 +8,7 @@ import {
   uploadPrivateClaimEvidence,listMyClaimEvidence,reviewerEvidencePreview,
   reviewDealerClaim,submitClaimAppeal,exportClaimPrefilledWorkbook,
   importClaimWorkbook,saveManualClaimDraft,readMyClaimIntakeDraft,listClaimReviewQueue,listReviewClaimEvidence,
-  previewMyClaimCsv,importMyClaimCsv,
+  previewMyClaimCsv,importMyClaimCsv,withdrawMyClaimEvidence,quarantineReviewClaimEvidence,
 } from '../services/dealer/dealerClaimApplicationService.js';
 import { createClaimDocumentCandidate,listMyClaimDocumentCandidates } from '../services/dealer/dealerDocumentCandidateService.js';
 import {readMyClaimJurisdictionPreview} from '../services/dealer/dealerJurisdictionPreview.js';
@@ -17,7 +17,7 @@ import {listFullStorefrontReviewQueue,recordFullStorefrontPublication,
 import {
   listLegalCountryPolicyReadiness,listPendingLegalDealershipCases,listPendingLegalDealerActivations,
   certifyLegalDealerCase,activateLegallyApprovedDealer,
-  readMyOperationalDealerStatus
+  readMyOperationalDealerStatus,previewBranchClaimReconciliation,reconcileApprovedBranchClaim,
 } from '../services/dealer/dealerLegalActivationService.js';
 import {
   submitDealerApplication,listMyDealerApplicationSubmissions,
@@ -68,6 +68,9 @@ const claimWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,buc
 const evidenceWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-private-evidence'});
 const applicationWriteLimit = rateLimiter({max:4,windowMs:3600000,isSensitive:true,bucket:'dealer-application-intake'});
 const claimantAggregateLimit = rateLimiter({max:8,windowMs:3600000,isSensitive:true,bucket:'dealer-claimant-total'});
+// UAT-R1: withdrawing a file uploaded by mistake is its own small bucket, so it never consumes the
+// upload budget the applicant needs to send the right document.
+const evidenceWithdrawLimit = rateLimiter({max:6,windowMs:3600000,isSensitive:true,bucket:'dealer-evidence-withdrawal'});
 const correctionWriteLimit = rateLimiter({max:6,windowMs:3600000,isSensitive:true,bucket:'dealer-research-corrections'});
 const reviewWriteLimit = rateLimiter({ max: 15, windowMs: 60 * 60 * 1000, isSensitive: true });
 const mediaReviewWriteLimit = rateLimiter({ max: 15, windowMs: 60 * 60 * 1000, isSensitive: true, bucket: 'dealer-media-review' });
@@ -135,6 +138,24 @@ router.post('/api/admin/dealership/legal-approvals/:legalReviewId/activate',
     const activation=await activateLegallyApprovedDealer(
       req.params.legalReviewId,req.userContext,req.body||{});
     res.set('Cache-Control','no-store').status(201).json({activation});
+  }catch(error){errorResponse(res,next,error)}
+});
+// UAT-R1 P0: a second approved BRANCH claim of the SAME legal company is reconciled onto the
+// claimant's existing dealership by a separate independent reviewer (preview first, then step-up
+// confirm). A separately registered company is refused; nothing is created or published.
+router.get('/api/admin/dealership/legal-approvals/:legalReviewId/reconciliation-preview',
+  reviewer,async(req,res,next)=>{
+  try{
+    const preview=await previewBranchClaimReconciliation(req.params.legalReviewId,req.userContext);
+    res.set('Cache-Control','no-store').json({preview});
+  }catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/admin/dealership/legal-approvals/:legalReviewId/reconcile',
+  reviewWriteLimit,reviewer,async(req,res,next)=>{
+  try{
+    const reconciliation=await reconcileApprovedBranchClaim(
+      req.params.legalReviewId,req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({reconciliation});
   }catch(error){errorResponse(res,next,error)}
 });
 
@@ -285,6 +306,12 @@ router.get('/api/dealership/claims/:claimId/evidence',session,async(req,res,next
   try {
     const evidence=await listMyClaimEvidence(req.params.claimId,req.userContext);
     res.set('Cache-Control','no-store').json({evidence});
+  } catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/dealership/claims/:claimId/evidence/:evidenceId/withdraw',evidenceWithdrawLimit,session,async(req,res,next)=>{
+  try {
+    const withdrawal=await withdrawMyClaimEvidence(req.params.claimId,req.params.evidenceId,req.userContext);
+    res.set('Cache-Control','no-store').status(201).json({withdrawal});
   } catch(error){errorResponse(res,next,error)}
 });
 router.post('/api/dealership/claims/:claimId/appeal',claimantAggregateLimit,claimWriteLimit,session,async(req,res,next)=>{
@@ -448,6 +475,14 @@ router.post('/api/admin/dealership/claims/:claimId/evidence/:evidenceId/preview'
     const preview=await reviewerEvidencePreview(req.params.claimId,req.params.evidenceId,
       req.userContext,req.body?.reviewer_password);
     res.set('Cache-Control','no-store').json({preview});
+  } catch(error){errorResponse(res,next,error)}
+});
+router.post('/api/admin/dealership/claims/:claimId/evidence/:evidenceId/quarantine',
+ reviewWriteLimit,reviewer,async(req,res,next)=>{
+  try {
+    const quarantine=await quarantineReviewClaimEvidence(req.params.claimId,req.params.evidenceId,
+      req.userContext,req.body||{});
+    res.set('Cache-Control','no-store').status(201).json({quarantine});
   } catch(error){errorResponse(res,next,error)}
 });
 router.post('/api/admin/dealership/claims/:claimId/review',

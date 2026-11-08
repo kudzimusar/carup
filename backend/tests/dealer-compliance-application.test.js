@@ -40,6 +40,7 @@ function fakeFrom({claim=approved,user,sub=submission,submissions=[submission],r
     }
     if(table==='tenant_users')return query(memberships);
     if(table==='dealer_approved_seed_links')return query(links);
+    if(table==='dealer_branch_claim_attachments')return query([]);
     if(table==='users')return query(user||null);
     if(table==='dealer_claim_compliance_submissions'){
       return { ...query(sub),limit:async()=>({data:submissions,error:null})};

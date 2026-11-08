@@ -35,13 +35,38 @@ export function fullApprovedPublicProjection(row){
     complaint_count:null,review_count:null,merchant_activation:false,
   });
 }
+/**
+ * UAT-R1: a branch that came from an ATTACHED second branch claim stops being displayed the moment
+ * that claim's attachment is no longer ACTIVE (revoked, rejected or disputed) — even if it was in an
+ * earlier reviewed storefront snapshot. The company's other branches are unaffected. Fails closed.
+ */
+async function withoutWithdrawnAttachedBranches(rows){
+  const list=(rows||[]).filter(Boolean);
+  const branchIds=[...new Set(list.flatMap(r=>(r.approved_branch_snapshot||[]).map(b=>b?.branch_id))
+    .filter(x=>typeof x==='string'&&UUID.test(x)))];
+  if(!branchIds.length)return list;
+  const {data:walk,error:walkError}=await supabase.from('dealer_attachment_branch_crosswalk')
+    .select('branch_id,attachment_id').in('branch_id',branchIds);
+  if(walkError)throw deny('APPROVED_PUBLIC_STORE_FRONT_UNAVAILABLE',503);
+  if(!walk?.length)return list;
+  const {data:attached,error:attachedError}=await supabase.from('dealer_branch_claim_attachments')
+    .select('attachment_id,attach_status').in('attachment_id',[...new Set(walk.map(w=>w.attachment_id))]);
+  if(attachedError)throw deny('APPROVED_PUBLIC_STORE_FRONT_UNAVAILABLE',503);
+  const active=new Set((attached||[]).filter(a=>a.attach_status==='ACTIVE').map(a=>a.attachment_id));
+  const withdrawn=new Set(walk.filter(w=>!active.has(w.attachment_id)).map(w=>w.branch_id));
+  if(!withdrawn.size)return list;
+  return list.map(r=>({...r,approved_branch_snapshot:(r.approved_branch_snapshot||[])
+    .filter(b=>!withdrawn.has(b?.branch_id))}));
+}
 export async function getReviewedFullStorefront(seed){
   const id=seedId(seed);
   const {data,error}=await supabase.from('dealer_full_storefront_current')
     .select('seed_dealer_id,public_slug,public_name,public_city,approved_branch_snapshot,dealer_declared_sections,publication_reviewed_at')
     .eq('seed_dealer_id',id).maybeSingle();
   if(error)throw deny('APPROVED_PUBLIC_STORE_FRONT_UNAVAILABLE',503);
-  return fullApprovedPublicProjection(data);
+  if(!data)return null;
+  const [filtered]=await withoutWithdrawnAttachedBranches([data]);
+  return fullApprovedPublicProjection(filtered);
 }
 export async function listReviewedFullStorefronts(ids){
   if(!Array.isArray(ids)||ids.length>50||ids.some(x=>typeof x!=='string'||!SEED.test(x)))
@@ -51,7 +76,8 @@ export async function listReviewedFullStorefronts(ids){
     .select('seed_dealer_id,public_slug,public_name,public_city,approved_branch_snapshot,dealer_declared_sections,publication_reviewed_at')
     .in('seed_dealer_id',ids).limit(50);
   if(error)throw deny('APPROVED_PUBLIC_STORE_FRONT_UNAVAILABLE',503);
-  return new Map((data||[]).map(x=>[x.seed_dealer_id,fullApprovedPublicProjection(x)]));
+  const filtered=await withoutWithdrawnAttachedBranches(data||[]);
+  return new Map(filtered.map(x=>[x.seed_dealer_id,fullApprovedPublicProjection(x)]));
 }
 export async function listFullStorefrontReviewQueue(actor){
   requireIndependentReviewer(actor,'');

@@ -56,7 +56,8 @@ test('T08: forged tenant_id/verified/status/paid cannot enter through the workbo
   const extra = registry.find((t) => t.name === 'BUSINESS').fields.length + 1;
   business.getRow(1).getCell(extra).value = 'tenant_id';
   business.getRow(2).getCell(extra).value = 'someone-elses-tenant';
-  await refuses(widened, 'WORKBOOK_ROW_OR_COLUMN_LIMIT');
+  // UAT-R1: an extra column that holds data is refused by name (formatting-only columns are ignored).
+  await refuses(widened, 'WORKBOOK_EXTRA_COLUMNS_WITH_DATA');
   const relabelled = await workbook();
   relabelled.getWorksheet('BUSINESS').getRow(1).getCell(col('BUSINESS', 'legal_name')).value = 'verified';
   await refuses(relabelled, 'WORKBOOK_HEADER_DRIFT');

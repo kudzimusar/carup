@@ -80,10 +80,19 @@ test('review cannot auto grant tenant or claim status without independent proof'
       evidence_id:'made-up',reviewed_issuer:'Company Registry',verified_scope:'BRANCH',
     }),/REVIEWED_AUTHORITY_PROOF_REQUIRED/);
     assert.equal(calls,0);
+    // UAT-R1: an approval without the reviewer's explicit "I opened this document and it is what it
+    // was filed as" confirmation is refused before any decision is recorded.
+    await assert.rejects(app.reviewDealerClaim(CLAIM_ID,reviewer,{
+      reviewer_password:pw,verdict:'CLAIM_APPROVED',
+      reason:'A human has checked the original and the issuing authority independently.',
+      evidence_id:EVIDENCE_ID,reviewed_issuer:'Company Registry',verified_scope:'BRANCH',
+    }),/REVIEWER_DOCUMENT_CONFIRMATION_REQUIRED/);
+    assert.equal(calls,0);
     const outcome=await app.reviewDealerClaim(CLAIM_ID,reviewer,{
       reviewer_password:pw,verdict:'CLAIM_APPROVED',
       reason:'A human has checked the original and the issuing authority independently.',
       evidence_id:EVIDENCE_ID,reviewed_issuer:'Company Registry',verified_scope:'BRANCH',
+      evidence_document_confirmed:true,
     });
     assert.equal(calls,1);
     assert.equal(outcome.tenant_activated,false);
@@ -113,8 +122,18 @@ test('raw evidence cannot be accepted without clean independent malware scanner'
       if(table==='dealer_claim_private_evidence')return query(null);
       throw Error('Unexpected table '+table);
     };
+    // UAT-R1: the applicant must say explicitly what the file is — no preselected class, no scan or
+    // storage before that confirmation (a showroom photo was once stored as a registration certificate).
+    let scans=0;
     await assert.rejects(app.uploadPrivateClaimEvidence(CLAIM_ID,claimant,{
       document_class:'COMPANY_REGISTRATION',mime_type:'image/jpeg',document:b64,
+    },{scan:async()=>{scans++;return true}}),/DOCUMENT_CLASS_CONFIRMATION_REQUIRED/);
+    await assert.rejects(app.uploadPrivateClaimEvidence(CLAIM_ID,claimant,{
+      document_class:'COMPANY_REGISTRATION',document_class_confirmed:'true',mime_type:'image/jpeg',document:b64,
+    },{scan:async()=>{scans++;return true}}),/DOCUMENT_CLASS_CONFIRMATION_REQUIRED/);
+    assert.equal(scans,0,'nothing is scanned or stored without the explicit confirmation');
+    await assert.rejects(app.uploadPrivateClaimEvidence(CLAIM_ID,claimant,{
+      document_class:'COMPANY_REGISTRATION',document_class_confirmed:true,mime_type:'image/jpeg',document:b64,
     },{scan:async()=>false}),/MALWARE_SCANNER_UNAVAILABLE/);
   }finally{supabase.from=old}
 });
@@ -123,7 +142,7 @@ test('approved claimant can supply later private legal originals, but revoked or
   const old=supabase.from;
   const fake=Buffer.alloc(72);
   fake[0]=0xff;fake[1]=0xd8;fake[70]=0xff;fake[71]=0xd9;
-  const input={document_class:'SIGNATORY_MANDATE',mime_type:'image/jpeg',
+  const input={document_class:'SIGNATORY_MANDATE',document_class_confirmed:true,mime_type:'image/jpeg',
     document:'data:image/jpeg;base64,'+fake.toString('base64')};
   let status='CLAIM_APPROVED',scanCalls=0;
   try{
@@ -162,7 +181,7 @@ function rowsOf(data){
     limit:async()=>({data,error:null}),maybeSingle:async()=>({data,error:null})};
   return b;
 }
-function conflictFrom({reviewerClaims=[],memberships=[],links=[],storageCalls}){
+function conflictFrom({reviewerClaims=[],memberships=[],links=[],attachments=[],storageCalls}){
   return table=>{
     if(table==='dealer_research_claim_requests'){
       let own=false;
@@ -174,6 +193,8 @@ function conflictFrom({reviewerClaims=[],memberships=[],links=[],storageCalls}){
     }
     if(table==='tenant_users')return rowsOf(memberships);
     if(table==='dealer_approved_seed_links')return rowsOf(links);
+    if(table==='dealer_branch_claim_attachments')return rowsOf(attachments);
+    if(table==='dealer_claim_evidence_quarantine_events')return rowsOf([]);
     if(table==='dealer_claim_private_evidence'){storageCalls.push(table);return rowsOf([])}
     throw Error('Unexpected table '+table);
   };
@@ -183,7 +204,9 @@ test('R6 closure: a conflicted reviewer never reads the claim evidence, its sign
   supabase.rpc=async(name)=>{rpcCalls.push(name);return {data:{allowed:true},error:null}};
   try{
     for(const conflict of [{reviewerClaims:[{seed_dealer_id:'ZW-DEAL-0001'}]},
-      {memberships:[{tenant_id:'t-1'}],links:[{seed_dealer_id:'ZW-DEAL-0001'}]}]){
+      {memberships:[{tenant_id:'t-1'}],links:[{seed_dealer_id:'ZW-DEAL-0001'}]},
+      // UAT-R1: staff of the dealership the business is ATTACHED to (second branch claim) are conflicted too.
+      {memberships:[{tenant_id:'t-1'}],attachments:[{seed_dealer_id:'ZW-DEAL-0001'}]}]){
       supabase.from=conflictFrom({...conflict,storageCalls});
       await assert.rejects(app.listReviewClaimEvidence(CLAIM_ID,reviewer),
         e=>e.statusCode===403&&e.code==='DEALER_REVIEWER_CONFLICT_OF_INTEREST');

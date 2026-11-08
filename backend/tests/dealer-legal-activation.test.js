@@ -98,9 +98,12 @@ test('C08 legal case cannot approve without exact two separate originals and acc
       signatory_evidence_id:evidence2,
       verified_issuer:'Fixture registry',reviewed_registration_number:'FIC-001',
       approved_scope:'BRANCH',legal_expires_at:new Date(Date.now()+86400000).toISOString(),
-      reason};
+      reason,documents_confirmed:true};
     await assert.rejects(legal.certifyLegalDealerCase(approved,reviewer,
       {...base,signatory_evidence_id:evidence1}),/TWO_DISTINCT_ORIGINAL_DOCUMENTS_REQUIRED/);
+    // UAT-R1: both originals must be confirmed as opened and correctly classified by THIS reviewer.
+    await assert.rejects(legal.certifyLegalDealerCase(approved,reviewer,
+      {...base,documents_confirmed:undefined}),/REVIEWER_DOCUMENT_CONFIRMATION_REQUIRED/);
     await assert.rejects(legal.certifyLegalDealerCase(approved,reviewer,
       {...base,reviewer_password:'bad'}),/REAUTHENTICATION_REQUIRED|REAUTHENTICATION_FAILED/);
     const output=await legal.certifyLegalDealerCase(approved,reviewer,base);
@@ -187,7 +190,11 @@ test('R6 the legal reviewer sees the dealer and PICKS evidence; finished cases l
     dealer_research_claim_requests:[{claim_id:submitted,seed_dealer_id:'ZW-DEAL-0001'}],
     dealer_claim_private_evidence:[
       {evidence_id:'e-new',claim_id:submitted,document_class:'COMPANY_REGISTRATION',mime_type:'application/pdf',
-        file_bytes:2048,created_at:'2026-11-07T00:00:00Z',storage_path:'dealership-claims/x/y.pdf'}],
+        file_bytes:2048,created_at:'2026-11-07T00:00:00Z',storage_path:'dealership-claims/x/y.pdf'},
+      {evidence_id:'e-photo',claim_id:submitted,document_class:'COMPANY_REGISTRATION',mime_type:'image/jpeg',
+        file_bytes:4096,created_at:'2026-11-06T00:00:00Z',storage_path:'dealership-claims/x/z.jpg'}],
+    // UAT-R1: a quarantined (mis-filed) document is listed with why, and is never pickable.
+    dealer_claim_evidence_quarantine_events:[{evidence_id:'e-photo',reason_code:'UPLOADED_IN_ERROR'}],
   };
   supabase.from=table=>{
     let ownClaimLookup=false;
@@ -204,7 +211,9 @@ test('R6 the legal reviewer sees the dealer and PICKS evidence; finished cases l
     assert.equal(cases[0].seed_dealer_id,'ZW-DEAL-0001');
     assert.equal(cases[0].declared_legal_name,'Fixture Legal Co');
     assert.deepEqual(cases[0].evidence,[{evidence_id:'e-new',document_class:'COMPANY_REGISTRATION',
-      mime_type:'application/pdf',file_bytes:2048,uploaded_at:'2026-11-07T00:00:00Z'}]);
+      mime_type:'application/pdf',file_bytes:2048,uploaded_at:'2026-11-07T00:00:00Z',quarantined:false,quarantine_reason:null},
+      {evidence_id:'e-photo',document_class:'COMPANY_REGISTRATION',mime_type:'image/jpeg',file_bytes:4096,
+        uploaded_at:'2026-11-06T00:00:00Z',quarantined:true,quarantine_reason:'UPLOADED_IN_ERROR'}]);
     assert.equal(JSON.stringify(cases).includes('dealership-claims/'),false,'no storage path leaves the service');
   }finally{supabase.from=original}
 });
