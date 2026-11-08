@@ -225,3 +225,27 @@ test('performance cards: exact counts or null, never invented; unsupported capab
   for(const k of ['published_vehicles','recorded_vehicles','buyer_enquiries','qualified_enquiries','vehicle_saves'])
     assert.equal(s2.metrics[k].value,null,k+' is null when its source cannot be read');
 });
+
+test('public storefront hides branches of an attached claim that was revoked or whose legal review lapsed',async()=>{
+  const full=await import('../services/dealer/dealerFullStorefrontService.js');
+  const id=(n)=>`00000000-0000-4000-8000-00000000000${n}`;
+  const row={seed_dealer_id:'ZW-DEAL-0001',public_slug:'zw-deal-0001',public_name:'Fixture',public_city:'Harare',
+    publication_reviewed_at:'2026-11-08T00:00:00Z',dealer_declared_sections:{},
+    approved_branch_snapshot:[1,2,3,4].map(n=>({branch_id:id(n),name:'Branch '+n,address:'Fictional'}))};
+  const future=new Date(Date.now()+86400000).toISOString(),past=new Date(Date.now()-86400000).toISOString();
+  const tables={
+    dealer_full_storefront_current:row,
+    dealer_attachment_branch_crosswalk:[{branch_id:id(2),attachment_id:'a2'},{branch_id:id(3),attachment_id:'a3'},{branch_id:id(4),attachment_id:'a4'}],
+    dealer_branch_claim_attachments:[{attachment_id:'a2',attach_status:'ACTIVE',legal_review_id:'l2'},
+      {attachment_id:'a3',attach_status:'REVOKED',legal_review_id:'l3'},{attachment_id:'a4',attach_status:'ACTIVE',legal_review_id:'l4'}],
+    dealer_legal_application_reviews:[{legal_review_id:'l2',legal_expires_at:future},{legal_review_id:'l3',legal_expires_at:future},
+      {legal_review_id:'l4',legal_expires_at:past}],
+  };
+  const original=supabase.from;
+  supabase.from=(table)=>rows(tables[table]??null);
+  try{
+    const projection=await full.getReviewedFullStorefront('ZW-DEAL-0001');
+    assert.deepEqual(projection.approved_branches.map(b=>b.branch_id),[id(1),id(2)],
+      'the primary branch and the ACTIVE, current attached branch stay; revoked and lapsed attached branches are hidden');
+  }finally{supabase.from=original}
+});

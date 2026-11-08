@@ -37,8 +37,9 @@ export function fullApprovedPublicProjection(row){
 }
 /**
  * UAT-R1: a branch that came from an ATTACHED second branch claim stops being displayed the moment
- * that claim's attachment is no longer ACTIVE (revoked, rejected or disputed) — even if it was in an
- * earlier reviewed storefront snapshot. The company's other branches are unaffected. Fails closed.
+ * that claim's attachment is no longer ACTIVE (revoked, rejected or disputed) or its own legal review
+ * has expired — even if it was in an earlier reviewed storefront snapshot. The company's other branches
+ * are unaffected. Fails closed.
  */
 async function withoutWithdrawnAttachedBranches(rows){
   const list=(rows||[]).filter(Boolean);
@@ -50,9 +51,15 @@ async function withoutWithdrawnAttachedBranches(rows){
   if(walkError)throw deny('APPROVED_PUBLIC_STORE_FRONT_UNAVAILABLE',503);
   if(!walk?.length)return list;
   const {data:attached,error:attachedError}=await supabase.from('dealer_branch_claim_attachments')
-    .select('attachment_id,attach_status').in('attachment_id',[...new Set(walk.map(w=>w.attachment_id))]);
+    .select('attachment_id,attach_status,legal_review_id').in('attachment_id',[...new Set(walk.map(w=>w.attachment_id))]);
   if(attachedError)throw deny('APPROVED_PUBLIC_STORE_FRONT_UNAVAILABLE',503);
-  const active=new Set((attached||[]).filter(a=>a.attach_status==='ACTIVE').map(a=>a.attachment_id));
+  // An attached claim whose own legal review has lapsed stops being displayed too (fail closed).
+  const reviewIds=[...new Set((attached||[]).map(a=>a.legal_review_id).filter(Boolean))];
+  const {data:reviews,error:reviewError}=reviewIds.length?await supabase.from('dealer_legal_application_reviews')
+    .select('legal_review_id,legal_expires_at').in('legal_review_id',reviewIds):{data:[],error:null};
+  if(reviewError)throw deny('APPROVED_PUBLIC_STORE_FRONT_UNAVAILABLE',503);
+  const current=new Set((reviews||[]).filter(r=>new Date(r.legal_expires_at).getTime()>Date.now()).map(r=>r.legal_review_id));
+  const active=new Set((attached||[]).filter(a=>a.attach_status==='ACTIVE'&&current.has(a.legal_review_id)).map(a=>a.attachment_id));
   const withdrawn=new Set(walk.filter(w=>!active.has(w.attachment_id)).map(w=>w.branch_id));
   if(!withdrawn.size)return list;
   return list.map(r=>({...r,approved_branch_snapshot:(r.approved_branch_snapshot||[])
