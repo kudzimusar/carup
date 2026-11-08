@@ -277,6 +277,8 @@ test('FICTIONAL only · preliminary → separate legal review → canonical tena
  expect(carryBody.carryover.independently_verified).toBe(false)
  expect(carryBody.carryover.publicly_approved).toBe(false)
  // A genuinely NEW branch is still added through the canonical private editor (C14).
+ // UAT-R1 redesign: the editor sits in a collapsible "Add or edit a branch" section.
+ await claimant.getByRole('button',{name:'Add or edit a branch'}).click()
  await claimant.locator('#dealer-new-branch-name')
   .fill('FICTIONAL SECOND YARD - PRIVATE ONLY')
  await claimant.locator('#dealer-new-branch-address')

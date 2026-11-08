@@ -310,7 +310,8 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
   await expect(page.getByText(MODEL).first()).toBeVisible({timeout:40000})
   await shot(page,info,'r4-public-vehicle-detail-'+width)
   await page.goto('/dealers/'+f.public_slug)
-  await expect(page.getByTestId('dealer-storefront-inventory').getByRole('link',{name:new RegExp(MODEL)}))
+  // UAT-R1: the storefront now reuses the Marketplace card (image link "View …" + title link "Open …").
+  await expect(page.getByTestId('dealer-storefront-inventory').getByRole('link',{name:new RegExp('^Open .*'+MODEL)}))
    .toBeVisible({timeout:40000})
   const gallery=page.getByTestId('dealer-storefront-media-gallery')
   await expect(gallery).toBeVisible({timeout:30000})
@@ -324,7 +325,7 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
   const page=await ctx.newPage()
   await page.goto('/dealers/'+f.public_slug)
   await expect(page).toHaveURL(new RegExp('/dealers/'+f.public_slug+'$'))
-  const link=page.getByTestId('dealer-storefront-inventory').getByRole('link',{name:new RegExp(MODEL)})
+  const link=page.getByTestId('dealer-storefront-inventory').getByRole('link',{name:new RegExp('^Open .*'+MODEL)})
   await expect(link).toBeVisible({timeout:40000})
   const gallery=page.getByTestId('dealer-storefront-media-gallery')
   await expect(gallery).toBeVisible({timeout:30000})
