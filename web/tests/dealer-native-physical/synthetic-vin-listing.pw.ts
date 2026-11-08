@@ -167,7 +167,8 @@ test('FICTIONAL dealer VIN: prepare → canonical document review → canonical 
  await expect(uploadMediaBtn).toBeEnabled({timeout:15000})
  await uploadMediaBtn.click({timeout:15000})
  await expect(owner.getByText('Uploaded dealership facility photo',{exact:false})).toBeVisible({timeout:30000})
- await expect(mediaSection.getByText('PENDING_INDEPENDENT_REVIEW')).toBeVisible({timeout:30000})
+ // UAT-R1: the owner's media list states the review status in plain words instead of the raw code.
+ await expect(mediaSection.getByText('Awaiting independent review — only you can see it')).toBeVisible({timeout:30000})
  axe.push(await axeScan(owner,info,'owner-media-upload-section','[data-testid="dealer-owner-media-section"]'))
  await shot(owner,info,'r5-owner-facility-media-uploaded-1280')
  await ownerContext.close()

@@ -454,7 +454,7 @@ export default function DealerClaimWorkspace() {
                     onClick={()=>{setSelected(c.claim_id);setError('');setNotice('')}}>
                     <strong className="block">{c.seed_dealer_id}</strong>
                     <span className="block text-xs text-gray-600 mt-1 break-words">{c.claim_status.replaceAll('_',' ')}</span>
-                    <span className="block text-xs text-gray-500">{c.claimed_scope}</span>
+                    <span className="block text-xs text-gray-600">{c.claimed_scope}</span>
                   </button>
                 ))}
               </CardContent>

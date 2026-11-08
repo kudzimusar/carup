@@ -421,7 +421,7 @@ export default function DealerLegalActivationReview(){
                 </p>
               </div>
             </div>
-            <Button variant="outline" className={DEALER_WRAP_BUTTON} disabled={busy} onClick={()=>{void loadPreview()}}>
+            <Button variant="outline" className={DEALER_WRAP_BUTTON+' hover:bg-orange-50 hover:text-orange-900'} disabled={busy} onClick={()=>{void loadPreview()}}>
               {currentPreview?'Re-check reconciliation':'Check reconciliation for this approved claim'}
             </Button>
             {currentPreview&&<div className="space-y-4" data-testid="dealer-reconciliation-preview">

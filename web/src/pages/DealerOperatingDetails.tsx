@@ -411,7 +411,7 @@ export default function DealerOperatingDetails(){
               (key===selected?'bg-blue-50 border-blue-600 text-blue-900 font-semibold':
                 'bg-white border-slate-200 hover:border-slate-400')}>
             {sections[key].heading}
-            <span className="block text-xs mt-1 text-slate-500">
+            <span className="block text-xs mt-1 text-slate-600">
               {read.latest[key]?'Version '+read.latest[key]?.version:'Not recorded'}
             </span>
           </button>)}

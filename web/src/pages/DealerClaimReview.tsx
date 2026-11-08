@@ -208,7 +208,7 @@ export default function DealerClaimReview() {
               }}>
               <strong>{claim.seed_dealer_id}</strong>
               <span className="block text-xs text-gray-600 mt-1">{claim.claim_status.replaceAll('_',' ')}</span>
-              <span className="block text-xs text-gray-500 mt-1">Scope {claim.claimed_scope}</span>
+              <span className="block text-xs text-gray-600 mt-1">Scope {claim.claimed_scope}</span>
             </button>)}
           </CardContent></Card>
           <div className="space-y-5">
