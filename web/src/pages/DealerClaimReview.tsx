@@ -200,6 +200,9 @@ export default function DealerClaimReview() {
             {claims.map(claim=><button key={claim.claim_id} type="button"
               className={`block w-full text-left mt-3 p-3 rounded-lg border ${selected===claim.claim_id?'border-blue-700 bg-blue-50':'border-gray-200'}`}
               onClick={()=>{
+                // UAT-R1: re-clicking the claim that is already open must not empty its document list
+                // (the loader only re-runs when the selection changes).
+                if(claim.claim_id===selected)return
                 setSelected(claim.claim_id);setError('');setNotice('');setPassword('')
                 setPreview(null);setEvidence([]);setEvidenceId('');setDocumentConfirmed(false)
               }}>
