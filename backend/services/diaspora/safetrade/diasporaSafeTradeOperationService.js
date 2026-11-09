@@ -22,6 +22,7 @@
  * reconciliation queue until a human or the reconciler resolves it. Nothing here reports success to a
  * user on the strength of a provider response alone.
  */
+import { ValidationError } from '../../../utils/errors.js';
 import { resolveClient } from '../diasporaServiceUtils.js';
 
 export const SAFETRADE_OPERATIONS_TABLE = 'diaspora_safetrade_operations';
@@ -40,18 +41,64 @@ export const MONEY_OPERATIONS = Object.freeze([
   'create_intent', 'authorize_hold', 'capture', 'release', 'refund', 'partial_refund', 'cancel', 'status_probe',
 ]);
 
-/** States that still owe an answer — the operator reconciliation queue. */
+/**
+ * States that still owe an answer — the operator reconciliation queue.
+ * `provider_confirmed` is deliberately unresolved until the CarUp ledger has applied the same event.
+ */
 export const UNRESOLVED_STATES = Object.freeze([
-  OPERATION_STATE.PENDING, OPERATION_STATE.PROVIDER_DISPATCHED, OPERATION_STATE.RECONCILING,
+  OPERATION_STATE.PENDING,
+  OPERATION_STATE.PROVIDER_DISPATCHED,
+  OPERATION_STATE.PROVIDER_CONFIRMED,
+  OPERATION_STATE.RECONCILING,
 ]);
 
 const UNIQUE_VIOLATION = '23505';
 
+function comparableAmount(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function comparableCurrency(value) {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  return normalized || null;
+}
+
+function comparableText(value) {
+  return value == null || value === '' ? null : String(value);
+}
+
+function assertReplayMatches(existing, requested) {
+  const differences = [];
+  const fields = [
+    ['transactionId', comparableText(existing.transaction_id), comparableText(requested.transactionId)],
+    ['milestoneId', comparableText(existing.milestone_id), comparableText(requested.milestoneId)],
+    ['operation', comparableText(existing.operation), comparableText(requested.operation)],
+    ['provider', comparableText(existing.provider), comparableText(requested.provider)],
+    ['amount', comparableAmount(existing.amount), comparableAmount(requested.amount)],
+    ['currency', comparableCurrency(existing.currency), comparableCurrency(requested.currency)],
+  ];
+
+  for (const [field, prior, next] of fields) {
+    if (prior !== next) differences.push({ field, existing: prior, requested: next });
+  }
+
+  if (differences.length > 0) {
+    throw new ValidationError('SafeTrade idempotency key is already bound to a different money operation', {
+      code: 'IDEMPOTENCY_CONFLICT',
+      differences,
+    });
+  }
+}
+
 /**
  * Reserve an operation BEFORE dispatching to the provider.
  *
- * Replaying the same idempotency key returns the EXISTING row with `replay:true` — the caller must
- * then not dispatch again. This is what makes a retried release safe.
+ * Replaying the same idempotency key returns the EXISTING row with `replay:true` only when the
+ * immutable economic fingerprint is identical. Reusing a key for a different transaction,
+ * milestone, operation, provider, amount or currency is an idempotency conflict, never a replay.
  */
 export async function reserveOperation({
   tenantId,
@@ -97,7 +144,17 @@ export async function reserveOperation({
   if (error) {
     if (error.code === UNIQUE_VIOLATION || /duplicate key|uq_diaspora_safetrade_operation_idem/i.test(error.message || '')) {
       const existing = await findByIdempotencyKey(supabase, tenantId, idempotencyKey);
-      if (existing) return { operation: existing, replay: true };
+      if (existing) {
+        assertReplayMatches(existing, {
+          transactionId,
+          milestoneId,
+          operation,
+          provider,
+          amount,
+          currency,
+        });
+        return { operation: existing, replay: true };
+      }
     }
     throw new Error(`Failed to reserve SafeTrade operation: ${error.message}`);
   }

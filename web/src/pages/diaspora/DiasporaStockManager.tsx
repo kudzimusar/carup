@@ -26,6 +26,11 @@ function genKey() {
 export default function DiasporaStockManager() {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
   const api = useCarUpApi()
+  // useCarUpApi() returns a NEW object on every render and owns loading/error state, so a load
+  // callback keyed on `api` is recreated by its own request and re-fires the mount effect: the
+  // unbounded /diaspora/stock + /supply-documents loop that issue #128 fixed on the trade profile.
+  // The individual methods are memoized against [user, token]; key the loaders on those instead.
+  const { fetchDiasporaStockItems, fetchDiasporaSupplyDocuments, fetchDiasporaStockLedger } = api
 
   const [items, setItems] = useState<DiasporaStockItem[]>([])
   const [listLoading, setListLoading] = useState(false)
@@ -81,34 +86,34 @@ export default function DiasporaStockManager() {
     setListLoading(true)
     setListError('')
     try {
-      const data = await api.fetchDiasporaStockItems()
+      const data = await fetchDiasporaStockItems()
       setItems(data)
     } catch (err) {
       setListError(err instanceof Error ? err.message : 'Unable to load stock')
     } finally {
       setListLoading(false)
     }
-  }, [api, canView])
+  }, [fetchDiasporaStockItems, canView])
 
   const loadDocs = useCallback(async () => {
     if (!canView) return
     try {
-      setDocs(await api.fetchDiasporaSupplyDocuments())
+      setDocs(await fetchDiasporaSupplyDocuments())
     } catch (err) {
       setDocError(err instanceof Error ? err.message : 'Unable to load supply documents')
     }
-  }, [api, canView])
+  }, [fetchDiasporaSupplyDocuments, canView])
 
   const loadLedger = useCallback(async (id: string) => {
     try {
-      setLedger(await api.fetchDiasporaStockLedger(id))
+      setLedger(await fetchDiasporaStockLedger(id))
       setLedgerUnreadable(false)
     } catch {
       // An unreadable ledger is not an untouched one.
       setLedger([])
       setLedgerUnreadable(true)
     }
-  }, [api])
+  }, [fetchDiasporaStockLedger])
 
   useEffect(() => {
     if (authLoading || !canView) return

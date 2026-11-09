@@ -15,8 +15,15 @@ on:
   workflow_dispatch: {}
 
 
+# ── Shared staging preview lock ────────────────────────────────────────────
+# This workflow drives the BRANCH PREVIEW backend, which is shared with the other deployed-staging
+# gates. Running two of them at once rate-limited Marketplace Reference Regression into real 429s.
+# They now share one group keyed on the preview identity (the branch), so certification runs QUEUE.
+#
+# `cancel-in-progress: false`: a certification run must never cancel another valid certification.
+# Independent branches own separate preview deployments and are unaffected.
 concurrency:
-  group: seller-exact-head-staging-uat-${{ github.event.pull_request.number || github.ref_name }}
+  group: staging-preview-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -146,7 +153,11 @@ jobs:
           ]
           const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
           const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
-          await client.connect()
+          // Release on EVERY path. `connect()` used to sit OUTSIDE the try/finally below, so a
+          // FAILED connection abandoned the client without ever calling end(). That is exactly what
+          // happened when the shared staging pooler saturated and three shards died with
+          // ECHECKOUTTIMEOUT — the error path leaked the very resource that was exhausted.
+          try { await client.connect() } catch (error) { await client.end().catch(() => {}); throw error }
           try {
             await client.query('BEGIN')
             for (const migrationPath of migrationPaths) {
@@ -293,7 +304,11 @@ jobs:
           const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || ''
           const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
           const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
-          await client.connect()
+          // Release on EVERY path. `connect()` used to sit OUTSIDE the try/finally below, so a
+          // FAILED connection abandoned the client without ever calling end(). That is exactly what
+          // happened when the shared staging pooler saturated and three shards died with
+          // ECHECKOUTTIMEOUT — the error path leaked the very resource that was exhausted.
+          try { await client.connect() } catch (error) { await client.end().catch(() => {}); throw error }
           let emailRow
           let accountThread
           try {
@@ -425,7 +440,11 @@ jobs:
 
           const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
           const client = new pg.Client({ connectionString: cleanedDbUrl, ssl: { rejectUnauthorized: false } });
-          await client.connect();
+          // Release on EVERY path. `connect()` used to sit OUTSIDE the try/finally below, so a
+          // FAILED connection abandoned the client without ever calling end(). That is exactly what
+          // happened when the shared staging pooler saturated and three shards died with
+          // ECHECKOUTTIMEOUT — the error path leaked the very resource that was exhausted.
+          try { await client.connect(); } catch (error) { await client.end().catch(() => {}); throw error; }
           try {
             await client.query('BEGIN');
 
@@ -488,7 +507,11 @@ jobs:
           }
           const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
           const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
-          await client.connect();
+          // Release on EVERY path. `connect()` used to sit OUTSIDE the try/finally below, so a
+          // FAILED connection abandoned the client without ever calling end(). That is exactly what
+          // happened when the shared staging pooler saturated and three shards died with
+          // ECHECKOUTTIMEOUT — the error path leaked the very resource that was exhausted.
+          try { await client.connect(); } catch (error) { await client.end().catch(() => {}); throw error; }
           try {
             const { rows } = await client.query(`
               select
@@ -549,7 +572,11 @@ jobs:
           }
           const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
           const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
-          await client.connect();
+          // Release on EVERY path. `connect()` used to sit OUTSIDE the try/finally below, so a
+          // FAILED connection abandoned the client without ever calling end(). That is exactly what
+          // happened when the shared staging pooler saturated and three shards died with
+          // ECHECKOUTTIMEOUT — the error path leaked the very resource that was exhausted.
+          try { await client.connect(); } catch (error) { await client.end().catch(() => {}); throw error; }
           try {
             const { rows } = await client.query(`
               select vin, owner_id, tenant_id, seller_description, publication_status, status, created_at
@@ -630,7 +657,11 @@ jobs:
           }
           const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
           const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
-          await client.connect();
+          // Release on EVERY path. `connect()` used to sit OUTSIDE the try/finally below, so a
+          // FAILED connection abandoned the client without ever calling end(). That is exactly what
+          // happened when the shared staging pooler saturated and three shards died with
+          // ECHECKOUTTIMEOUT — the error path leaked the very resource that was exhausted.
+          try { await client.connect(); } catch (error) { await client.end().catch(() => {}); throw error; }
           try {
             const vehicleResult = await client.query(
               `select vin

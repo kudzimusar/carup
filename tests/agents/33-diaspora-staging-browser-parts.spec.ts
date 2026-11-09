@@ -123,75 +123,40 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
 
   // Full downstream chain across two real sessions: buyer publishes a parts demand, seller quotes it,
   // buyer accepts, and the underlying import order's Order Passport reflects the accepted parts quote.
-  test('parts RFQ chain: buyer demand → seller quote → buyer accept → Order Passport', async ({ browser }) => {
-    test.skip(!requireIdentity('buyer') || !requireIdentity('seller'), 'buyer + seller identities required');
-    const tag = marked('RFQ').replace(/[^A-Za-z0-9]/g, '').slice(-14); // unique, alnum marker
-    const marker = `Toyota${tag}`;
-    const buyerCtx = await browser.newContext();
-    const sellerCtx = await browser.newContext();
-    const buyer = await buyerCtx.newPage();
-    const seller = await sellerCtx.newPage();
-    try {
-      // Verify the seller's authoritative role before creating any new buyer demand.
-      await signInViaUi(seller, 'seller');
-      const sellerRole = await authenticatedRole(seller);
-      test.skip(!STOCK_ROLES.has(sellerRole),
-        `seller identity lacks a VERIFIED stock role (received ${sellerRole || 'none'})`);
+  /**
+   * The parts PROCUREMENT chain moved.
+   *
+   * This test used to drive `/diaspora/rfq` — buyer order → publish RFQ → seller quote → accept —
+   * against `diaspora-buyer-order-*` and `diaspora-rfq-*` testids. That surface was DELIBERATELY
+   * RETIRED: App.tsx now redirects `/diaspora/rfq` to `/diaspora/request-quotes`, whose mechanics
+   * are T2's Request Quotes (`trade-*` testids, a request → supplier offers → comparison → award
+   * lifecycle). The old testids exist nowhere, so the test was asserting against a product that no
+   * longer exists — a STALE TEST ASSUMPTION, not a defect.
+   *
+   * The full current chain is certified by `46-trade-os-rfq2-staging.spec.ts` against the canonical
+   * T2 authority, including cross-tenant supplier discovery, privacy of buyer data, an atomic award
+   * and the awarded request leaving the marketplace. Re-driving it here would duplicate that gate
+   * and give two places to update.
+   *
+   * What this test keeps is the part spec 46 does not cover and this suite is FOR: that the retired
+   * buyer entry point still lands a real buyer somewhere correct and usable, rather than on a blank
+   * page or a 404. Coverage is preserved and pointed at the current authority.
+   */
+  test('the retired parts-RFQ entry point still lands the buyer on the canonical Request Quotes surface', async ({ page }) => {
+    test.skip(!requireIdentity('buyer'), 'buyer identity required');
+    await signInViaUi(page, 'buyer');
 
-      // 1. Buyer creates a parts demand and publishes the RFQ.
-      await signInViaUi(buyer, 'buyer');
-      await buyer.goto('/diaspora/rfq');
-      await expect(buyer.getByTestId('diaspora-rfq-page')).toBeVisible();
-      await buyer.getByTestId('diaspora-buyer-order-origin').fill('Japan');
-      await buyer.getByTestId('diaspora-buyer-order-make').fill(marker);
-      await buyer.getByTestId('diaspora-buyer-order-submit').click();
-      const buyerRow = buyer.getByTestId('diaspora-buyer-order-row').filter({ hasText: marker }).first();
-      await expect(buyerRow).toBeVisible({ timeout: 20_000 });
-      await buyerRow.getByTestId('diaspora-buyer-order-publish').click({ force: true });
-      await expect(buyerRow).toContainText(/RFQ open/i, { timeout: 20_000 });
+    await page.goto('/diaspora/rfq');
+    // The redirect is the product promise: an old link or bookmark must still work.
+    await expect(page).toHaveURL(/\/diaspora\/request-quotes/);
 
-      // 2. Seller finds the open RFQ and submits a quote (the open-RFQ list is eventually consistent
-      //    with the buyer's publish; retry the reload until the row appears).
-      await seller.goto('/diaspora/rfq');
-      const openRow = seller.getByTestId('diaspora-rfq-open-row').filter({ hasText: marker }).first();
-      await expect(async () => {
-        if (await openRow.count() === 0) { await seller.reload(); }
-        await expect(openRow).toBeVisible({ timeout: 5_000 });
-      }).toPass({ timeout: 40_000 });
-      const amount = openRow.getByTestId('diaspora-rfq-quote-amount');
-      await amount.fill('1800');
-      await expect(amount).toHaveValue('1800');
-      await openRow.getByTestId('diaspora-rfq-quote-submit').click({ force: true });
-      await expect(seller.getByTestId('diaspora-rfq-seller-error')).toHaveCount(0);
+    // …and it must be the real surface, not an empty shell. The buyer can actually start a request.
+    await expect(page.getByTestId('trade-request-intent')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('trade-intent-buy')).toBeVisible();
+    await expect(page.getByTestId('trade-intent-ship')).toBeVisible();
 
-      // 3. Buyer opens the order, sees the quote, accepts it (retry reload until the quote propagates).
-      const quoteRow = buyer.getByTestId('diaspora-rfq-quote-row').filter({ hasText: '1800' }).first();
-      await expect(async () => {
-        await buyer.reload();
-        await buyer.getByTestId('diaspora-buyer-order-row').filter({ hasText: marker }).first().getByTestId('diaspora-buyer-order-select').click({ force: true });
-        await expect(buyer.getByTestId('diaspora-rfq-detail')).toBeVisible({ timeout: 5_000 });
-        await expect(quoteRow).toBeVisible({ timeout: 5_000 });
-      }).toPass({ timeout: 40_000 });
-      await quoteRow.getByTestId('diaspora-rfq-accept').click({ force: true });
-      await expect(buyer.getByTestId('diaspora-rfq-accepted-badge').first()).toBeVisible({ timeout: 20_000 });
-
-      // 4. Order Passport reflects the parts transaction (open the parts order from the imports list).
-      await buyer.goto('/diaspora/imports');
-      await expect(
-        buyer.getByTestId('diaspora-import-row').first().or(buyer.getByTestId('diaspora-import-list-empty')),
-      ).toBeVisible({ timeout: 20_000 });
-      const importRow = buyer.getByTestId('diaspora-import-row').filter({ hasText: marker }).first();
-      await expect(importRow).toBeVisible({ timeout: 20_000 });
-      await importRow.click();
-      await expect(buyer.getByTestId('diaspora-import-detail-route')).toBeVisible();
-      const orderId = new URL(buyer.url()).pathname.split('/').filter(Boolean).pop();
-      await buyer.goto(`/diaspora/imports/${orderId}/passport`);
-      await expect(buyer.getByTestId('order-passport-page')).toBeVisible();
-      // The passport reflects a parts order with an accepted quote lineage.
-      await expect(buyer.locator('body')).not.toContainText(/permission denied|42501/i);
-    } finally {
-      await buyerCtx.close();
-      await sellerCtx.close();
-    }
+    // The old surface is genuinely gone rather than merely unreachable from this path.
+    await expect(page.getByTestId('diaspora-rfq-page')).toHaveCount(0);
+    await expect(page.getByTestId('diaspora-buyer-order-submit')).toHaveCount(0);
   });
 });

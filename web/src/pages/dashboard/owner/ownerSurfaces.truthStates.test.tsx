@@ -33,7 +33,12 @@ describe('SellerIntelligence listing comparison (SJO-5)', () => {
     expect(SRC).toMatch(/it is not a statement that you have no listings/)
     // And a SUCCESSFUL empty read still gets its own honest, distinct message.
     expect(SRC).toMatch(/seller-intelligence-no-listings/)
-    expect(SRC).toMatch(/You have no listings yet/)
+    // The copy now also says WHY the table can be empty while the seller owns vehicles: a listing
+    // comparison compares listings, and sold/retired vehicles are not listings. The assertion's
+    // point is unchanged — a successful-but-empty read has its own message, distinct from the
+    // unread one.
+    expect(SRC).toMatch(/You have no live listings/)
+    expect(SRC).toMatch(/Sold and retired vehicles are not listings/)
     // The two must be different branches, or the distinction is cosmetic.
     const unavailableAt = SRC.indexOf('seller-intelligence-listings-unavailable')
     const noneAt = SRC.indexOf('seller-intelligence-no-listings')

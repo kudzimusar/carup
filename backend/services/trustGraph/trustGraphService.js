@@ -1,4 +1,5 @@
 import { supabase } from '../../db/supabase.js';
+import { isGenuineRegistryRecord } from '../evidence/vehicleFactResolver.js';
 import { verifyChain } from '../blockchain/blockchainService.js';
 
 // AGENT A3 — Rolling checkpoint-accelerated timeline fetcher
@@ -336,8 +337,14 @@ async function computeVehicleTrustScoreContext(vin) {
   let baseScore = 70.0; // Baseline starting score
 
   // 1. ZIMRA Customs Ingestion Check
-  const { data: zimra } = await supabase.from('zimra_declarations').select('id').eq('vin', vin).single();
-  const dutyPaidReal = !!zimra || !!vehicle.duty_paid;
+  //
+  // T12.1 — the EXISTENCE of a row is not the same as an authority having done something. This
+  // scored +10 for any row at all, including the ones `documentIntelligenceService` used to
+  // synthesise on OCR approval, with a random `CUS_` reference, a defaulted duty of 50000 and an
+  // officer signature derived from our own document id. The fact resolver already refused those;
+  // this reader did not, so a forged declaration was worth +10 here and nothing there.
+  const { data: zimra } = await supabase.from('zimra_declarations').select('*').eq('vin', vin).single();
+  const dutyPaidReal = isGenuineRegistryRecord('zimra_declarations', zimra) || !!vehicle.duty_paid;
   if (dutyPaidReal) baseScore += 10.0;
 
   // 2. CID Police Clearance Check
@@ -349,9 +356,9 @@ async function computeVehicleTrustScoreContext(vin) {
   const policeVerifiedReal = (cid && cid.stolen_check_status === 'Cleared') || !!vehicle.police_verified;
   if (policeVerifiedReal) baseScore += 10.0;
 
-  // 3. CVR Ownership Registry Sync Check
-  const { data: cvr } = await supabase.from('cvr_ownership_records').select('id').eq('vin', vin).single();
-  const cvrSyncedReal = !!cvr;
+  // 3. CVR Ownership Registry Sync Check — same rule, same reason.
+  const { data: cvr } = await supabase.from('cvr_ownership_records').select('*').eq('vin', vin).single();
+  const cvrSyncedReal = isGenuineRegistryRecord('cvr_ownership_records', cvr);
   if (cvrSyncedReal) baseScore += 5.0;
 
   // 4. VID Inspection Mechanical Health Check

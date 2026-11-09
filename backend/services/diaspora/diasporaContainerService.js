@@ -68,25 +68,80 @@ export async function listContainerShipments({ status, limit = 50, offset = 0 })
   return data || [];
 }
 
-export async function getContainerShipment(id) {
-  const { data, error } = await supabase.from('diaspora_container_shipments').select('*, diaspora_cargo_reservations(*)').eq('id', id).is('deleted_at', null).single();
+export async function getContainerShipment(id, options = {}) {
+  const client = options.supabaseClient || supabase;
+  const { data, error } = await client.from('diaspora_container_shipments').select('*, diaspora_cargo_reservations(*)').eq('id', id).is('deleted_at', null).single();
   if (error || !data) throw new NotFoundError('Diaspora container shipment not found');
   return data;
 }
 
-export async function transitionContainer(id, nextStatus, userContext = {}, req = null) {
+/**
+ * T10 — a sailing may not CLAIM to be loading or shipped without the canonical loading fact.
+ *
+ * The T10.0 audit found this route marking a sailing `LOADING`, and then `SHIPPED`, with no manifest,
+ * no warehouse receipt, no attributed load and no seal. Nothing anywhere said a single consignment
+ * had gone into the box. A status is a claim, and this one was free.
+ *
+ * The fix is deliberately NOT a second loading truth. `diaspora_container_loads` is the authority;
+ * this status now merely REFLECTS it, and the reflection is checked here:
+ *
+ *   LOADING  requires a live T10 load  (IN_PROGRESS or COMPLETED)
+ *   SHIPPED  requires a COMPLETED one  — you cannot have sailed without finishing loading
+ *
+ * The `SHIPPED` gate is the strongest precondition T10 can honestly impose: it is about loading, not
+ * about movement. **Whether marking a sailing SHIPPED should additionally require a governed T11
+ * shipment record is T11.0's question**, and deliberately not answered here — implementing T11
+ * inside T10 is exactly what this phase must not do.
+ */
+async function assertLoadingIsBackedByT10(containerId, nextStatus, client) {
+  if (nextStatus !== CONTAINER_STATUSES.LOADING && nextStatus !== CONTAINER_STATUSES.SHIPPED) return;
+  const { data } = await client.from('diaspora_container_loads').select('id, status')
+    .eq('container_id', containerId).is('deleted_at', null);
+  const live = (data || []).filter((l) => ['IN_PROGRESS', 'COMPLETED'].includes(String(l.status)));
+
+  if (nextStatus === CONTAINER_STATUSES.LOADING && !live.length) {
+    throw new ValidationError(
+      'This sailing cannot be marked as loading: nothing has been recorded as going into it. '
+      + 'Start loading in the loading workspace, which records what actually went in and who put it there.',
+      { code: 'LOADING_NOT_BACKED_BY_LOAD_RECORD' },
+    );
+  }
+  if (nextStatus === CONTAINER_STATUSES.SHIPPED && !live.some((l) => l.status === 'COMPLETED')) {
+    throw new ValidationError(
+      'This sailing cannot be marked as shipped: its loading has not been completed. '
+      + 'Complete the load first — a container that was never finished being loaded has not sailed.',
+      { code: 'SHIPPED_WITHOUT_COMPLETED_LOAD' },
+    );
+  }
+}
+
+export async function transitionContainer(id, nextStatus, userContext = {}, req = null, options = {}) {
   const context = requireUserContext(userContext);
-  const previous = await getContainerShipment(id);
+  const client = options.supabaseClient || supabase;
+  const previous = await getContainerShipment(id, options);
   assertCanManageLogistics(previous, context);
   assertContainerTransition(previous.status, nextStatus);
-  const { data, error } = await supabase
+  // T10: a loading or shipped claim must be backed by the canonical load authority.
+  await assertLoadingIsBackedByT10(id, nextStatus, client);
+  const { data, error } = await client
     .from('diaspora_container_shipments')
     .update({ status: nextStatus, updated_by: userContext?.id, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single();
   if (error) throw new DatabaseError(error.message);
-  await writeDiasporaAudit({ tenantId: data.tenant_id, actorId: userContext?.id, action: 'CONTAINER_STATUS_CHANGED', resourceType: 'diaspora_container_shipment', resourceId: id, previousState: { status: previous.status }, newState: { status: nextStatus }, req });
-  await emitDiasporaEvent(`DIASPORA_CONTAINER_${nextStatus}`, { containerId: id, previousStatus: previous.status, status: nextStatus }, data.tenant_id);
+  await writeDiasporaAudit({ tenantId: data.tenant_id, actorId: userContext?.id, action: 'CONTAINER_STATUS_CHANGED', resourceType: 'diaspora_container_shipment', resourceId: id, previousState: { status: previous.status }, newState: { status: nextStatus }, req, supabaseClient: client });
+  // Best-effort, like every other notifier in the programme — and this one had drifted.
+  //
+  // By the time we get here the status row is written and the audit is sealed. Throwing on an
+  // unreachable outbox therefore reported FAILURE for work that had already committed: the caller
+  // saw an error while the database showed the new status. Found by the positive control in
+  // trade-os-t10-legacy-loading-bypass, which could not exercise the success path at all until this
+  // was fixed. A notification never creates or unwinds domain state.
+  try {
+    await emitDiasporaEvent(`DIASPORA_CONTAINER_${nextStatus}`, { containerId: id, previousStatus: previous.status, status: nextStatus }, data.tenant_id);
+  } catch (err) {
+    console.warn(`[container-transition] outbox emit failed for ${nextStatus}:`, err.message);
+  }
   return data;
 }

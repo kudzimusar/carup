@@ -20,6 +20,8 @@ import {
   expect,
   signInViaUi,
   requireIdentity,
+  withRateLimitRetry,
+  IDENTITIES,
   API_URL,
   RUN_ID,
 } from './staging-helpers';
@@ -41,7 +43,7 @@ interface EnvTruth {
 
 // The certification runs as its OWN Seller (see the workflow's per-run provisioning). The default
 // keeps a local run working against the historical shared identity.
-const SELLER_EMAIL = process.env.STAGING_UAT_BUYER_EMAIL || 'uat.buyer@carup-staging.test';
+const SELLER_EMAIL = IDENTITIES.goldenSeller.email;
 const REVIEWER_EMAIL = 'uat.reviewer@carup-staging.test';
 
 // Browser visual acceptance uses seven 320x180 vehicle-like PNG entries with multiple distinct views. They are deliberately
@@ -93,7 +95,7 @@ async function authFromPage(page: Page): Promise<SessionAuth> {
 
 async function mutationHeaders(request: APIRequestContext, auth: SessionAuth): Promise<Record<string, string>> {
   const headers = baseHeaders(auth);
-  const response = await request.get(`${API_URL}/security/csrf-token`, { headers });
+  const response = await withRateLimitRetry(() => request.get(`${API_URL}/security/csrf-token`, { headers }), 'CSRF token');
   expect(response.status(), 'CSRF token endpoint refused the staging test identity').toBe(200);
   const body = await response.json() as { csrfToken?: string };
   expect(body.csrfToken, 'CSRF token response omitted csrfToken').toBeTruthy();
@@ -170,20 +172,30 @@ async function retireStaleAutomationVehicles(
 ) {
   const owned = await request.get(`${API_URL}/vehicles/me`, { headers: baseHeaders(sellerAuth) });
   expect(owned.status(), 'could not inspect owned vehicles before Seller automation run').toBe(200);
-  const vehicles = await owned.json() as Array<{ vin?: string; seller_description?: string | null }>;
+  const vehicles = await owned.json() as Array<{ vin?: string; status?: string | null; seller_description?: string | null }>;
   // Desktop and mobile projects share one staging Seller and may overlap. Retire automation from
   // OLDER workflow runs only; a sibling project from this same RUN_ID is current inventory, not
   // stale inventory, and retiring it creates a false My Listings disappearance mid-journey.
   const currentRunPrefix = `Golden Dynamic Seller ${RUN_ID}:`;
+  // …and skip what is ALREADY retired. This filtered on the description prefix alone, so every run
+  // re-retired every automation vehicle this identity had ever owned — 121 of them, all already
+  // `Sold`, at three serial API calls each. 363 round-trips of pure no-op, inside a journey with a
+  // 480s ceiling. Retiring an already-retired vehicle changes nothing; only the cost is real.
+  const RETIRED = new Set(['sold', 'retired', 'archived']);
   const stale = vehicles.filter((vehicle) => {
     const description = String(vehicle.seller_description || '');
     return Boolean(vehicle.vin)
       && description.startsWith('Golden Dynamic Seller ')
-      && !description.startsWith(currentRunPrefix);
+      && !description.startsWith(currentRunPrefix)
+      && !RETIRED.has(String(vehicle.status || '').toLowerCase());
   });
 
-  for (const vehicle of stale) {
-    await retireAutomationVehicle(request, vehicle.vin!, sellerMutationHeaders);
+  // Bounded concurrency. The sweep is hygiene, not an assertion, and a serial loop over it is how a
+  // healthy journey lost its budget before reaching its own subject.
+  const CONCURRENCY = 4;
+  for (let i = 0; i < stale.length; i += CONCURRENCY) {
+    await Promise.all(stale.slice(i, i + CONCURRENCY)
+      .map((vehicle) => retireAutomationVehicle(request, vehicle.vin!, sellerMutationHeaders)));
   }
 }
 
@@ -208,6 +220,9 @@ async function expectMeaningfulRenderedImage(page: Page) {
   expect(size.height, 'visual acceptance image is too short to be meaningful').toBeGreaterThanOrEqual(40);
 }
 
+/** Carries this run's fixture to `afterEach`, so teardown is never inside the journey's timeout. */
+let cleanupState: { vin: string; auth: SessionAuth | null; created: boolean } | null = null;
+
 test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => {
   test('fresh Seller lifecycle holds end-to-end without a seed/reference vehicle', async ({ page, request }, testInfo) => {
     // This is a deployed-staging lifecycle across auth, storage, evidence, publication, inquiry and
@@ -231,7 +246,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     test.setTimeout(480_000);
     const truth = envTruth();
     expect(truth.mode, 'Seller acceptance is not pinned to the frozen exact-head bundle').toBe('acceptance');
-    expect(requireIdentity('buyer'), 'owner Seller identity is unavailable').toBe(true);
+    expect(requireIdentity('goldenSeller'), 'owner Seller identity is unavailable').toBe(true);
     expect(requireIdentity('reviewer'), 'reviewer identity is unavailable').toBe(true);
 
     const suffix = sixDigits(`${RUN_ID}-${testInfo.project.name}`);
@@ -239,16 +254,21 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     const submissionId = randomUUID();
     const newPrice = 29_000;
     let sellerMutationHeaders: Record<string, string> | null = null;
-    let cleanupAuth: SessionAuth | null = null;
-    let vehicleCreated = false;
 
-    try {
+    // Handed to `afterEach` below. Teardown must NOT live inside the journey's own timeout: the
+    // measured journey is 481.9s against a 480s ceiling, and the two seconds it misses by are spent
+    // in the `finally` that retires this run's vehicle. So a slow-but-healthy run orphaned its
+    // fixture — and 118 orphans accumulated, each adding three serial API calls to the NEXT run's
+    // stale sweep, which made runs slower, which orphaned more. The loop is closed by giving
+    // teardown its own budget, not by widening the assertion budget.
+    cleanupState = { vin, auth: null, created: false };
+
     // Use the real login UI. The staging "buyer" identity is role=owner and therefore is also a
     // legitimate private Seller; no privileged role is needed to sell the owner's own vehicle.
-    await signInViaUi(page, 'buyer');
+    await signInViaUi(page, 'goldenSeller');
     await expect(page.locator('body')).not.toContainText(/permission denied|42501/i);
     const sellerAuth = await authFromPage(page);
-    cleanupAuth = sellerAuth;
+    cleanupState.auth = sellerAuth;
     expect(sellerAuth.user.role).toBe('owner');
     sellerMutationHeaders = await mutationHeaders(request, sellerAuth);
     await retireStaleAutomationVehicles(request, sellerAuth, sellerMutationHeaders);
@@ -326,7 +346,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     expect(created.location_recorded).toBe(true);
     expect(created.submission_id_recorded).toBe(true);
     expect(created.idempotent_replay).toBe(false);
-    vehicleCreated = true;
+    cleanupState.created = true;
 
     // F17: simulate a lost 201 response by replaying the exact logical submission. This must return
     // the already-created draft, preserve all seven media rows and never enter Passport-reuse flow.
@@ -563,8 +583,8 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // Return as Seller. Marketplace inquiry capture is immediate and has its own governed inbox on
     // My Listings. Communication threads are an asynchronous downstream projection and must not be
     // confused with the durable inquiry itself.
-    await signInViaUi(page, 'buyer');
-    cleanupAuth = await authFromPage(page);
+    await signInViaUi(page, 'goldenSeller');
+    cleanupState.auth = await authFromPage(page);
 
     // Phase N save instrumentation must come from the real authenticated save route. This Seller is
     // intentionally saving their own staging fixture; the event is later audited as self-traffic and
@@ -600,7 +620,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     });
     expect(rollupResponse.status(), `Seller Intelligence rollup failed: ${await rollupResponse.text()}`).toBe(200);
 
-    const sellerReadHeaders = baseHeaders(cleanupAuth);
+    const sellerReadHeaders = baseHeaders(cleanupState!.auth!);
     let observedInquiryCount: number | null = null;
     await expect.poll(async () => {
       const response = await request.get(`${API_URL}/marketplace/my-analytics?window=7`, {
@@ -627,6 +647,12 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // The dedicated Seller cockpit must consume the same projection; "Unavailable" is explicitly not
     // accepted here because the bounded rollup/read assertion above proved measured data exists.
     await page.goto('/dashboard/intelligence');
+    // Compare like with like. The API figure above is the 7-day window; the cockpit defaults to 30
+    // days, so an identity with inquiries older than a week made the two differ by exactly those
+    // (a constant 114 on 2026-09-13). Select the same window explicitly and prove it took effect.
+    const sevenDays = page.getByRole('group', { name: 'Seller Intelligence period' }).getByRole('button', { name: '7 days' });
+    await sevenDays.click();
+    await expect(sevenDays).toHaveAttribute('aria-pressed', 'true');
     const inquiryKpi = page.getByTestId('seller-intelligence-kpi-inquiries');
     await expect(inquiryKpi).toBeVisible({ timeout: 20_000 });
     await expect(inquiryKpi).not.toContainText('Unavailable');
@@ -658,7 +684,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
 
     // Remove the temporary saved-state row after its event has been recorded; the ledger retains both
     // save and unsave observations while the buyer-facing watchlist is left clean.
-    const sellerCleanupHeaders = await mutationHeaders(request, cleanupAuth);
+    const sellerCleanupHeaders = await mutationHeaders(request, cleanupState!.auth!);
     const unsaveResponse = await request.delete(`${API_URL}/marketplace/listings/${vin}/save`, {
       headers: sellerCleanupHeaders,
     });
@@ -680,14 +706,18 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // minted per run: it must still be an unmistakably synthetic staging identity, and it must be
     // either the historical shared account or this run's own `golden.seller.<run-id>`. Any other
     // address — a real user, another gate's fixture — fails here by name.
-    expect(SELLER_EMAIL).toMatch(/^(uat\.buyer|golden\.seller\.\d+)@carup-staging\.test$/);
-    } finally {
-      if (vehicleCreated && cleanupAuth) {
-        // Reuse the last real Seller session captured during the journey. Cleanup mints fresh CSRF
-        // authority, but does not perform a third UI login merely to clean an already-retired fixture.
-        const cleanupHeaders = await mutationHeaders(request, cleanupAuth);
-        await retireAutomationVehicle(request, vin, cleanupHeaders);
-      }
-    }
+    expect(SELLER_EMAIL).toMatch(/^(uat\.buyer|golden\.seller\.\d+(-\d+-(chromium|tablet|mobile))?)@carup-staging\.test$/);
+  });
+
+  // Teardown, with its own budget. It runs whether the journey passed, failed or timed out —
+  // which is the point: a fixture that outlives its run is the thing that made this suite slow.
+  test.afterEach(async ({ request }) => {
+    const state = cleanupState;
+    cleanupState = null;
+    if (!state?.created || !state.auth) return;
+    // Reuse the last real Seller session captured during the journey. Cleanup mints fresh CSRF
+    // authority, but does not perform a third UI login merely to clean an already-retired fixture.
+    const cleanupHeaders = await mutationHeaders(request, state.auth);
+    await retireAutomationVehicle(request, state.vin, cleanupHeaders);
   });
 });

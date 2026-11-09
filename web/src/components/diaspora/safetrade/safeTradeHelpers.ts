@@ -285,7 +285,10 @@ export function permittedActions(actions: SafeTradeAvailableAction[]): SafeTrade
 /** Format an amount + currency without any custodial claim. */
 export function formatMoney(amount: number | null | undefined, currency: string | null | undefined): string {
   const value = Number(amount)
-  const ccy = (currency || 'USD').toUpperCase()
+  // Never substitute a currency. A missing code used to render as USD, which states a fact nobody
+  // recorded; the amount is shown with an explicit "currency not recorded" instead.
+  const ccy = String(currency ?? '').trim().toUpperCase()
+  if (!ccy) return Number.isFinite(value) ? `${value.toLocaleString('en-US')} (currency not recorded)` : '— (currency not recorded)'
   if (!Number.isFinite(value)) return `— ${ccy}`
   try {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: ccy }).format(value)

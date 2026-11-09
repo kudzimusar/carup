@@ -5,8 +5,8 @@ import { DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '.
 import { validateImportOrderPayload, validatePaymentMilestonePayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { notifyDiasporaMilestone } from './diasporaNotificationService.js';
-import { transitionImportOrder } from './diasporaWorkflowService.js';
-import { assertCanReadImportOrder, isPlatformAdmin, isPlatformReviewer, requireUserContext } from './diasporaAuthorization.js';
+import { assertTransitionAllowed, transitionImportOrder } from './diasporaWorkflowService.js';
+import { assertCanReadImportOrder, assertCanTransitionImportOrder, isAssignedParticipant, isPlatformAdmin, isPlatformReviewer, isTenantAdminForRecord, normalizeId, requireUserContext } from './diasporaAuthorization.js';
 
 function cleanOrderPayload(payload, userContext) {
   validateImportOrderPayload(payload);
@@ -149,8 +149,39 @@ export async function getImportOrder(id, userContext = {}) {
   return { ...data, diaspora_import_order_participants: participants };
 }
 
+/** Participant roles that act for the SELL side of an import order (schema CHECK vocabulary). */
+export const SELLER_PARTICIPANT_ROLES = new Set(['seller', 'exporter', 'dealer', 'company']);
+
+/**
+ * Who may put a seller on an order: platform review/admin staff, or an admin of the ORDER's tenant.
+ * Seller assignment is what later lets a seller quote, so an unauthorised assignment would make
+ * every downstream seller-authority check forgeable. Server-derived roles only.
+ */
+function isOrderOperator(order, context) {
+  return isPlatformReviewer(context) || isPlatformAdmin(context) || isTenantAdminForRecord(order, context);
+}
+
+/**
+ * The BUYER of an order — buyer_id, else its creator. Deliberately stricter than isOrderOwner, which
+ * also matches `updated_by`: a seller's own status transition stamps updated_by, and must not turn
+ * that seller into "the buyer" for self-dealing checks.
+ */
+function isOrderBuyer(order, userId) {
+  const id = normalizeId(userId);
+  if (!id) return false;
+  return [order.buyer_id, order.buyerId, order.created_by, order.createdBy].some((c) => normalizeId(c) === id);
+}
+
+function activeSellerParticipants(participants = []) {
+  return participants.filter((p) => SELLER_PARTICIPANT_ROLES.has(String(p.participant_role ?? p.role ?? '').toLowerCase()));
+}
+
 export async function assignSeller(importOrderId, { sellerId, roleType = 'seller', notes = null }, userContext = {}, req = null) {
+  const context = requireUserContext(userContext);
   if (!sellerId) throw new ValidationError('sellerId is required');
+  if (!SELLER_PARTICIPANT_ROLES.has(String(roleType).toLowerCase())) {
+    throw new ValidationError('roleType must be a seller-side participant role', { code: 'INVALID_SELLER_ROLE', allowed: [...SELLER_PARTICIPANT_ROLES] });
+  }
 
   const { data: order, error: orderError } = await supabase
     .from('diaspora_import_orders')
@@ -159,6 +190,19 @@ export async function assignSeller(importOrderId, { sellerId, roleType = 'seller
     .is('deleted_at', null)
     .single();
   if (orderError || !order) throw new NotFoundError('Diaspora import order not found');
+
+  // Authorise BEFORE writing anything. This route used to insert the participant first and only
+  // meet an authority check (inside the status transition) afterwards — or none at all when the
+  // order was already SELLER_ASSIGNED.
+  if (!isOrderOperator(order, context)) {
+    throw new ForbiddenError('Only a platform operator or this order\'s tenant admin may assign a seller', { code: 'SELLER_ASSIGNMENT_FORBIDDEN' });
+  }
+  if (isOrderBuyer(order, sellerId)) {
+    throw new ValidationError('The buyer on an order cannot be assigned as its seller', { code: 'SELF_DEALING_REFUSED' });
+  }
+  if (order.status !== IMPORT_ORDER_STATUSES.SELLER_ASSIGNED) {
+    assertTransitionAllowed(order.status, IMPORT_ORDER_STATUSES.SELLER_ASSIGNED);
+  }
 
   const { data: participant, error } = await supabase
     .from('diaspora_import_order_participants')
@@ -203,47 +247,112 @@ export async function assignSeller(importOrderId, { sellerId, roleType = 'seller
   return { order: updatedOrder, participant };
 }
 
-export async function addQuote(importOrderId, payload, userContext = {}, req = null) {
+/**
+ * Legacy quote write, now authorised BEFORE any mutation.
+ *
+ * The defect this closes: the route was guarded by authentication only, and this function inserted
+ * the quote first — with `seller_id` taken from the request body — and met an authority check only
+ * inside the later status transition, which was skipped entirely when the order was already
+ * QUOTE_ISSUED. Any signed-in user could therefore put a complete quote on someone else's order in
+ * any seller's name, and an accepted quote is SafeTrade's commercial authority (T13).
+ *
+ * Now:
+ *   - the seller is derived by the server: an active seller-side participant of THIS order quotes as
+ *     themselves; a body `seller_id` naming anyone else is refused, never substituted;
+ *   - a platform operator or the order's own tenant admin may record a quote only on behalf of a seller
+ *     who is an active seller-side participant of this order;
+ *   - the buyer cannot quote their own order; everyone else is refused (cross-tenant included);
+ *   - amount must be positive and currency a three-letter code — no defaulting to USD;
+ *   - the status transition is authorised and validated before the insert.
+ * Every refusal happens before any write, so a refused request mutates nothing.
+ */
+export async function addQuote(importOrderId, payload = {}, userContext = {}, req = null) {
+  const context = requireUserContext(userContext);
+  const actorId = normalizeId(context.id ?? context.userId);
+
   const { data: order, error: orderError } = await supabase
     .from('diaspora_import_orders')
     .select('*')
     .eq('id', importOrderId)
+    .is('deleted_at', null)
     .single();
   if (orderError || !order) throw new NotFoundError('Diaspora import order not found');
+  const participants = await getImportOrderParticipants(importOrderId);
+  const sellerParticipants = activeSellerParticipants(participants);
+  const assertedSellerId = normalizeId(payload.seller_id ?? payload.sellerId);
+
+  let sellerId;
+  if (isOrderBuyer(order, actorId)) {
+    throw new ForbiddenError('The buyer cannot quote their own import order', { code: 'QUOTE_FORBIDDEN' });
+  } else if (isAssignedParticipant(sellerParticipants, context)) {
+    if (assertedSellerId && assertedSellerId !== actorId) {
+      throw new ForbiddenError('A seller can only quote as themselves', { code: 'QUOTE_SELLER_FORGED' });
+    }
+    sellerId = actorId;
+  } else if (isOrderOperator(order, context)) {
+    if (!assertedSellerId || !isAssignedParticipant(sellerParticipants, { id: assertedSellerId })) {
+      throw new ValidationError('An operator may only record a quote for a seller assigned to this order', { code: 'QUOTE_SELLER_NOT_ASSIGNED' });
+    }
+    sellerId = assertedSellerId;
+  } else {
+    throw new ForbiddenError('You are not authorised to quote on this import order', { code: 'QUOTE_FORBIDDEN' });
+  }
+
+  const amount = Number(payload.quote_amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new ValidationError('quote_amount must be a positive number', { code: 'QUOTE_AMOUNT_INVALID' });
+  }
+  const currency = String(payload.quote_currency ?? '').trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw new ValidationError('quote_currency must be a three-letter currency code', { code: 'QUOTE_CURRENCY_INVALID' });
+  }
+
+  const needsTransition = order.status !== IMPORT_ORDER_STATUSES.QUOTE_ISSUED;
+  if (needsTransition) {
+    assertTransitionAllowed(order.status, IMPORT_ORDER_STATUSES.QUOTE_ISSUED);
+    assertCanTransitionImportOrder(order, participants, IMPORT_ORDER_STATUSES.QUOTE_ISSUED, context);
+  }
 
   const { data: quote, error } = await supabase
     .from('diaspora_import_quotes')
     .insert({
       import_order_id: importOrderId,
       tenant_id: order.tenant_id,
-      seller_id: payload.seller_id || null,
-      quote_amount: payload.quote_amount,
-      quote_currency: payload.quote_currency || 'USD',
+      seller_id: sellerId,
+      quote_amount: amount,
+      quote_currency: currency,
       valid_until: payload.valid_until || null,
       inclusions: payload.inclusions || [],
       exclusions: payload.exclusions || [],
       metadata: payload.metadata || {},
-      created_by: userContext?.id,
-      updated_by: userContext?.id,
+      created_by: actorId,
+      updated_by: actorId,
     })
     .select()
     .single();
   if (error) throw new DatabaseError(error.message);
 
-  await writeDiasporaAudit({
-    importOrderId,
-    tenantId: order.tenant_id,
-    actorId: userContext?.id,
-    action: 'QUOTE_ISSUED',
-    resourceType: 'diaspora_import_quote',
-    resourceId: quote.id,
-    newState: quote,
-    req,
-  });
-
-  const updatedOrder = order.status === IMPORT_ORDER_STATUSES.QUOTE_ISSUED
-    ? order
-    : await transitionImportOrder({ importOrderId, nextStatus: IMPORT_ORDER_STATUSES.QUOTE_ISSUED, actorId: userContext?.id, userContext, metadata: { quoteId: quote.id }, req });
+  let updatedOrder = order;
+  try {
+    await writeDiasporaAudit({
+      importOrderId,
+      tenantId: order.tenant_id,
+      actorId,
+      action: 'QUOTE_ISSUED',
+      resourceType: 'diaspora_import_quote',
+      resourceId: quote.id,
+      newState: quote,
+      req,
+    });
+    if (needsTransition) {
+      updatedOrder = await transitionImportOrder({ importOrderId, nextStatus: IMPORT_ORDER_STATUSES.QUOTE_ISSUED, actorId, userContext: context, metadata: { quoteId: quote.id }, req });
+    }
+  } catch (err) {
+    // Pre-checks passed, so this is a race or an infrastructure failure. Do not leave a quote
+    // standing that its own issuance could not complete: retire it, then surface the error.
+    await supabase.from('diaspora_import_quotes').update({ deleted_at: new Date().toISOString(), updated_by: actorId }).eq('id', quote.id);
+    throw err;
+  }
 
   return { order: updatedOrder, quote };
 }

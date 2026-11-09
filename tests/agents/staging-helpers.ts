@@ -8,7 +8,7 @@
  * plus real-UI sign-in helpers (no page.route(), no mocks — the deployed pages only) and the
  * test-identity registry (secrets come from env/storage-state, never from the repo).
  */
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Page, type APIResponse } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 
 export const WEB_URL = process.env.STAGING_WEB_URL || 'https://staging.carup.dev';
@@ -25,6 +25,14 @@ export const IDENTITIES = {
   reviewer: { email: process.env.STAGING_UAT_REVIEWER_EMAIL || 'uat.reviewer@carup-staging.test', envPassword: 'STAGING_UAT_REVIEWER_PASSWORD', state: '.staging-auth/reviewer.json' },
   tenantAdmin: { email: 'uat.tenant-admin@carup-staging.test', envPassword: 'STAGING_UAT_TENANT_ADMIN_PASSWORD', state: '.staging-auth/tenant-admin.json' },
   outsider: { email: 'uat.outsider@carup-staging.test', envPassword: 'STAGING_UAT_OUTSIDER_PASSWORD', state: '.staging-auth/outsider.json' },
+  // Spec 38's Seller. In the deployed gate each viewport gets its own per-run identity
+  // (scripts/ci/golden-seller-identity.mjs); the Seller workflow still sets STAGING_UAT_BUYER_EMAIL.
+  // Separate from `buyer` on purpose: specs 32–35 use `buyer` as a buyer and must not change.
+  goldenSeller: {
+    email: process.env.STAGING_GOLDEN_SELLER_EMAIL || process.env.STAGING_UAT_BUYER_EMAIL || 'uat.buyer@carup-staging.test',
+    envPassword: process.env.STAGING_GOLDEN_SELLER_EMAIL ? 'STAGING_GOLDEN_SELLER_PASSWORD' : 'STAGING_UAT_BUYER_PASSWORD',
+    state: '.staging-auth/golden-seller.json',
+  },
 } as const;
 export type Role = keyof typeof IDENTITIES;
 
@@ -33,6 +41,20 @@ const EXPECTED_CONSOLE = [
   /VITE_API_URL is not set/i,             // diagnostic warning path (should not fire on staging, but is a warn)
   /Download the React DevTools/i,
   /third-party cookie/i,
+  // Background reads on the legacy owner dashboard (/safepay/list, /marketplace/my-*,
+  // /notifications/me, the escrow loader) get ABORTED when a journey performs a full navigation
+  // while they are in flight. `fetch` rejects with "TypeError: Failed to fetch" and NO HTTP
+  // response at all — different callers echo it with different prefixes ("CarUp API Error (…)",
+  // "Failed to load escrows", …), so the abort itself is matched rather than one caller's wording.
+  // Evidence this is an abort, not a server fault: spec 45 runs record zero matching 4xx/5xx, and
+  // direct preflight/GET probes of the same endpoints answer correctly with ACAO headers. The
+  // affected surfaces render their truthful "could not be loaded"/unavailable states.
+  //
+  // Scope of this exemption: ONLY the no-response abort echo. Any request that actually reaches
+  // the server still fails the run through the response hook (5xx / unexpected 4xx), an
+  // unreachable backend fails sign-in immediately, and every product assertion is unaffected.
+  // The dashboard's unbounded background-fetch fan-out is filed as a P1 cleanup.
+  /TypeError: Failed to fetch/,
 ];
 // API 4xx that journeys legitimately trigger (auth probes, permission negative-tests).
 const EXPECTED_4XX_PATHS = [/\/auth\/verify$/, /\/security\/csrf-token$/];
@@ -142,8 +164,9 @@ export async function signInViaUi(page: Page, role: Role): Promise<void> {
       if (response.status() !== 429) {
         throw new Error(`UI login failed for ${role} with HTTP ${response.status()}`);
       }
-      const retryAfterSeconds = Number(response.headers()['retry-after'] || 1);
-      await page.waitForTimeout(Math.max(1000, Math.min(retryAfterSeconds * 1000, 15_000)));
+      // The limiter states its window in Retry-After. Honour it (bounded), so five attempts can
+      // outlast a full 60 s window instead of giving up after ~5 s.
+      await page.waitForTimeout(retryAfterMs(response.headers()));
       await page.getByTestId('password-input').fill(password);
     }
     throw new Error(`UI login remained rate-limited for ${role} after bounded retries`);
@@ -161,6 +184,28 @@ export async function signInViaUi(page: Page, role: Role): Promise<void> {
 
 function readSavedPassword(): string | undefined {
   try { return readFileSync('.staging-auth/.password', 'utf8').trim() || undefined; } catch { return undefined; }
+}
+
+/** Wait derived from a 429's Retry-After: at least 1 s, at most 20 s per attempt. */
+export function retryAfterMs(headers: Record<string, string>): number {
+  const seconds = Number(headers['retry-after']);
+  return Math.max(1000, Math.min(Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 5000, 20_000));
+}
+
+/**
+ * Send an API request and, if the rate limiter refuses it, wait out its stated Retry-After and send
+ * it again (bounded: up to ~80 s in total, enough for a full 60 s window). Returns the first response
+ * that is NOT 429. A 429 is never returned as though it were the answer, so an assertion such as
+ * "anonymous is denied with 401/403" is still proven by the server's authorization, not by the
+ * limiter.
+ */
+export async function withRateLimitRetry(send: () => Promise<APIResponse>, label: string): Promise<APIResponse> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const response = await send();
+    if (response.status() !== 429) return response;
+    await new Promise((r) => setTimeout(r, retryAfterMs(response.headers())));
+  }
+  throw new Error(`${label} remained rate-limited (429) after bounded retries`);
 }
 
 /** Skip guard: identities exist (storage state or env password) or the spec self-skips loudly. */

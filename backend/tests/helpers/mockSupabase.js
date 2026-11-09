@@ -49,6 +49,53 @@ export const UNIQUE_INDEXES = Object.freeze({
   // collides. A mock that accepted the insert would let the broken read-then-insert path pass its
   // tests forever while the capability was, in production, ungrantable for the rest of time.
   diaspora_user_entitlement_overrides: [['tenant_id', 'user_id', 'feature_key']],
+  // T4 — diaspora_logistics_requests: uq_diaspora_logistics_request_live_import_order.
+  //
+  // The continuation edge's idempotency IS this index: two concurrent "arrange shipping" clicks on
+  // one purchase must produce ONE shipping request, and the loser must be handed the winner rather
+  // than an error.
+  //
+  // The real index is PARTIAL (… WHERE deleted_at IS NULL AND import_order_id IS NOT NULL AND
+  // status NOT IN ('CANCELLED','CLOSED')). The mock cannot express a predicate, so this entry is
+  // STRICTER than Postgres in exactly one direction: after a continuation is cancelled or closed,
+  // the real database frees the slot and the mock does not. That divergence is safe for the
+  // concurrency path it exists to test, but it means a "re-arrange shipping after cancelling"
+  // test must NOT be written against the mock — the partial predicate is proven against real
+  // Postgres in database/test/trade_os_t4_continuation_check.mjs instead.
+  //
+  // NULL import_order_id never collides (Postgres NULLS DISTINCT), so logistics-origin requests —
+  // the common case — are entirely unaffected.
+  diaspora_logistics_requests: [['import_order_id']],
+  // T12 — diaspora_customs_cases: uq_customs_case_live_subject.
+  //
+  // PARTIAL: … WHERE deleted_at IS NULL AND status <> 'ABANDONED'. Two live customs cases for one
+  // consignment is two answers to "where is my cargo", and the participant surface reads whichever
+  // it finds first.
+  diaspora_customs_cases: [{
+    name: 'uq_customs_case_live_subject',
+    cols: ['subject_type', 'subject_id'],
+    where: (row) => !row.deleted_at && row.status !== 'ABANDONED',
+  }],
+  // T12 — diaspora_customs_agent_appointments: uq_customs_case_one_active_agent.
+  //
+  // PARTIAL: … WHERE deleted_at IS NULL AND status = 'ACTIVE'. Two live agents on one case is two
+  // people each believing they are clearing it — and, because authority is derived from the
+  // appointment, two people who can both record customs claims on somebody's goods.
+  diaspora_customs_agent_appointments: [{
+    name: 'uq_customs_case_one_active_agent',
+    cols: ['case_id'],
+    where: (row) => !row.deleted_at && row.status === 'ACTIVE',
+  }],
+  // T9 — diaspora_warehouse_intakes: uq_warehouse_intake_subject.
+  //
+  // One live intake per cargo. This IS the idempotency of physical receipt: two operators clicking
+  // "book in" for the same booking must produce ONE intake, and a retried receive must find that one
+  // rather than manufacture a second arrival for goods that only turned up once.
+  //
+  // The real index is PARTIAL (… WHERE deleted_at IS NULL). The mock cannot express a predicate, so
+  // a soft-deleted intake keeps its slot here and does not in Postgres. The partial behaviour is
+  // proven against real Postgres in database/test/trade_os_t9_warehouse_check.mjs.
+  diaspora_warehouse_intakes: [['subject_type', 'subject_id']],
 });
 
 export function createMockSupabase(seed = {}, options = {}) {
@@ -104,14 +151,27 @@ export function createMockSupabase(seed = {}, options = {}) {
         const uniques = UNIQUE_INDEXES[table];
         if (uniques) {
           for (const p of items) {
-            for (const cols of uniques) {
+            for (const entry of uniques) {
+              // An entry is either a bare column list (a TOTAL unique index) or
+              // `{ cols, where }` for a PARTIAL one. Partial indexes are everywhere in this schema —
+              // "one LIVE case per subject", "one ACTIVE appointment per case" — and registering
+              // them as total makes the fake STRICTER than the database, which fails legitimate
+              // flows (ending an appointment and making another) while looking like a real
+              // constraint. The predicate runs over both the candidate row and the existing ones,
+              // exactly as Postgres evaluates a partial index.
+              const cols = Array.isArray(entry) ? entry : entry.cols;
+              const where = Array.isArray(entry) ? null : entry.where;
+              const name = Array.isArray(entry) ? null : entry.name;
               if (cols.some((c) => p[c] === undefined || p[c] === null)) continue; // NULLs never collide
-              if (rows.some((existing) => cols.every((c) => existing[c] === p[c]))) {
+              if (where && !where(p)) continue;
+              if (rows.some((existing) => (!where || where(existing)) && cols.every((c) => existing[c] === p[c]))) {
                 return {
                   data: null,
                   error: {
                     code: '23505',
-                    message: `duplicate key value violates unique constraint on ${table} (${cols.join(', ')})`,
+                    // Postgres names the constraint, and services branch on that name. A message
+                    // without it makes a friendly-refusal path untestable.
+                    message: `duplicate key value violates unique constraint ${name ? `"${name}"` : `on ${table}`} (${cols.join(', ')})`,
                   },
                 };
               }
@@ -142,6 +202,28 @@ export function createMockSupabase(seed = {}, options = {}) {
         }
         if (state.maybeSingle) return { data: copies[0] || null, error: null };
         return { data: copies, error: null };
+      }
+
+      // DELETE actually deletes.
+      //
+      // It used to be accepted and silently ignored, which meant every "this service never deletes
+      // X" test was unfalsifiable: mutating a service to wipe a table left the suite green. Found by
+      // mutation-testing T10's seal history — the mutation deleted every prior seal record and no
+      // gate noticed. A mock that quietly drops a destructive operation is worse than one that
+      // refuses it, because the tests keep reporting success.
+      if (state.op === 'delete') {
+        const matched = rows.filter(matches);
+        const removed = matched.map((r) => ({ ...r }));
+        for (const row of matched) {
+          const index = rows.indexOf(row);
+          if (index >= 0) rows.splice(index, 1);
+        }
+        if (state.single) {
+          if (!removed.length) return { data: null, error: { message: 'no rows', code: 'PGRST116' } };
+          return { data: removed[0], error: null };
+        }
+        if (state.maybeSingle) return { data: removed[0] || null, error: null };
+        return { data: removed, error: null };
       }
 
       // select

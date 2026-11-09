@@ -57,8 +57,11 @@ async function resolveSafeTradeClient(supabaseOrOptions, options = {}) {
   return resolveClient(injected ? { supabaseClient: injected } : {});
 }
 
-// Currency allowlist (config-driven; extend at activation). Single-currency per transaction.
-export const SAFETRADE_SUPPORTED_CURRENCIES = Object.freeze(['USD', 'ZAR', 'GBP', 'EUR']);
+// Currency allowlist. Single-currency per transaction: the accepted quote's currency IS the
+// settlement currency, with no FX. JPY is the Japan→Zimbabwe corridor's pricing currency (T13 plan
+// §9 item 7); it has no minor unit, which currencyMinorUnits.js enforces. Every listed currency must
+// have its minor units declared there — pinned by test.
+export const SAFETRADE_SUPPORTED_CURRENCIES = Object.freeze(['USD', 'ZAR', 'GBP', 'EUR', 'JPY']);
 
 // Verification value treated as "identity verified" on a trade profile.
 const VERIFIED_PROFILE_STATES = new Set(['VERIFIED', 'APPROVED', 'verified', 'approved']);
