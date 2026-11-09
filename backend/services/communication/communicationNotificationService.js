@@ -128,6 +128,55 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     transactional: true,
   },
 
+  // Service Network O5 — governed service-case transitions, addressed to the customer who opened
+  // the case. Deliberately LOW NOISE: in_app only, with `policyChannelsOnly` so a user's default
+  // fallback channels cannot re-add email or push. A garage accepting a job is worth a badge in the
+  // app; it is not worth an email or an SMS, and no other channel is governed for this audience yet.
+  'service.case.accepted': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'service.case.declined': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'service.work.started': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'service.case.completed': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
   // Operations M2 — governed Seller Authority review outcome for the seller.
   'seller.authority.decided': {
     notificationType: 'seller_authority',

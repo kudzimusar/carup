@@ -90,6 +90,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false
     validateStoredSession({ baseUrl: API_BASE, token: stored.token, userId: stored.user?.id })
+      .then((fresh) => {
+        // ADOPT what the server says this session is.
+        //
+        // `validateStoredSession` has always returned the authoritative user from `/auth/me`, and
+        // this discarded it — so the app ran on whatever localStorage happened to hold, however old.
+        // Round 2 owner UAT found the cost: the backend was extended to report a caller's tenant
+        // membership, and a real garage tenant-member was STILL redirected off their workspace,
+        // because the answer never reached the session. A server that is asked and ignored is the
+        // same as one that was never asked.
+        //
+        // Adopting also keeps a stale stored identity — a renamed account, a changed role — from
+        // outliving the session it belongs to.
+        if (cancelled || !fresh) return
+        setUser(fresh)
+        storeAuth(localStorage, fresh, stored.token)
+      })
       .catch((err: unknown) => {
         if (!cancelled && err instanceof SessionExpiredError) clearAuth()
       })

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
 } from '@/components/ui/dialog'
@@ -12,6 +12,13 @@ import {
 import { Loader2, MessageSquare, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { resolveApiBaseUrl } from '@/lib/apiClient'
+import {
+  type CommunicationCapability,
+  UNKNOWN_CAPABILITY,
+  channelStatus,
+  readCommunicationCapability,
+} from '@/lib/communicationChannels'
 import { useAuth } from '@/context/AuthContext'
 import { inquiryAttributionFields } from '@/lib/marketplaceReferral'
 import { track as trackActivity } from '@/lib/intelligenceActivity'
@@ -60,6 +67,20 @@ export function InquiryModal({
 }) {
   const { user } = useAuth()
   const { createMarketplaceInquiry } = useCarUpApi()
+  // R10 — offer only channels CarUp can actually deliver through.
+  const [capability, setCapability] = useState<CommunicationCapability>(UNKNOWN_CAPABILITY)
+  useEffect(() => {
+    let mounted = true
+    const base = resolveApiBaseUrl(
+      import.meta.env.VITE_API_URL,
+      typeof window !== 'undefined' ? window.location.hostname : undefined,
+    )
+    fetch(`${base}/health`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((h) => { if (mounted) setCapability(readCommunicationCapability(h)) })
+      .catch(() => { if (mounted) setCapability(UNKNOWN_CAPABILITY) })
+    return () => { mounted = false }
+  }, [])
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [inquiryType, setInquiryType] = useState<MarketplaceInquiryType>(defaultInquiryType || inquiryTypes[0])
@@ -170,10 +191,22 @@ export function InquiryModal({
               <SelectTrigger data-testid="marketplace-inquiry-preferred-contact"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {user && <SelectItem value="carup">CarUp</SelectItem>}
-                <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                <SelectItem value="email">Email</SelectItem>
+                {/* A channel CarUp cannot currently send through is offered as unavailable rather
+                    than silently accepted — choosing it would promise a delivery that cannot occur. */}
+                <SelectItem value="whatsapp" disabled={channelStatus(capability, 'whatsapp') === 'unavailable'}>
+                  WhatsApp{channelStatus(capability, 'whatsapp') === 'unavailable' ? ' — unavailable' : ''}
+                </SelectItem>
+                <SelectItem value="email" disabled={channelStatus(capability, 'email') === 'unavailable'}>
+                  Email{channelStatus(capability, 'email') === 'unavailable' ? ' — unavailable' : ''}
+                </SelectItem>
               </SelectContent>
             </Select>
+            {(channelStatus(capability, 'whatsapp') === 'unavailable' || channelStatus(capability, 'email') === 'unavailable') && (
+              <p className="mt-1 text-[11px] text-amber-700" data-testid="channel-degraded-note">
+                Some delivery channels are unavailable right now. Your message is still recorded and
+                replies stay in CarUp.
+              </p>
+            )}
             <p className="mt-1 text-[11px] text-gray-500">
               This grants transactional contact for this inquiry only. It does not opt you into marketing.
             </p>

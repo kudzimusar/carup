@@ -12,6 +12,17 @@ import {
 } from 'lucide-react'
 
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import {
+  type ServiceHistoryEntry,
+  describeService,
+  entriesForVin,
+  formatCost,
+  mileageObservationLabel,
+  providerLabel,
+  provenanceLabel,
+  serviceDate,
+  summariseSpend,
+} from '@/lib/ownerServiceHistory'
 import type {
   VehiclePassport,
   InsuranceRecord,
@@ -105,8 +116,26 @@ const TRUST_CONFIDENCE_LABELS: Record<string, string> = {
 export default function VehicleProfile() {
   const { id } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
+  const { fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchServiceHistory, fetchOwnedVehicles } = useCarUpApi()
   const [passportData, setPassportData] = useState<VehiclePassport | null>(null)
+  // Service truth comes from the GOVERNED owner projection, the same source Owner Service History
+  // reads — not from the lifecycle timeline. Deriving it from `workorder:` timeline events made the
+  // Passport publish "Garage not recorded • Mileage not recorded • $0" for a service the projection
+  // records as a named garage, ZIG 250 and a 91,000 km observation.
+  const [governedServices, setGovernedServices] = useState<ServiceHistoryEntry[]>([])
+  /**
+   * R7 — management scope for THIS route.
+   *
+   * `/dashboard/garage/:vin` is the owner's private management workspace. Owner UAT found it
+   * rendering ANY vehicle by VIN, complete with "Edit / continue listing" into Seller Studio for a
+   * car the signed-in user has no relationship with. CarUp's lookup policy does make exact-VIN
+   * passport reads deliberately public, but that decision is about the PUBLIC surface; it does not
+   * make another owner's vehicle part of this account's garage.
+   *
+   * 'unknown' fails closed: no owner control renders until scope is established.
+   */
+  const [manageScope, setManageScope] = useState<'unknown' | 'owned' | 'foreign'>('unknown')
+  const [servicesLoadState, setServicesLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [passportLoadState, setPassportLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [evidenceList, setEvidenceList] = useState<VehicleEvidence[]>([])
   const [evidenceLoadState, setEvidenceLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -147,11 +176,42 @@ export default function VehicleProfile() {
       })
   }, [fetchVehiclePassport, id])
 
+  const loadGovernedServices = useCallback(() => {
+    if (!id) return
+    fetchServiceHistory()
+      .then((rows) => {
+        setGovernedServices(entriesForVin((rows || []) as ServiceHistoryEntry[], id))
+        setServicesLoadState('ready')
+      })
+      .catch((err) => {
+        // A failed read is a failed read. It must not render as "no service recorded".
+        console.error('Error fetching governed service history:', err)
+        setGovernedServices([])
+        setServicesLoadState('error')
+      })
+  }, [fetchServiceHistory, id])
+
+  useEffect(() => {
+    if (!id) return
+    let mounted = true
+    fetchOwnedVehicles()
+      .then((rows) => {
+        if (!mounted) return
+        const owned = (rows || []).some((v: { vin?: string }) => String(v?.vin) === String(id))
+        setManageScope(owned ? 'owned' : 'foreign')
+      })
+      // A failed read must not promote the caller to owner. Scope stays unknown and the page
+      // keeps every management control hidden.
+      .catch(() => { if (mounted) setManageScope('unknown') })
+    return () => { mounted = false }
+  }, [id, fetchOwnedVehicles])
+
   useEffect(() => {
     if (!id) return
     loadPassport()
     loadEvidence()
-  }, [id, loadPassport, loadEvidence])
+    loadGovernedServices()
+  }, [id, loadPassport, loadEvidence, loadGovernedServices])
 
   useEffect(() => {
     let mounted = true
@@ -163,6 +223,34 @@ export default function VehicleProfile() {
     return () => { mounted = false }
   }, [fetchEvidenceTaxonomy, fetchEvidenceSources])
 
+
+  if (manageScope === 'foreign') {
+    return (
+      <main className="mx-auto max-w-3xl p-4 sm:p-8" aria-labelledby="not-your-vehicle-title" data-testid="vehicle-not-managed">
+        <Card className="border-0 card-shadow">
+          <CardContent className="p-6 text-center">
+            <h1 id="not-your-vehicle-title" className="text-lg font-semibold text-gray-900">
+              This vehicle is not in your garage
+            </h1>
+            <p className="mt-2 text-sm text-gray-600">
+              You can only manage vehicles linked to your account. CarUp has not told you whether this
+              vehicle exists — this page simply cannot manage it for you.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-center gap-3">
+              <Link to="/dashboard/garage">
+                <Button className="min-h-11" variant="outline" data-testid="back-to-my-garage">Back to My Garage</Button>
+              </Link>
+              <Link to={`/marketplace/listing/${id}`}>
+                <Button className="min-h-11 bg-orange-500 hover:bg-orange-600" data-testid="view-public-vehicle">
+                  View the public vehicle page
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </main>
+    )
+  }
 
   if (!passportData && passportLoadState === 'error') {
     return (
@@ -265,17 +353,9 @@ export default function VehicleProfile() {
     // part logs — so Golden A's single part log was published as "Total Services 1 AND Total Parts 1",
     // one row counted twice, while My Garage said 0 of each. Services come from mechanic-signed work
     // orders; a part fitted is a part.
-    serviceHistory: (passportData.timeline || [])
-      .filter((e) => e.event_source === 'service' && String(e.id ?? '').startsWith('workorder:'))
-      .map((e) => ({
-        id: e.id,
-        serviceType: e.label,
-        garage: e.details?.notes || null,
-        date: statedDate(e.timestamp) ?? 'Date not recorded',
-        mileage: numOrNull(e.details?.mileage),
-        description: e.details?.notes || null,
-        cost: numOrNull(e.details?.cost)
-      })),
+    // Governed owner projection — identical source and formatting to Owner Service History, so the
+    // two surfaces cannot disagree about the same service. See web/src/lib/ownerServiceHistory.ts.
+    serviceHistory: governedServices,
     partsHistory: (passportData.timeline || [])
       .filter((e) => e.event_source === 'service' && String(e.id ?? '').startsWith('partsentry:'))
       .map((e) => ({
@@ -345,9 +425,14 @@ export default function VehicleProfile() {
           <Link to="/dashboard/garage"><ArrowLeft className="w-4 h-4" /> Back to Garage</Link>
         </Button>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" asChild>
-            <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Edit / continue listing</Link>
-          </Button>
+          {/* Management actions require CONFIRMED ownership. While scope is still unknown they stay
+              hidden, so a slow or failed scope read can never present another owner's vehicle as
+              editable. */}
+          {manageScope === 'owned' && (
+            <Button size="sm" variant="outline" asChild>
+              <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`} data-testid="edit-continue-listing">Edit / continue listing</Link>
+            </Button>
+          )}
           <Button size="sm" className="bg-orange-500 hover:bg-orange-600" asChild>
             <Link to="/dashboard/listings">Listing &amp; Marketplace</Link>
           </Button>
@@ -502,29 +587,48 @@ export default function VehicleProfile() {
                       </Badge>
                     </div>
                   ))}
-                  <Button variant="outline" className="w-full gap-1" onClick={() => setIsUploadModalOpen(true)}>
-                    <Upload className="w-4 h-4" /> Upload Document
-                  </Button>
+                  {manageScope === 'owned' && (
+                    <Button variant="outline" className="w-full gap-1" onClick={() => setIsUploadModalOpen(true)} data-testid="upload-document">
+                      <Upload className="w-4 h-4" /> Upload Document
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
             <TabsContent value="service" className="mt-4">
               <Card className="border-0 card-shadow">
                 <CardContent className="p-5 space-y-3">
-                  {vehicle.serviceHistory.length === 0 && (
+                  {/* A failed read is reported as a failed read. It must never render as "no
+                      service recorded", which would state an absence CarUp has not established. */}
+                  {servicesLoadState === 'error' && (
+                    <p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800" data-testid="passport-service-error">
+                      Service history could not be loaded. This is a loading problem, not a statement
+                      that this vehicle has no service records.
+                    </p>
+                  )}
+                  {servicesLoadState === 'ready' && vehicle.serviceHistory.length === 0 && (
                     <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
                       No service records are available to CarUp for this vehicle.
                     </p>
                   )}
                   {vehicle.serviceHistory.map((s) => (
-                    <div key={s.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                      <Wrench className="w-5 h-5 text-orange-500" />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">{s.serviceType}</p>
-                        <p className="text-xs text-gray-500">{s.garage ?? 'Garage not recorded'} • {s.date} • {statedMileage(s.mileage)}</p>
-                        {s.description && <p className="text-xs text-gray-600 mt-1">{s.description}</p>}
+                    <div key={s.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg" data-testid="passport-service-entry">
+                      <Wrench className="w-5 h-5 text-orange-500 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{describeService(s) || 'Service'}</p>
+                        <p className="text-xs text-gray-500" data-testid="passport-service-meta">
+                          {providerLabel(s.provider)} • {serviceDate(s)}
+                          {mileageObservationLabel(s.mileage_observation)
+                            ? ` • ${mileageObservationLabel(s.mileage_observation)}`
+                            : ' • Mileage not recorded'}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1" data-testid="passport-service-provenance">
+                          {provenanceLabel(s.provenance)}
+                        </p>
                       </div>
-                      <span className="text-sm font-medium">{s.cost !== null ? `$${s.cost.toLocaleString()}` : '—'}</span>
+                      <span className="text-sm font-medium shrink-0" data-testid="passport-service-cost">
+                        {formatCost(s.cost)}
+                      </span>
                     </div>
                   ))}
                 </CardContent>
@@ -739,9 +843,11 @@ export default function VehicleProfile() {
                     no "Current Value" / "Depreciation" / "AI Valuation" — inventing one (price * 0.9)
                     would be a fabricated business fact. */}
                 <div className="flex justify-between"><span className="text-gray-500">Recorded Price</span><span>{statedPrice(vehicle.price)}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Total Services</span><span>{vehicle.serviceHistory.length}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Recorded Services</span><span data-testid="passport-service-count">{vehicle.serviceHistory.length}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Total Parts</span><span>{vehicle.partsHistory.length}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Recorded Service Cost</span><span>${vehicle.serviceHistory.reduce((a, s) => a + (s.cost ?? 0), 0).toLocaleString()}</span></div>
+                {/* Never `$` + sum(cost ?? 0): that published an unrecorded cost as $0 and stamped a
+                    dollar sign onto a ZiG amount. summariseSpend refuses both. */}
+                <div className="flex justify-between"><span className="text-gray-500">Recorded Service Spend</span><span data-testid="passport-service-spend">{summariseSpend(vehicle.serviceHistory).label}</span></div>
               </div>
             </CardContent>
           </Card>

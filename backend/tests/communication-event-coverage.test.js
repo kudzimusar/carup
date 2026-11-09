@@ -170,12 +170,48 @@ test('events cron migration FAILS on a database without pg_cron (behavioral, PGl
   await db.close();
 });
 
-// Mirrors the inline CHECK on message_threads.thread_type
-// (message_threads_thread_type_check, database/migrations/20260623143000_omnichannel_communication_engine.sql).
-const LEGAL_THREAD_TYPES = [
-  'support', 'marketplace_inquiry', 'referral', 'escrow', 'finance', 'import',
-  'container', 'trust_safety', 'feedback', 'complaint', 'account', 'general',
-];
+/**
+ * The legal thread types, DERIVED from the migrations rather than mirrored by hand.
+ *
+ * This used to be a hand-copied list with a comment pointing at the migration that defined it.
+ * That is a second source of truth: extending the CHECK in a later migration left the mirror
+ * stale, so this gate reported a violation against a constraint the database no longer had — and
+ * had the drift gone the other way it would have PASSED a policy the database would reject, which
+ * is the exact failure it exists to catch.
+ *
+ * Migrations are read in filename (timestamp) order and the LAST definition of
+ * `message_threads_thread_type_check` wins, which is what the database ends up with.
+ */
+function legalThreadTypesFromMigrations() {
+  const files = fs.existsSync(MIGRATIONS_DIR)
+    ? fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort()
+    : [];
+  let latest = null;
+  for (const file of files) {
+    const source = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
+    // Only the Up section defines what the database will hold.
+    const up = source.split(/^-- \+migrate Down/m)[0];
+    // Either the inline column CHECK or a named ADD CONSTRAINT.
+    const matches = [...up.matchAll(/thread_type\s+IN\s*\(([^)]*)\)/gi)];
+    if (!matches.length) continue;
+    const values = [...matches[matches.length - 1][1].matchAll(/'([a-z_]+)'/gi)].map((m) => m[1]);
+    if (values.length) latest = values;
+  }
+  return latest;
+}
+
+const LEGAL_THREAD_TYPES = legalThreadTypesFromMigrations();
+
+test('the thread-type CHECK is discoverable in the migrations', () => {
+  assert.ok(Array.isArray(LEGAL_THREAD_TYPES) && LEGAL_THREAD_TYPES.length >= 12,
+    'could not derive message_threads_thread_type_check from the migrations — this gate would be vacuous');
+  // The original twelve must survive every later redefinition.
+  for (const original of ['support', 'marketplace_inquiry', 'referral', 'escrow', 'finance', 'import',
+    'container', 'trust_safety', 'feedback', 'complaint', 'account', 'general']) {
+    assert.ok(LEGAL_THREAD_TYPES.includes(original),
+      `a later migration dropped '${original}' from the thread-type CHECK`);
+  }
+});
 
 test('every notification policy threadType satisfies the message_threads_thread_type_check DB CHECK', () => {
   for (const [eventType, policy] of Object.entries(NOTIFICATION_POLICIES)) {

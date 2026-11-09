@@ -48,6 +48,19 @@ export const COMMUNICATION_EVENT_TYPES = [
   // inline in the verification route and its failure swallowed, which permanently lost the welcome
   // for that account because the verification token is single-use and already consumed.
   'user.email.verified',
+  // Service Network O5 — the garage-side decisions the CUSTOMER is waiting on. Each is a governed
+  // transition on a case the recipient opened, addressed to `requester_user_id`, delivered through
+  // this canonical pipeline rather than any Service-Network-specific channel.
+  //
+  // 'service.case.requested' and 'service.case.cancelled' are intentionally ABSENT. Their audience
+  // is the garage tenant, and Communications addresses a user rather than a tenant; picking a
+  // member to stand in for the organization would be a guess. They stay emitted and unsubscribed
+  // until a governed tenant-recipient model exists — the same discipline the ESCROW_* note above
+  // records, and the reason this list is a deliberate registry rather than a wildcard.
+  'service.case.accepted',
+  'service.case.declined',
+  'service.work.started',
+  'service.case.completed',
 ];
 
 let registered = false;

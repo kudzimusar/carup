@@ -155,12 +155,21 @@ test.describe('Feature Registry & Navigation Map', () => {
       // workspace registers with placements: [] on purpose (a parameterized
       // /admin/vehicles/:vin/review route cannot be a sidebar link) so it does
       // not move this count. No other role moves.
-      expect(result.roleItemCounts['owner']).toBe(21);
-      expect(result.roleItemCounts['dealer']).toBe(16);
-      expect(result.roleItemCounts['mechanic']).toBe(5);
+      // Recomputed 2026-09-06 (Service Network UAT remediation R3/R5). Four registry entries were
+      // added, and each role moves by exactly the ones that name it:
+      //   owner.service-requests   roles [owner]                     -> owner   21 -> 22
+      //   garage.workshop          roles [mechanic, dealer, admin]   -> dealer  16 -> 19
+      //   garage.customers         roles [mechanic, dealer, admin]   -> mechanic 5 -> 8
+      //   garage.profile           roles [mechanic, dealer, admin]   -> admin   32 -> 35
+      // The three garage entries carry the backend's GARAGE_ROLES exactly. insurance, government
+      // and bank name none of them and do not move — which is the check that these deltas are the
+      // ones intended and not a role set that grew by accident.
+      expect(result.roleItemCounts['owner']).toBe(22);
+      expect(result.roleItemCounts['dealer']).toBe(19);
+      expect(result.roleItemCounts['mechanic']).toBe(8);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(14);
-      expect(result.roleItemCounts['admin']).toBe(32);
+      expect(result.roleItemCounts['admin']).toBe(35);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid
