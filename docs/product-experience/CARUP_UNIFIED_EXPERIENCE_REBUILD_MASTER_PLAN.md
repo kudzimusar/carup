@@ -2,7 +2,7 @@
 
 **Programme:** `CARUP-UX-REBUILD-01`  
 **Document ID:** `CARUP-UX-REBUILD-01-MP01`  
-**Version:** `0.9.1 — OWNER APPROVAL CANDIDATE (incorporates the Opus IR01 research addendum: Part II, Appendices E–H)`  
+**Version:** `0.9.2 — FINAL OWNER APPROVAL CANDIDATE (v0.9.1 research addendum plus Moderator corrections C01–C07, MP01-R2)`  
 **Issued:** 2026-11-10 (Asia/Tokyo)  
 **Repository:** [`kudzimusar/carup`](https://github.com/kudzimusar/carup)  
 **Repository target:** `docs/product-experience/CARUP_UNIFIED_EXPERIENCE_REBUILD_MASTER_PLAN.md`  
@@ -20,12 +20,15 @@
 > - **Part II (§§16–29)**;
 > - **Appendices E–H**.
 >
-> Part II was contributed by the Opus IR01 research coordinator at the Owner's request. It draws on the independent IR01 evidence, re-checked against `main` @ `9f2bebfe`. Where a Part II erratum (§17) corrects a Part I statement, the erratum controls for planning. **Nothing in this revision authorizes implementation, merge, deployment, schema migration or commercial activation.**
+> Part II was contributed by the Opus IR01 research coordinator at the Owner's request. It draws on the independent IR01 evidence, re-checked against `main` @ `9f2bebfe`. Each Part II erratum (§17) is applied at, or cross-referenced beside, the Part I statement it corrects (marked *E-nn*); §17 remains the audit trail. **Nothing in this revision authorizes implementation, merge, deployment, schema migration or commercial activation.**
+>
+> **Revision 0.9.2 (2026-11-11)** applies the Moderator's seven MP01-R2 corrections (C01–C07; see the table below), including in-place edits to Part I wording where errata (C06) or public-security sanitization (C04) required them. Every Owner decision in §0 is `PENDING OWNER DECISION`. This document authorizes no decision, implementation, merge, deployment, schema migration or commercial activation.
 
 | Version | Date | Author / custody | Change |
 |---|---|---|---|
 | 0.9.0 | 2026-11-10 | CarUp Programme Moderator (11-11 TECH) | Owner approval candidate reconciling GLM IR01-R2 and Opus IR01 research |
 | 0.9.1 | 2026-11-10 | Opus IR01 research coordinator, at the Owner's request | Research addendum, committed to the repository as the programme trail and reference. Covers errata; re-verified facts; unification scorecard; context requirements; shell-migration hazards; added containment items; off-`main` remediation candidates; domain specifics; test and CI specifics; performance and accessibility baselines; custody detail; added Owner decisions; market constraints; open-verification register; agent brief contract; evidence index |
+| 0.9.2 | 2026-11-11 | Documentation specialist (Opus), under Moderator directive CARUP-UX-REBUILD-01-MP01-R2 | Final Owner approval candidate. Seven bounded corrections: **C01** containment scope extended to TI-01–TI-27, with a gating schedule (§6.3, §10, §15); **C02** HOLD narrowed from the G13/G14 route groups to specific unavailable capabilities (Appendix F, F.1; OD-14; TI-19, TI-21; RX-06); **C03** native parity defined (§20 NC-05/NC-07, §19 U-07/U-36, CI-03, U12, Appendix G clause 12); **C04** public security findings sanitized (Part I TI-01/TI-02, §6.1 TI-16, §28 OV-01, Appendix E); **C05** component-count terminology (RX-00); **C06** errata applied in place at their Part I locations; **C07** every Owner decision marked `PENDING OWNER DECISION`, with an authorization boundary (§0, §14.1). No new research; architecture, registers and counts unchanged |
 
 ---
 
@@ -33,25 +36,38 @@
 
 **Approval of this document** would authorize this as the *planning authority* and permit specialists to prepare separately scoped implementation PR proposals. It would **not** independently authorize code changes, merges, production/staging deployment, shared database migrations, real-dealer publication, payments or security-policy relaxation. The Owner should review the following proposals before implementation:
 
-| ID | Proposed decision | Default presented for approval | Explicit reservation |
-|---|---|---|---|
-| OD-01 | Architecture strategy | **Option B:** reconstruct shared shells/components with **selective complete presentation replacement** of irredeemable screens; do not rewrite backend | Prototype and UAT still required |
-| OD-02 | Brand authority | `DESIGN.md` + Marketplace Visual DNA: **Precision Automotive Commerce + Evidence-Led Trust Intelligence**; remove glass as default and generic stat-card fleets | Keep honest safety/status semantics |
-| OD-03 | Shell taxonomy | **Three presentation families**—Public, Workspace, Focused—with isolated Review policy/variant under Workspace | Reviewer authority must remain independent |
-| OD-04 | Visual composition | **Showroom Calm** (public/personal discovery), **Exchange/Operations Workbench** (dealer, garage, trade, institutional), **Focused Service Flow** (forms/transactions) | Require side-by-side high-fidelity samples |
-| OD-05 | Context switching | Server-derived active memberships/capabilities; keep existing URLs first, propose URL-addressable org routes only after parity | Manifest is navigation data, never an authorization grant |
-| OD-06 | Mobile/footer policy | Public footer retained on mobile as a compact accessible accordion; mobile bottom navigation is manifest-derived, task-aware and safe-area aware | Prove no collision between drawer/bar/footer |
-| OD-07 | Visual tokens | Inter initially (self-hosted, reduced weights), sharp editorial surfaces, restrained 4–6px workspace controls, accessible orange action variants, neutral panels | Final token swatches/typography require Owner visual approval |
-| OD-08 | Branch custody | `main` stays the base; extract useful unmerged work only by evidence/acceptance, no wholesale stack merge | Existing programmes retain independent gates |
-| OD-09 | Legacy cutover | Route-family feature flags; retain safe redirects/gates until parity and user migration are established | Never remove auth or tenant boundaries |
-| OD-10 | Product scope | Web/PWA for full operations; native for genuinely supported device-first features, not pretend parity | Native feature map to be certified |
-| OD-11 *(v0.9.1)* | Trade OS lineage to extract from | **#207 → #243 → #244** as the review candidate. It holds CAP Journey & Arrival and the workspace layer. #214 and #215 are treated as superseded alternates unless the Trade lead shows unique accepted content | No branch merge; extraction unit by unit under the §9 custody procedure; see §25 |
-| OD-12 *(v0.9.1)* | Garage operating system and tenant model | Extract services from #239–#242 after domain acceptance, then rebuild the screens on WorkspaceShell(garage). Adopt the Garage 1.0 model (`activeTenant` plus tenant types and roles). Do not adopt #197's model, where a tenant role satisfies a platform role | Business and schema acceptance is separate. Staging currently serves this lineage (`8353dbdd`) |
-| OD-13 *(v0.9.1)* | PR-less custody | Open Draft PRs, with no merge, for `fix/carup-mvp-stab-01-client-readiness` @`a42d3c8a` and `feat/ca-owner-02-management-convergence` @`2b6a1099` before extracting anything from them | Check the workflow triggers before opening any PR (§23.5) |
-| OD-14 *(v0.9.1)* | Seed-only institutional screens | Hide (feature-gate) Claims, FraudAlerts, RegistryVerification, AIMonitoring and the insurer dashboard until a governed data source exists, with an honest "not available" state. Correct Bank LendingQueue rather than hiding it | Owner may choose "coming soon" copy instead of hiding |
-| OD-15 *(v0.9.1)* | Market price context | Plan, for RX-04, a price-context label whose method is published and which has an explicit "no rating" state (§27) | Needs a data authority and a published method; no label without data |
-| OD-16 *(v0.9.1)* | Review-independence coverage | Extend server-enforced independence and step-up beyond the dealer programme to the other review and decision types before any UI implies independent review (TI-22) | Security and Trust owners set the scope. The inventory is held in private evidence |
-| OD-17 *(v0.9.1)* | Production containment for TI-01 | Production reports `78303ed6` and its bundle still renders demo access. After the read-only ops check (OV-01), consider a separately authorized containment change, for example the reviewed `8949d570` or an equivalent, ahead of RX-09 | Any deployment remains a separate Owner decision; this plan authorizes none |
+| ID | Proposed decision | Default presented for approval | Explicit reservation | Approval status |
+|---|---|---|---|---|
+| OD-01 | Architecture strategy | **Option B:** reconstruct shared shells/components with **selective complete presentation replacement** of irredeemable screens; do not rewrite backend | Prototype and UAT still required | **`PENDING OWNER DECISION`** |
+| OD-02 | Brand authority | `DESIGN.md` + Marketplace Visual DNA: **Precision Automotive Commerce + Evidence-Led Trust Intelligence**; remove glass as default and generic stat-card fleets | Keep honest safety/status semantics | **`PENDING OWNER DECISION`** |
+| OD-03 | Shell taxonomy | **Three presentation families**—Public, Workspace, Focused—with isolated Review policy/variant under Workspace | Reviewer authority must remain independent | **`PENDING OWNER DECISION`** |
+| OD-04 | Visual composition | **Showroom Calm** (public/personal discovery), **Exchange/Operations Workbench** (dealer, garage, trade, institutional), **Focused Service Flow** (forms/transactions) | Require side-by-side high-fidelity samples | **`PENDING OWNER DECISION`** |
+| OD-05 | Context switching | Server-derived active memberships/capabilities; keep existing URLs first, propose URL-addressable org routes only after parity | Manifest is navigation data, never an authorization grant | **`PENDING OWNER DECISION`** |
+| OD-06 | Mobile/footer policy | Public footer retained on mobile as a compact accessible accordion; mobile bottom navigation is manifest-derived, task-aware and safe-area aware | Prove no collision between drawer/bar/footer | **`PENDING OWNER DECISION`** |
+| OD-07 | Visual tokens | Inter initially (self-hosted, reduced weights), sharp editorial surfaces, restrained 4–6px workspace controls, accessible orange action variants, neutral panels | Final token swatches/typography require Owner visual approval | **`PENDING OWNER DECISION`** |
+| OD-08 | Branch custody | `main` stays the base; extract useful unmerged work only by evidence/acceptance, no wholesale stack merge | Existing programmes retain independent gates | **`PENDING OWNER DECISION`** |
+| OD-09 | Legacy cutover | Route-family feature flags; retain safe redirects/gates until parity and user migration are established | Never remove auth or tenant boundaries | **`PENDING OWNER DECISION`** |
+| OD-10 | Product scope | Web/PWA for full operations; native for genuinely supported device-first features, not pretend parity | Native feature map to be certified | **`PENDING OWNER DECISION`** |
+| OD-11 *(v0.9.1)* | Trade OS lineage to extract from | **#207 → #243 → #244** as the review candidate. It holds CAP Journey & Arrival and the workspace layer. #214 and #215 are treated as superseded alternates unless the Trade lead shows unique accepted content | No branch merge; extraction unit by unit under the §9 custody procedure; see §25 | **`PENDING OWNER DECISION`** |
+| OD-12 *(v0.9.1)* | Garage operating system and tenant model | Extract services from #239–#242 after domain acceptance, then rebuild the screens on WorkspaceShell(garage). Adopt the Garage 1.0 model (`activeTenant` plus tenant types and roles). Do not adopt #197's model, where a tenant role satisfies a platform role | Business and schema acceptance is separate. Staging currently serves this lineage (`8353dbdd`) | **`PENDING OWNER DECISION`** |
+| OD-13 *(v0.9.1)* | PR-less custody | Open Draft PRs, with no merge, for `fix/carup-mvp-stab-01-client-readiness` @`a42d3c8a` and `feat/ca-owner-02-management-convergence` @`2b6a1099` before extracting anything from them | Check the workflow triggers before opening any PR (§23.5) | **`PENDING OWNER DECISION`** |
+| OD-14 *(v0.9.1)* | Seed-only and static institutional content | Contain, do not remove: show an honest "not available" state, with the route kept and no seed data shown, for Claims, FraudAlerts, RegistryVerification and AIMonitoring until a governed data source exists. Keep the insurer overview, the bank screens and every other legitimate institutional function operating, and correct them (TI-21). HOLD applies at capability level only (Appendix F.1) | Owner may choose "coming soon" copy; no route or working function is disabled | **`PENDING OWNER DECISION`** |
+| OD-15 *(v0.9.1)* | Market price context | Plan, for RX-04, a price-context label whose method is published and which has an explicit "no rating" state (§27) | Needs a data authority and a published method; no label without data | **`PENDING OWNER DECISION`** |
+| OD-16 *(v0.9.1)* | Review-independence coverage | Extend server-enforced independence and step-up beyond the dealer programme to the other review and decision types before any UI implies independent review (TI-22) | Security and Trust owners set the scope. The inventory is held in private evidence | **`PENDING OWNER DECISION`** |
+| OD-17 *(v0.9.1)* | Production containment for TI-01 | Production reports `78303ed6` and its bundle still renders demo access. After the read-only ops check (OV-01), consider a separately authorized containment change, for example the reviewed `8949d570` or an equivalent, ahead of RX-09 | Any deployment remains a separate Owner decision; this plan authorizes none | **`PENDING OWNER DECISION`** |
+
+**Approval status and authorization boundary (v0.9.2).** Every decision in the table above is **`PENDING OWNER DECISION`**.
+- **Approving or merging this master plan** approves only its research reconciliation and planning strategy as the planning authority. It approves **no** individual decision row.
+- **A decision changes status** only through an explicit Owner decision that names its ID, recorded in §14.1 (or in the PR #259 thread and then copied into §14.1).
+- **Even an approved decision authorizes only its planning default.** Each of the following still needs its own separate, explicit authorization, under the gates in §§9–12:
+  - selecting and integrating Trade OS branches (OD-11);
+  - adopting a Garage tenant or business model (OD-12);
+  - opening additional Draft PRs (OD-13);
+  - hiding or gating any institutional functionality (OD-14);
+  - establishing price-context calculations (OD-15);
+  - changing reviewer-independence or other security policies (OD-16);
+  - removing demo access through a deployed change, or any other deployment (OD-17);
+  - any implementation, merge, schema migration, dealer publication, payment or commercial activation arising from OD-01–OD-10.
 
 **Recommended Owner action:** approve the *strategy and research reconciliation* now; reserve **final UI direction and any implementation authority** for the connected reference designs and associated programme gates (§§5, 10–12).
 
@@ -77,7 +93,7 @@
 | **GLM Critical-Issue Memorandum** | D1–D3 and F-series containment candidates | Vulnerability impacts distinguish proven source facts from untested production configuration |
 | **GLM Architecture Decision Dossier** | Workspace chrome family, modes, six written references | Some shell-placement and URL assumptions require correction (§§3–4) |
 | **GLM visual ZIP** (`carup-ir01-r2-visual.zip`) | 116 public/auth screenshots, 29 routes × four viewports; manifest | Unauthenticated local Vite without backend; **not** authenticated end-to-end UAT |
-| **Opus 5.5 full IR01 report** (`CarUp UI rebuild architecture research.md`, Deliverables 1–14; Appendices A–K) | May–Nov history, 150 route elements, styling inventory, navigation, domain/disposition, 53-open-PR provenance, local-mock browser/axe/performance | Screens behind login used **synthetic sessions/stub API**; native not run; deployed provenance independently recheck before acting |
+| **Opus 5.5 full IR01 report** (`CarUp UI rebuild architecture research.md`, Deliverables 1–14; Appendices A–K) | May–Nov history, 150 route elements, styling inventory, navigation, domain/disposition, 53-open-PR provenance, local-mock browser/axe/performance | Screens behind login used **synthetic sessions/stub API**, and the public captures used the same stub, so no live data was rendered *(E-14)*; native not run; deployed provenance independently recheck before acting |
 | **Current GitHub metadata/source** | Independent branch/PR status, source files, SHA and route-structure validation | Verify anew at each PR's exact head; historical snapshot is not self-updating |
 
 **Evidence labels used below:** **S** source-verified at recorded SHA; **G** Git/PR history; **R-L** locally rendered with synthetic/stub data; **R-U** unauthenticated browser screenshot; **D** research-document assertion; **J** proposed design/engineering judgment; **OPEN** needs runtime/Owner/authority verification. Any production finding from external static metadata is **reported**, not independently certified in this plan.
@@ -107,7 +123,7 @@
 | GLM preservation register | **12 journeys** | Each demands component→hook→API→service→authority→test chain (§7) |
 | GLM authenticated UAT | **24 OPEN** = 6 journeys × 4 widths | No real staging session/data used; these are planned checks, not passed checks |
 | GLM R2 “692 rows” | **Not a validated uniform data-row total** | Earlier reconciliation found 672 substantive populated records excluding some index/header/summary rows. This master plan uses **per-sheet typed counts**, not an ambiguous workbook grand total |
-| Opus repository PR census | **53 open PRs** at 2026-11-10 audit; additional unmerged remote branches | GLM's PR worksheet is a **selected set**, not a competing claim about total open PR count |
+| Opus repository PR census | **53 open PRs** at 2026-11-10 audit, forming one stacked chain (#254 contains 22 other open-PR heads plus 4 Trade OS milestone commits); 178 unmerged remote branches, 109 of them conflicting with `main` *(E-10)* | GLM's PR worksheet is a **selected set**, not a competing claim about total open PR count |
 
 **Main baseline:** `9f2bebfe66a19e4d90c44085a3166562d2176626` is the merged PR #258 source. The dealer functionality is in main; code merge ≠ UI convergence ≠ release. Current PR metadata must be refreshed immediately before any integration.
 
@@ -116,22 +132,22 @@
 | Generation | Date and evidence | UI additions; residual issue |
 |---|---|---|
 | **G0** — initial scaffold | 2026-05-31, commit `771a3ca3` [G] | Public `MainLayout`, `DashboardLayout` for role portals, 53 shadcn primitives, navbar/footer, `card-shadow`, `.glass-card`, `.glass-dark` pattern family, cards and static demo data. Opus reports 125/127 original runtime files still present; **presence ≠ each file remains a valid UX**. |
-| **G1** — Navigation Intelligence | June 3–24, PRs #4, #16, #18, #56, #57, #94 [G] | URL-aware discovery, feature registry, manifest, public drawer/footer and route gating. It improved nav *data*, not a universal final shell. |
+| **G1** — Navigation Intelligence | June 3–24, PRs #16, #18, #54–#57, #94; the June redesign burst was #3–#6, #16, #73 [G] *(E-05)* | URL-aware discovery, feature registry, manifest, public drawer/footer and route gating. It improved nav *data*, not a universal final shell. |
 | **G2** — Truth/Trust | July–Aug, notably PR #165 [G] | Canonical Truth remediated false claims while leaving many original page layouts in place. |
-| **G3** — editorial Marketplace/Seller | Aug 26–Sept 4, through PR #194 [G] | Image-led Marketplace, editorial Seller/My Garage, compact mobile bottom bar; global `DESIGN.md`; changes were not propagated to all owner/operational pages. |
+| **G3** — editorial Marketplace/Seller | Aug 26–Sept 4, through PR #194 [G] | Image-led Marketplace, editorial Seller/My Garage, compact mobile bottom bar (public and auth shell only; hard-coded tabs with its own `ROLE_HOME`; contradicts the manifest on Sell — *E-15*); global `DESIGN.md`; changes were not propagated to all owner/operational pages. |
 | **G4** — unmerged business shells | Sept–Oct, #197, #207, #220–244 [G] | TradeOSWorkspaceLayout, Garage operating screens, CorporateLayout, WorkspaceChrome, native UI: competing candidates, **not on main**. |
 | **G5** — Dealership 1.0 | Nov 3–8, PR #258 [G/S] | Real claim-first product integration, but new dealer/reviewer shells and restored legacy dealer page visual language. |
 
-A **65-day gap between the 2026-09-04 and 2026-11-08 main merges** contributed to divergence. Do not infer the motive for each legacy retention without commit, PR or source-comment evidence. Opus also documents a historical Git-history rewrite; historical PR attribution should be based on first-parent and merged-PR evidence, not SHA ancestry alone before that rewrite.
+A **65-day gap between the 2026-09-04 and 2026-11-08 main merges** contributed to divergence. Do not infer the motive for each legacy retention without commit, PR or source-comment evidence. Opus also documents a historical Git-history rewrite (CR-1, `4a8c4811`, 2026-07-26, rewrote 901 commits — *E-06*); historical PR attribution should be based on first-parent and merged-PR evidence, not SHA ancestry alone before that rewrite.
 
 ### 2.3 Styling audit: same diagnosis, different scanner scopes
 
 | Class | GLM IR01-R2 | Opus IR01 | Reconciled use |
 |---|---:|---:|---|
-| Raw Tailwind palette occurrences | **8,550** in 365 non-test TS/TSX files | **8,555** in 366 runtime files incl. CSS/JS | Both support large token bypass; **do not report one as an error without scope normalization** |
-| Semantic-token occurrences | **432** | **496 total**, only **51 in application code** outside default UI primitives | Compare like-for-like app code, not primitives; no meaningful standardized product-token layer yet |
-| `card-shadow` occurrences | **211** | Source scans show persistent use, including Vehicle Detail/role portals | Deprecated as default by `DESIGN.md` §20; replace by hierarchy not merely class deletion |
-| Glass utility usage | `.glass-card`/`.glass-dark` **0 references** in scanned runtime | Their CSS definitions are dead but **28 backdrop-blur** occurrences recreate the visual effect | Remove obsolete CSS and inappropriate blurs/alpha surfaces, preserve legitimate overlays if justified |
+| Raw Tailwind palette occurrences | **8,550** in 365 non-test TS/TSX files | **8,555** occurrences in **228** of the 366 runtime files in scope (scope includes CSS/JS) *(E-01)* | Both support large token bypass; **do not report one as an error without scope normalization** |
+| Semantic-token occurrences | **432** | **496 total**, of which **442** are inside `components/ui`; **51** in application code (app-code measure C5) *(E-02)* | Compare like-for-like app code, not primitives; no meaningful standardized product-token layer yet |
+| `card-shadow` occurrences | **211** | **212** occurrences in 78 files; **207 of 314** `<Card>` tags carry the deprecated recipe; **76** reachable files, including Vehicle Detail and role portals *(E-03)* | Deprecated as default by `DESIGN.md` §20; replace by hierarchy not merely class deletion |
+| Glass utility usage | `.glass-card`/`.glass-dark` **0 references** in scanned runtime | Their CSS definitions are dead (dropped from compiled CSS; 0 rendered elements across 132 captures), but **28 backdrop-blur** occurrences, translucent panels, glows and 107 gradients recreate the visual effect *(E-04)* | Remove obsolete CSS and inappropriate blurs/alpha surfaces, preserve legitimate overlays if justified |
 | Gradients | ~106 utilities | 107 `bg-gradient-to-*` in 34 runtime files | Audit their actual purpose; photographic scrims/functional elevation are distinct from ambient glow |
 | Geometry | 51 distinct `max-w` variants reported | 12 major outer widths, 28 heading recipes | Choose canonical width/density scales; avoid one fixed width for every task |
 | Component styling compatibility | Not resolved by GLM | Tailwind **3.4.19** vs some generated Tailwind-4-style utilities; missing compiled CSS and low-contrast neutral hover | **Technical fix required**, with compiled-style assertions before broad design token migration |
@@ -140,9 +156,9 @@ Unstyled/unused definitions must not be mistaken for all visible defects. The re
 
 ### 2.4 Runtime and build provenance: two problems, not one
 
-**Reported by Opus using static deployment artifacts at its investigation time** (not retested against deployed runtime here): `carup.dev` production advertises `78303ed6` (2026-08-26); staging advertises `8353dbdd` from an unmerged Garage branch. The production SHA is **1,431 commits behind** the audited main; GitHub ancestry for this relation was independently confirmed in the Moderator review. **Do not redeploy** based on the report: independently inspect immutable deployment metadata, Vercel aliases and exact frontend/backend build identifiers first.
+**Reported by Opus using static deployment artifacts at its investigation time** (not retested against deployed runtime here): `carup.dev` production advertises `78303ed6` (2026-08-26); staging advertises `8353dbdd` from an unmerged Garage branch (both self-reported through each deployment's static `carup-provenance.json`, and unconfirmed until OV-02 — *E-12*). The production SHA is **1,431 commits behind** the audited main; GitHub ancestry for this relation was independently confirmed in the Moderator review. **Do not redeploy** based on the report: independently inspect immutable deployment metadata, Vercel aliases and exact frontend/backend build identifiers first.
 
-**Reported local bundle measurement:** approximately 3.116 MB uncompressed/790.6 KB gzip initial JS for GLM's local build; Opus's separately instrumented build is ~787 KB gzip. Opus's lazy-import experiment reached ~179 KB gzip. These builds used differing harnesses/configurations and are not live Core Web Vitals. The direction to **route-level code-split** is validated as worthwhile; the experiment is **not a merged fix**.
+**Reported local bundle measurement:** approximately 3.116 MB uncompressed/790.6 KB gzip initial JS for GLM's local build; Opus's separately instrumented build is ~787 KB gzip (entry chunk 3,116,435 B raw / 787,298 B gzip-9). Opus's lazy-import experiment reached ~179 KB gzip (179,386 B) *(E-07)*. These builds used differing harnesses/configurations and are not live Core Web Vitals. The direction to **route-level code-split** is validated as worthwhile; the experiment is **not a merged fix**.
 
 **Independent UAT versions to record:** environment, URL, web SHA, backend SHA, build/deployment ID, feature-flag snapshot, account/tenant and database provenance, viewport/browser, test data/consent. If those are absent, visual test results are provisional.
 
@@ -152,7 +168,7 @@ Unstyled/unused definitions must not be mistaken for all visible defects. The re
 - **Context:** global `user.role` cannot express verified dealer/garage memberships or reviewer object authority; “Switch Portal Role” is functionally misleading.
 - **Navigation:** 20-ish independently maintained maps; `CompactBottomNav` has its own `ROLE_HOME`; settings 404 and multiple active sidebar items.
 - **Truth:** unsupported metrics, placebo operations, evidence/Trust projection confusion, false empty/success/error states; §6.
-- **Performance/a11y:** source-evidenced eager imports, local-mock request storm on `/diaspora/containers`, off-canvas focusability, inadequate interactive targets/contrast. Opus's reported **101/128** axe local-mock captures with findings is a research baseline, **not production a11y certification**.
+- **Performance/a11y:** source-evidenced eager imports, local-mock request storm on `/diaspora/containers`, off-canvas focusability, inadequate interactive targets/contrast. Opus's reported **101/128** axe local-mock captures with findings is a research baseline, **not production a11y certification**. The violations recur in all seven shell families, no shell has a skip link, and closed off-canvas navigation still captures keyboard focus *(E-13)*.
 - **Custody:** at least 53 open PRs, many stacked; advanced Trade, Garage, Corporate, Native and shared chrome changes remain unmerged and not interchangeable with accepted main.
 
 ---
@@ -286,9 +302,9 @@ The goal is a **full product-experience reconstruction** without a reckless busi
 
 | ID | Actual source/behavior (baseline) | Priority | Containment / permanent treatment | Gate / evidence |
 |---|---|---|---|---|
-| TI-01 | `web/src/pages/auth/Login.tsx`: **Quick Demo Access** and fixed seeded password are present in client source; production bundle inclusion **reported** by Opus. Valid credential in production **not tested** | **P0 investigate now** | Remove demo controls and literal from public build; verify deployed auth configuration/seeded accounts through authorized ops; rotate/remove demo credentials where present | Bundle scan; authorized server config review; no unauthorized account login |
-| TI-02 | `DiasporaTrade.tsx` submits reviewer-supplied `verification_status: 'VERIFIED'`; `backend/services/diaspora/diasporaImportOrderService.js` persists it without demonstrated evidence gate | **P0 authority design** | Suspend unsupported positive-claim action or gate behind approved evidence requirement; server validates evidence/actor and duplicate VIN links; audit, independence and workflow tests | Evidence, identity, replays, reviewer authorization and conflict tests; Owner/Trust policy sign-off |
-| TI-03 | `diasporaTradeProfileService.js` can default/rachet `trust_score` to ≥80 on verify; supplier score vocabulary risks confusion with vehicle Trust | **P1 truth semantics** | Withhold unsupported public score, propose explicit profile-reputation metric/method; do **not** conflate with canonical vehicle Trust; schema change separate gate | Methodology, data provenance and contract decision; no invented score |
+| TI-01 | The login page renders **demo-access controls** with embedded seeded identities and a shared credential in client source; inclusion in the production bundle **reported** by Opus (static check). Whether any deployed backend accepts the credential is **not tested** (OV-01). File-level and request detail: private evidence (SC-14) | **P0 investigate now** | Remove demo controls and literal from public build; verify deployed auth configuration/seeded accounts through authorized ops; rotate/remove demo credentials where present | Bundle scan; authorized server config review; no unauthorized account login |
+| TI-02 | The Trade OS vehicle-import flow accepts a **client-asserted positive verification status** and persists it without a demonstrated evidence gate. File-level and request detail: private evidence (SC-2) | **P0 authority design** | Suspend unsupported positive-claim action or gate behind approved evidence requirement; server validates evidence/actor and duplicate VIN links; audit, independence and workflow tests | Evidence, identity, replays, reviewer authorization and conflict tests; Owner/Trust policy sign-off |
+| TI-03 | `diasporaTradeProfileService.js` can default/rachet `trust_score` to ≥80 on verify (source-verified: a privileged action, admin or reviewer only; the score defaults to ≥80 and re-verification can only raise it — *E-08*, SC-19); supplier score vocabulary risks confusion with vehicle Trust | **P1 truth semantics** | Withhold unsupported public score, propose explicit profile-reputation metric/method; do **not** conflate with canonical vehicle Trust; schema change separate gate | Methodology, data provenance and contract decision; no invented score |
 | TI-04 | `web/src/pages/dashboard/mechanic/CustomerRecords.tsx`: hard-coded customers/spending, inert Add Customer | **P1** | Hide fake CRM or show truthful unavailable state; later wire real tenant-scoped CRM, if independently accepted | No fake identities or fabricated spend in production UI |
 | TI-05 | `LegacyDealerDashboard.tsx`: permission switches mutate local state and claim success without persistence | **P1** | Remove/disable matrix and route users to canonical Dealer Staff; retain safe redirect/legacy gate until access parity | Reload, revoked-grant and 403 server tests |
 | TI-06 | `AIMonitoring.tsx`, Owner Service History, literal sidebar counts: fixed operational numbers and “Next Service 500 km” | **P1** | Replace with real source and coverage or “not measured”; do not silently convert to zero | Runtime with no data and service failures |
@@ -312,12 +328,12 @@ These are in the same format as §6. Evidence is source-level at `9f2bebfe` unle
 | ID | Actual source/behavior (baseline) | Priority | Containment / permanent treatment | Gate / evidence |
 |---|---|---|---|---|
 | TI-15 | **Native app entry and truth.** Guests are sent to `/login` on cold start, and Register and Biometric have no inbound navigation. `mobile/app/(auth)/login.tsx:160` renders the debug copy "VISIBLE LOGIN BUTTON BELOW", and a test requires it. The lock screen shows the internal codename (`mobile/providers/SecureSessionProvider.tsx:105`). The Garage tab reads a non-existent `cost` column, so service logs should throw. It shows "Ecosystem Trust" with no evaluation state (it can render "null%") and defaults logs to "Verified". Capture-quality badges and processing progress are fabricated. The intro claims CBZ escrow, loans and local encryption that no code implements | **P1** | Extract the reviewed `896ee73f` (§6.2). Remove the fabricated states and correct the copy. Change the test that requires debug copy | Device or simulator UAT; native tests in required CI |
-| TI-16 | **Mutating requests without the CSRF header.** Native register, odometer OCR, escrow cancel/dispute and the offline evidence drain omit it, as does web password recovery (TI-11). Outside test environments these requests are refused, while the UI reports success ("saved for manual review") | **P2** (breakage; static finding) | Route every mutation through the CSRF-aware client and surface failures | Isolated runtime test |
+| TI-16 | **Mutating requests without the CSRF header.** Native register, odometer OCR, escrow cancel/dispute and the offline evidence drain omit it, as does web password recovery (TI-11). The server's CSRF protection refuses these requests, while the UI reports success ("saved for manual review") | **P2** (breakage; static finding) | Route every mutation through the CSRF-aware client and surface failures | Isolated runtime test |
 | TI-17 | **PWA.** A service worker is registered (`web/src/main.tsx:23`, `web/public/sw.js`) but there is no web manifest, icons or `theme-color`, so the app is not installable. The offline banner promises "offline local sync mode", while the service worker returns 503 for API calls | **P3** | Add a manifest (the reviewed `607c52c7` holds one); make the offline copy honest | Installability check; offline test |
 | TI-18 | **Trade OS continuity and truth.** The required-documents checklist can never show "Uploaded" (label mismatch). Merge `48db0dfe` silently dropped the I13 fixes that stopped failures showing as empty (shipment page, compliance queue), and the I13 receipt still claims them. The order page and shipment page draw contradictory progress for the same order. There are 4 local status arrays against 23 backend statuses, and 13 local role sets. RFQ orders are not linked to the import pages. Container reservations are created without `import_order_id`. Both passports are orphaned, with no inbound link. No UI creates the required government documents or advances the DUTY, REGISTRATION or INSURANCE stages | **P1/P2** | One backend lifecycle projection and the registry status vocabulary; restore the I13 behaviour; link the journey end to end; correct the receipt | Positive and negative transition tests; checklist tests; a journey that reaches ZIMBABWE_READY in an isolated environment |
-| TI-19 | **Legacy portals without a tenant.** The web client sends `x-tenant-id` only from `user.active_tenant_id`, which only the inert role switcher sets. Legacy mechanic work orders and parts, and legacy dealer inventory, therefore always fail, and KPI tiles fall back to 0/$0. One legacy dealer path does not isolate tenant-less dealers, and reports mock success when its table is missing (class-level; details in private evidence) | **P1** (data isolation on a legacy path) | Retire the legacy paths behind redirects; the server rejects tenant-less writes; the context manifest supplies a verified tenant | Negative cross-tenant tests |
+| TI-19 | **Legacy paths without a tenant.** The web client sends `x-tenant-id` only from `user.active_tenant_id`, which only the inert role switcher sets. The mechanic work-order and parts screens, and legacy dealer inventory, therefore always fail, and KPI tiles fall back to 0/$0. One legacy dealer path does not isolate tenant-less dealers, and reports mock success when its table is missing (class-level; details in private evidence) | **P1** (data isolation on a legacy path) | Supply a verified tenant through the context manifest so the existing mechanic work-order and parts functions work (**preserve, do not retire**; Appendix F.1). Retire the legacy `/dealer/*` portal behind redirects (OD-09, §8.3). The server rejects tenant-less writes on the legacy dealer path | Negative cross-tenant tests; mechanic functions pass with a verified tenant |
 | TI-20 | **Role vocabulary and context dead ends.** `member` (the default platform role, kept by many canonical dealer owners) and `reviewer` are absent from the frontend `UserRole`, so `/dashboard` redirects to itself for them. The frontend maps `platform_admin`/`super_admin` to `admin` but governance does not, so admin pages may resolve to "disabled" after hydration (OPEN, OV-04). `409 MULTIPLE_DEALERS_REQUIRE_EXPLICIT_TENANT_SELECTION` has no client handler. A login bounce keeps only the pathname, losing the query | **P1** (navigation truth) | Fold into SessionWorkspaceManifest (§20); normalize role aliases in client and server; a context picker for the 409 | Real multi-membership UAT |
-| TI-21 | **Institutional contradictions.** The bank page states that Trust is not a credit verdict, while LendingQueue shows a "Risk & Trust Index", offers states the backend rejects, and dereferences a `monthly_payment` that is null on new applications (suspected crash). The government approve action writes "Updated by ZIMRA OS" on a page that says "Not a national registry". Insurance shows "No claims recorded yet" beside seeded Claims rows and a literal "12" badge | **P1** | Correct the wording; hide seed-only views (OD-14); source allowed states from the server | Negative tests; Owner policy |
+| TI-21 | **Institutional contradictions.** The bank page states that Trust is not a credit verdict, while LendingQueue shows a "Risk & Trust Index", offers states the backend rejects, and dereferences a `monthly_payment` that is null on new applications (suspected crash). The government approve action writes "Updated by ZIMRA OS" on a page that says "Not a national registry". Insurance shows "No claims recorded yet" beside seeded Claims rows and a literal "12" badge | **P1** | Correct the wording; contain seed-only views behind an honest state (OD-14; routes kept, Appendix F.1); source allowed states from the server | Negative tests; Owner policy |
 | TI-22 | **Review-independence coverage.** Independence and step-up are enforced server-side for the dealer programme and for trust-fact self-review. Several other review and decision types have no independence check (class-level; inventory in private evidence) | **P1** (governance) | Policy decision OD-16, then server enforcement before any UI claims independence | Security review |
 | TI-23 | **Communications truth.** Analytics return 0 for unmeasured response time and conversion. The in-app delivery adapter always reports `delivered`. Channel toggles offer WhatsApp, SMS and Push whatever the runtime can deliver (DESIGN.md §16). Guests are offered WhatsApp and e-mail replies while production Communications is documented as inactive. Only owners and admins have inboxes. `createCommunicationThread` has no UI caller, yet "support chat" is promised | **P2** | Show channels by capability; use "not measured" states; give every workspace an inbox | Provider-state tests |
 | TI-24 | **Dashboard "Sign Out" runs `localStorage.clear()`**, wiping favourites and the guest Sell draft | **P2** | Clear only session state | Draft-survival test |
@@ -334,7 +350,7 @@ Method: a pickaxe and ancestry search across every remote ref on 2026-11-10 (`gi
 | TI-01 | `8949d570` (2026-10-06) | "fix(oc5r): remove runtime demo login identities and password" | #222, #235, #242, #254, the PR-less MVP-STAB branch, staging build `8353dbdd` | `main`, #244, production `78303ed6` | Reviewed cherry-pick in the TI lane. Confirm every client-side demo identity is gone; ops confirms server-side seeded accounts separately (OV-01, OD-17) |
 | TI-10 | PR #226 (`5b603d45`, Draft) | "fix(auth): revoke current session on logout" (backend route + test) | Open PR | `main` | Security review; pair with a client sign-out that preserves drafts (TI-24) |
 | TI-10 (native) | PR #227 (`1dd189b9`, Draft) | "fix(native auth): terminate session and isolate query cache" | Open PR (native stack) | `main` | Review with RX-07 |
-| TI-04 | `cdc81ae8` (2026-10-05) | "feat(oc5d): P7 — the web Service Network surfaces, on the verified active garage" (data-backed customer surfaces) | Same lineage as TI-01 | `main` | HOLD per OD-12. Do not ship the static file in the meantime |
+| TI-04 | `cdc81ae8` (2026-10-05) | "feat(oc5d): P7 — the web Service Network surfaces, on the verified active garage" (data-backed customer surfaces) | Same lineage as TI-01 | `main` | HOLD only the unmerged data-backed CRM, per OD-12. Contain the static file now: route kept, no fabricated data (Appendix F.1) |
 | TI-15 | `896ee73f` (2026-10-11) | "fix(native): PC01-J-R1 — the native app is UAT-able: guests browse, accounts can be created, garage actions reach the server" | Same lineage | `main` | Extract in RX-07 after review; re-check the truth items it does not cover |
 | TI-17 | `607c52c7` (2026-10-11) | "feat(launch): lead Home with marketplace search and readable mobile discovery" (adds a web manifest) | Same lineage | `main` | Extract only the manifest part, after review |
 | RX-07 | `6f054f7c` (2026-10-11) | "perf(web): separate public launch bundle and canonical document metadata" (route-level `lazy()`) | Same lineage; the staging build has 151 `lazy()` routes | `main` | Seed for the CI-08 bundle work |
@@ -347,6 +363,60 @@ Method: a pickaxe and ancestry search across every remote ref on 2026-11-10 (`gi
 - the deployed staging build.
 
 **Consequence: the staging environment is not `main`, and production is neither.** Staging already carries several of these fixes; production (`78303ed6`) carries none of them.
+### 6.3 Containment scope and gating schedule: TI-01–TI-27 (v0.9.2)
+
+TI-00 (§10) covers **all 27 items**. Each item carries one or more gate classes:
+
+| Gate class | Meaning |
+|---|---|
+| **PILOT** | Contain before the RX-03 reference pilot is demonstrated or certified, because a pilot route (§10.2: public → Vehicle Detail; login → My CarUp; canonical Dealer → stock → enquiries; independent reviewer; `main`-backed Trade order view) would show the defect or depend on the broken contract |
+| **RELEASE** | Close the item, or make the affected surface safely inaccessible, before any production or public release decision (RX-09) and before any deployment of a build that contains the affected surface |
+| **LATER** | Non-blocking corrective task, closed at the named wave gate |
+
+How to read the schedule:
+- **Severity** is carried over unchanged from §6 and §6.1. This schedule elevates no item and asserts no unverified production exploit.
+- **Responsible authority** names who must certify the fix. Implementation stays with the assigned lane.
+- **Every closure** also needs the independent reviewer (§14.2) and exact-head evidence (§12.4).
+
+| ID | Item | Severity | Gate class | Responsible authority | Required verification |
+|---|---|---|---|---|---|
+| TI-01 | Demo-access controls in the client and production bundle | P0 investigate | **PILOT** (login is a pilot route) + **RELEASE**; ops check OV-01 now | Security lead, with Ops (read-only) | Bundle scan shows no demo controls or seeded identities; written ops attestation of the deployed auth configuration (OV-01); no login attempt |
+| TI-02 | Client-asserted positive verification persisted (Trade) | P0 authority design | **PILOT** if the Trade sub-journey is in pilot scope; **RELEASE** | Trust & evidence owner, with Trade domain lead; Owner policy | Server rejects client-asserted verification; evidence and actor gate tests; independent review |
+| TI-03 | Trade-profile score defaults to ≥80 and only ratchets up | P1 truth semantics | **RELEASE** for any public display of the score; LATER: RX-06 method decision | Trust & evidence owner; Owner (method) | No default or ratcheted score without a published method; contract test |
+| TI-04 | Fabricated mechanic customer records | P1 | Contain now (route kept, no fabricated data); **RELEASE** | Garage domain lead; presentation lane | No static identities in the bundle (truth-lint); honest "not available" state |
+| TI-05 | Legacy dealer permission matrix persists nothing | P1 | **RELEASE**; **PILOT** only if a pilot identity can reach the legacy portal | Dealer domain lead | Matrix removed or disabled; reload, revoked-grant and 403 tests |
+| TI-06 | Fixed operational figures (AI-monitoring KPIs, "500 km", literal sidebar badges) | P1 | **PILOT** for any such figure on a pilot route; **RELEASE** | Presentation lane, with domain leads | Truth-lint for literal KPIs and badges; no-data and failure runtime tests |
+| TI-07 | Unsupported verification or endorsement claims (Vehicle Detail verification tab, empty-ledger PartSentry, KYC selfie, government and finance wording) | P1 | **PILOT** (Vehicle Detail is a pilot route); **RELEASE** | Trust & evidence owner; identity owner (KYC) | Negative, stale, unverified and conflict tests; the updated trust test (§23.1) |
+| TI-08 | "Mark Zimbabwe Ready" request-contract mismatch | P1 | **PILOT** if the Trade sub-journey is in scope; **RELEASE** (Trade) | Trade domain lead | Positive and negative transition tests against an isolated API |
+| TI-09 | Request loop on `/diaspora/containers`, and the shared unstable-dependency pattern | P1 | **PILOT** for any pilot route showing the pattern (network-count test); **RELEASE** | Front-end platform lead | Request-count tests; reproduction in an isolated runtime; no render loop |
+| TI-10 | Server-side session revocation on sign-out unproven | P1 security review | **RELEASE**; LATER: RX-02 auth and context work | Security lead; auth/session owner | Token-replay test in an isolated runtime; review of PRs #226 and #227 |
+| TI-11 | Password recovery refused while the UI reports "sent" | P1/P2 | **RELEASE** | Auth/session owner | End-to-end positive and negative recovery paths in an isolated runtime (OV-05) |
+| TI-12 | Pricing and trial copy implies commercial capability that is not live | P1 commercial truth | **RELEASE** | Owner (commercial), with payments lead | Content review; no live-money implication; entitlement gate |
+| TI-13 | Failures rendered as empty or "not yet checked" (dealer leads, communications, source coverage) | P1/P2 | **PILOT** (dealer enquiries are a pilot route); **RELEASE** | Presentation lane; communications owner | Rejection and timeout tests; assistive announcements |
+| TI-14 | Dead `/settings` destination; inert role switch | P1 navigation truth | **PILOT** (the pilot shell must not render dead links or the inert switch); **RELEASE** | Presentation lane; auth/context owner | No dead destinations (route-shell gate); multi-membership switching test |
+| TI-15 | Native entry and truth defects | P1 | LATER: RX-07 gate; **RELEASE** for any store or public native build | Native lead | Device or simulator UAT; native tests in required CI |
+| TI-16 | Mutations sent without the CSRF header (native requests; web recovery) | P2 | LATER: RX-07 (native) and RX-04 (recovery, with TI-11); **RELEASE** for the affected features | Native lead; auth/session owner | Isolated-runtime request tests; failures surfaced to the user |
+| TI-17 | PWA not installable; offline copy overclaims | P3 | LATER: RX-07; **RELEASE** only if PWA installability is in release scope (OD-10) | Front-end platform lead | Installability check; offline test |
+| TI-18 | Trade continuity and truth (documents checklist, lost I13 fixes, contradictory progress, unlinked journey) | P1/P2 | **PILOT** for whatever Trade view the pilot shows; **RELEASE** (Trade); LATER: RX-06 for continuity | Trade domain lead; Trust & evidence owner (receipt) | Transition and checklist tests; journey reaches ZIMBABWE_READY in an isolated environment |
+| TI-19 | Tenant-less legacy paths; legacy data-isolation defect | P1 data isolation | **RELEASE**; LATER: RX-02 (context manifest supplies the verified tenant) | Security lead, with Dealer and Garage domain leads | Negative cross-tenant tests; legacy dealer paths redirected; mechanic functions pass with a verified tenant |
+| TI-20 | Role vocabulary and context dead ends | P1 navigation truth | **PILOT** (context switching is core to the pilot); **RELEASE** | Auth/context owner; presentation lane | Real multi-membership UAT, including `member`, `reviewer` and platform-admin identities (OV-04) |
+| TI-21 | Institutional contradictions (lending, registry wording, insurer claims) | P1 | **RELEASE** for the affected screens; LATER: RX-06 | Institutional domain lead; Owner policy (OD-14) | Negative tests; OV-06; wording review |
+| TI-22 | Review-independence coverage gap outside the dealer programme | P1 governance | **RELEASE** for any UI that implies independent review; LATER: policy via OD-16 | Security and Trust owners | Server-enforced independence tests; security review |
+| TI-23 | Communications truth (unmeasured zeros, always "delivered", channel offers) | P2 | **RELEASE** for communication surfaces; LATER: RX-06 | Communications owner | Provider-state tests; channel shown only when deliverable |
+| TI-24 | Sign-out wipes favourites and the guest Sell draft | P2 | LATER: RX-04 (seller continuity); **RELEASE** | Auth/session owner; presentation lane | Draft-survival test |
+| TI-25 | Parts truth (empty catalogues, review API without a caller, unsupported marketing) | P2 | LATER: RX-04; **RELEASE** for the public parts and services pages | Marketplace/parts lead | Content tests; presented as an RFQ |
+| TI-26 | Public content truth (careers, API docs, PressKit, fixed figures) | P2/P3 | LATER: RX-04; **RELEASE** for the public content pages | Owner (content); presentation lane | Content review |
+| TI-27 | Failure presentation (missing vehicle on an outage, outage wording, zeros while loading, blank screens) | P2 | **PILOT** on pilot routes; **RELEASE** | Presentation lane | Forced 5xx, 403 and slow-response tests |
+
+Summary:
+- **PILOT** (RX-03 entry): TI-01, TI-06, TI-07, TI-13, TI-14, TI-20, TI-27.
+- **PILOT, depending on pilot scope:** TI-02, TI-05, TI-08, TI-09, TI-18.
+- **RELEASE:** all items for the surfaces they affect. TI-17 is release-blocking only if PWA installability is in scope.
+- **Primary gate in a later wave:**
+  - RX-02: TI-10, TI-19;
+  - RX-04: TI-16 (recovery), TI-24, TI-25, TI-26;
+  - RX-06: TI-03, TI-21, TI-22, TI-23;
+  - RX-07: TI-15, TI-16 (native), TI-17.
 
 ---
 
@@ -361,9 +431,9 @@ The **GLM 12-journey register is the baseline**, sharpened by Opus's route/compo
 | **FP-03** | Guest Sell → auth → Seller draft/resume → authority claim → media → publish | `guestSellDraft`, IndexedDB/local drafts, `/vehicles/add`, `/seller-draft`, media scan, seller authority 409s, idempotency; SellFlow/SellerResume tests | Extract behavior unchanged before redesign. Keep draft/receipt continuity across login/refresh and failure; STOP on lost media/overwrite/false publication |
 | **FP-04** | Personal My Garage → service history/vehicle context | `/vehicles/me`, service-history and PartsEntry/PartSentry, real current VIN and owner relationship; genuine intervals only | Replace cards/summary; retain vehicle context; STOP if static service predictions or cross-owner records appear |
 | **FP-05** | Dealer research profile → claim → independent review → activation → owner workspace → stock/staff/branches/inquiries | Dealer authority service derives tenant; reviewer step-up and independence; approved image publication; staff/branch scope; Dealer #258 backend/browser tests | Recompose shell, **not grant logic**; keep legacy redirects until legitimate identities have parity; STOP on cross-tenant visibility or self-approval |
-| **FP-06** | Mechanic work order → status → service/parts record | `/mechanic/work-orders`, parts and signed repair history, tenant restrictions, work-order state checks; existing mechanic suites | Only real workflow data. CustomerRecords mock quarantined. STOP on lost work-order transition or invented CRM |
+| **FP-06** | Mechanic work order → status → service/parts record | `/mechanic/work-orders`, parts and signed repair history, tenant restrictions, work-order state checks; existing mechanic suites | Only real workflow data. CustomerRecords mock quarantined. **Baseline caveat (E-09):** on `main` the web client cannot supply the tenant these APIs require, so the flow fails before the protected contract; establish a working baseline (a verified tenant from the context manifest) before "preserve". STOP on lost work-order transition or invented CRM |
 | **FP-07** | Garage business operations: customer, workshop schedule/capacity | Current `main` functions separate from **unmerged #197/#239–241** Garage features, tenant membership, scheduling/capacity | HOLD unmerged operations until source-custody and independent domain acceptance; prototype shell with explicitly isolated fixtures; do not auto-merge Garage stack |
-| **FP-08** | Trade RFQ → import order → quote → docs → customs/clearing → CAP/arrival | `diasporaImportOrderService`, import status transitions, source docs, stage events, event actor/voyage, privacy; 71 diaspora suites | Retain UUIDs/status semantics; do **not** accept client VERIFIED without evidence; do not assert live clearing/fees until authoritative |
+| **FP-08** | Trade RFQ → import order → quote → docs → customs/clearing → CAP/arrival | `diasporaImportOrderService`, import status transitions, source docs, stage events, event actor/voyage, privacy; 71 diaspora suites | Retain UUIDs/status semantics; do **not** accept client VERIFIED without evidence; do not assert live clearing/fees until authoritative. **Baseline caveat:** the ZIMBABWE_READY transition and the required-documents checklist are broken on `main` (TI-08, TI-18); establish a working baseline before "preserve" |
 | **FP-09** | SafeTrade and shipment: decisions, delivery, disputes, outbox | SafeTrade state machine, second-human review, self-approval refusal, non-custodial notices, disabled real-money paths | Keep sandbox/test mode and verbatim legally asserted notices; UI flip only; STOP if real payments become reachable |
 | **FP-10** | Communications/notifications linked to vehicle, listing, order, job or review | Canonical thread/actor/transport/audit, queued→sent→delivered/failed; email/SMS/provider adapter boundaries | One conversation kit; failure ≠ empty, delivery receipt ≠ sent intent; don't activate unaccepted providers |
 | **FP-11** | Institutional decisions: reviewer, bank, insurer, government, platform admin | Server evidence/auth/step-up, bank scopes, fraud/claims, approvals, audit, explicit sandbox/unavailable states | Shared visual frame only; restricted reviewer access remains independent; STOP on inaccurate approvals, fictitious insurance or consent leakage |
@@ -482,7 +552,7 @@ The following table is the **Moderator-controlled override and priority register
 | [#239](https://github.com/kudzimusar/carup/pull/239) → [#240](https://github.com/kudzimusar/carup/pull/240) → [#241](https://github.com/kudzimusar/carup/pull/241) and OPS04 | Garage operations, customers, scheduling/capacity | Owner/domain specialist must certify source head and business/schema dependencies separately; then present new UI on canonical Workspace | Never activate Garage branches through a styling PR |
 | [#258](https://github.com/kudzimusar/carup/pull/258) | **Merged** dealership authority and functionality | Freeze as behavioral regression baseline, not design reference for every layout | Do not reverse merge or weaken approved claim/review controls |
 | Stripe/Paynow and other payment PRs | Possible UI in separate commercial stacks | Keep flags, entitlements, provider test/prod isolation; coordinate future product displays | **No live money, commercial activation or billing claim** by UI merge |
-| Corporate/Native PR-less candidate branches (Opus Appendix J) | Unmerged visual/navigation enhancements | Require an authorized, reviewable PR and exact provenance if used | No copying from unmanaged user-machine branches |
+| Corporate/Native PR-less candidate branches (Opus Appendix J: `fix/carup-mvp-stab-01-client-readiness` @`a42d3c8a`; `feat/ca-owner-02-management-convergence` @`2b6a1099` — *E-11*) | Unmerged visual/navigation enhancements | Require an authorized, reviewable PR and exact provenance if used | No copying from unmanaged user-machine branches |
 
 **Custody procedure for every reused candidate:** (1) record exact head, branch base and ancestry; (2) state whether accepted tests exist; (3) identify unique, duplicated and main-conflicting files; (4) extract **small, identifiable** functional or visual units into a fresh branch cut from *current* main; (5) show a per-file change list and negative tests; (6) independent PR review; (7) verify final `main` after merge. Never conflate extraction of UI with acceptance of unmerged backend/DDL.
 
@@ -502,14 +572,14 @@ This plan is **entry/exit gated**, not an unconditional sequence of changes. IDs
 
 | Package | Scope and entry condition | Primary deliverables | Exit / independent gate |
 |---|---|---|---|
-| **TI-00 — Product integrity** (independent critical lane) | Owner authorizes bounded investigation/containment; any time | TI-01–TI-14 verified/contained; no unapproved positive verification, demo credentials or fake operational claims; deployment-auth configuration read-only check | Security/Truth reviewer, real negative tests, exact-head CI; specific Owner policies for D2/payment wording |
-| **RX-00 — Evidence and custody lock** | Owner approves planning baseline | Versioned route AST dump, 289-path disposition baseline, GLM/Opus conflict register, PR exact heads, 12 functional journeys, environment identity | No unresolved “who owns this route/shell/authority” among **pilot** routes; Owner approves extraction strategy |
+| **TI-00 — Product integrity** (independent critical lane) | Owner authorizes bounded investigation/containment; any time | **TI-01–TI-27** verified or contained per the §6.3 schedule (items classed PILOT gate RX-03; items classed RELEASE gate RX-09 and any deployment of an affected surface; LATER items close at their named wave gate); no unapproved positive verification, demo credentials or fake operational claims; deployment-auth configuration read-only check | Security/Truth reviewer, real negative tests, exact-head CI; the per-item responsible authority and verification listed in §6.3; specific Owner policies for D2/payment wording |
+| **RX-00 — Evidence and custody lock** | Owner approves planning baseline | Versioned route AST dump and **139-path route register**, **289-file component disposition baseline**, GLM/Opus conflict register, PR exact heads, 12 functional journeys, environment identity | No unresolved “who owns this route/shell/authority” among **pilot** routes; Owner approves extraction strategy |
 | **RX-01 — High-fidelity experience and ADR** | RX-00; existing `DESIGN.md` authoritative | Three grammars, tokens, real component interactions, UX-REF-01–10 initial references, shell/context ADRs, public/mobile footer, brand proof | Owner PASS/FIX/HOLD at reference widths; selected visual direction recorded; no automatic runtime change |
 | **RX-02 — Foundation and governance** | RX-01 signed; security/technical review of context proposal | Shared token source (web/native adapters), corrected Tailwind/shadcn variants, status and money/Trust kits, Public/Workspace/Focused chrome, manifest renderers, route ownership registry, initial CODEOWNERS, enforceable CI | Shell prototypes tested with **actual APIs/roles** in isolated staging as authorized; axe/contrast/keyboard/rollback; no downgrade of current guards |
 | **RX-03 — Cross-shell reference pilot** | RX-02 accepted; isolated runtime and test identities available | One connected public→personal→dealer→independent review experience, and main-backed Trade subjourney; side-by-side 5 viewport evidence | First **visibly unified** MVP slice. Owner visual PASS + functional/tenant/step-up negative UAT + exact-head CI; no production release |
 | **RX-04 — Consumer/owner/seller and auth** | RX-03; Seller continuity baseline frozen | Marketplace/Vehicle Detail lower sections, Seller single studio, Owner Today/Garage, saved/compare, Passport/Trust, auth and account context | URL/search, guest draft/auth handoff, media, 409, idempotent publish, Trust/version, no fake currency; Owner UAT |
 | **RX-05 — Dealer/reviewer migration** | RX-03; Dealer #258 tests baseline | All canonical Dealer workflows under consistent Workspace; public profile separate; reviewer independently isolated; legacy redirect plan | Approved-claim/branch/staff/stock/media/revocation tests; 390–1920; no marketing footer on dealer operations |
-| **RX-06 — Trade, Garage, Service, communications and institutions** | RX-00 explicit source custody for each unmerged domain; RX-02; TI verification policy | Trade/import/Logistics, real Garage/Mechanic, Service Network, communications, insurance/finance/government/admin evidence and workflow workbenches | Real transaction/status/authority preservation; no unmerged backend activation; governed unavailable state for unsupported domains |
+| **RX-06 — Trade, Garage, Service, communications and institutions** | RX-00 explicit source custody for each unmerged domain; RX-02; TI verification policy | Trade/import/Logistics, real Garage/Mechanic, Service Network, communications, insurance/finance/government/admin evidence and workflow workbenches | Real transaction/status/authority preservation; no unmerged backend activation; governed unavailable state for unsupported capabilities only; existing routes and functions keep operating (Appendix F.1) |
 | **RX-07 — Native, PWA and performance** | RX-02 token/manifest contract; native harness available | Native design semantics and supported navigation; route-level lazy imports, image/font loading, PWA metadata/offline truth | Native device/emulator tests, PWA installability where approved, budget and Core Web Vitals measurement; no false feature parity |
 | **RX-08 — Legacy retirement and hardening** | All migrating route families accepted; legacy eligibility audit | Remove dead UI, independent local kits and obsolete nav; preserve redirects; forbid deprecated styling on new code | No unintended old UI reachable; no dead routes, orphan auth boundary or false nav; visual CI/ownership established |
 | **RX-09 — Programme certification/release decision** | All required phase exits; deployment authority separately available | Final multi-role UAT, accessibility, performance and security evidence register; exact-head branch/CI and release recommendation | Independent review + explicit Owner merge/deployment decisions; no implied live payment or migrations |
@@ -526,7 +596,7 @@ RX-00 source custody ──► RX-01 visual ADR ──► RX-02 foundation ─�
                                    RX-04 + RX-05 + RX-06 + RX-07 ──► RX-08 ──► RX-09
 ```
 
-- TI-00 may operate in parallel with Owner design review but can block unsafe reference screens and all launch authority.
+- TI-00 may operate in parallel with Owner design review but can block unsafe reference screens and all launch authority. Items classed PILOT in §6.3 must be contained before RX-03 is certified.
 - **The context-manifest security contract** is required before migrating authenticated shells. Workspaces must not wait for wholesale merger of unrelated domains.
 - Trade/Garage unmerged functionality stays independently gated; the new shell may be demonstrated on currently merged routes/isolated approved fixtures without claiming feature integration.
 - Consumer, dealer and institutional page compositions may proceed concurrently **after** shared shell/tokens freeze if they avoid shared-file conflicts.
@@ -536,7 +606,7 @@ RX-00 source custody ──► RX-01 visual ADR ──► RX-02 foundation ─�
 
 **RX-03 must be more than “we built tokens.”** Deliver an Owner-demonstrable set showing: (a) public Home/Marketplace → real Vehicle Detail; (b) login → My CarUp → vehicle; (c) canonical Dealer dashboard → stock → inquiries; (d) independent reviewer route; (e) existing Trade import-order view if main-backed. The same CarUp brand and context grammar must remain visible; public and workspace footers must each follow their explicit policy. Real API data and separate authorized identities are required for final pilot certification.
 
-**Stop/rework triggers:** a private route renders under public chrome; incorrect organization appears; password step-up disappears; `returnTo` loses path/query; saved state changes; Seller draft/media is lost; production billing or real-dealer publication is inadvertently enabled; a button falsely claims verification/approval; reference screens are not approved by Owner.
+**Stop/rework triggers:** a §6.3 PILOT-class item is visible on a pilot route; a private route renders under public chrome; incorrect organization appears; password step-up disappears; `returnTo` loses path/query; saved state changes; Seller draft/media is lost; production billing or real-dealer publication is inadvertently enabled; a button falsely claims verification/approval; reference screens are not approved by Owner.
 
 ### 10.3 Change sequencing and rollback
 
@@ -556,7 +626,7 @@ Opus reports that the **required** main ruleset checks omit web unit, Playwright
 |---|---|---|
 | **CI-01 Source and PR custody** | Base on latest main, changed-file collision detection, branch provenance/lockfile scan, exact SHA | No unauthorized shared-file edits or PR-less imports |
 | **CI-02 Route ownership** | AST-generated route table vs declared shell map; no protected business route inside PublicShell | 100% active paths classified, redirects deliberate, no 404 for settings/account |
-| **CI-03 Nav and context parity** | One manifest/registry projection feeds desktop, mobile, footer, rail and native where supported; verified membership cases | Deep links, multi-tenant switch, correct active nav, no duplicate orphan maps |
+| **CI-03 Nav and context parity** | One manifest/registry projection feeds desktop, mobile, footer, rail and native where supported (parity as defined in §20 NC-07); verified membership cases | Deep links, multi-tenant switch, correct active nav, no duplicate orphan maps |
 | **CI-04 Design tokens and styling** | ESLint/style rules for changed lines; approved semantic tokens, no new `.glass-*`, unapproved backdrop blur/glow, generic card fleets, hard-coded role hue | Zero newly introduced violations; exceptions documented and independently reviewed |
 | **CI-05 Visual regression** | Screenshot assertions for accepted reference routes at 360/390/768/1280/1920, responsive/scrolling/focus | Material diffs reviewed; no “screenshot exists” pseudo-test |
 | **CI-06 Accessibility** | axe WCAG A/AA + keyboard traps, skip link, focus/inert, target size, announcements, reduced motion and contrast | 0 critical/serious; AA target; no hidden-focus or bottom-nav collision |
@@ -604,7 +674,7 @@ A route does not become “certified” when its screenshot renders. The 24 GLM 
 | U09 | Communications on Vehicle/Job/Order | Object context and provider state, failure vs empty, message threading/replay | Buyer, operator, admin |
 | U10 | Bank/Insurance/Government operations | No fake policies/approvals; approved data scopes and meaningful unavailable/sandbox states | Appropriate each-role account |
 | U11 | Mobile web/PWA all shells | 360/390, 768, safe area, drawer keyboard/focus, bottom tabs, accessible touch targets | Guest, owner, dealer |
-| U12 | Native supported journeys | Device/OS back, intent, session, manifest/status parity; unsupported roles blocked honestly | Native user |
+| U12 | Native supported journeys | Device/OS back, intent, session, manifest/status parity for capability-map entries only (§20 NC-07); unsupported functions show an honest unavailable state or a safe web handoff; no fabricated native screens; native session and security unchanged | Native user |
 
 Every UAT group shall report **scenario IDs, environment/build SHA, role/tenant identities, input fixtures, expected/actual backend outcomes, screenshots and videos where allowed, defects and re-test outcome**. Negative-path tests are required for permission denial, stale data, missing backend, empty data, failed upload, duplicate work, cross-tenant access, expired review ticket and offline conditions.
 
@@ -656,10 +726,12 @@ For every candidate: exact head unchanged since Owner UAT; author and independen
 | Field | Initial value |
 |---|---|
 | Governing programme | `CARUP-UX-REBUILD-01` |
-| Master-plan status | **PROPOSED — OWNER APPROVAL CANDIDATE** |
+| Master-plan status | **PROPOSED — FINAL OWNER APPROVAL CANDIDATE (v0.9.2)** |
 | Baseline | `main@9f2bebfe66a19e4d90c44085a3166562d2176626` |
 | Approved visual reference IDs | **NONE** — proposed UX-REF-01–10, awaiting actual design and Owner PASS |
 | Engineering authorization | **NONE from this document** |
+| Owner decisions OD-01–OD-17 | **ALL `PENDING OWNER DECISION`.** Approving or merging this plan approves none of them (§0) |
+| Containment scope | **TI-01–TI-27**, gated per §6.3 |
 | Live/staging deployment authority | **NONE** |
 | Shared/production migrations | **NONE** |
 | Real payments / dealer publication | **NONE** |
@@ -708,7 +780,7 @@ The programme may claim **UNIFIED UI COMPLETE** only after **all** criteria belo
 4. `DESIGN.md` restrictions on default glass, generic card fleets, false zeroes and competing mini-brand systems are made **testable** and enforced by required CI on active presentation code.
 5. All **12** preservation journeys and the complete accepted owner/role UAT matrix retain real API operations, persistence, safety and authorization; no rollback of accepted Dealer 1.0 function.
 6. Canonical Vehicle Truth/Trust, money/currency, temporal evidence and reviewer labels are consistent across public, owner, dealer, importer and institutional representations.
-7. D1/D2 and other material security/truth defects are demonstrably remediated or safely inaccessible; no P1 authority risk is waived for design convenience.
+7. D1/D2 and other material security/truth defects are demonstrably remediated or safely inaccessible; no P1 authority risk is waived for design convenience. Every RELEASE-class item in §6.3 is closed for the surfaces being released.
 8. WCAG 2.2 AA-oriented automated and physical checks cover shell focus, navigation, forms, touch sizes, alt text, error recovery and mobile no-overflow. Existing local-mock findings are closed by real-source tests.
 9. Performance budgets are measured with production builds on recorded network/device profiles; performance or business KPIs are never invented.
 10. Native/React Native supported capabilities have consistent brand/state language and independently pass actual simulator/device tests; unsupported operator roles are honest about coverage.
@@ -757,11 +829,13 @@ It uses the same evidence labels as Part I:
 - **J**: judgment;
 - **OPEN**: needs verification.
 
-**Precedence:** a §17 erratum controls the Part I statement it corrects. Everywhere else, Part I's decisions stand, and Part II adds detail.
+**Precedence:** from v0.9.2 every §17 erratum is applied in place in Part I (marked *E-nn*), so Part I and §17 agree; §17 remains the audit trail. Everywhere else, Part I's decisions stand, and Part II adds detail.
 
 ---
 
 ## 17. Errata and clarifications to v0.9.0
+
+Applied in place in v0.9.2: each correction below now also appears at its Part I location, marked *E-nn*. This table keeps the original v0.9.0 statement and the evidence as the audit trail.
 
 | ID | Part I location | v0.9.0 statement | Correction / clarification (evidence) |
 |---|---|---|---|
@@ -810,7 +884,7 @@ This makes the §15 acceptance criteria measurable.
 | U-04 | Hard-coded navigation maps outside registry/manifest | **~20** | **0** |
 | U-05 | Navigation UIs | **8**, fed by 2 configs + 4 inline lists | All rendered from one projection |
 | U-06 | Page routes without a registry entry | **34–35** of 137 | **0** |
-| U-07 | Navigation-equivalence mismatches (518 persona×destination rows) [computed] | DESKTOP≠MOBILE **90** · OFFERED-BUT-BOUNCES **52** · HYDRATION-FLIP **45** · URL-ONLY **14** · MEMBERSHIP-BLIND **9** | **0** in each class |
+| U-07 | Web navigation-equivalence mismatches (desktop vs mobile web; 518 persona×destination rows) [computed] | DESKTOP≠MOBILE **90** · OFFERED-BUT-BOUNCES **52** · HYDRATION-FLIP **45** · URL-ONLY **14** · MEMBERSHIP-BLIND **9** | **0** in each class |
 | U-08 | Sidebar routes highlighting more than one item | **37** | **0** |
 | U-09 | Desktop mega-menu items → distinct destinations (guest) | **77 → 19** | Every entry a distinct, real destination |
 | U-10 | Raw palette utilities in app code | **8,555** (228 files) | **0 new**; legacy ratcheted to 0 |
@@ -839,7 +913,7 @@ This makes the §15 acceptance criteria measurable.
 | U-33 | Required CI checks running web tests | **0** | Unit + a11y + visual + route-shell + navigation parity |
 | U-34 | Shell families crossed in the dealer journey | **5** | **0** unexpected (Focused entry excepted) |
 | U-35 | Native hard-coded colours / theme | **338** hex (42 distinct), **empty** theme | Generated shared tokens |
-| U-36 | Native coverage of governed features | **6 of 104** | Documented capability map; honest "not on mobile" states |
+| U-36 | Native capability map and parity (NC-07) | **6 of 104** governed features render natively; no certified capability map; web-only functions are not signposted | A certified capability map (supported on both / safe web handoff / unavailable) for **every** governed feature; parity tests pass for every supported entry; **0** fabricated native features; native session and security requirements unchanged. **Coverage percentage is not a target** |
 | U-37 | PWA installable | **No** (no manifest) | Yes, if OD-10 approves the PWA scope |
 
 ---
@@ -854,9 +928,9 @@ These requirements derive from the evidence and extend §3.4. They are proposals
 | NC-02 | Support **several organizations of the same kind**: a context picker replaces today's unhandled `409 MULTIPLE_DEALERS_REQUIRE_EXPLICIT_TENANT_SELECTION` | No client handles the 409 [S] |
 | NC-03 | Include `member` and `reviewer`, which are absent from the frontend `UserRole`, and normalize role aliases identically in client and server (`platform_admin`/`super_admin`) | `/dashboard` self-redirect; admin pages may resolve "disabled" (TI-20) [S] |
 | NC-04 | A context switch **posts the selected tenant**, returns a server-approved context, and invalidates context-scoped caches. It replaces the inert global-role switcher | SC-7 [S] |
-| NC-05 | One projection feeds **every** surface: mega-menu, account menu, drawer, bottom bar, workspace rail, footer, breadcrumbs, active state and native tabs. **0 hard-coded lists** | ~20 independent maps (§19, U-04) [S] |
+| NC-05 | One projection feeds **every** surface: mega-menu, account menu, drawer, bottom bar, workspace rail, footer, breadcrumbs, active state and native tabs (native shows capability-map entries only; NC-07). **0 hard-coded lists** | ~20 independent maps (§19, U-04) [S] |
 | NC-06 | Active-state semantics are declared per entry, exact or prefix, with **one** active item | 37 routes multi-highlight; "Overview" prefix-matches every child [S] |
-| NC-07 | An equivalence test asserts that desktop, mobile and native expose the same authorized destinations per context | U-07 baselines [computed] |
+| NC-07 | **Parity, defined (v0.9.2).** **Web:** desktop, tablet and mobile web expose the same authorized destinations per context (U-07). **Native:** parity means consistent identity, terminology, account context and authorization; **equivalent destinations only where a capability is supported on both platforms**; for every unsupported function, either a clear, safe web handoff (a deep link that keeps object context and requires normal web sign-in, never carrying tokens or step-up credentials in the URL) or an honest "not available on mobile" state; **no fabricated native functionality**; and **no weakening** of native-specific access, session or security requirements. Native coverage follows a certified capability map (U-36), not a target percentage. **Tests:** a web equivalence test per context, plus a native parity test per capability-map entry (supported → same destination, terminology, context and authorization; web-only → safe handoff or honest unavailable state; never a placeholder screen) | U-07 baselines [computed]; native renders 6 of 104 governed features (U-36) [S] |
 | NC-08 | Return paths carry **path plus query plus context**; protected redirects never drop `?vin=` or filters | `routeAccess.ts:124-127` keeps the pathname only [S] |
 | NC-09 | Governance overrides are a **display and SPA** concern; anything that must be *blocked* is enforced at the API | No domain API consults the governance overrides [S] |
 | NC-10 | Planned features without routes (e.g. `/settings`) never render as live links. The dead-link gate must treat "planned" as **not linkable** | The gate passes `/settings` because a planned entry exists [S] |
@@ -1165,7 +1239,7 @@ But 28 of the 33 UI-touching PRs also change the backend. **Domain lanes can kee
 - **OD-11 (Trade lineage).** #207 → #243 → #244 carries CAP and the workspace layer. #214 and #215 are separate, overlapping T3–T13 branches of more than 65k lines each. Choosing one lineage avoids extracting three variants of the same surfaces [G].
 - **OD-12 (Garage model).** Two incompatible unmerged tenant designs exist. #197 lets a tenant role satisfy a platform role. Garage 1.0 keeps `activeTenant` plus tenant types and roles, explicitly to stop #197 offering platform-admin navigation to a garage admin. The second fits NC-01 [G][S].
 - **OD-13 (PR-less custody).** The newest native and Corporate UI is invisible to PR review today. Draft PRs make it reviewable without merging [G].
-- **OD-14 (seed-only screens).** Claims, FraudAlerts and RegistryVerification read only migration seed rows, and AIMonitoring shows literal KPIs. Hiding them is the truthful default [S].
+- **OD-14 (seed-only content).** Claims, FraudAlerts and RegistryVerification read only migration seed rows, and AIMonitoring shows literal KPIs. The truthful default is to contain that content behind an honest state while keeping the routes and every legitimate institutional function (Appendix F.1) [S].
 - **OD-15 (price context).** Market price context is the largest decision-making gap against the leaders. Their trust comes from published methods and explicit "no rating" states (§27) [D].
 - **OD-16 (independence).** UI must not imply independent review where the server does not enforce it [S].
 - **OD-17 (production containment).** Production self-reports `78303ed6`, 1,431 commits behind `main`, and still ships demo access. A reviewed fix exists off `main` [R-static][G].
@@ -1219,7 +1293,7 @@ These items must be closed by evidence, not assumed. Owners are proposed.
 
 | ID | Unknown | Why it matters | Resolver | Evidence that closes it |
 |---|---|---|---|---|
-| OV-01 | Whether any deployed backend accepts the demo credentials | TI-01 severity (P0 vs P1), OD-17 | Ops/security, read-only | Written review of the deployed auth configuration (environment mode, passwordless flag, seeded password state). **No login attempt** |
+| OV-01 | Whether any deployed backend accepts the demo credentials | TI-01 severity (P0 vs P1), OD-17 | Ops/security, read-only | Written review of the deployed authentication configuration and seeded demo accounts (checklist held in private evidence). **No login attempt** |
 | OV-02 | True deployed frontend and backend identities | Every UAT result depends on it | Ops | Immutable platform deployment metadata for production and staging |
 | OV-03 | Rendered quality of every shell with real authenticated, populated data | Visual acceptance (§5, §12) | Owner/QA in an authorized isolated environment | The 24 GLM authenticated checks and the Opus shell families, captured at 5 widths |
 | OV-04 | Platform-admin pages resolving to "disabled" after hydration | TI-20 | QA with a real platform-admin test identity | Screenshot plus network log |
@@ -1745,7 +1819,7 @@ This normalized route map is sourced from **GLM R2 `1 Route Register`** and corr
 - **UI convergence:** one intentional chrome and interaction grammar, consistent nav/state, true function, passed cross-route UAT—not merely equal colors.
 - **HOLD:** preserve the boundary and user-visible truthful status until missing evidence, data authority or separate programme acceptance is resolved.
 
-**Document completion condition:** This file is the **approval-ready master plan** at version `0.9.1` (v0.9.0 text plus the Part II research addendum). It is not evidence that the first engineering PR has started or that a release can happen. The Owner should comment with `APPROVE MASTER PLAN` or specific requested revisions. The Moderator then establishes the separately authorized first execution unit and its GitHub custody.
+**Document completion condition:** This file is the **approval-ready master plan** at version `0.9.2` (v0.9.0 text, the v0.9.1 research addendum and the MP01-R2 corrections C01–C07). It is not evidence that the first engineering PR has started or that a release can happen. The Owner should comment with `APPROVE MASTER PLAN` or specific requested revisions. The Moderator then establishes the separately authorized first execution unit and its GitHub custody.
 ---
 
 ## Appendix E — Coordinator verification ledger (v0.9.1)
@@ -1753,12 +1827,12 @@ This normalized route map is sourced from **GLM R2 `1 Route Register`** and corr
 **What this ledger is.** These are claims the Opus coordinator re-checked directly against `main` @ `9f2bebfe`, separately from the research lanes that made them. Each row records what the coordinator found.
 - **SC-1–SC-18** were checked during IR01, from 2026-11-09 to 2026-11-10.
 - **SC-19** was checked for this revision.
-- **Public-repo rule:** no credentials appear here. Security items are stated at class level.
+- **Public-repo rule:** no credentials, exploitation steps or request details appear here. Rows marked **†** are summarized: the finding, its priority and its remediation are unchanged, and authorized specialists can request the private ledger (Appendix H) from the Owner.
 
 | SC | Claim | Evidence (reproducible) | Result |
 |---|---|---|---|
 | SC-1 | Trade OS "Mark Zimbabwe Ready" can never succeed | `web/src/pages/diaspora/DiasporaTrade.tsx:989` sends `{nextStatus}`. `web/src/hooks/useCarUpApi.ts:1241-1245` passes it through unchanged. `backend/routes/diasporaRoutes.js:124-127` requires `status` | **Confirmed:** every click returns 400 |
-| SC-2 | "Link vehicle record" lets the client assert verification | `DiasporaTrade.tsx:1015-1021` sends `verification_status:'VERIFIED'`. `backend/services/diaspora/diasporaImportOrderService.js:417-433` checks only that the payload equals VERIFIED, then persists it | **Confirmed** |
+| SC-2 † | The Trade OS vehicle-import flow accepts a client-asserted positive verification status (TI-02) | Re-verified in source at `9f2bebfe`; file, line and request detail are held in the private ledger (Appendix H) | **Confirmed** (P0 authority design, unchanged) |
 | SC-3 | Native login shows debug copy, and a test requires it | `mobile/app/(auth)/login.tsx:160`; `mobile/tests/login-submit-button.test.ts:32-33` | **Confirmed** |
 | SC-4 | The web PWA is not installable | `web/src/main.tsx:23` registers `/sw.js`. There is no manifest in `web/public`, and no manifest link in `web/index.html` | **Confirmed** |
 | SC-5 | The native lock screen shows the internal codename | `mobile/providers/SecureSessionProvider.tsx:105` | **Confirmed** |
@@ -1770,7 +1844,7 @@ This normalized route map is sourced from **GLM R2 `1 Route Register`** and corr
 | SC-11 | `main` took no merges between 2026-09-04 and 2026-11-08 | First-parent history runs `bb9d9900` → `9f2bebfe` | **Confirmed** |
 | SC-12 | "#254 contains 26 open-PR heads" | `merge-base --is-ancestor` finds **22** open-PR heads inside `1d3b6901`; the 26 included the 4 T3–T6 milestone commits | **Corrected → 22 + 4** |
 | SC-13 | The newest MVP-STAB work has no PR | `a42d3c8a` is on `origin/fix/carup-mvp-stab-01-client-readiness`, and no open PR uses that branch | **Confirmed** |
-| SC-14 | Login renders "Quick Demo Access" with no gate | `web/src/pages/auth/Login.tsx:204-212`: the block renders unconditionally and its buttons post seeded identities to the real login. Present in the production bundle [R-static] | **Confirmed (source and bundle)**. Whether a backend accepts the credentials is OPEN (OV-01) |
+| SC-14 † | The login page renders demo-access controls with no environment gate (TI-01) | Re-verified in source at `9f2bebfe` and in the production bundle [R-static]; file, line and request detail are held in the private ledger (Appendix H) | **Confirmed** (P0 investigate, unchanged). Whether any backend accepts the credentials is OPEN (OV-01) |
 | SC-15 | The canonical dealer shell wraps only `/dealer/dashboard` | `App.tsx:376-378`. The dealer tenant pages at `App.tsx:283-288` sit inside the `MainLayout` block opened at `App.tsx:267` | **Confirmed** |
 | SC-16 | "Next Service 500 km" is fabricated | `web/src/pages/dashboard/owner/ServiceHistory.tsx:60` | **Confirmed** |
 | SC-17 | There are no visual-regression assertions | No file in `web` or `tests` uses `toHaveScreenshot`, `toMatchImageSnapshot` or `pixelmatch` | **Confirmed** (0) |
@@ -1799,12 +1873,41 @@ The Opus route lane derived these groups from measured coupling: shared shells, 
 | G10 Diaspora operations | R055, R057–R059 | 4 | RX-06 |
 | G11 Admin console | R107–R130 | 24 | RX-06; shares queue components with G12, so move them together |
 | G12 Government | R097–R102 | 6 | RX-06, with G11 |
-| G13 Service network (**HOLD**) | R022, R088–R092 | 6 | RX-06, after OD-12 |
-| G14 Insurance and finance (**HOLD**) | R023, R093–R096, R103–R106 | 9 | RX-06: honest "not available" state (OD-14); correct LendingQueue |
+| G13 Garage directory, mechanic and service | R022, R088–R092 | 6 | Existing routes and functions **keep operating**; screens are rebuilt in RX-06, and `/garages` moves with the public shell in RX-04. **HOLD applies only to the unmerged Garage OS and Service Network capabilities** (OD-12). See F.1 |
+| G14 Insurance and finance | R023, R093–R096, R103–R106 | 9 | Existing routes and functions **keep operating**; screens are rebuilt in RX-06, and `/insurance` moves with the public shell in RX-04. Seed-only content is contained (OD-14). **HOLD applies only to capabilities without a governed data source or provider authority**. See F.1 |
 | G15 Content and legal | R024–R036 | 13 | RX-04 (public shell); `/pricing` stays on commercial HOLD (TI-12) |
 | G16 System states | R139 (plus FeatureState pages, the loader, `LazyRouteBoundary`) | 1 | RX-02 foundation |
 
 Count check: 9 + 4 + 7 + 11 + 5 + 13 + 8 + 11 + 8 + 4 + 24 + 6 + 6 + 9 + 13 + 1 = **139**.
+### F.1 G13 and G14: what exists, what is rebuilt, what is contained, what stays gated (v0.9.2)
+
+**HOLD applies to a named unavailable capability, never to a whole route group or to existing working functions.**
+- **Public routes** (`/garages`, `/insurance`) get the new public chrome automatically when `MainLayout` is replaced.
+- **Mechanic, insurer and bank routes** get the Workspace chrome when `DashboardLayout` is replaced. Their page bodies are rebuilt in RX-06.
+
+| Route (Appendix B) | On `main` today | Visual reconstruction | Containment | Gated (HOLD) capability | Wave / gate |
+|---|---|---|---|---|---|
+| R022 `/garages` | Public garage directory; route and function preserved | Public shell | Honest empty and verification states. Parts navigation items must not point here as if it were a parts catalogue (TI-25) | None | RX-04 |
+| R088 `/mechanic` | Mechanic dashboard; the person-scoped service-intelligence panel works; tenant-scoped reads fail today (TI-19) | Workspace (mechanic) "Today" | No 0/$0 KPIs on a failed read; remove the literal "Work Orders 8" badge (TI-06) | Garage OS dashboard features from #197/#239–#242 (OD-12) | RX-02 (verified tenant via the context manifest), then RX-06 |
+| R089 `/mechanic/work-orders` | Work-order UI and tenant-scoped server API; contract preserved | Workbench (queue → job) | Honest failure states | Estimate → authorization → invoice → payment flow (Garage 1.0 final #242; payments #253) | RX-02, then RX-06 |
+| R090 `/mechanic/service-logs` | Writes the per-VIN PartSentry repair ledger; function preserved | Workbench with the shared provenance chip (§22.7) | Never show "Ledger Verified" for an empty ledger (TI-07) | None | RX-06 |
+| R091 `/mechanic/parts` | Tenant-scoped parts stock; function preserved | Workbench | A failed read is never shown as empty | Garage stock and parts management from the branches (OD-12) | RX-02, then RX-06 |
+| R092 `/mechanic/customers` | Route exists, but its data is fabricated; no backend-backed CRM exists on `main` | Workbench (later) | **Contain now:** honest "not available" state; route kept; no fabricated identities (TI-04) | The data-backed CRM (`cdc81ae8` lineage; #197/#209/#242), per OD-12 | TI-00 now; RX-06 |
+| R023 `/insurance` | Public insurance directory; route and function preserved | Public shell | None known | None | RX-04 |
+| R093 `/insurance-dash` | Insurer overview, de-fabricated by the I10–I16 lanes; route preserved | Workspace (institutional) | Remove the empty-constant "No claims recorded yet" claim and the literal "12" badge, which contradict the Claims screen (TI-21, TI-06) | Live insurer data integration (no governed source yet) | RX-06 |
+| R094 `/insurance-dash/claims` | Shows migration seed rows only | Workspace (institutional) | **Contain:** honest "not available" state; route kept (OD-14) | The claims capability, until a governed insurer data source exists | TI-00; RX-06 |
+| R095 `/insurance-dash/risk` | Existing screen; data truth not yet verified (OPEN) | Workspace (institutional) | Verify before any release; contain if it proves seed-only | None until verified | RX-06 |
+| R096 `/insurance-dash/fraud` | Shows seed rows only | Workspace (institutional) | **Contain:** honest state; route kept (OD-14) | The fraud capability, until a governed data source exists | TI-00; RX-06 |
+| R103 `/bank` | Bank overview, de-fabricated by the I10–I16 lanes; preserved | Workspace (institutional) | Literal badges removed (TI-06) | None | RX-06 |
+| R104 `/bank/applications` | Lending queue backed by the finance service; real function preserved | Workbench | Correct the wording, the allowed states and the null-payment fault (TI-21); remove the literal "Lending Queue 2" badge | Live lending and payments (payments stack #245–#254; no live money) | RX-06 |
+| R105 `/bank/collateral` | Existing; de-fabricated by the I10–I16 lanes; preserved | Workspace (institutional) | — | None | RX-06 |
+| R106 `/bank/risk` | Existing; de-fabricated by the I10–I16 lanes; preserved | Workspace (institutional); Trust shown as evidence, never as a credit verdict | — | None | RX-06 |
+
+Notes:
+- **Appendix A rows 266–269** classify MechanicDashboard, PartsTracking, ServiceLogs and WorkOrders as GLM **HOLD**. §8.3 supersedes that with **REBUILD** of the presentation. These routes and functions keep operating.
+- **The same rule applies to the other institutional groups.**
+  - Seed-only or static content in RegistryVerification (R098) and AIMonitoring (R110) is contained behind honest states (OD-14; Appendix B R110).
+  - The government and admin routes, and their legitimate functions, keep operating.
 
 ---
 
@@ -1813,7 +1916,7 @@ Count check: 9 + 4 + 7 + 11 + 5 + 13 + 8 + 11 + 8 + 4 + 24 + 6 + 6 + 9 + 13 + 1 
 Every brief issued to a specialist agent or engineer under CARUP-UX-REBUILD-01 must include these clauses verbatim, or reference this appendix by version. They exist to stop the pattern IR01 found: each lane invented its own shell, palette, navigation list and status map (§1.2 of the Opus report; §25).
 
 ```text
-CARUP-UX-REBUILD-01 BRIEF CONTRACT (MP01 v0.9.1, Appendix G)
+CARUP-UX-REBUILD-01 BRIEF CONTRACT (MP01 v0.9.2, Appendix G)
 1. Baseline: record `git ls-remote origin refs/heads/main` before starting and at every phase
    boundary; branch from that SHA; no stacked chains; no PR-less custody; never re-author
    another branch's work — carry it by reviewed cherry-pick with provenance.
@@ -1841,6 +1944,9 @@ CARUP-UX-REBUILD-01 BRIEF CONTRACT (MP01 v0.9.1, Appendix G)
     security specifics stay at class level in repo documents.
 11. Output hygiene: write your deliverable file early and refine it in place; report exact
     files written, commands run with exit codes, and what remains unverified.
+12. Native parity: build only capabilities in the certified native capability map; for any other
+    function, render the honest unavailable state or a safe web handoff. Never fabricate a native
+    feature, and never weaken native session or security requirements to reach parity (§20 NC-07).
 ```
 
 ---
