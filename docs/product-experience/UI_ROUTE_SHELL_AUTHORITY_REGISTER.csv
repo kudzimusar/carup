@@ -1,0 +1,140 @@
+route_id,path,current_parent,route_group,proposed_shell,focused_mode,ux_ref,reviewer_isolated,migration_caution,evidence
+R001,/,MainLayout,G1,PublicShell,,UX-REF-01,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R002,/marketplace,MainLayout,G1,PublicShell,,UX-REF-01,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R003,/sell,MainLayout,G2,FocusedShell,seller-claim,UX-REF-04,no,Preserve account/tenant return and form state; check role guard,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R004,/marketplace/parts,MainLayout,G1,PublicShell,,,no,"Showroom/public, governed nav/footer; empty-by-design catalogues present as RFQ (TI-25)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R005,/marketplace/services,MainLayout,G1,PublicShell,,,no,"Showroom/public, governed nav/footer; empty-by-design catalogues present as RFQ (TI-25)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R006,/marketplace/compare,MainLayout,G1,PublicShell,,UX-REF-01,no,"Showroom/public; max 5 items desktop / 2 mobile, highlight differences (NN/g)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R007,/marketplace/listing/:id,MainLayout,G1,PublicShell,,UX-REF-01,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R008,/marketplace/:id,MainLayout,G1,PublicShell,,UX-REF-01/02,no,Showroom/public; one shared VehicleIdentity + TrustLens; canonical deep link,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R009,/search,MainLayout,G1,PublicShell,,UX-REF-01,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R010,/reports/shared/:token,MainLayout,G1,PublicShell,,,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R011,/dealers,MainLayout,G5,WorkspaceShell(dealer),,UX-REF-05,no,Legacy gate -> workspace; keep eligibility/redirect guard until safe retirement (RX-08),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R012,/dealers/feedback,MainLayout,G5,WorkspaceShell(dealer),,,no,Legacy gate -> workspace; keep eligibility/redirect guard until safe retirement (RX-08),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R013,/dealers/:seedId,MainLayout,G5,PublicShell,,UX-REF-05,no,Public research profile; claimed vs verified branch details; real no-rating state,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R014,/dealers/:seedId/claim,MainLayout,G5,FocusedShell,seller-claim,UX-REF-05,no,Preserve account/tenant return and form state; check role guard,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R015,/dealers/:seedId/correction,MainLayout,G5,FocusedShell,seller-claim,,no,Preserve account/tenant return and form state; check role guard,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R016,/dealers/claims,MainLayout,G6,FocusedShell,seller-claim,,no,Focused claim flow; never a reviewer destination in dealer nav,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R017,/dealers/operating-details,MainLayout,G6,WorkspaceShell(dealer),,UX-REF-05,no,Keep canonical tenant grants; no public marketing footer,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R018,/dealers/billing,MainLayout,G6,WorkspaceShell(dealer),,,no,Keep canonical tenant grants; no public marketing footer,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R019,/dealers/staff,MainLayout,G6,WorkspaceShell(dealer),,UX-REF-05,no,Keep canonical tenant grants; no public marketing footer,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R020,/dealers/stock,MainLayout,G6,WorkspaceShell(dealer),,UX-REF-05,no,Keep canonical tenant grants; no public marketing footer,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R021,/dealers/inquiries,MainLayout,G6,WorkspaceShell(dealer),,UX-REF-05,no,Keep canonical tenant grants; no public marketing footer; failures never render as empty (TI-13),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R022,/garages,MainLayout,G13,PublicShell,,,no,Showroom/public; honest empty and verification states,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R023,/insurance,MainLayout,G14,PublicShell,,,no,Showroom/public; route and function preserved (Appendix F.1),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R024,/pricing,MainLayout,G15,PublicShell,,,no,Commercial HOLD (TI-12): no active trial/price claim without provider authority,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R025,/about,MainLayout,G15,PublicShell,,,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R026,/contact,MainLayout,G15,PublicShell,,,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R027,/careers,MainLayout,G15,PublicShell,,,no,Content truth: no unverified salaried openings (TI-26),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R028,/press,MainLayout,G15,PublicShell,,,no,Single legal entity in footer (TI-26),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R029,/blog,MainLayout,G15,PublicShell,,,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R030,/help,MainLayout,G15,PublicShell,,,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R031,/trust,MainLayout,G15,PublicShell,,,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R032,/privacy,MainLayout,G15,PublicShell,,,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R033,/terms,MainLayout,G15,PublicShell,,,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R034,/support,MainLayout,G15,PublicShell,,,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R035,/security,MainLayout,G15,PublicShell,,,no,"Showroom/public, governed nav/footer and appropriate domain states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R036,/api-docs,MainLayout,G15,PublicShell,,,no,Content truth: document only endpoints that exist (TI-26),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R037,/diaspora,MainLayout,G8,PublicShell,,,no,Showroom/public landing; entry to import journey; footer link visible at all widths (MH-12),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R038,/diaspora/imports,MainLayout,G8,WorkspaceShell(trade),,UX-REF-07,no,"Reparent from MainLayout; retain URLs, importer/reviewer permissions and source states",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R039,/diaspora/imports/new,MainLayout,G8,FocusedShell,flow,UX-REF-07,no,Focused import creation; one goal per view; save-and-exit,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R040,/diaspora/imports/:id,MainLayout,G8,WorkspaceShell(trade),,UX-REF-07,no,"Import Order as anchor object: header, lifecycle rail, next action",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R041,/diaspora/imports/:id/documents,MainLayout,G8,WorkspaceShell(trade),,UX-REF-07,no,Document task list: required / uploaded / verified-by-whom,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R042,/diaspora/imports/:id/shipment,MainLayout,G8,WorkspaceShell(trade),,UX-REF-07,no,Milestone events with actor and voyage; CBCA pre-shipment stage,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R043,/diaspora/imports/:id/passport,MainLayout,G8,WorkspaceShell(trade),,UX-REF-07,no,"Passport as mode of the import object, not an orphan page (TI-18)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R044,/diaspora/stock,MainLayout,G9,WorkspaceShell(trade),,,no,Reparent from MainLayout; real stock operations,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R045,/diaspora/trade-profile,MainLayout,G9,WorkspaceShell(trade),,,no,Profile reputation metric withheld until published method (TI-03),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R046,/diaspora/stock/:id/passport,MainLayout,G9,WorkspaceShell(trade),,,no,Stock passport as mode of stock object,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R047,/diaspora/rfq,MainLayout,G8,WorkspaceShell(trade),,UX-REF-07,no,RFQ linked to import pages end-to-end (TI-18); no fabricated quotes,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R048,/diaspora/ai-commands,MainLayout,G9,WorkspaceShell(trade),,,no,Reparent from MainLayout,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R049,/diaspora/containers,MainLayout,G9,WorkspaceShell(trade),,,no,"Fix request-loop pattern before shell swap (TI-09, MH-09)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R050,/diaspora/drive,MainLayout,G9,WorkspaceShell(trade),,,no,Reparent from MainLayout,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R051,/diaspora/subscription,MainLayout,G8,WorkspaceShell(trade),,,no,Entitlement gates; no live-money implication (TI-12),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R052,/diaspora/safetrade,MainLayout,G8,WorkspaceShell(trade),,UX-REF-07,no,SafeTrade state machine + non-custodial notices verbatim (FP-09),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R053,/diaspora/safetrade/:id,MainLayout,G8,WorkspaceShell(trade),,UX-REF-07,no,"Disputes, delivery, second-human review preserved",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R054,/diaspora/trade-graph,MainLayout,G9,WorkspaceShell(trade),,,no,Reparent from MainLayout,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R055,/diaspora/safetrade/operations,MainLayout,G10,WorkspaceShell(trade),,,no,Operations workbench; real transaction states only,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R056,/diaspora/workbook/import,MainLayout,G9,WorkspaceShell(trade),,,no,Workbook dry-run with explicit validations and audit statuses,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R057,/admin/diaspora/compliance,MainLayout,G10,WorkspaceShell(institutional),,,no,Reparent from MainLayout with existing access checks,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R058,/admin/diaspora/workbooks,MainLayout,G10,WorkspaceShell(institutional),,,no,Reparent from MainLayout with existing access checks,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R059,/admin/diaspora/workbooks/new,MainLayout,G10,WorkspaceShell(institutional),,,no,Reparent from MainLayout with existing access checks,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R060,/login,MainLayout(hideNav),G3,FocusedShell,auth,UX-REF-03,no,No public/mobile bottom bar; preserve CSRF/returnTo; demo-access controls removed (TI-01),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R061,/register,MainLayout(hideNav),G3,FocusedShell,auth,UX-REF-03/04,no,No public/mobile bottom bar; preserve CSRF/returnTo; Sell returnTo contract,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R062,/verify-otp,MainLayout(hideNav),G3,FocusedShell,auth,,no,No public/mobile bottom bar; preserve CSRF/returnTo,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R063,/auth/forgot-password,MainLayout(hideNav),G3,FocusedShell,auth,,no,No public/mobile bottom bar; CSRF policy verified end-to-end (TI-11),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R064,/auth/reset-password,MainLayout(hideNav),G3,FocusedShell,auth,,no,No public/mobile bottom bar; preserve CSRF/returnTo,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R065,/auth/verify-email,MainLayout(hideNav),G3,FocusedShell,auth,,no,No public/mobile bottom bar; preserve CSRF/returnTo,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R066,/kyc,MainLayout(hideNav),G3,FocusedShell,identity,UX-REF-04,no,No fake KYC; governed identity flow; wire to /api/identity/verification-sessions,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R067,/dashboard,DashboardLayout(role=owner),G4,WorkspaceShell(personal),,UX-REF-03,no,Task-first owner Today; no generic stat-card grid,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R068,/dashboard/garage,DashboardLayout(role=owner),G4,WorkspaceShell(personal),,UX-REF-03,no,Keep auth and vehicle context; personal My Garage is NOT the commercial Garage OS,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R069,/dashboard/evidence,DashboardLayout(role=owner),G4,WorkspaceShell(personal),,,no,Keep auth and vehicle context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R070,/dashboard/garage/:id,DashboardLayout(role=owner),G4,WorkspaceShell(personal),,UX-REF-02,no,Keep auth and vehicle context; Passport lens,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R071,/dashboard/service-history,DashboardLayout(role=owner),G4,WorkspaceShell(personal),,,no,"No fabricated 'Next Service 500 km' (TI-06, SC-16)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R072,/dashboard/insurance,DashboardLayout(role=owner),G4,WorkspaceShell(personal),,,no,Cannot claim policy data until authority exists; honest boundary,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R073,/dashboard/partsentry,DashboardLayout(role=owner),G4,WorkspaceShell(personal),,,no,Never 'Ledger Verified' for an empty ledger (TI-07),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R074,/dashboard/listings,DashboardLayout(role=owner),G2,WorkspaceShell(personal),,UX-REF-04,no,Seller-adjacent owner route; G2 exception per Appendix F,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R075,/dashboard/saved,DashboardLayout(role=owner),G4,WorkspaceShell(personal),,UX-REF-02,no,Keep auth and vehicle context; saved state survives refresh,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R076,/dashboard/sell-vehicle,DashboardLayout(role=owner),G2,FocusedShell,seller-claim,UX-REF-04,no,Preserve account/tenant return and form state; G2 exception per Appendix F,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R077,/dashboard/ai,DashboardLayout(role=owner),G4,WorkspaceShell(personal),,,no,Keep auth and vehicle context; truthful AI context only,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R078,/dashboard/referrals,DashboardLayout(role=owner),G4,WorkspaceShell(personal),,,no,Keep auth and vehicle context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R079,/dashboard/communications,DashboardLayout(role=owner),G4,WorkspaceShell(personal),,UX-REF-09,no,Keep auth and vehicle context; object-linked threads,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R080,/dashboard/intelligence,DashboardLayout(role=owner),G2,WorkspaceShell(personal),,,no,G2 exception per Appendix F; truthful metrics only,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R081,/dealer/dashboard,DealerCanonicalWorkspaceLayout,G6,WorkspaceShell(dealer),,UX-REF-05,no,Keep canonical tenant grants; no public marketing footer; pilot route,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R082,/dealer,LegacyDealerRouteGate,G6,WorkspaceShell(dealer),,,no,Legacy gate -> redirects; keep eligibility guard until safe retirement,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R083,/dealer/inventory,LegacyDealerRouteGate,G6,WorkspaceShell(dealer),,,no,Legacy gate -> redirects; keep eligibility guard until safe retirement,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R084,/dealer/leads,LegacyDealerRouteGate,G6,WorkspaceShell(dealer),,,no,Legacy gate -> redirects; keep eligibility guard until safe retirement,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R085,/dealer/promotions,LegacyDealerRouteGate,G6,WorkspaceShell(dealer),,,no,Legacy gate -> redirects; keep eligibility guard until safe retirement,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R086,/dealer/analytics,LegacyDealerRouteGate,G6,WorkspaceShell(dealer),,,no,Legacy gate -> redirects; keep eligibility guard until safe retirement,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R087,/dealer/evidence,LegacyDealerRouteGate,G6,WorkspaceShell(dealer),,,no,Legacy gate -> redirects; keep eligibility guard until safe retirement,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R088,/mechanic,DashboardLayout(role=mechanic),G13,WorkspaceShell(garage),,UX-REF-06,no,Preserve actual mechanic operations; verified tenant via context manifest (TI-19); no 0/$0 KPIs on failed read,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R089,/mechanic/work-orders,DashboardLayout(role=mechanic),G13,WorkspaceShell(garage),,UX-REF-06,no,Workbench queue -> job; honest failure states; unmerged Garage OS HOLD (OD-12),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R090,/mechanic/service-logs,DashboardLayout(role=mechanic),G13,WorkspaceShell(garage),,UX-REF-06,no,Shared provenance chip; never 'Ledger Verified' for empty ledger,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R091,/mechanic/parts,DashboardLayout(role=mechanic),G13,WorkspaceShell(garage),,UX-REF-06,no,Failed read never shown as empty; Garage stock HOLD (OD-12),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R092,/mechanic/customers,DashboardLayout(role=mechanic),G13,WorkspaceShell(garage),,,no,"Fabricated CRM contained NOW: honest 'not available', route kept (TI-04, OD-14)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R093,/insurance-dash,DashboardLayout(role=insurance),G14,WorkspaceShell(institutional),,,no,"Remove empty-constant claims and literal badges (TI-21, TI-06)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R094,/insurance-dash/claims,DashboardLayout(role=insurance),G14,WorkspaceShell(institutional),,,no,"Seed-only: honest state, route kept (OD-14)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R095,/insurance-dash/risk,DashboardLayout(role=insurance),G14,WorkspaceShell(institutional),,,no,Verify data truth before release; contain if seed-only (OV),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R096,/insurance-dash/fraud,DashboardLayout(role=insurance),G14,WorkspaceShell(institutional),,,no,"Seed-only: honest state, route kept (OD-14)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R097,/government,DashboardLayout(role=government),G12,WorkspaceShell(institutional),,,no,Preserve governmental review constraints; wording corrected (TI-21),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R098,/government/registry,DashboardLayout(role=government),G12,WorkspaceShell(institutional),,,no,"RegistryVerification seed-only: honest state, route kept (OD-14)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R099,/government/compliance,DashboardLayout(role=government),G12,WorkspaceShell(institutional),,,no,Preserve governmental review constraints,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R100,/government/evidence,DashboardLayout(role=government),G12,WorkspaceShell(institutional),,,no,Preserve governmental review constraints,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R101,/government/trust-review,DashboardLayout(role=government),G12,WorkspaceShell(institutional),,,no,"Trust shown as evidence, never as a verdict",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R102,/government/governance-review,DashboardLayout(role=government),G12,WorkspaceShell(institutional),,,no,Preserve governmental review constraints,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R103,/bank,DashboardLayout(role=bank),G14,WorkspaceShell(institutional),,,no,Keep bank scope and actual finance state; literal badges removed,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R104,/bank/applications,DashboardLayout(role=bank),G14,WorkspaceShell(institutional),,,no,Correct wording/states/null-payment fault (TI-21); no live lending without authority,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R105,/bank/collateral,DashboardLayout(role=bank),G14,WorkspaceShell(institutional),,,no,Keep bank scope and actual finance state,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R106,/bank/risk,DashboardLayout(role=bank),G14,WorkspaceShell(institutional),,,no,"Trust shown as evidence, never as a credit verdict",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R107,/admin,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R108,/admin/features,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R109,/admin/users,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R110,/admin/ai,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Static operational metrics contained: honest not-tracked state (OD-14),MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R111,/admin/moderation,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R112,/admin/evidence,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R113,/admin/vehicles/:vin/review,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R114,/admin/fraud-queue,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R115,/admin/dealer-compliance,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R116,/admin/verification,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R117,/admin/trust-review,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R118,/admin/governance-review,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R119,/admin/referrals,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R120,/admin/referrals/codes,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R121,/admin/referrals/local-leads,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R122,/admin/referrals/import-routes,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R123,/admin/referrals/marketing,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R124,/admin/referrals/trust,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R125,/admin/communications,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,UX-REF-09,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R126,/admin/communications/inbox/:threadId,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,UX-REF-09,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R127,/admin/communications/:section,DashboardLayout(role=admin),G11,WorkspaceShell(admin),,UX-REF-09,no,Keep reviewed route/permission guards and context,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R128,/dashboard/admin/communications,DashboardLayout(role=admin),G11,WorkspaceShell(personal),,UX-REF-09,no,Route rides personal shell per Appendix B; verify ownership at execution SHA,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R129,/dashboard/admin/communications/inbox/:threadId,DashboardLayout(role=admin),G11,WorkspaceShell(personal),,UX-REF-09,no,Route rides personal shell per Appendix B; verify ownership at execution SHA,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R130,/dashboard/admin/communications/:section,DashboardLayout(role=admin),G11,WorkspaceShell(personal),,UX-REF-09,no,Route rides personal shell per Appendix B; verify ownership at execution SHA,MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R131,/admin/dealer-claims,DealerReviewerLayout,G7,ReviewWorkbench,,UX-REF-08,yes,"Separate reviewer authority, step-up, PII and audit; never linked as ordinary dealer action (NC-11)",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R132,/admin/dealer-research-review,DealerReviewerLayout,G7,ReviewWorkbench,,UX-REF-08,yes,"Separate reviewer authority, step-up, PII and audit; no self-review",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R133,/admin/dealer-compliance-submissions,DealerReviewerLayout,G7,ReviewWorkbench,,UX-REF-08,yes,"Separate reviewer authority, step-up, PII and audit",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R134,/admin/dealer-legal-activation,DealerReviewerLayout,G7,ReviewWorkbench,,UX-REF-08,yes,"Separate reviewer authority, step-up, PII and audit",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R135,/admin/dealer-full-storefront-review,DealerReviewerLayout,G7,ReviewWorkbench,,UX-REF-08,yes,"Separate reviewer authority, step-up, PII and audit",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R136,/admin/dealer-buyer-feedback,DealerReviewerLayout,G7,ReviewWorkbench,,UX-REF-08,yes,"Separate reviewer authority, step-up, PII and audit",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R137,/admin/dealer-vehicle-evidence,DealerReviewerLayout,G7,ReviewWorkbench,,UX-REF-08,yes,"Separate reviewer authority, step-up, PII and audit",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R138,/admin/dealer-operating-lifecycle,DealerReviewerLayout,G7,ReviewWorkbench,,UX-REF-08,yes,"Separate reviewer authority, step-up, PII and audit",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
+R139,*,(catch-all),G16,Context-aware NotFound,,,no,"404 route, NOT a 403: unauthorized access to a real route renders an honest 403 response state; never drop auth/guard context; return route remains safe",MP01 v0.9.2 Appendix B/F @9940647f + RX-01B design system
