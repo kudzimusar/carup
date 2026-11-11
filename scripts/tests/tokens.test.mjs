@@ -105,18 +105,22 @@ test('MUTATION (deliberate regression): danger ink #E45E5E must FAIL AA', () => 
   assert.ok(bad.length > 0, 'mutation #E45E5E was expected to break AA but did not — contrast check is not discriminating')
 })
 
-test('font discipline: Inter ships exactly 400/500/600/700; mono 400/500', () => {
+test('font discipline: Inter ships exactly 400/500/600/700; mono 400/500', async () => {
   assert.deepEqual(tokens.fonts.sans.weightsShipped, [400, 500, 600, 700])
   assert.deepEqual(tokens.fonts.mono.weightsShipped, [400, 500])
   assert.deepEqual(tokens.fonts.sans.weightsDeprecated, [300, 800, 900])
-  // fonts.css is a manifest of per-face files — resolve every @import and
-  // verify the emitted faces match the shipped weight set exactly.
-  const stylesDir = path.join(ROOT, 'web/src/styles')
-  const manifest = readFileSync(path.join(stylesDir, 'fonts.css'), 'utf8')
-  const imports = [...manifest.matchAll(/@import '\.\/(.+?)';/g)].map((m) => m[1])
-  assert.equal(imports.length, 6, 'expected 6 per-face font files')
+  const fonts = await import(path.join(ROOT, 'scripts/ensure-fonts.mjs'))
+  const manifest = fonts.loadManifest()
+  // fonts.css is a manifest of the generated per-face files — its imports must
+  // match the manifest keys exactly, no more, no less.
+  const fontsCss = readFileSync(path.join(ROOT, 'web/src/styles/fonts.css'), 'utf8')
+  const imports = [...fontsCss.matchAll(/@import '\.\/fonts\/(.+?)\.css';/g)].map((m) => m[1]).sort()
+  assert.deepEqual(imports, Object.keys(manifest).sort(), 'fonts.css imports must match the font manifest exactly')
+  // buildFace resolves the pinned @fontsource woff2 (node_modules or pinned
+  // CDN fallback) and throws on any SHA-256 / byte-length mismatch, so reaching
+  // the assertions below proves the packaged fonts are the approved binaries.
   let css = ''
-  for (const imp of imports) css += readFileSync(path.join(stylesDir, imp), 'utf8') + '\n'
+  for (const slug of Object.keys(manifest)) css += (await fonts.buildFace(slug, manifest[slug])).css + '\n'
   const inter = [...css.matchAll(/font-family: "Inter"[\s\S]*?font-weight: (\d+);/g)].map((m) => Number(m[1]))
   const mono = [...css.matchAll(/font-family: "JetBrains Mono"[\s\S]*?font-weight: (\d+);/g)].map((m) => Number(m[1]))
   assert.deepEqual(inter.sort(), [400, 500, 600, 700])

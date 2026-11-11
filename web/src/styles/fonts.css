@@ -1,7 +1,9 @@
 /* SELF-HOSTED typography — RX-02A S1-1.
-   Source: @fontsource/inter@5.2.5 and @fontsource/jetbrains-mono@5.2.5 (latin subsets, woff2).
-   Binary fonts cannot be pushed through GitHub text tooling, so each woff2 is embedded as a
-   base64 data-URI (self-hosted: zero requests to fonts.googleapis.com / fonts.gstatic.com).
+   Source: @fontsource/inter@5.2.5 and @fontsource/jetbrains-mono@5.2.5 (latin subsets, woff2),
+   pinned releases verified against SHA-256 in scripts/font-manifest.json by
+   scripts/ensure-fonts.mjs (run automatically via predev/prebuild, or `npm run fonts:ensure`).
+   Each woff2 is embedded as a base64 data-URI at build time: zero requests to
+   fonts.googleapis.com / fonts.gstatic.com at build or runtime.
    Shipped Inter weights are exactly 400/500/600/700 per the approved type contract
    (300/800/900 are deprecated and intentionally absent). */
 
