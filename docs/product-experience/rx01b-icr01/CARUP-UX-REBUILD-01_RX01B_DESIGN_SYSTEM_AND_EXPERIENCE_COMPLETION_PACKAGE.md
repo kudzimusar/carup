@@ -18,7 +18,7 @@
 - **Package:** `CARUP-UX-REBUILD-01-RX01B` · version **1.0**
 - **Deliverable 1** (design-system specification): `UI_DESIGN_REFERENCE_AND_TOKENS.md` — complete production-intent token system and component contracts (intended repo path `docs/product-experience/UI_DESIGN_REFERENCE_AND_TOKENS.md`; custody transfer to Moderator pending).
 - **Deliverable 2** (final connected prototype): extended CARUP EXPERIENCE prototype — **28 screens**, all UX-REF journeys, four data states + restricted/unauthorized states, direction toggle retained for regression comparison (A is the locked default). **Preview version `2d2e9a5`.**
-- **Deliverable 3** (reference-screen evidence): 47 captures in `rx01b-evidence/` at the five required widths plus populated/empty/loading/error/unauthorized states (index in §4).
+- **Deliverable 3** (reference-screen evidence): 48 captures in `rx01b-evidence/` at the five required widths plus populated/empty/loading/error/unauthorized states and the Trade-context gate state (index in §4).
 - **Deliverable 4** (navigation & context specification): §5.
 - **Deliverable 5** (native design appendix): §6.
 - **Deliverable 6** (engineering handoff contract): §7.
@@ -60,7 +60,7 @@ All references share one identity, one status kit, one type system (§3 token sp
 
 ---
 
-## 4. Deliverable 3 — Five-width evidence index (`rx01b-evidence/`, 47 captures)
+## 4. Deliverable 3 — Five-width evidence index (`rx01b-evidence/`, 48 captures)
 
 | Width | Captures |
 |---|---|
@@ -70,7 +70,7 @@ All references share one identity, one status kit, one type system (§3 token sp
 | 1280×800 | `w1280x800-dealer-stock`, `w1280x800-comms`, `w1280x800-reviewer-queue`, plus `desk-*` set at 1440 (dealer today/stock/enquiries, comms, reviewer queue/reviewer, restricted, trade-rfq, trade, garage queue/job, start) |
 | 1920×1080 | `w1920x1080-trade`, `w1920x1080-trade-rfq`, `w1920x1080-garage-queue` |
 
-**State evidence:** `state-dealer-stock-empty`, `state-dealer-stock-error`, `state-comms-error`, `state-marketplace-empty`, `state-reviewer-queue-loading`, `state-restricted-unauthorized`.
+**State evidence:** `state-dealer-stock-empty`, `state-dealer-stock-error`, `state-comms-error`, `state-marketplace-empty`, `state-reviewer-queue-loading`, `state-restricted-unauthorized`, `state-dealer-rail-no-trade-context` (S06 — Trade-gate proof).
 
 Every capture renders the prototype chrome (direction/state labels + fixture disclaimer) so evidence is self-describing. All data labeled illustrative fixtures.
 
@@ -99,11 +99,11 @@ Every capture renders the prototype chrome (direction/state labels + fixture dis
 1. **One projection feeds every surface** (mega-menu, drawer, bottom bar, rail, footer, native tabs). The SessionWorkspaceManifest (MP01 §3.4) is display/navigation metadata only — never an authorization grant; endpoints keep enforcing independently.
 2. **Public mobile tab bar:** five manifest-derived slots — Home · Buy · Verify · Sell · My CarUp; safe-area aware; hidden in Focused flows (auth, sell, claim, review decisions) and never obscures focused content.
 3. **Public footer at all widths** (OD-06): full hierarchy via accessible accordion below 1024px.
-4. **Workspace:** 224px rail ≥1024px; below 1024 rail hides behind explicit menu; below 720 the workspace uses topbar + task-aware bottom nav; tables become list/detail — mobile layouts are composed, not compressed (verified at 360/390).
+4. **Workspace:** 224px rail ≥1024px; below 1024 rail hides behind explicit menu; below 720 the workspace uses topbar + task-aware bottom nav; tables become list/detail — mobile layouts are composed, not compressed (verified at 360/390). **Rail destinations are entitlement-filtered from session context** (SessionWorkspaceManifest): the **Import orders** destination renders only when the session carries authorized Trade context (importer/operator authority); when absent it disappears — never a dead stub. Cross-role visibility is never hardcoded (NC-05, NC-10). Gate evidence: `rx01b-evidence/S06-dealer-rail-no-trade-context-1440x900.png`.
 5. **Org/branch context:** masthead shows verified org + branch at all times; switching posts the selection and reloads context-scoped data; a missing/expired context renders a permission/status page, never stale data; the 409 multi-dealer case renders a context picker (NC-02); no silent role mutation (NC-04).
 6. **Login interruption & return:** Focused auth preserves path + query + context (`returnTo` carries `?vin=`, filters, draft id — NC-08); post-login lands back in the originating object context; no bottom bar during auth.
 7. **Empty/disabled/unsupported destinations:** planned-only features never render as live links (NC-10); held capabilities render honest "not available" states with the route kept (OD-14); no dead settings links.
-8. **Reviewer separation (binding):** reviewer benches are reachable only through the protected review composition — separate route authority (R131–R138), step-up, PII masking, no org/branch masthead, sessions expire independently. **A reviewer destination never appears as an ordinary dealer action** — the dealer rail does not link review; a dealer-staff session hitting a bench gets the `restricted` 403 treatment, not a blank page (fixes MH-11/TI-27 classes).
+8. **Reviewer separation (binding):** reviewer benches are reachable only through the protected review composition — separate route authority (R131–R138), step-up, PII masking, no org/branch masthead, sessions expire independently. **A reviewer destination never appears as an ordinary dealer action** — the dealer rail does not link review; a dealer-staff session hitting a bench gets the `restricted` 403 treatment, not a blank page (fixes MH-11/TI-27 classes). **Protected review sessions carry their own identity chrome:** "Independent review · Reviewer · step-up active" masthead, rail ending in Exit review session (no dealer account identity), util footer "All actions audited · Session: independent review · No org/branch context carried", and no dealer workspace actions (no Export / + Add vehicle). No dealer identity, organization, branch or business context renders during protected review (verified on `reviewer-queue` and `reviewer`).
 
 ---
 
