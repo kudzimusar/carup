@@ -2,7 +2,7 @@
 
 **Prepared by:** Kimmy — Lead Product Experience Designer
 **Date:** 2026-11-11 · **Moderator disposition executed:** REMEDIATE — BOUNDED CORRECTIONS ONLY
-**Scope guard:** visual direction (Ink Precision, Direction A) **preserved**; no redesign, no new design cycle, no repository mutation, no PR opened or merged, no deployment, no commercial action.
+**Scope guard:** visual direction (Ink Precision, Direction A) **preserved**; no redesign, no new design cycle, no application-code mutation, no merge, no deployment, no commercial action.
 **Governing plan:** MP01 v0.9.2 · `docs/product-experience/CARUP_UNIFIED_EXPERIENCE_REBUILD_MASTER_PLAN.md` @ PR #259 head `9940647f`
 
 ---
@@ -22,19 +22,19 @@
 
 | Artifact | Identity | Bytes | SHA-256 (truncated) |
 |---|---|---|---|
-| Interactive prototype (corrected) | `carup-rx01a-prototype.html` — review version **`a56e4f3`** (supersedes `e1ffca4`, which superseded `2d2e9a5`) | 115,216 | `edad4730…3987a` |
-| Reviewable preview | `app/index.html` (byte-identical copy of the prototype) | 115,216 | `edad4730…3987a` |
+| Interactive prototype (corrected) | `carup-rx01a-prototype.html` — review version **`a56e4f3`** (supersedes `e1ffca4`, which superseded `2d2e9a5`) | 116,047 | `106901355f37…30f0` |
+| Reviewable preview | `app/index.html` (byte-identical copy of the prototype) | 116,047 | `106901355f37…30f0` |
 | Token & component contract | `UI_DESIGN_REFERENCE_AND_TOKENS.md` v1.1 | 15,803 | `44328449…5bc83` |
-| RX-01B completion package (route table corrected) | `CARUP-UX-REBUILD-01_RX01B_DESIGN_SYSTEM_AND_EXPERIENCE_COMPLETION_PACKAGE.md` | 20,231 | `a821931c…b70eb` |
+| RX-01B completion package (route table corrected) | `CARUP-UX-REBUILD-01_RX01B_DESIGN_SYSTEM_AND_EXPERIENCE_COMPLETION_PACKAGE.md` | 21,227 | see manifest |
 | Route-to-shell authority register | `UI_ROUTE_SHELL_AUTHORITY_REGISTER.csv` (139 rows) | 27,725 | `1dee9347…40c97` |
 | Contrast checker (machine-checkable) | `carup-contrast-check.py` | 5,365 | see manifest |
 | Contrast matrix | `rx01b-contrast-matrix.json` / `.csv` (39 shipped pairings) | — | see manifest |
-| Evidence package | `rx01b-evidence/` — 47 PNG + `INDEX.md` + `capture-index.json` | — | see manifest |
-| Checksum manifest | `RX01B-ICR01-SHA256MANIFEST.txt` — **58 entries, all verify `OK`** (count corrected per ICR01 final delivery) | — | self-authenticating via `sha256sum -c` |
+| Evidence package | `rx01b-evidence/` — 48 PNG + `INDEX.md` + `capture-index.json` | — | see manifest |
+| Checksum manifest | `RX01B-ICR01-SHA256MANIFEST.txt` — **59 entries, all verify `OK`** (48 captures + 11 non-image artifacts) | — | self-authenticating via `sha256sum -c` |
 
 ### 1.3 Identity correction (C01 root cause)
 
-The identifier **`2d2e9a5`** used in the RX-01B return is a **platform preview version ID** assigned by the design-preview version manager — it is **not** a Git commit SHA, was never claimed to be one, and must not be cited as repository provenance. Repository provenance is cited only as in §1.1. The corrected prototype is saved as review version **`e1ffca4`** under the same regime; its content bytes are additionally pinned by the SHA-256 manifest, so the design evidence is reproducible even outside the preview platform.
+The identifier **`2d2e9a5`** used in the RX-01B return is a **platform preview version ID** assigned by the design-preview version manager — it is **not** a Git commit SHA, was never claimed to be one, and must not be cited as repository provenance. Repository provenance is cited only as in §1.1. Preview version IDs are content-pinned by the SHA-256 manifest, so the design evidence is reproducible even outside the preview platform.
 
 ---
 
@@ -43,9 +43,9 @@ The identifier **`2d2e9a5`** used in the RX-01B return is a **platform preview v
 ### C01 — Source/evidence custody and artifact identity · CLOSED
 
 - Root cause recorded: version ID vs Git SHA conflation risk (§1.3).
-- **47-capture evidence package regenerated** from the corrected source bytes (`rx01b-evidence/`, `INDEX.md`, `capture-index.json`): P01–P28 all screens @390×844; D01–D06 workspace chrome @1440×900; W01–W08 five-width matrix (360/768/1280/1920); S01–S05 data states incl. loading/empty/error and the honest-403 boundary.
-- **SHA-256 checksum manifest** over prototype + app copy + all docs + register + checker + matrix + evidence indexes + 47 captures = **58 entries, all verified OK** (`sha256sum -c RX01B-ICR01-SHA256MANIFEST.txt` → 0 failures; entry count reconciled with §1.2).
-- Precise versioning: token doc v1.1 (supersedes v1.0 with a change note); prototype re-saved as preview version `e1ffca4`; older RX-01A preview (`ea13ba5`, 17-screen concept) is **superseded** and was never substituted for RX-01B evidence.
+- **48-capture evidence package** from the corrected source bytes (`rx01b-evidence/`, `INDEX.md`, `capture-index.json`): P01–P28 all screens @390×844; D01–D06 workspace chrome @1440×900; W01–W08 five-width matrix (360/768/1280/1920); S01–S06 data states incl. loading/empty/error, the honest-403 boundary, and the Trade-context gate state.
+- **SHA-256 checksum manifest** over prototype + app copy + all docs + register + checker + matrix + evidence indexes + 48 captures = **59 entries, all verified OK** (`sha256sum -c RX01B-ICR01-SHA256MANIFEST.txt` → 0 failures; entry count reconciled with §1.2).
+- Precise versioning: token doc v1.1 (supersedes v1.0 with a change note); prototype review version `a56e4f3`; older RX-01A preview (`ea13ba5`, 17-screen concept) is **superseded** and was never substituted for RX-01B evidence.
 
 ### C02 — WCAG 2.2 AA contrast failures corrected · CLOSED
 
@@ -87,16 +87,24 @@ Four failing pairings found by evidence-based audit, corrected, and re-verified:
 ### C06 — Production-intent docs + custody proposal · CLOSED
 
 - Handoff-ready set (all corrected and manifest-pinned): token/component contract (v1.1), completion package (UX-REF matrix, component contracts, native appendix, handoff contract §7), 139-row route register, contrast checker + matrix, prototype, evidence package.
-- **Custody proposal:** commit `UI_DESIGN_REFERENCE_AND_TOKENS.md` (v1.1) to `docs/product-experience/UI_DESIGN_REFERENCE_AND_TOKENS.md` exactly as named in MP01 §14.4(5), **in a separately authorized documentation PR** (docs-only path triggers no staging workflow per §23.5); same PR may carry `UI_ROUTE_SHELL_AUTHORITY_REGISTER.csv` (§14.4(1)) and the ICR01 evidence index. No commit is made now — this report is the custody proposal awaiting Moderator/Owner authorization.
+- **Custody:** authorized **Draft documentation-only PR #260** (branch `docs/rx01b-icr01-design-certification` off `main@9f2bebfe…`, docs-only path triggers no staging workflow per §23.5). Not merged; merge awaits explicit authorization.
 - An RX-02 engineering team can begin against this package without inventing conventions: every color, status, component, route→shell mapping, and state behavior is specified and machine-checkable.
 
 ---
 
-## 2A. Final delivery corrections (this return, per Moderator directive)
+## 2A. Final delivery corrections (first return, per Moderator directive)
 
 **A — Reviewer navigation isolation (NC-11).** The shared dealer workspace rail previously exposed a "Review queue" destination. Corrected: the dealer rail (`RAIL`) now contains only dealer destinations (Today · Stock · Enquiries · Import orders). A separate, dedicated reviewer-only navigation composition (`REVIEWER_RAIL`) renders exclusively inside protected review sessions (queue, claim bench), with the step-up masthead and no organization context. Verified programmatically and visually: dealer rail contains no reviewer destination; the reviewer composition retains Review queue / Dealer claims / Trust reviews / Identity cases; the honest-403 `restricted` boundary is preserved unchanged.
 
-**B — Document consistency.** (1) The prototype's Inter font request now ships weights **400/500/600/700 only** — the 800 request is removed, matching the approved specification. (2) The manifest-entry count discrepancy is corrected: the closure report and the manifest both state **58 entries** (prototype, app copy, four documents, route register, contrast checker, matrix JSON+CSV, evidence INDEX, capture-index, 47 captures). Affected checksums and all 47 screenshots were regenerated; the reviewable preview was re-saved as version `a56e4f3`.
+**B — Document consistency.** (1) The prototype's Inter font request ships weights **400/500/600/700 only** — the 800 request is removed, matching the approved specification. (2) The manifest-entry count is reconciled: the closure report and the manifest both state **59 entries** (prototype, app copy, four documents, route register, contrast checker, matrix JSON+CSV, evidence INDEX, capture-index, 48 captures). Affected checksums and screenshots were regenerated; the reviewable preview was re-saved as version `a56e4f3`.
+
+## 2B. Second final correction — reviewer-context isolation (per Moderator directive, this return)
+
+**C — Protected reviewer identity on the decision bench.** The `reviewer` decision screen previously used the shared `desktopShell` rail account and footer, exposing the dealer identity `T. Moyo — Owner` and `Signed in as T. Moyo · Mvura Motors`. Corrected: in protected review mode the workbench renders the same identity model as `reviewer-queue` — "Independent review · Reviewer · step-up active" masthead, rail ending in **Exit review session** (no dealer account identity), protected util footer (**All actions audited · Session: independent review · No org/branch context carried**), and no dealer workspace actions (Export / + Add vehicle suppressed). Verified programmatically — **15/15 focused checks**: no dealer name, organization or branch string anywhere in either protected screen; dealer screens retain their full identity (no regression) — and visually (P19, W06 re-rendered).
+
+**D — Trade-context gating of the Import orders destination.** The dealer rail destination **Import orders** is now entitlement-filtered by session Trade context (`ctxTrade` gate on the SessionWorkspaceManifest model): it renders only when the session carries authorized Trade context, and disappears — never a dead stub — when absent. Cross-role visibility is not hardcoded into the handoff (NC-05, NC-10). New evidence capture **S06** renders the dealer rail with the destination absent; the rule is recorded in the completion package §5.2 (rule 4).
+
+Only the affected evidence was regenerated (P19, W06) plus the one new gate-evidence capture (S06); all other captures, tokens, route mappings and screens are unchanged in behavior.
 
 No other design changes were made.
 
@@ -110,20 +118,22 @@ No other design changes were made.
 
 **Modes:** Light (launch, all families); ink workspace chrome (always); dark body (optional, gated on D-07 swatch sign-off); public dark (not at launch).
 
+**Navigation:** protected review sessions carry their own identity chrome (masthead, rail, footer, actions) — no dealer identity, organization, branch or business context; workspace rail destinations are entitlement-filtered from session context (Import orders ⇐ authorized Trade context only).
+
 ---
 
 ## 4. Engineering handoff index
 
 | # | Item | Artifact | State |
 |---|---|---|---|
-| 1 | Token & component contract | `UI_DESIGN_REFERENCE_AND_TOKENS.md` v1.1 | Ready (custody proposed) |
-| 2 | Route-to-shell authority register | `UI_ROUTE_SHELL_AUTHORITY_REGISTER.csv` | Ready (custody proposed) |
+| 1 | Token & component contract | `UI_DESIGN_REFERENCE_AND_TOKENS.md` v1.1 | Ready (in Draft PR #260) |
+| 2 | Route-to-shell authority register | `UI_ROUTE_SHELL_AUTHORITY_REGISTER.csv` | Ready (in Draft PR #260) |
 | 3 | Completion package (UX-REF-01–10, contracts, native appendix, handoff contract §7, D-register §8) | `CARUP-UX-REBUILD-01_RX01B_DESIGN_SYSTEM_AND_EXPERIENCE_COMPLETION_PACKAGE.md` | Ready |
-| 4 | Interactive prototype (28 screens, corrected) | preview version `e1ffca4` / `carup-rx01a-prototype.html` | Ready for Owner visual gate at 5 widths |
+| 4 | Interactive prototype (28 screens, corrected) | `carup-rx01a-prototype.html` (review version `a56e4f3`) | Ready for Owner visual gate at 5 widths |
 | 5 | Contrast gate | `carup-contrast-check.py` + matrix JSON/CSV | Ready for CI-04/CI-06 wiring |
-| 6 | Visual evidence (47 captures + index) | `rx01b-evidence/` | Ready |
-| 7 | Integrity manifest | `RX01B-ICR01-SHA256MANIFEST.txt` (58/58 OK) | Ready |
-| 8 | Prior returns (context) | Mission readiness report; RX-01A review package (preview `ea13ba5`, superseded) | Historical |
+| 6 | Visual evidence (48 captures + index) | `rx01b-evidence/` | Ready |
+| 7 | Integrity manifest | `RX01B-ICR01-SHA256MANIFEST.txt` (59/59 OK) | Ready |
+| 8 | Custody | Draft PR #260 (documentation-only, not merged) | Awaiting authorization + independent review |
 
 ---
 
@@ -141,10 +151,10 @@ No other design changes were made.
 
 Within this remediation I confirm:
 
-1. **No repository mutation:** no commits, branches, PRs (open/merge/close), file writes, or comment/review actions were performed against `kudzimusar/carup`. All repository access was read-only (directory listings, file reads, code search) to reconcile against MP01 at the exact head.
+1. **No unauthorized repository mutation:** the only write action against `kudzimusar/carup` is the explicitly authorized **Draft documentation-only PR #260** (branch `docs/rx01b-icr01-design-certification` off `main@9f2bebfe…`; updated in place with this second correction — no new PR). No merges, no application-code commits, no issue/review actions taken by me. All other repository access was read-only (directory listings, file reads, code search) to reconcile against MP01 at the exact head.
 2. **No deployment** to any environment; no service, database, or schema change.
 3. **No commercial action:** no dealer publication, payment activation, entitlement or pricing change.
 4. **No authorization/policy change:** reviewer independence, tenant boundaries and server-enforced checks untouched; the prototype is self-contained front-end with clearly labeled illustrative fixtures and is **not** presented as authenticated functional UAT.
-5. **Scope discipline:** bounded corrections C01–C06 only; the accepted Ink Precision direction is preserved byte-for-byte except the audited corrections; no new design cycle began.
+5. **Scope discipline:** bounded corrections C01–C06 and the two Moderator-directed final corrections (A/B, then C/D) only; the accepted Ink Precision direction is preserved byte-for-byte except the audited corrections; no new design cycle began.
 
 — Kimmy, Lead Product Experience Designer · RX-01B-ICR01 return
