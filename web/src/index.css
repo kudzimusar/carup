@@ -1,50 +1,17 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+/* ──────────────────────────────────────────────────────────────────────────
+   CARUP stylesheet authority (RX-02A S1-1).
+   Single token source: shared/tokens/tokens.json → scripts/build-tokens.mjs
+   generates ./styles/tokens.css (CSS custom properties, incl. repinned shadcn
+   slots) and web/tailwind.tokens.js (Tailwind theme extension).
+   Typography is self-hosted via ./styles/fonts.css (base64 woff2 data-URIs,
+   Inter 400/500/600/700 + JetBrains Mono 400/500). No external font requests.
+   ────────────────────────────────────────────────────────────────────────── */
+@import './styles/fonts.css';
+@import './styles/tokens.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 222 47% 11%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 210 20% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 20% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 25 95% 53%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 214 20% 90%;
-    --input: 214 20% 90%;
-    --ring: 222 47% 11%;
-    --radius: 0.625rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 222 47% 11%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 210 20% 96%;
-    --sidebar-accent-foreground: 222 47% 11%;
-    --sidebar-border: 214 20% 90%;
-    --sidebar-ring: 222 47% 11%;
-
-    /* CarUp Brand Colors */
-    --carup-navy: 222 47% 11%;
-    --carup-orange: 25 95% 53%;
-    --carup-navy-light: 222 30% 25%;
-    --carup-cream: 40 33% 97%;
-    --carup-gray: 215 16% 47%;
-    --carup-success: 142 76% 36%;
-    --carup-warning: 38 92% 50%;
-  }
-}
 
 @layer base {
   * {
@@ -55,7 +22,9 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: var(--carup-font-sans);
+    font-size: 14px;
+    line-height: 1.55;
   }
 }
 
@@ -63,15 +32,18 @@
   .text-balance {
     text-wrap: balance;
   }
+  /* Brand gradients repinned to raw token primitives (names unchanged). */
   .gradient-navy {
-    background: linear-gradient(135deg, hsl(222 47% 11%) 0%, hsl(222 30% 25%) 100%);
+    background: linear-gradient(135deg, var(--carup-raw-ink) 0%, var(--carup-raw-ink-2) 100%);
   }
   .gradient-orange {
-    background: linear-gradient(135deg, hsl(25 95% 53%) 0%, hsl(25 95% 43%) 100%);
+    background: linear-gradient(135deg, var(--carup-raw-action) 0%, var(--carup-raw-action-hover) 100%);
   }
   .gradient-hero {
-    background: linear-gradient(135deg, hsl(222 47% 8%) 0%, hsl(222 47% 15%) 50%, hsl(222 30% 20%) 100%);
+    background: linear-gradient(135deg, var(--carup-raw-ink) 0%, var(--carup-raw-ink-2) 50%, var(--carup-raw-navy) 100%);
   }
+  /* Legacy glass utilities retained until per-component migration (S1-3) —
+     the no-new-glass gate (scripts/no-new-glass-gate.mjs) blocks net-new callers. */
   .glass-card {
     @apply bg-white/80 backdrop-blur-xl border border-white/20 shadow-lg;
   }
@@ -79,13 +51,13 @@
     @apply bg-black/40 backdrop-blur-xl border border-white/10;
   }
   .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-orange-500 to-amber-500;
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-[var(--carup-raw-orange-signal)] to-amber-500;
   }
   .hover-lift {
     @apply transition-all duration-300 hover:-translate-y-1 hover:shadow-xl;
   }
   .card-shadow {
-    box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.08), 0 1px 4px -1px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 4px 24px -4px rgba(11, 21, 38, 0.08), 0 1px 4px -1px rgba(11, 21, 38, 0.04);
   }
   .section-padding {
     @apply px-4 sm:px-6 lg:px-8 xl:px-16 2xl:px-24;

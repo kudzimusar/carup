@@ -15,6 +15,10 @@
     "lint": "npm run lint --workspace=web",
     "preview": "npm run preview --workspace=web",
     "test:qa": "playwright test",
+    "tokens:build": "node scripts/build-tokens.mjs",
+    "tokens:check": "node scripts/build-tokens.mjs --check",
+    "gate:style-ratchet": "node scripts/no-new-glass-gate.mjs",
+    "test:tokens": "node --test scripts/tests/tokens.test.mjs",
     "test:evidence": "node --test backend/tests/evidence*.test.js",
     "test": "npm run lint && npm run build && npm run test:qa && node scripts/agent-15-discovery.js"
   },
