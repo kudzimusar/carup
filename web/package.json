@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test:unit": "vitest run",
     "test:qa": "playwright test",
-    "test": "npm run lint && npm run build && npm run test:qa && node scripts/agent-15-discovery.js"
+    "test": "npm run lint && npm run build && npm run test:qa && node scripts/agent-15-discovery.js",
+    "prebuild": "node ../scripts/ensure-fonts.mjs",
+    "predev": "node ../scripts/ensure-fonts.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
