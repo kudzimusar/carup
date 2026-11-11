@@ -55,9 +55,9 @@ Naming: `--carup-{semantic}` for the runtime contract; primitives are `--carup-r
 | `color-action-soft` | action-soft | `rgba(251,122,60,.14)` | selected states, soft CTAs |
 | `color-focus` | action | `#FB7A3C` | focus ring (2px + 1px offset) |
 
-† **ICR01-C02 corrected values** (evidence: `carup-contrast-check.py`, 39 shipped pairings, 0 AA failures). Previous `--text-3` values failed WCAG 2.2 AA: light `#8A919D` measured 2.80–3.03:1; dark `#6E7887` measured 4.09:1 on ink and 4.17:1 on raised. Replacements verify 4.96–5.67:1 (light) and 5.01–7.32:1 (dark).
+† **ICR01-C02 corrected values** (evidence: `carup-contrast-check.py`, 45 shipped pairings, 0 AA failures — S0-corrected compositing methodology). Previous `--text-3` values failed WCAG 2.2 AA: light `#8A919D` measured 2.80–3.03:1; dark `#6E7887` measured 4.09:1 on ink and 4.17:1 on raised. Replacements verify 4.96–5.67:1 (light) and 5.01–7.32:1 (dark).
 
-\* Dark-mode action orange is lightened one step to preserve ≥4.5:1 against ink backgrounds (6.92:1 on ink, 5.95:1 on `#13233D`, 5.44:1 on `#1D2A42`); **pending Owner swatch sign-off at visual gate (D-07) — until then the dark-body variant ships behind the mode flag without the action-orange claim.**
+\* Dark-mode action orange is lightened one step to preserve ≥4.5:1 against ink backgrounds (6.92:1 on ink, 5.95:1 on `#13233D`, 5.44:1 on `#1D2A42`); **pending Owner swatch sign-off at visual gate (D-07) — until then the dark-body variant ships behind the mode flag without the action-orange claim.** On the dark action-soft tint (`rgba(251,122,60,.14)` on `#13233D`, composited `#332F3D`), text keeps full-strength `#FB7A3C` at **4.92:1** — the light-mode darker-ink rule does **not** carry to dark (`#9A3412` measures 1.78:1 on the dark tint).
 
 ### 1.3 Status semantics (one registry — replaces 108 mapping sites in 53 files, U-18)
 
@@ -70,7 +70,7 @@ Naming: `--carup-{semantic}` for the runtime contract; primitives are `--carup-r
 | `neutral` | `#475569` | `#EEF1F5` | `#A8B1BE` | `rgba(168,177,190,.12)` on `#13233D` | not started, unmeasured, unknown |
 | `action` | action-hover | action-soft | `#FB7A3C` | `rgba(251,122,60,.14)` | user-actionable emphasis |
 
-† **ICR01-C02 corrected values.** Previous `success #15803D` measured 4.40:1 and `warning #B45309` 4.46:1 — both below AA on their soft tints; replacements verify 6.25:1 and 6.29:1. Dark text inks are used **on the dark soft tints only** (never on light soft tints); each pairing is in the shipped set of `carup-contrast-check.py` and passes AA (dark status minimum 4.87:1). Domain vocabularies (order stages, listing states) **map onto** this registry; they may not introduce new hues.
+† **ICR01-C02 corrected values.** Previous `success #15803D` measured 4.40:1 and `warning #B45309` 4.46:1 — both below AA on their soft tints; replacements verify 6.25:1 and 6.29:1. Dark text inks are used **on the dark soft tints only** (never on light soft tints); each pairing is in the shipped set of `carup-contrast-check.py` and passes AA. **S0-corrected methodology:** the dark soft tints are semitransparent — `rgba(status_ink, 0.12)` on `#13233D` — and are alpha-composited to their opaque result before measuring (ok 7.03:1, warn 7.36:1, danger 4.87:1, info 6.76:1, neutral 5.79:1; soft-tint minimum 4.87:1). Domain vocabularies (order stages, listing states) **map onto** this registry; they may not introduce new hues.
 
 ### 1.4 Surface variants — Public / Workspace / Focused
 
@@ -85,7 +85,7 @@ Naming: `--carup-{semantic}` for the runtime contract; primitives are `--carup-r
 **Supported modes (ICR01-C04, clarified):**
 1. **Light — supported at launch, every shell family.** This is the default everywhere.
 2. **Workspace ink chrome — always on**, in both modes and both directions; it is not a "dark mode," it is the workspace identity.
-3. **Dark body (workspace surfaces/tokens §1.2–1.3 "Ink-dark" column) — optional per-user comfort toggle, workspace only.** Token set is complete and AA-verified (39 shipped pairings), but the dark action orange `#FB7A3C` remains pending Owner swatch sign-off (D-07), so the toggle ships disabled-by-default until that sign-off.
+3. **Dark body (workspace surfaces/tokens §1.2–1.3 "Ink-dark" column) — optional per-user comfort toggle, workspace only.** Token set is complete and AA-verified (45 shipped pairings), but the dark action orange `#FB7A3C` remains pending Owner swatch sign-off (D-07), so the toggle ships disabled-by-default until that sign-off.
 4. **Public dark — not offered at launch** (D-07); public components must still survive forced-colors/high-contrast modes without breakage.
 Components must not break if forced-colors/invert is applied.
 

@@ -24,13 +24,13 @@
 |---|---|---|---|
 | Interactive prototype (corrected) | `carup-rx01a-prototype.html` — review version **`a56e4f3`** (supersedes `e1ffca4`, which superseded `2d2e9a5`) | 116,047 | `106901355f37…30f0` |
 | Reviewable preview | `app/index.html` (byte-identical copy of the prototype) | 116,047 | `106901355f37…30f0` |
-| Token & component contract | `UI_DESIGN_REFERENCE_AND_TOKENS.md` v1.1 | 15,803 | `44328449…5bc83` |
+| Token & component contract | `UI_DESIGN_REFERENCE_AND_TOKENS.md` v1.1 (S0-corrected compositing footnotes) | 16,339 | `94d60605…68997` |
 | RX-01B completion package (route table corrected) | `CARUP-UX-REBUILD-01_RX01B_DESIGN_SYSTEM_AND_EXPERIENCE_COMPLETION_PACKAGE.md` | 21,227 | see manifest |
-| Route-to-shell authority register | `UI_ROUTE_SHELL_AUTHORITY_REGISTER.csv` (139 rows) | 27,725 | `1dee9347…40c97` |
-| Contrast checker (machine-checkable) | `carup-contrast-check.py` | 5,365 | see manifest |
-| Contrast matrix | `rx01b-contrast-matrix.json` / `.csv` (39 shipped pairings) | — | see manifest |
+| Route-to-shell authority register | `UI_ROUTE_SHELL_AUTHORITY_REGISTER.csv` (139 rows) | 27,585 | `aa0e95c1…d75aa` |
+| Contrast checker (machine-checkable) | `carup-contrast-check.py` (S0-corrected: dark soft tints composited onto `#13233D`; failing regression gate) | — | see manifest |
+| Contrast matrix | `rx01b-contrast-matrix.json` / `.csv` (45 shipped pairings, S0-corrected) | — | see manifest |
 | Evidence package | `rx01b-evidence/` — 48 PNG + `INDEX.md` + `capture-index.json` | — | see manifest |
-| Checksum manifest | `RX01B-ICR01-SHA256MANIFEST.txt` — **59 entries, all verify `OK`** (48 captures + 11 non-image artifacts) | — | self-authenticating via `sha256sum -c` |
+| Checksum manifest | `RX01B-ICR01-SHA256MANIFEST.txt` — **60 entries, all verify `OK`** (48 captures + 12 non-image artifacts incl. `VERIFICATION.md`, which shipped in prior bundles but was never manifested; count reconciled in S0-B) | — | self-authenticating via `sha256sum -c` |
 
 ### 1.3 Identity correction (C01 root cause)
 
@@ -44,7 +44,7 @@ The identifier **`2d2e9a5`** used in the RX-01B return is a **platform preview v
 
 - Root cause recorded: version ID vs Git SHA conflation risk (§1.3).
 - **48-capture evidence package** from the corrected source bytes (`rx01b-evidence/`, `INDEX.md`, `capture-index.json`): P01–P28 all screens @390×844; D01–D06 workspace chrome @1440×900; W01–W08 five-width matrix (360/768/1280/1920); S01–S06 data states incl. loading/empty/error, the honest-403 boundary, and the Trade-context gate state.
-- **SHA-256 checksum manifest** over prototype + app copy + all docs + register + checker + matrix + evidence indexes + 48 captures = **59 entries, all verified OK** (`sha256sum -c RX01B-ICR01-SHA256MANIFEST.txt` → 0 failures; entry count reconciled with §1.2).
+- **SHA-256 checksum manifest** over prototype + app copy + all docs + register + checker + matrix + evidence indexes + `VERIFICATION.md` + 48 captures = **60 entries, all verified OK** (`sha256sum -c RX01B-ICR01-SHA256MANIFEST.txt` → 0 failures; entry count reconciled with §1.2).
 - Precise versioning: token doc v1.1 (supersedes v1.0 with a change note); prototype review version `a56e4f3`; older RX-01A preview (`ea13ba5`, 17-screen concept) is **superseded** and was never substituted for RX-01B evidence.
 
 ### C02 — WCAG 2.2 AA contrast failures corrected · CLOSED
@@ -58,8 +58,8 @@ Four failing pairings found by evidence-based audit, corrected, and re-verified:
 | `success` ink | `#15803D` | `#166534` | 4.40:1 | 6.25:1 |
 | `warning` ink | `#B45309` | `#92400E` | 4.46:1 | 6.29:1 |
 
-- **Machine-checkable artifact:** `carup-contrast-check.py` — single source of truth for the shipped palette; recomputes all pairings; exit code 1 on any AA failure. Current run: **39 shipped pairings, 0 failures** (light + dark-body; includes the hard rule that text on `--action-soft` uses `--action-hover` at 6.24:1, and full dark status tokens).
-- Machine-readable matrix: `rx01b-contrast-matrix.{json,csv}` (39 rows).
+- **Machine-checkable artifact:** `carup-contrast-check.py` — single source of truth for the shipped palette; recomputes all pairings; exit code 1 on any AA failure. Current run (S0-corrected): **45 shipped pairings, 0 failures** (22 light + 23 dark-body; dark soft tints alpha-composited onto `#13233D` before measuring; includes the hard rule that light-mode text on `--action-soft` uses `--action-hover` at 6.24:1, and dark-mode text on the dark action-soft keeps full-strength `#FB7A3C` at 4.92:1).
+- Machine-readable matrix: `rx01b-contrast-matrix.{json,csv}` (45 rows).
 - Corrections applied to the prototype CSS and the token doc; evidence captures regenerated afterwards so images match final bytes.
 
 ### C03 — Route-to-shell reconciliation · CLOSED
@@ -75,7 +75,7 @@ Four failing pairings found by evidence-based audit, corrected, and re-verified:
 
 - **Inter shipping set: 400 / 500 / 600 / 700** (self-hosted, 4 files). Display maximum is 700; the prototype's 49 `font-weight:800` declarations were reconciled to 700 (verified 0 remaining). Spec-text/prototype mismatch eliminated.
 - **JetBrains Mono** remains the single reference monospace (no IBM Plex Mono anywhere in prototype or spec).
-- **Dark-surface state tokens finished:** status inks `success #4ADE80`, `warning #FBBF24`, `danger #F87171`, `info #93C5FD`, `neutral #A8B1BE` on rgba-tinted dark soft backgrounds over `#13233D` — every pairing AA-verified (dark status minimum 4.87:1) and included in the checker.
+- **Dark-surface state tokens finished:** status inks `success #4ADE80`, `warning #FBBF24`, `danger #F87171`, `info #93C5FD`, `neutral #A8B1BE` on rgba-tinted dark soft backgrounds over `#13233D` — every pairing AA-verified against the composited opaque tint (soft-tint range 4.87–7.36:1) and included in the checker.
 - **Supported modes clarified** (token doc §1.4): (1) Light everywhere at launch; (2) workspace ink chrome always on — not a dark mode; (3) dark body optional comfort toggle, token-complete but disabled-by-default pending Owner swatch sign-off on `#FB7A3C`; (4) no public dark at launch; forced-colors must not break components.
 
 ### C05 — Acceptance recording · CLOSED
@@ -96,7 +96,7 @@ Four failing pairings found by evidence-based audit, corrected, and re-verified:
 
 **A — Reviewer navigation isolation (NC-11).** The shared dealer workspace rail previously exposed a "Review queue" destination. Corrected: the dealer rail (`RAIL`) now contains only dealer destinations (Today · Stock · Enquiries · Import orders). A separate, dedicated reviewer-only navigation composition (`REVIEWER_RAIL`) renders exclusively inside protected review sessions (queue, claim bench), with the step-up masthead and no organization context. Verified programmatically and visually: dealer rail contains no reviewer destination; the reviewer composition retains Review queue / Dealer claims / Trust reviews / Identity cases; the honest-403 `restricted` boundary is preserved unchanged.
 
-**B — Document consistency.** (1) The prototype's Inter font request ships weights **400/500/600/700 only** — the 800 request is removed, matching the approved specification. (2) The manifest-entry count is reconciled: the closure report and the manifest both state **59 entries** (prototype, app copy, four documents, route register, contrast checker, matrix JSON+CSV, evidence INDEX, capture-index, 48 captures). Affected checksums and screenshots were regenerated; the reviewable preview was re-saved as version `a56e4f3`.
+**B — Document consistency.** (1) The prototype's Inter font request ships weights **400/500/600/700 only** — the 800 request is removed, matching the approved specification. (2) The manifest-entry count is reconciled in S0-B: the closure report, `VERIFICATION.md`, and the manifest all state **60 entries** (prototype, app copy, four documents, route register, contrast checker, matrix JSON+CSV, evidence INDEX, capture-index, `VERIFICATION.md` — which shipped in prior bundles but was never manifested — 48 captures). Affected checksums and screenshots were regenerated; the reviewable preview was re-saved as version `a56e4f3`.
 
 ## 2B. Second final correction — reviewer-context isolation (per Moderator directive, this return)
 
@@ -105,6 +105,18 @@ Four failing pairings found by evidence-based audit, corrected, and re-verified:
 **D — Trade-context gating of the Import orders destination.** The dealer rail destination **Import orders** is now entitlement-filtered by session Trade context (`ctxTrade` gate on the SessionWorkspaceManifest model): it renders only when the session carries authorized Trade context, and disappears — never a dead stub — when absent. Cross-role visibility is not hardcoded into the handoff (NC-05, NC-10). New evidence capture **S06** renders the dealer rail with the destination absent; the rule is recorded in the completion package §5.2 (rule 4).
 
 Only the affected evidence was regenerated (P19, W06) plus the one new gate-evidence capture (S06); all other captures, tokens, route mappings and screens are unchanged in behavior.
+
+## 2C. S0 contrast-methodology correction (per Moderator directive RX02A-LR01 §3, this return)
+
+**Finding (review discussion_r4534685312 on PR #260):** the checker measured dark status inks against `#0B1526` (`dm-ink`) instead of the actual semitransparent status tints composited onto `#13233D` as specified by the token contract.
+
+**Fix (no approved color changed):**
+1. The checker now alpha-composites each dark soft tint — `rgba(status_ink, 0.12)` and `rgba(251,122,60, 0.14)` over `#13233D` — and measures WCAG contrast against the computed opaque result.
+2. Six composited pairings added to the shipped set: five dark status soft tints plus dark action on the dark action-soft tint. Shipped set is now **45 pairings** (was 39).
+3. Composited results: ok 7.03, warn 7.36, danger **4.87**, info 6.76, neutral 5.79, action 4.92 — **all pass AA ≥4.5:1**; the soft-tint minimum is 4.87:1 (danger).
+4. Contract clarification recorded in the token doc: on the dark action-soft tint, full-strength `#FB7A3C` stays mandatory (4.92:1) — the light-mode darker-hover-ink rule does **not** carry to dark (`#9A3412` = 1.78:1 on the dark tint).
+5. **Failing regression added:** weakened danger ink `#E45E5E` on the danger soft tint = **3.89:1, rejected**. The checker exits 0 only if every shipped pairing passes AND every regression pairing fails; a mutated copy with the shipped danger ink weakened to `#E45E5E` exits 1 — the gate demonstrably bites.
+6. Matrices regenerated (JSON/CSV, 45 rows); verification documentation updated; all "39 pairings" count statements corrected to 45.
 
 No other design changes were made.
 
@@ -132,7 +144,7 @@ No other design changes were made.
 | 4 | Interactive prototype (28 screens, corrected) | `carup-rx01a-prototype.html` (review version `a56e4f3`) | Ready for Owner visual gate at 5 widths |
 | 5 | Contrast gate | `carup-contrast-check.py` + matrix JSON/CSV | Ready for CI-04/CI-06 wiring |
 | 6 | Visual evidence (48 captures + index) | `rx01b-evidence/` | Ready |
-| 7 | Integrity manifest | `RX01B-ICR01-SHA256MANIFEST.txt` (59/59 OK) | Ready |
+| 7 | Integrity manifest | `RX01B-ICR01-SHA256MANIFEST.txt` (60/60 OK) | Ready |
 | 8 | Custody | Draft PR #260 (documentation-only, not merged) | Awaiting authorization + independent review |
 
 ---
