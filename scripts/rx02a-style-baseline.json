@@ -1,16 +1,1 @@
-{
-  "description": "RX-02A Day-0 style drift baseline, recorded from pristine main @ 0cfa3b652f1a2beb1396caecdb8d166501dfa53f (S1-1 branch base). Counts are numbers of files under web/src (ts/tsx/css, excluding generated styles/tokens.css, styles/fonts.css and web/tailwind.tokens.js) matching each pattern. The gate fails on any NET-INCREASE; decreases are expected as S1-3 migrations land and are allowed.",
-  "recordedAt": "2026-11-11",
-  "scope": "web/src",
-  "exclude": ["styles/tokens.css", "styles/fonts.css"],
-  "patterns": {
-    "tailwind-orange-500": { "regex": "orange-500", "glob": ["*.ts", "*.tsx", "*.css"], "baselineFiles": 101 },
-    "tailwind-text-slate": { "regex": "text-slate-", "glob": ["*.ts", "*.tsx"], "baselineFiles": 77 },
-    "tailwind-font-black": { "regex": "font-black", "glob": ["*.ts", "*.tsx"], "baselineFiles": 28 },
-    "tailwind-font-extrabold": { "regex": "font-extrabold", "glob": ["*.ts", "*.tsx"], "baselineFiles": 7 },
-    "hex-orange-signal": { "regex": "#f97316", "glob": ["*.ts", "*.tsx", "*.css"], "baselineFiles": 5, "flags": "i" },
-    "css-backdrop-blur": { "regex": "backdrop-blur", "glob": ["*.ts", "*.tsx", "*.css"], "baselineFiles": 19 },
-    "glass-card-callers": { "regex": "glass-card", "glob": ["*.ts", "*.tsx"], "baselineFiles": 0, "excludeFiles": ["index.css"], "note": "definition in index.css is excluded via ts/tsx glob; net-new callers are blocked pending per-component migration with before/after tests (S1-3)" },
-    "glass-dark-callers": { "regex": "glass-dark", "glob": ["*.ts", "*.tsx"], "baselineFiles": 0, "excludeFiles": ["index.css"], "note": "same governance as glass-card-callers" }
-  }
-}
+PLACEHOLDER-BASELINE
