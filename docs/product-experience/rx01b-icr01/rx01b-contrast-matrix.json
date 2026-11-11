@@ -388,5 +388,65 @@
   "ratio": 8.44,
   "wcag_aa_normal": true,
   "wcag_aa_large": true
+ },
+ {
+  "mode": "dark-body",
+  "foreground": "dm-ok",
+  "fg_hex": "#4ADE80",
+  "background": "dm-ok-soft",
+  "bg_hex": "#1A3945",
+  "ratio": 7.03,
+  "wcag_aa_normal": true,
+  "wcag_aa_large": true
+ },
+ {
+  "mode": "dark-body",
+  "foreground": "dm-warn",
+  "fg_hex": "#FBBF24",
+  "background": "dm-warn-soft",
+  "bg_hex": "#2F363A",
+  "ratio": 7.36,
+  "wcag_aa_normal": true,
+  "wcag_aa_large": true
+ },
+ {
+  "mode": "dark-body",
+  "foreground": "dm-danger",
+  "fg_hex": "#F87171",
+  "background": "dm-danger-soft",
+  "bg_hex": "#2E2C43",
+  "ratio": 4.87,
+  "wcag_aa_normal": true,
+  "wcag_aa_large": true
+ },
+ {
+  "mode": "dark-body",
+  "foreground": "dm-info",
+  "fg_hex": "#93C5FD",
+  "background": "dm-info-soft",
+  "bg_hex": "#223654",
+  "ratio": 6.76,
+  "wcag_aa_normal": true,
+  "wcag_aa_large": true
+ },
+ {
+  "mode": "dark-body",
+  "foreground": "dm-neutral",
+  "fg_hex": "#A8B1BE",
+  "background": "dm-neutral-soft",
+  "bg_hex": "#25344C",
+  "ratio": 5.79,
+  "wcag_aa_normal": true,
+  "wcag_aa_large": true
+ },
+ {
+  "mode": "dark-body",
+  "foreground": "dm-action",
+  "fg_hex": "#FB7A3C",
+  "background": "dm-action-soft",
+  "bg_hex": "#332F3D",
+  "ratio": 4.92,
+  "wcag_aa_normal": true,
+  "wcag_aa_large": true
  }
 ]

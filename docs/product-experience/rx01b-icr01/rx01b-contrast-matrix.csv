@@ -38,3 +38,9 @@ dark-body,dm-warn,#FBBF24,dm-ink,#0B1526,10.94,True,True
 dark-body,dm-danger,#F87171,dm-ink,#0B1526,6.6,True,True
 dark-body,dm-info,#93C5FD,dm-ink,#0B1526,10.13,True,True
 dark-body,dm-neutral,#A8B1BE,dm-ink,#0B1526,8.44,True,True
+dark-body,dm-ok,#4ADE80,dm-ok-soft,#1A3945,7.03,True,True
+dark-body,dm-warn,#FBBF24,dm-warn-soft,#2F363A,7.36,True,True
+dark-body,dm-danger,#F87171,dm-danger-soft,#2E2C43,4.87,True,True
+dark-body,dm-info,#93C5FD,dm-info-soft,#223654,6.76,True,True
+dark-body,dm-neutral,#A8B1BE,dm-neutral-soft,#25344C,5.79,True,True
+dark-body,dm-action,#FB7A3C,dm-action-soft,#332F3D,4.92,True,True
