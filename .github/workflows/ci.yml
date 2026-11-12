@@ -39,7 +39,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm ci
 
       # BLOCKING gate: fail on ANY net-new lint error/warning vs the base branch.
       # `main` carries historical lint debt, so a plain `eslint .` zero-error gate is impossible;
@@ -69,6 +69,14 @@ jobs:
       # Everything below runs AFTER the regression gate.
       - name: Web typecheck
         run: npx tsc --noEmit --project web/tsconfig.app.json
+
+      # RX-02A S1-1 BLOCKING guards: token drift + schema, contract tests, per-path style ratchet.
+      # Strict dependency installation is enforced above; none of these guards are advisory.
+      - name: RX-02A S1-1 token guardrails (blocking)
+        run: |
+          npm run tokens:check
+          npm run test:tokens
+          npm run gate:style-ratchet
 
       - name: Lint inventory (advisory — full-repo debt, non-blocking)
         run: npm run lint || true
