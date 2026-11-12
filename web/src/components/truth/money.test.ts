@@ -36,20 +36,39 @@ describe('formatMoney (MoneyDisplay authority)', () => {
   })
 
   it.each([
-    ['unknown currency code', 100, 'EUR'],
-    ['null currency', 100, null],
-    ['undefined currency', 100, undefined],
-    ['non-string currency', 100, 42],
-  ])('unsupported-currency state for %s — amount preserved, differentiated from missing', (_name, amount, currency) => {
-    const result = formatMoney(amount, currency)
-    expect(result).toEqual({ kind: 'unsupported-currency', amountText: '100' })
+    ['EUR', 'EUR'],
+    ['eur (case-insensitive)', 'eur'],
+    ['JPY', 'JPY'],
+  ])('recorded-but-unsupported currency %s — amount preserved with the verbatim code', (_name, raw) => {
+    expect(formatMoney(100, raw)).toEqual({ kind: 'unsupported-currency', amountText: '100', code: raw.trim().toUpperCase() })
   })
 
-  it('an absent amount and an unsupported currency are DIFFERENT states — never conflated', () => {
+  it.each([
+    ['null currency', null],
+    ['undefined currency', undefined],
+    ['blank currency', ''],
+    ['whitespace currency', '   '],
+    ['non-string currency', 42],
+  ])('unrecorded currency (%s) with a finite amount — amount preserved, currency "not recorded"', (_name, currency) => {
+    expect(formatMoney(100, currency)).toEqual({ kind: 'currency-not-recorded', amountText: '100' })
+  })
+
+  it('currency provenance is three-way distinct — supported / recorded-unsupported / unrecorded / missing — never conflated', () => {
+    expect(formatMoney(500, 'USD')).toEqual({ kind: 'value', amountText: '$500', currency: 'USD' })
+    expect(formatMoney(500, 'EUR')).toEqual({ kind: 'unsupported-currency', amountText: '500', code: 'EUR' })
+    expect(formatMoney(500, null)).toEqual({ kind: 'currency-not-recorded', amountText: '500' })
     expect(formatMoney(null, 'EUR')).toEqual({ kind: 'missing' })
-    expect(formatMoney(500, 'EUR')).toEqual({ kind: 'unsupported-currency', amountText: '500' })
-    // The amount IS present in the unsupported-currency case; it must not be reported as absent.
     expect(formatMoney(500, 'EUR')).not.toEqual({ kind: 'missing' })
+    expect(formatMoney(500, 'EUR')).not.toEqual({ kind: 'currency-not-recorded', amountText: '500' })
+  })
+
+  it('no conversion or invented value: an unsupported currency never produces a converted figure', () => {
+    const result = formatMoney(500, 'EUR')
+    // Only the recorded amount may appear; no FX-derived figure is invented.
+    if (result.kind === 'unsupported-currency') {
+      expect(result.amountText).toBe('500')
+      expect(result.code).toBe('EUR')
+    }
   })
 
   it('normalizeCurrency rejects non-strings and unknown codes', () => {

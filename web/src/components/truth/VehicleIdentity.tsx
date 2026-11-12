@@ -6,22 +6,25 @@ import { cn } from '@/lib/utils'
  * Variants: card | row | header.
  * Missing fields render an explicit "Not recorded" placeholder — never fabricated.
  *
- * R1-03 — exposure projection (MP01 FP-02 / RX-01B Passport governance):
- *  - 'workspace' (default): authenticated/authorized surfaces — the full identity,
- *    including the raw VIN when provided.
- *  - 'public': Marketplace / Vehicle Detail style surfaces. The VIN is WITHHELD
- *    entirely (labelled "Restricted") — it is never masked, truncated or partially
- *    revealed, and no client-side algorithm invents a derivative of it.
+ * R1-03 / R2-02 — exposure projection (MP01 FP-02 / RX-01B Passport governance):
+ *  - 'public' (DEFAULT): Marketplace / Vehicle Detail style surfaces. The VIN is
+ *    WITHHELD entirely (labelled "Restricted") — it is never masked, truncated or
+ *    partially revealed, and no client-side algorithm invents a derivative of it.
+ *    Public-safe rendering is the default so an omitted prop can never leak identity.
+ *  - 'workspace': authenticated/authorized surfaces — the FULL identity, including
+ *    the raw VIN when provided. Requires an EXPLICIT opt-in; a bare <VehicleIdentity>
+ *    never prints the VIN.
  *  - This prop selects a DISPLAY PROJECTION ONLY. It is not access control:
- *    authorization remains server-side, and the public API must not deliver the
- *    raw VIN for public contexts in the first place. Negative tests enforce that
- *    the raw VIN can never appear in public exposure, even if one is passed.
+ *    authorization remains server-side (authoritative), and the public API must not
+ *    deliver the raw VIN for public contexts in the first place. Negative tests
+ *    enforce that the raw VIN can never appear outside explicit workspace exposure,
+ *    even if one is passed.
  */
 export interface VehicleIdentityProps {
   /** Display title, e.g. "Toyota Hilux 2.8 GD-6 Raider". */
   title: string
   variant?: 'card' | 'row' | 'header'
-  /** Display projection: 'workspace' (full identity) or 'public' (VIN withheld). */
+  /** Display projection: 'public' (default — VIN withheld) or 'workspace' (full identity, explicit opt-in). */
   exposure?: 'workspace' | 'public'
   vin?: string | null
   year?: number | null
@@ -44,7 +47,7 @@ function Missing({ testId }: { testId?: string }) {
 export function VehicleIdentity({
   title,
   variant = 'card',
-  exposure = 'workspace',
+  exposure = 'public',
   vin = null,
   year = null,
   mileageKm = null,
@@ -53,16 +56,19 @@ export function VehicleIdentity({
   thumbnailAlt,
   className,
 }: VehicleIdentityProps) {
-  // R1-03: public exposure withholds the VIN entirely — never masked, never derived.
+  // R1-03 / R2-02: anything that is not an explicit workspace exposure withholds
+  // the VIN entirely — never masked, never derived.
   const vinNode =
-    exposure === 'public' ? (
+    exposure === 'workspace' ? (
+      vin ? (
+        <span className="font-mono text-[12px]">{vin}</span>
+      ) : (
+        <Missing testId="identity-vin-missing" />
+      )
+    ) : (
       <span data-testid="identity-vin-restricted" className="italic text-carup-text-3">
         Restricted
       </span>
-    ) : vin ? (
-      <span className="font-mono text-[12px]">{vin}</span>
-    ) : (
-      <Missing testId="identity-vin-missing" />
     )
   const facts: Array<{ label: string; node: React.ReactNode; testId?: string }> = [
     { label: 'Year', node: year != null ? year : <Missing testId="identity-year-missing" />, testId: 'identity-year' },

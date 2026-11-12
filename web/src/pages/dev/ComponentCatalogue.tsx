@@ -69,12 +69,22 @@ export default function ComponentCatalogue() {
           <Row label="Missing amount">
             <MoneyDisplay amount={null} currency="USD" source="asking" />
           </Row>
-          <Row label="Unsupported currency (EUR) — amount shown, currency flagged">
+          <Row label="Unsupported currency (EUR) — amount + recorded code shown">
             <MoneyDisplay amount={500} currency="EUR" />
+          </Row>
+          <Row label="Unrecorded currency (null) — amount shown, currency not recorded">
+            <MoneyDisplay amount={500} currency={null} />
           </Row>
         </Section>
 
-        <Section title="VehicleIdentity — card / row / header · workspace vs public exposure">
+        <Section title="VehicleIdentity — card / row / header · public (default) vs explicit workspace">
+          <p className="text-[12px] italic text-carup-text-3">
+            DEFAULT is public-safe (MP01 FP-02 / RX-01B Passport): the VIN is withheld entirely — labelled
+            &quot;Restricted&quot;, never masked or derived — and the same applies to a bare{' '}
+            <code>&lt;VehicleIdentity&gt;</code> with no props. The full identity (raw VIN) renders only with an explicit{' '}
+            <code>exposure=&quot;workspace&quot;</code> opt-in on authenticated surfaces; server authorization remains
+            authoritative.
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <VehicleIdentity {...VEHICLE} variant="card" />
             <div className="space-y-0">
@@ -83,18 +93,17 @@ export default function ComponentCatalogue() {
             </div>
           </div>
           <VehicleIdentity {...VEHICLE} variant="header" className="mt-4" />
-          <VehicleIdentity title="Ford Ranger 2.0 BiT XLT (partial record)" variant="card" className="mt-4" />
-          <p className="text-[12px] italic text-carup-text-3">
-            Public exposure (MP01 FP-02): the same identity with <code>exposure=&quot;public&quot;</code> — the VIN is
-            withheld entirely (labelled &quot;Restricted&quot;), never masked or derived. Authorization stays server-side.
+          <p className="text-[12px] font-medium text-carup-text-3">
+            Explicit workspace exposure (full identity — authorized surfaces only):
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
-            <VehicleIdentity {...VEHICLE} variant="card" exposure="public" />
+            <VehicleIdentity {...VEHICLE} variant="card" exposure="workspace" />
             <div className="space-y-0">
-              <VehicleIdentity {...VEHICLE} variant="row" exposure="public" />
-              <VehicleIdentity {...VEHICLE} variant="header" exposure="public" />
+              <VehicleIdentity {...VEHICLE} variant="row" exposure="workspace" />
+              <VehicleIdentity title="Ford Ranger 2.0 BiT XLT (partial record)" variant="row" exposure="workspace" />
             </div>
           </div>
+          <VehicleIdentity {...VEHICLE} variant="header" exposure="workspace" className="mt-4" />
         </Section>
 
         <Section title="DataState — loading / empty / error / forbidden / not-measured / unavailable">

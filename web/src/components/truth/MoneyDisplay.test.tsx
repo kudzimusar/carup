@@ -32,11 +32,21 @@ describe('MoneyDisplay', () => {
     expect(screen.queryByTestId('money-value')).toBeNull()
   })
 
-  it('unsupported currency ≠ missing amount — the amount stays visible, only the currency is flagged — R1-01', () => {
+  it('recorded-but-unsupported currency (EUR): amount stays visible with the verbatim code, flagged unsupported — R2-01', () => {
     render(<MoneyDisplay amount={500} currency="EUR" />)
-    // The amount IS present: it must not be misrepresented as "Not recorded".
+    // The amount IS present: it must not be misrepresented as "Not recorded",
+    // and the recorded code EUR is shown verbatim — never converted.
+    expect(screen.getByTestId('money-value')).toHaveTextContent('500')
+    expect(screen.getByTestId('money-currency-unsupported')).toHaveTextContent('Unsupported currency: EUR')
+    expect(screen.queryByTestId('money-missing')).toBeNull()
+    expect(screen.queryByTestId('money-currency-missing')).toBeNull()
+  })
+
+  it('unrecorded currency (null): amount stays visible, "Currency not recorded" — distinct from the unsupported state — R2-01', () => {
+    render(<MoneyDisplay amount={500} currency={null} />)
     expect(screen.getByTestId('money-value')).toHaveTextContent('500')
     expect(screen.getByTestId('money-currency-missing')).toHaveTextContent('Currency not recorded')
+    expect(screen.queryByTestId('money-currency-unsupported')).toBeNull()
     expect(screen.queryByTestId('money-missing')).toBeNull()
   })
 
