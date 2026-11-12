@@ -1,0 +1,205 @@
+{
+  "standard_id": "11-11-GM-GC-001",
+  "standard_version": "1.0.0",
+  "standard_candidate_sha": "3225760aa91a238cda9be52af8cadd205db0da8c",
+  "standard_adoption_state": "DRAFT_GLOBAL_NOT_ADOPTED_IN_CARUP",
+  "programme_id": "CARUP-UX-REBUILD-01",
+  "handoff_id": "CARUP-MOD-HANDOFF-2026-11-13-UX-REBUILD-03",
+  "as_of": "2026-11-13T07:26:00+09:00",
+  "verified_at": "2026-11-13T07:26:00+09:00",
+  "source_reference": "https://github.com/kudzimusar/carup/issues/261",
+  "storage_status": "PR_PENDING",
+  "source_file": "docs/product-experience/handoffs/CARUP-MOD-HANDOFF-2026-11-13-UX-REBUILD-03.md",
+  "main_sha": "8bc00bd75f5285997065872514d10db8fbecd24f",
+  "last_accepted_sha": "8bc00bd75f5285997065872514d10db8fbecd24f",
+  "baseline_tasks": null,
+  "accepted_tasks": null,
+  "acceptance_percent": null,
+  "progress_note": "NOT_BASELINED for RX-00–RX-09; do not calculate programme percent. Scoped S1-1 merged; S1-2/3 independently approved unmerged; S1-4A candidate awaiting review. Not product completion.",
+  "current_gate": {
+    "name": "RX02A-S1-2-REQUIRED-CHECK-RULESET-AND-MERGE",
+    "status": "BLOCKED_ENVIRONMENT",
+    "evidence": "https://github.com/kudzimusar/carup/issues/261#issuecomment-6825423882"
+  },
+  "main_ruleset": {
+    "id": 20850554,
+    "name": "Protect main",
+    "enforcement": "active",
+    "required_present": [
+      "Lint · Types · Build · Tests",
+      "Secret scan"
+    ],
+    "required_missing": [
+      "Web Vitest · JUnit",
+      "CI-04 gate regression tests",
+      "CI-04 contrast ratchet (Playwright + axe)"
+    ],
+    "integration_id": 15368,
+    "update_permission": "NOT_AVAILABLE_IN_MODERATOR_CONNECTOR",
+    "owner_authorized": true,
+    "merge_authorized_pr": 263
+  },
+  "active_prs": [
+    {
+      "task_id": "RX02A-S1-2",
+      "ref": "https://github.com/kudzimusar/carup/pull/263",
+      "head_sha": "4122a8f6d391c3e1912191fc45620d3cf232f2f4",
+      "base_sha": "8bc00bd75f5285997065872514d10db8fbecd24f",
+      "state": "DRAFT_OPEN_UNMERGED",
+      "engineering": "INDEPENDENT_APPROVE",
+      "ci": {
+        "success": 15,
+        "skipped": 3,
+        "failure": 0
+      },
+      "gate": "REQUIRED_RULESET_WRITE_AND_GUARDED_MERGE"
+    },
+    {
+      "task_id": "RX02A-S1-3",
+      "ref": "https://github.com/kudzimusar/carup/pull/264",
+      "head_sha": "9bcff2f2a76511f238c27a63b4c4e167571e274f",
+      "base_sha": "8bc00bd75f5285997065872514d10db8fbecd24f",
+      "state": "DRAFT_OPEN_UNMERGED",
+      "engineering": "INDEPENDENT_APPROVE",
+      "ci": {
+        "success": 14,
+        "skipped": 3,
+        "failure": 0
+      },
+      "gate": "MERGE_AUTH_NOT_GRANTED;TRUTH_PRIVACY;INTEGRATE_AFTER_263"
+    },
+    {
+      "task_id": "BA-WEB-01-MP01-v0.9.3",
+      "ref": "https://github.com/kudzimusar/carup/pull/265",
+      "head_sha": "f33252654aeb92a91fb6a78416a979b9b0904b5e",
+      "base_sha": "8bc00bd75f5285997065872514d10db8fbecd24f",
+      "state": "DRAFT_OPEN_UNMERGED",
+      "review": "PENDING",
+      "owner_design": "OPTION_5_SLEEK_PREMIUM_APPROVED_AS_DIRECTION",
+      "asset_verification": "FILE_LEVEL_PENDING"
+    },
+    {
+      "task_id": "RX02-S1-4A-LR01",
+      "ref": "https://github.com/kudzimusar/carup/pull/266",
+      "head_sha": "17c682116893620e97ab3428e488acb493104e24",
+      "base_sha": "8bc00bd75f5285997065872514d10db8fbecd24f",
+      "state": "DRAFT_OPEN_UNMERGED",
+      "review": "NONE_AT_SNAPSHOT",
+      "ci": {
+        "success": 12,
+        "skipped": 3,
+        "in_progress": 2,
+        "failure": 0
+      },
+      "visuals": "44 screenshots claimed by Kimi, independent review pending",
+      "allowed_scope": "DEV_ONLY_ISOLATED_PROTOTYPE"
+    }
+  ],
+  "agent_assignments": [
+    {
+      "role": "authorized GitHub settings + merge engineer",
+      "identity": "role dispatched; actual operator not independently confirmed for execution",
+      "task_id": "RX02A-S1-2-MERGE-GATE-CLOSE",
+      "state": "BLOCKED_CAPABILITY",
+      "reviewer": "@11-eleven-skm",
+      "next_action": "Use admin-capable GitHub ruleset write; verify five required contexts; conditionally merge PR263 only"
+    },
+    {
+      "role": "Kimi — primary UX implementer",
+      "identity": "Kimi",
+      "task_id": "RX02-S1-4A-LR01",
+      "state": "CANDIDATE_SUBMITTED_PR266",
+      "reviewer": "@11-eleven-skm",
+      "next_action": "Freeze branch for independent review; only bounded remediation if evidenced; NO S1-4B"
+    },
+    {
+      "role": "Independent reviewer",
+      "identity": "@11-eleven-skm",
+      "task_id": "RX02-S1-4A; MP01-v0.9.3",
+      "state": "REQUESTED_OR_PENDING; NO_APPROVAL_ON_265_266",
+      "reviewer": "SEPARATE_IF_AUTHOR",
+      "next_action": "Check #266 15-file exact source, CI, visual proof; #265 docs"
+    },
+    {
+      "role": "Truth authority",
+      "identity": "NOT_ASSIGNED",
+      "task_id": "S1-3 TrustLens backend semantics",
+      "state": "PENDING",
+      "next_action": "Confirm source-count/freshness/evaluation mapping against server"
+    },
+    {
+      "role": "Privacy/Auth authority",
+      "identity": "NOT_ASSIGNED",
+      "task_id": "S1-3 public VIN payload and S1-4B context",
+      "state": "PENDING",
+      "next_action": "Verify server public projection, protected role/tenant/reviewer"
+    },
+    {
+      "role": "CarUp brand specialist",
+      "identity": "existing CARUP-UX-BRAND-ASSET-01 specialist",
+      "task_id": "BA-WEB-01 OPTION5",
+      "state": "DIRECTION_SELECTED_ASSETS_UNVERIFIED",
+      "reviewer": "Owner and independent asset QA",
+      "next_action": "Source-file evidence, vector derivative, checksums, contact sheet, Drive readback and Owner file-level PASS"
+    }
+  ],
+  "blockers": [
+    {
+      "classification": "ENVIRONMENT",
+      "description": "GitHub connector cannot PATCH/PUT ruleset 20850554; last verified two required contexts",
+      "resolver": "repo-admin-capable operator",
+      "unblock": "five-context live readback, then guarded PR263 merge"
+    },
+    {
+      "classification": "RELEASE_GATE",
+      "description": "PR266 two CI checks pending and no independent reviewer decision",
+      "resolver": "@11-eleven-skm",
+      "unblock": "exact-head completion + technical/visual review"
+    },
+    {
+      "classification": "OWNER_POLICY",
+      "description": "No owner permission to merge PR264/265/266 or activate S1-4B/RX-03",
+      "resolver": "Owner",
+      "unblock": "scope-specific authorization after evidence"
+    },
+    {
+      "classification": "SECURITY",
+      "description": "TruthLens server semantics and public VIN projection/role-tenant context authority pending",
+      "resolver": "Truth/Privacy authority",
+      "unblock": "evidence-backed confirmations"
+    },
+    {
+      "classification": "LEGAL/LICENCE",
+      "description": "Option5 vector/source files not byte-verified by Moderator and derived assets not individually approved",
+      "resolver": "Brand specialist + Owner",
+      "unblock": "source hashes, rights, verified exports and owner visual PASS"
+    }
+  ],
+  "next_action": "Assign settings-capable authorized Github admin to update ruleset ID 20850554 (add 3 exact required checks, preserve original 2/other settings) and conditionally merge PR263 with merge commit expected-head guard, then verify new main.",
+  "secondary_actions": [
+    "independently review Draft PR266 before S1-4B",
+    "coordinate Truth and Privacy signoffs for PR264 eventual consumption",
+    "request exact original Option 5 logo board IDs/files/hash and first-wave BA01-05 artwork",
+    "review PR265 docs and update OD18 through controlled change"
+  ],
+  "restrictions": [
+    "No merge PR264/265/266",
+    "No S1-4B or RX-03 route cutover without new Owner authority",
+    "No Production/staging deployment or shared DB/schema writes",
+    "No payment/financial/provider operations or dealer auto-publication",
+    "No client-side authorization bypass",
+    "No invented logos, listing images, verified trust claims or private Drive IDs in public documents",
+    "No duplicate source writers/no redoing accepted research"
+  ],
+  "receiving_moderator_instruction": "Reverify all live refs on takeover; state accepted main, PR #263/#264/#265/#266, ruleset gate, agent roster, honest NOT_BASELINED progress, first action; preserve accepted work; produce next preventive full handoff and checkpoint proactively.",
+  "evidence_links": [
+    "https://github.com/kudzimusar/carup/issues/261",
+    "https://github.com/kudzimusar/carup/pull/263",
+    "https://github.com/kudzimusar/carup/pull/264",
+    "https://github.com/kudzimusar/carup/pull/265",
+    "https://github.com/kudzimusar/carup/pull/266",
+    "https://github.com/kudzimusar/carup/issues/261#issuecomment-6825423882",
+    "https://github.com/kudzimusar/carup/pull/265#issuecomment-6825600450",
+    "https://github.com/kudzimusar/11-11-tech/pull/16"
+  ]
+}
