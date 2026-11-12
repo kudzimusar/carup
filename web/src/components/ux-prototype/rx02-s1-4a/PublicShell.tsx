@@ -4,8 +4,10 @@
  * Public showroom chrome: ink masthead with reserved logo slot, manifest-
  * projected mega-menus and direct links, search + account/workspace entry,
  * mobile drawer (focus-trapped) and a 5-slot mobile bottom tab bar, plus the
- * projected public footer (desktop only). All navigation is projected from
- * navigationManifest.ts / featureRegistry.ts — nothing is hand-written.
+ * projected public footer at EVERY viewport (R1-01: stacked single column on
+ * mobile/tablet clearing the fixed tab bar, 5-column grid at lg). All
+ * navigation is projected from navigationManifest.ts / featureRegistry.ts —
+ * nothing is hand-written.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -404,12 +406,15 @@ export function PublicShell({
         </div>
       </main>
 
-      {/* Public marketing footer — desktop only (mobile uses the bottom tab bar) */}
+      {/* Public marketing footer — ALL viewports (R1-01): stacked single column on
+          mobile/tablet, 5-column grid at lg. Below lg the fixed 5-item bottom tab
+          bar is a separate surface; the footer clears it (pb-24) and the iOS
+          safe-area so legal/support links stay reachable, never obscured. */}
       <footer
-        className="hidden border-t border-carup-line bg-carup-bg-raised lg:block"
+        className="border-t border-carup-line bg-carup-bg-raised pb-24 lg:pb-0"
         data-testid="shell-public-footer"
       >
-        <div className="mx-auto grid max-w-[1440px] grid-cols-5 gap-6 px-6 py-10">
+        <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-8 px-4 py-8 sm:grid-cols-2 lg:grid-cols-5 lg:gap-6 lg:px-6 lg:py-10">
           <div>
             <BrandMark slot="public-footer" tone="light" />
             <p className="mt-3 text-xs text-carup-text-3">
@@ -444,9 +449,9 @@ export function PublicShell({
           ))}
         </div>
         <div className="border-t border-carup-line">
-          <div className="mx-auto flex max-w-[1440px] items-center justify-between px-6 py-4">
+          <div className="mx-auto flex max-w-[1440px] flex-col items-start gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between lg:px-6">
             <p className="text-xs text-carup-text-3">© 2026 CarUp (prototype footer — fictional)</p>
-            <ul className="flex items-center gap-2">
+            <ul className="flex flex-wrap items-center gap-2">
               {social.map(s =>
                 s.state === 'planned' ? (
                   <li key={s.id}>

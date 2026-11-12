@@ -59,7 +59,7 @@ npm run dev        # web workspace
 | `web/src/components/ux-prototype/rx02-s1-4a/FocusedShell.tsx` | FocusedShell prototype |
 | `web/src/components/ux-prototype/rx02-s1-4a/pathUtils.ts` | Shared path matching |
 | `web/src/components/ux-prototype/rx02-s1-4a/index.ts` | Barrel exports |
-| `web/src/components/ux-prototype/rx02-s1-4a/shellPrototype.test.tsx` | 25 prototype tests |
+| `web/src/components/ux-prototype/rx02-s1-4a/shellPrototype.test.tsx` | 26 prototype tests |
 | `web/src/pages/dev/Rx02S14ShellPrototype.tsx` | DEV-only showcase page (scenario controls, journey strip, route explorer) |
 | `web/src/App.tsx` | MINIMAL DEV-only route registration (the only existing runtime file edited) |
 | `docs/product-experience/RX02_S1_4A_SHELL_PROTOTYPE.md` | This document |
@@ -81,7 +81,9 @@ npm run dev        # web workspace
 - Mobile: focus-trapped drawer (Escape closes and returns focus; Tab cycles),
   5-slot bottom tab bar with `env(safe-area-inset-bottom)` padding and
   `scroll-padding-bottom`, exactly one `aria-current` item.
-- Projected public footer (desktop only); social links are planned and render
+- Projected public footer at **every viewport** (R1-01 remediation): stacked
+  single column at 360/390/768 clearing the fixed bottom tab bar (`pb-24` +
+  iOS safe area), 5-column grid at lg; social links are planned and render
   disabled per the manifest contract.
 
 ### 3.2 WorkspaceShell
@@ -218,13 +220,47 @@ references, journey strip and the route explorer.
 - **Journey strip:** Home → Marketplace → Vehicle detail → My CarUp → Dealer →
   Independent reviewer (reference), `aria-current="step"` present.
 
+### 8.1 R1-01 footer remediation appendix (2026-11-13)
+
+Moderator disposition R1 (PR #266 review): the public footer was gated
+`hidden lg:block`, hiding company/resources/legal/support navigation at
+360/390/768 — corrected in `PublicShell.tsx` (single bounded commit). The
+footer now renders at **360/390/768/1280/1920** (stacked single column →
+`sm:grid-cols-2` → `lg:grid-cols-5`), keeps the manifest-projected columns,
+"Soon" states and text brand fallback, and clears the fixed 5-item bottom tab
+bar (`pb-24 lg:pb-0` + safe-area) so legal/support links are never obscured.
+
+- **New captures (scrolled-to-footer viewport + full-element):**
+  `r1-footer-mobile-360.png`, `r1-footer-mobile-390.png`,
+  `r1-footer-tablet-768.png`, `r1-footer-desktop-1280.png`,
+  `r1-footer-desktop-1920.png` (+ `r1-footer-full-*` element frames showing the
+  complete stacked footer incl. legal row and planned social chips, and
+  `r1-masthead-brand-dark-360.png` for the dark ink-chrome brand location).
+- **Computed-style checks (Playwright, chromium):** footer computed `display`
+  is `block` (never `none`) and `visibility` `visible` with non-zero height at
+  360/390/768/1280/1920; with the footer scrolled to the viewport bottom, the
+  legal row bottom sits at 704px vs. the fixed bar top at 731px (27px clear;
+  bar correctly `display:none` at ≥lg); legal row fully inside the viewport at
+  every width; footer links are keyboard-focusable with a visible focus ring.
+- **Re-run gates on the corrected tree:** overflow scan 0 failures (44+5
+  frames), axe-core 0 violations, keyboard checks pass, tsc clean,
+  prototype tests 26/26, full web suite 171 files / 1630 tests pass,
+  production build succeeds with **no prototype payload in `dist`** (grep
+  evidence: neither the DEV route string nor fixture text ships).
+- **Brand slot:** unchanged reserved slot, `data-brand-fallback="text-wordmark"`;
+  `BrandAssetSlot.tone` reserves `'ink'` for a future dark-footer variant —
+  no invented Option 5 artwork, no palette change.
+
 ## 9. Test evidence
 
 - `npx tsc --noEmit --project web/tsconfig.app.json` — clean.
-- Prototype tests: **25/25** (map fidelity incl. CSV cross-check and 8
+- Prototype tests: **26/26** (map fidelity incl. CSV cross-check and 8
   reviewer-isolated rows, projection truthfulness, per-shell contract
-  guarantees, adapter truthfulness).
-- Full web suite: **171 files / 1630 tests, all pass** (unchanged vs base).
+  guarantees, adapter truthfulness, **R1-01 public-footer viewport
+  guarantees**: footer never gated `hidden`, clears the fixed bottom bar,
+  manifest-projected legal/support links in the DOM at every width, brand
+  slot with text fallback).
+- Full web suite: **171 files / 1631 tests, all pass** (base 1630 + 1 net new).
 - `npm run build` — succeeds; production bundle contains no prototype route
   (DEV-gated at compile time).
 - Lint baseline gate: **NET_NEW_ERRORS=0, NET_NEW_WARNINGS=0**.

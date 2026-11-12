@@ -173,13 +173,55 @@ describe('PublicShell', () => {
     expect(screen.queryByTestId('shell-mobile-drawer')).toBeNull()
   })
 
-  it('renders the projected public footer (desktop only)', () => {
+  it('renders the projected public footer at EVERY viewport (R1-01: never desktop-only)', () => {
     render(
       <MemoryRouter>
         <PublicShell context={GUEST_PUBLIC_CONTEXT}>{null}</PublicShell>
       </MemoryRouter>,
     )
-    expect(screen.getByTestId('shell-public-footer')).toBeDefined()
+    const footer = screen.getByTestId('shell-public-footer')
+    // Must not be display:none at 360/390/768: no hidden / lg:block gate (R1-01).
+    expect(footer.className).not.toMatch(/(^|\s)hidden(\s|$)/)
+    expect(footer.className).not.toMatch(/lg:block/)
+    // Below lg the footer clears the fixed 5-item bottom tab bar (60px + safe
+    // area) so legal/support links stay reachable and are never obscured.
+    expect(footer.className).toMatch(/pb-24/)
+    expect(footer.className).toMatch(/lg:pb-0/)
+    // Manifest-projected columns with truthful Soon states, rendered as
+    // accessible navigation landmarks.
+    const colNavs = within(footer).getAllByRole('navigation', { name: /^Footer — / })
+    expect(colNavs).toHaveLength(projectFooterColumns(GUEST_CTX).length)
+    expect(footer.textContent).toMatch(/© 2026/)
+    // Legal/support links (manifest-projected) stay in the DOM at every width;
+    // truthful Soon states are preserved — planned items would render as
+    // non-navigating chips (currently all projected footer items are active).
+    expect(footer.textContent).toMatch(/Privacy/i)
+    expect(footer.textContent).toMatch(/Terms/i)
+    // Legal/support links stay in the DOM at every width.
+    expect(within(footer).getAllByRole('link').length).toBeGreaterThanOrEqual(8)
+    // Reserved brand slot with text fallback on the current light footer; the
+    // BrandAssetSlot contract reserves an 'ink' tone for a future dark-footer
+    // variant — no invented Option 5 artwork.
+    const brand = footer.querySelector('[data-brand-slot="public-footer"]')
+    expect(brand).not.toBeNull()
+    expect(brand!.getAttribute('data-brand-fallback')).toBe('text-wordmark')
+  })
+
+  it('keeps the fixed bottom tab bar a SEPARATE surface from the footer (R1-01)', () => {
+    render(
+      <MemoryRouter>
+        <PublicShell context={GUEST_PUBLIC_CONTEXT}>{null}</PublicShell>
+      </MemoryRouter>,
+    )
+    const bar = screen.getByTestId('shell-public-bottom-nav')
+    const footer = screen.getByTestId('shell-public-footer')
+    // Distinct elements; the bar is the only fixed surface.
+    expect(bar).not.toBe(footer)
+    expect(bar.className).toMatch(/fixed/)
+    expect(footer.className).not.toMatch(/(^|\s)fixed(\s|$)/)
+    // Bar remains mobile-only; footer remains at every width.
+    expect(bar.className).toMatch(/lg:hidden/)
+    expect(footer.className).not.toMatch(/hidden/)
   })
 })
 
