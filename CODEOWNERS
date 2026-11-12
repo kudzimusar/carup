@@ -1,0 +1,22 @@
+# RX-02A presentation lane — verified ownership (MP01 §9.1 change control).
+# The presentation lane owns the design-token contract, the truth components and
+# the design documentation. Domain teams consume these surfaces; they do not
+# extend them visually without a catalogue change approved here.
+
+# Design-token contract (single machine-checkable source + generated outputs)
+/shared/tokens/                  @kudzimusar
+/web/src/styles/tokens.css       @kudzimusar
+/web/tailwind.tokens.js          @kudzimusar
+/scripts/build-tokens.mjs        @kudzimusar
+
+# RX-02A S1-3 truth components (UI_DESIGN_REFERENCE_AND_TOKENS.md §6)
+/web/src/components/truth/       @kudzimusar
+
+# Isolated component catalogue renderer (dev-only)
+/web/src/pages/dev/ComponentCatalogue.tsx @kudzimusar
+
+# Design specification and experience documentation
+/docs/product-experience/        @kudzimusar
+
+# CI workflow (blocking gates — change-controlled, integration-engineer applied)
+/.github/workflows/              @kudzimusar
