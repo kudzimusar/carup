@@ -12,6 +12,7 @@
   "scripts": {
     "dev": "npm run dev --workspace=web",
     "build": "npm run build --workspace=web",
+    "prebuild": "npm run tokens:check && npm run test:tokens && npm run gate:style-ratchet",
     "lint": "npm run lint --workspace=web",
     "preview": "npm run preview --workspace=web",
     "test:qa": "playwright test",
