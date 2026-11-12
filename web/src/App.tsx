@@ -364,6 +364,7 @@ export default function App() {
           <Route path="/dashboard/garage/:id" element={<VehicleProfile />} />
           <Route path="/dashboard/service-history" element={<ServiceHistory />} />
           <Route path="/dashboard/insurance" element={<InsuranceRecords />} />
+          <Route path="/dashboard/partsentry" element={<PartSentry />} />
           <Route path="/dashboard/listings" element={<MyListings />} />
           <Route path="/dashboard/saved" element={<SavedCars />} />
           <Route path="/dashboard/sell-vehicle" element={<SellerRouteErrorBoundary><SellVehicle /></SellerRouteErrorBoundary>} />
