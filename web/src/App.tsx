@@ -51,6 +51,11 @@ import Contact from './pages/Contact'
 import ScrollToTop from './components/layout/ScrollToTop'
 import ActivityInstrumentation from './components/intelligence/ActivityInstrumentation'
 
+// RX-02A S1-4A (DEV-only): unified shell prototype showcase. Isolated from
+// production chrome; registered as a DEV-gated route below and unreachable in
+// production builds. See docs/product-experience/RX02_S1_4A_SHELL_PROTOTYPE.md.
+import Rx02S14ShellPrototype from './pages/dev/Rx02S14ShellPrototype'
+
 // New Footer Pages
 import Careers from './pages/Careers'
 import PressKit from './pages/PressKit'
@@ -490,6 +495,10 @@ export default function App() {
           {/* R4 P0-3 (C12): governed operating lifecycle decisions. */}
           <Route path="/admin/dealer-operating-lifecycle" element={<DealerOperatingLifecycleReview />} />
         </Route>
+
+        {/* RX-02A S1-4A (DEV-only): unified shell prototype showcase — not linked
+            from production navigation; only mounts when import.meta.env.DEV. */}
+        {import.meta.env.DEV && <Route path="/dev/rx02-s1-4a-shells" element={<Rx02S14ShellPrototype />} />}
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
         <Route path="*" element={<NotFoundPage />} />
