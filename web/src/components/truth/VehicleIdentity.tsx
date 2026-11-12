@@ -5,11 +5,24 @@ import { cn } from '@/lib/utils'
  * One vehicle presentation across Marketplace card, saved, Seller preview and garage.
  * Variants: card | row | header.
  * Missing fields render an explicit "Not recorded" placeholder — never fabricated.
+ *
+ * R1-03 — exposure projection (MP01 FP-02 / RX-01B Passport governance):
+ *  - 'workspace' (default): authenticated/authorized surfaces — the full identity,
+ *    including the raw VIN when provided.
+ *  - 'public': Marketplace / Vehicle Detail style surfaces. The VIN is WITHHELD
+ *    entirely (labelled "Restricted") — it is never masked, truncated or partially
+ *    revealed, and no client-side algorithm invents a derivative of it.
+ *  - This prop selects a DISPLAY PROJECTION ONLY. It is not access control:
+ *    authorization remains server-side, and the public API must not deliver the
+ *    raw VIN for public contexts in the first place. Negative tests enforce that
+ *    the raw VIN can never appear in public exposure, even if one is passed.
  */
 export interface VehicleIdentityProps {
   /** Display title, e.g. "Toyota Hilux 2.8 GD-6 Raider". */
   title: string
   variant?: 'card' | 'row' | 'header'
+  /** Display projection: 'workspace' (full identity) or 'public' (VIN withheld). */
+  exposure?: 'workspace' | 'public'
   vin?: string | null
   year?: number | null
   mileageKm?: number | null
@@ -31,6 +44,7 @@ function Missing({ testId }: { testId?: string }) {
 export function VehicleIdentity({
   title,
   variant = 'card',
+  exposure = 'workspace',
   vin = null,
   year = null,
   mileageKm = null,
@@ -39,6 +53,17 @@ export function VehicleIdentity({
   thumbnailAlt,
   className,
 }: VehicleIdentityProps) {
+  // R1-03: public exposure withholds the VIN entirely — never masked, never derived.
+  const vinNode =
+    exposure === 'public' ? (
+      <span data-testid="identity-vin-restricted" className="italic text-carup-text-3">
+        Restricted
+      </span>
+    ) : vin ? (
+      <span className="font-mono text-[12px]">{vin}</span>
+    ) : (
+      <Missing testId="identity-vin-missing" />
+    )
   const facts: Array<{ label: string; node: React.ReactNode; testId?: string }> = [
     { label: 'Year', node: year != null ? year : <Missing testId="identity-year-missing" />, testId: 'identity-year' },
     {
@@ -53,7 +78,7 @@ export function VehicleIdentity({
         ),
     },
     { label: 'Location', node: location ? location : <Missing testId="identity-location-missing" />, testId: 'identity-location' },
-    { label: 'VIN', node: vin ? <span className="font-mono text-[12px]">{vin}</span> : <Missing testId="identity-vin-missing" />, testId: 'identity-vin' },
+    { label: 'VIN', node: vinNode, testId: 'identity-vin' },
   ]
 
   const thumb = thumbnailUrl ? (
@@ -118,7 +143,7 @@ export function VehicleIdentity({
           </p>
         </div>
         <span data-testid="identity-vin" className="hidden font-mono text-[11px] text-carup-text-3 sm:block">
-          {vin ?? <Missing testId="identity-vin-missing" />}
+          {vinNode}
         </span>
       </div>
     )

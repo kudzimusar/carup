@@ -4,14 +4,18 @@ import { formatMoney, MONEY_SOURCE_LABELS, type MoneySource } from './money'
 /**
  * RX-02A S1-3 — MoneyDisplay (UI_DESIGN_REFERENCE_AND_TOKENS.md §6.3).
  * The single permitted renderer of a monetary figure:
- *  - currency mandatory and explicit (USD/ZiG/ZAR/BWP); ZiG never renders as "$";
+ *  - currency mandatory and explicit (USD/ZiG/ZAR/BWP); the currency CODE is always
+ *    VISIBLE — a bare "$" is ambiguous, so USD renders as "$18,500 USD";
+ *  - ZiG never renders as "$";
  *  - tabular numerals (token contract: type.tabularNumerals);
  *  - source label (asking / agreed / estimate / guide) beside the figure;
- *  - missing values render an explicit, labelled state — never a fabricated figure.
+ *  - a missing amount and an unsupported currency are DIFFERENT labelled states —
+ *    neither is ever a fabricated or misrepresented figure.
  */
 export interface MoneyDisplayProps {
   amount?: number | null
-  /** Mandatory explicit currency. Runtime-unknown values render the missing state. */
+  /** Mandatory explicit currency. Runtime-unknown currencies render the
+   *  "currency not recorded" state — the amount, when known, is still shown. */
   currency?: string | null
   source?: MoneySource
   size?: 'md' | 'lg'
@@ -34,8 +38,15 @@ export function MoneyDisplay({
   const accessible =
     ariaLabel ??
     (formatted.kind === 'value'
-      ? [sourceLabel, formatted.text, formatted.currency].filter(Boolean).join(', ')
-      : [sourceLabel, 'amount not recorded'].filter(Boolean).join(', '))
+      ? [sourceLabel, `${formatted.amountText} ${formatted.currency}`].filter(Boolean).join(', ')
+      : formatted.kind === 'unsupported-currency'
+        ? [sourceLabel, `amount ${formatted.amountText}, currency not recorded`].filter(Boolean).join(', ')
+        : [sourceLabel, 'amount not recorded'].filter(Boolean).join(', '))
+
+  const valueClasses = cn(
+    'font-semibold tabular-nums text-carup-text',
+    size === 'lg' ? 'text-[20px] leading-[1.2] tracking-[-0.02em]' : 'text-[14px] leading-[1.55]'
+  )
 
   return (
     <span className={cn('inline-flex flex-wrap items-baseline gap-x-2', className)} aria-label={accessible}>
@@ -44,18 +55,26 @@ export function MoneyDisplay({
           {sourceLabel}
         </span>
       )}
-      {formatted.kind === 'value' ? (
-        <span
-          data-testid="money-value"
-          className={cn(
-            'font-semibold tabular-nums text-carup-text',
-            size === 'lg' ? 'text-[20px] leading-[1.2] tracking-[-0.02em]' : 'text-[14px] leading-[1.55]'
-          )}
-        >
-          {formatted.text}
-          <span className="sr-only"> {formatted.currency}</span>
+      {formatted.kind === 'value' && (
+        <span data-testid="money-value" className={valueClasses}>
+          <span className="tabular-nums">{formatted.amountText}</span>{' '}
+          <span data-testid="money-currency" className="font-medium text-carup-text-2">
+            {formatted.currency}
+          </span>
         </span>
-      ) : (
+      )}
+      {formatted.kind === 'unsupported-currency' && (
+        <span data-testid="money-value" className={valueClasses}>
+          <span className="tabular-nums">{formatted.amountText}</span>{' '}
+          <span
+            data-testid="money-currency-missing"
+            className="rounded-[2px] border border-dashed border-carup-line-strong px-1.5 font-medium text-carup-text-2"
+          >
+            Currency not recorded
+          </span>
+        </span>
+      )}
+      {formatted.kind === 'missing' && (
         <span
           data-testid="money-missing"
           className={cn(

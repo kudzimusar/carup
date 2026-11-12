@@ -51,4 +51,33 @@ describe('VehicleIdentity', () => {
     render(<VehicleIdentity {...full} variant="row" />)
     expect(screen.getByTestId('identity-mileage')).toHaveClass('tabular-nums')
   })
+
+  // R1-03 — public exposure projection (MP01 FP-02 / RX-01B Passport governance).
+  // Public variants must never expose the raw VIN — not verbatim, not masked,
+  // not derived. Authorization remains server-side; this is display-only.
+  it.each(['card', 'row', 'header'] as const)(
+    'public exposure (%s): the raw VIN can never appear, even when one is passed — negative case',
+    (variant) => {
+      const { container } = render(<VehicleIdentity {...full} variant={variant} exposure="public" />)
+      expect(container.textContent).not.toContain(full.vin)
+      expect(screen.queryByText(full.vin)).toBeNull()
+      expect(screen.getByTestId('identity-vin-restricted')).toHaveTextContent('Restricted')
+    }
+  )
+
+  it.each(['card', 'row', 'header'] as const)(
+    'public exposure (%s): public-safe fields still render normally',
+    (variant) => {
+      render(<VehicleIdentity {...full} variant={variant} exposure="public" />)
+      expect(screen.getByTestId('identity-year')).toHaveTextContent('2021')
+      expect(screen.getByTestId('identity-mileage')).toHaveTextContent('62,400 km')
+      expect(screen.getByTestId('identity-location')).toHaveTextContent('Harare')
+    }
+  )
+
+  it('workspace exposure (default) still shows the full raw VIN for authorized views', () => {
+    render(<VehicleIdentity {...full} variant="card" />)
+    expect(screen.getByTestId('identity-vin')).toHaveTextContent(full.vin)
+    expect(screen.queryByTestId('identity-vin-restricted')).toBeNull()
+  })
 })

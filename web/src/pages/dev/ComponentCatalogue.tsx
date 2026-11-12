@@ -69,12 +69,12 @@ export default function ComponentCatalogue() {
           <Row label="Missing amount">
             <MoneyDisplay amount={null} currency="USD" source="asking" />
           </Row>
-          <Row label="Unknown currency (EUR)">
+          <Row label="Unsupported currency (EUR) — amount shown, currency flagged">
             <MoneyDisplay amount={500} currency="EUR" />
           </Row>
         </Section>
 
-        <Section title="VehicleIdentity — card / row / header">
+        <Section title="VehicleIdentity — card / row / header · workspace vs public exposure">
           <div className="grid gap-4 sm:grid-cols-2">
             <VehicleIdentity {...VEHICLE} variant="card" />
             <div className="space-y-0">
@@ -84,6 +84,17 @@ export default function ComponentCatalogue() {
           </div>
           <VehicleIdentity {...VEHICLE} variant="header" className="mt-4" />
           <VehicleIdentity title="Ford Ranger 2.0 BiT XLT (partial record)" variant="card" className="mt-4" />
+          <p className="text-[12px] italic text-carup-text-3">
+            Public exposure (MP01 FP-02): the same identity with <code>exposure=&quot;public&quot;</code> — the VIN is
+            withheld entirely (labelled &quot;Restricted&quot;), never masked or derived. Authorization stays server-side.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <VehicleIdentity {...VEHICLE} variant="card" exposure="public" />
+            <div className="space-y-0">
+              <VehicleIdentity {...VEHICLE} variant="row" exposure="public" />
+              <VehicleIdentity {...VEHICLE} variant="header" exposure="public" />
+            </div>
+          </div>
         </Section>
 
         <Section title="DataState — loading / empty / error / forbidden / not-measured / unavailable">

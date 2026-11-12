@@ -7,11 +7,16 @@ import { TRUST_LENS_LABELS, type TrustLensState } from './trustLensStates'
  *  - Always carries source count and freshness.
  *  - NEVER invents a score: there is deliberately no score prop. A lens without
  *    sources/freshness says so explicitly rather than implying certainty.
+ *  - Labels describe evaluation COVERAGE only — no state claims or implies that
+ *    vehicle facts were independently verified (R1-04).
  */
-type LensTone = 'success' | 'info' | 'warning' | 'neutral' | 'danger'
+type LensTone = 'info' | 'warning' | 'neutral' | 'danger'
 
+// R1-04: tones carry no positive "verified" signal. 'evaluated' uses the neutral
+// informational tone (coverage, not certification) pending Truth-owner confirmation
+// of the exact backend semantics of each state.
 const TRUST_LENS_TONE: Record<TrustLensState, LensTone> = {
-  evaluated: 'success',
+  evaluated: 'info',
   partial: 'info',
   stale: 'warning',
   'not-evaluated': 'neutral',
@@ -20,7 +25,6 @@ const TRUST_LENS_TONE: Record<TrustLensState, LensTone> = {
 }
 
 const TONE_CLASSES: Record<LensTone, string> = {
-  success: 'border-status-success bg-status-success-soft text-status-success',
   info: 'border-status-info bg-status-info-soft text-status-info',
   warning: 'border-status-warning bg-status-warning-soft text-status-warning',
   neutral: 'border-carup-line bg-carup-bg-surface text-carup-text-2',

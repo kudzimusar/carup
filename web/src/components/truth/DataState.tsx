@@ -10,6 +10,7 @@ import { DATA_STATE_HEADLINES, type DataStateKind } from './dataStates'
  *  - a failed read is NEVER rendered as empty;
  *  - loading uses neutral skeletons inside a polite, labelled live region;
  *  - error is announced with role="alert";
+ *  - error copy is neutral recovery only — it makes NO unverified mutation assurances;
  *  - not-measured is labelled unknown and never renders as 0;
  *  - unavailable is honest held-capability copy, never a dead control.
  */
@@ -26,7 +27,10 @@ export interface DataStateProps {
 const DEFAULT_DESCRIPTIONS: Record<DataStateKind, string> = {
   loading: 'Fetching the latest data.',
   empty: 'There’s nothing to show here right now.',
-  error: 'This view could not load. You can retry — nothing has been changed.',
+  // R1-02: neutral recovery copy only. A reusable display of a read outcome can
+  // never substantiate mutation-side assurances ("nothing has been changed") —
+  // nothing here claims what did or did not happen on the server.
+  error: 'This view could not load. Please try again.',
   forbidden: 'This information isn’t available for your account. Contact support if this looks wrong.',
   'not-measured': 'This value has not been measured yet, so no figure is shown.',
   unavailable: 'This capability is not offered in this context yet.',

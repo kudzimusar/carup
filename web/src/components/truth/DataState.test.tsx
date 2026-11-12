@@ -34,6 +34,18 @@ describe('DataState — all six states', () => {
     expect(container.querySelector('[data-state="empty"]')).toBeNull()
   })
 
+  it('error copy makes NO unverified mutation assurance — R1-02 negative case', () => {
+    render(<DataState state="error" subject="Valuation" />)
+    const alert = screen.getByTestId('data-state')
+    expect(alert.textContent).not.toMatch(/nothing has been changed/i)
+    expect(alert.textContent).not.toMatch(/\bchanged\b/i)
+    expect(alert.textContent).not.toMatch(/\bmodified\b/i)
+    expect(alert.textContent).not.toMatch(/\bsaved\b/i)
+    expect(alert.textContent).not.toMatch(/\bunaffected\b/i)
+    // Still an honest error, never an empty state.
+    expect(alert).toHaveAttribute('role', 'alert')
+  })
+
   it('forbidden is explicit and honest — no fabricated data, no retry theatre', () => {
     render(<DataState state="forbidden" subject="Dealer ledger" />)
     expect(screen.getByText(/don’t have access/)).toBeInTheDocument()

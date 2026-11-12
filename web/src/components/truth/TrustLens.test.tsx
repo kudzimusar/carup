@@ -53,4 +53,26 @@ describe('TrustLens', () => {
     const lenses = screen.getAllByTestId('trust-lens')
     for (const lens of lenses) expect(lens.className).toContain('bg-carup-bg-surface')
   })
+
+  // R1-04 — labels describe evaluation coverage only; no state may claim or imply
+  // independent verification of vehicle facts (Truth-owner confirmation of exact
+  // backend semantics is tracked separately; the wording stays coverage-neutral).
+  it('no state label or rendering contains "verif*" — negative case', () => {
+    const states = ['evaluated', 'partial', 'stale', 'not-evaluated', 'insufficient-data', 'unavailable'] as const
+    for (const state of states) {
+      const { container, unmount } = render(<TrustLens state={state} sourceCount={3} freshness="12 Nov 2026" />)
+      expect(container.textContent).not.toMatch(/verif/i)
+      unmount()
+    }
+    for (const label of Object.values(TRUST_LENS_LABELS)) {
+      expect(label).not.toMatch(/verif/i)
+    }
+  })
+
+  it('evaluated uses the neutral informational tone — no success/"verified" signal — R1-04', () => {
+    render(<TrustLens state="evaluated" sourceCount={3} freshness="12 Nov 2026" />)
+    const lens = screen.getByTestId('trust-lens')
+    expect(lens.className).toContain('bg-status-info-soft')
+    expect(lens.className).not.toContain('bg-status-success')
+  })
 })
