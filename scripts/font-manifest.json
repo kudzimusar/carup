@@ -1,0 +1,56 @@
+{
+  "inter-latin-400": {
+    "family": "Inter",
+    "weight": 400,
+    "woff2Sha256": "dd05e326cf8eac3b55acecf29c842ed73e6e6dd06491cf47f7e8800680ab3e33",
+    "woff2Bytes": 23692,
+    "source": "@fontsource/inter@5.2.5",
+    "sourceFile": "files/inter-latin-400-normal.woff2",
+    "url": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-400-normal.woff2"
+  },
+  "inter-latin-500": {
+    "family": "Inter",
+    "weight": 500,
+    "woff2Sha256": "b0e7558f4710a1e255b93e3deefe3aebb19f3bb41c150f685a74d3b1a1c79e87",
+    "woff2Bytes": 24368,
+    "source": "@fontsource/inter@5.2.5",
+    "sourceFile": "files/inter-latin-500-normal.woff2",
+    "url": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-500-normal.woff2"
+  },
+  "inter-latin-600": {
+    "family": "Inter",
+    "weight": 600,
+    "woff2Sha256": "62553d159189834af73c9a6264704be5b2bee9a08da66a14768d8e5c6ffd2cdb",
+    "woff2Bytes": 24304,
+    "source": "@fontsource/inter@5.2.5",
+    "sourceFile": "files/inter-latin-600-normal.woff2",
+    "url": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-600-normal.woff2"
+  },
+  "inter-latin-700": {
+    "family": "Inter",
+    "weight": 700,
+    "woff2Sha256": "aac638f7503cebb084ec494cf00f75f7d8260d50c2f4e7820bccabba09626a3a",
+    "woff2Bytes": 24352,
+    "source": "@fontsource/inter@5.2.5",
+    "sourceFile": "files/inter-latin-700-normal.woff2",
+    "url": "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-700-normal.woff2"
+  },
+  "jetbrains-mono-latin-400": {
+    "family": "JetBrains Mono",
+    "weight": 400,
+    "woff2Sha256": "14425ba9c695763c1547f48a206b7aa60350a33ae23de09f0407877f3fcd89eb",
+    "woff2Bytes": 21168,
+    "source": "@fontsource/jetbrains-mono@5.2.5",
+    "sourceFile": "files/jetbrains-mono-latin-400-normal.woff2",
+    "url": "https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.2.5/files/jetbrains-mono-latin-400-normal.woff2"
+  },
+  "jetbrains-mono-latin-500": {
+    "family": "JetBrains Mono",
+    "weight": 500,
+    "woff2Sha256": "cb182feeed4d798ff6961d3c79f7026279448fca0676438aaecb21f3fc39553a",
+    "woff2Bytes": 21832,
+    "source": "@fontsource/jetbrains-mono@5.2.5",
+    "sourceFile": "files/jetbrains-mono-latin-500-normal.woff2",
+    "url": "https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.2.5/files/jetbrains-mono-latin-500-normal.woff2"
+  }
+}

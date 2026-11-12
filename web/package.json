@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test:unit": "vitest run",
     "test:qa": "playwright test",
-    "test": "npm run lint && npm run build && npm run test:qa && node scripts/agent-15-discovery.js"
+    "test": "npm run lint && npm run build && npm run test:qa && node scripts/agent-15-discovery.js",
+    "prebuild": "node ../scripts/ensure-fonts.mjs",
+    "predev": "node ../scripts/ensure-fonts.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -73,6 +75,8 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",
     "@eslint/js": "^9.39.1",
+    "@fontsource/inter": "5.2.5",
+    "@fontsource/jetbrains-mono": "5.2.5",
     "@playwright/test": "^1.60.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",

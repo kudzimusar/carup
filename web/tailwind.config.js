@@ -1,10 +1,16 @@
 /** @type {import('tailwindcss').Config} */
+// RX-02A S1-1: generated token theme extension (from shared/tokens/tokens.json via
+// scripts/build-tokens.mjs). Merged under theme.extend — shadcn HSL-var slots stay
+// the single source consumed by the 51 primitives; carup/status add new namespaces.
+const tokens = require('./tailwind.tokens.js')
+
 module.exports = {
   darkMode: ["class"],
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
+        ...tokens.colors,
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -50,6 +56,7 @@ module.exports = {
         },
       },
       borderRadius: {
+        ...tokens.borderRadius,
         xl: "calc(var(--radius) + 4px)",
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
@@ -57,8 +64,10 @@ module.exports = {
         xs: "calc(var(--radius) - 6px)",
       },
       boxShadow: {
+        ...tokens.boxShadow,
         xs: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
       },
+      fontFamily: tokens.fontFamily,
       keyframes: {
         "accordion-down": {
           from: { height: "0" },

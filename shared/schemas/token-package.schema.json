@@ -1,0 +1,355 @@
+{
+  "$id": "https://carup.local/schemas/token-package.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CARUP design token package",
+  "description": "Schema authority for shared/tokens/tokens.json (RX-02A S1-1). Enforced by scripts/validate-tokens.mjs, which implements every rule declared here; the two must be kept in lockstep.",
+  "type": "object",
+  "required": [
+    "$schema",
+    "meta",
+    "fonts",
+    "raw",
+    "semantic",
+    "status",
+    "darkSoftBase",
+    "spacing",
+    "radius",
+    "type",
+    "breakpoints",
+    "contentWidths",
+    "elevation",
+    "shadcnSlots"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "hexColor": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$",
+      "description": "Opaque 6-digit hex color."
+    },
+    "rgbaColor": {
+      "type": "string",
+      "pattern": "^rgba\\(\\s*\\d{1,3}\\s*,\\s*\\d{1,3}\\s*,\\s*\\d{1,3}\\s*,\\s*(0|1|0?\\.\\d+)\\s*\\)$",
+      "description": "rgba() color string."
+    },
+    "colorValue": {
+      "description": "Hex, rgba(), or a name reference into the raw palette.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/hexColor"
+        },
+        {
+          "$ref": "#/definitions/rgbaColor"
+        },
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "not": {
+            "pattern": "^(rgba|#)"
+          }
+        }
+      ]
+    },
+    "tokenMap": {
+      "type": "object",
+      "description": "Map of kebab-case token keys to color values.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/colorValue"
+      }
+    }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "pattern": "\\.schema\\.json$"
+    },
+    "meta": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "programme",
+        "stage",
+        "sourceOfTruth"
+      ],
+      "additionalProperties": {
+        "type": [
+          "string",
+          "boolean"
+        ]
+      },
+      "properties": {
+        "name": {
+          "const": "carup-design-tokens"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+"
+        },
+        "programme": {
+          "const": "CARUP-UX-REBUILD-01"
+        },
+        "stage": {
+          "type": "string"
+        },
+        "sourceOfTruth": {
+          "const": true
+        }
+      }
+    },
+    "fonts": {
+      "type": "object",
+      "required": [
+        "sans",
+        "mono"
+      ],
+      "properties": {
+        "sans": {
+          "type": "object",
+          "required": [
+            "family",
+            "weightsShipped",
+            "weightsDeprecated"
+          ],
+          "properties": {
+            "family": {
+              "const": "Inter"
+            },
+            "weightsShipped": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 1
+            },
+            "weightsDeprecated": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "mono": {
+          "type": "object",
+          "required": [
+            "family",
+            "weightsShipped"
+          ],
+          "properties": {
+            "family": {
+              "const": "JetBrains Mono"
+            },
+            "weightsShipped": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 1
+            }
+          }
+        }
+      }
+    },
+    "raw": {
+      "description": "Raw palette primitives; every value MUST be an opaque hex color (no references at this layer).",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/hexColor"
+      },
+      "minProperties": 1
+    },
+    "semantic": {
+      "type": "object",
+      "required": [
+        "light",
+        "darkBody"
+      ],
+      "properties": {
+        "light": {
+          "$ref": "#/definitions/tokenMap"
+        },
+        "darkBody": {
+          "description": "Dark-body palette; token-complete but inert until D-07 sign-off. May carry a _note string key alongside color tokens.",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^(_note|[a-z][a-z0-9-]*)$"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "#/definitions/colorValue"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "description": "Status registry; domain vocabularies map onto these entries and may not introduce new hues.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "minProperties": 6,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "lightInk",
+          "lightSoft",
+          "darkInk",
+          "darkSoftRgba"
+        ],
+        "properties": {
+          "lightInk": {
+            "$ref": "#/definitions/colorValue"
+          },
+          "lightSoft": {
+            "$ref": "#/definitions/colorValue"
+          },
+          "darkInk": {
+            "$ref": "#/definitions/hexColor"
+          },
+          "darkSoftRgba": {
+            "$ref": "#/definitions/rgbaColor"
+          }
+        }
+      }
+    },
+    "darkSoftBase": {
+      "$ref": "#/definitions/hexColor",
+      "description": "Dark background onto which status darkSoftRgba tints are alpha-composited (S0 methodology)."
+    },
+    "spacing": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "exclusiveMinimum": 0
+      },
+      "minItems": 1
+    },
+    "radius": {
+      "type": "object",
+      "required": [
+        "chrome",
+        "control",
+        "card"
+      ],
+      "properties": {
+        "chrome": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "control": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "card": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "type": {
+      "type": "object",
+      "required": [
+        "baseSizePx",
+        "baseLineHeight",
+        "display",
+        "captionMinPx"
+      ],
+      "properties": {
+        "baseSizePx": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "baseLineHeight": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "display": {
+          "type": "object",
+          "required": [
+            "maxWeight"
+          ],
+          "properties": {
+            "maxWeight": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 900
+            }
+          }
+        },
+        "captionMinPx": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "breakpoints": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "exclusiveMinimum": 0
+      },
+      "minItems": 1
+    },
+    "contentWidths": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "exclusiveMinimum": 0
+      }
+    },
+    "elevation": {
+      "type": "object"
+    },
+    "shadcnSlots": {
+      "type": "object",
+      "required": [
+        "light"
+      ],
+      "properties": {
+        "light": {
+          "type": "object",
+          "required": [
+            "background",
+            "foreground",
+            "card",
+            "primary",
+            "muted",
+            "border",
+            "input",
+            "ring",
+            "radius"
+          ],
+          "propertyNames": {
+            "pattern": "^[a-z][a-z-]*$"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "#/definitions/colorValue"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

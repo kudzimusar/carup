@@ -12,11 +12,17 @@
   "scripts": {
     "dev": "npm run dev --workspace=web",
     "build": "npm run build --workspace=web",
+    "prebuild": "npm run tokens:check && npm run test:tokens && npm run gate:style-ratchet",
     "lint": "npm run lint --workspace=web",
     "preview": "npm run preview --workspace=web",
     "test:qa": "playwright test",
+    "tokens:build": "node scripts/build-tokens.mjs",
+    "tokens:check": "node scripts/build-tokens.mjs --check && node scripts/validate-tokens.mjs",
+    "gate:style-ratchet": "node scripts/no-new-glass-gate.mjs",
+    "test:tokens": "node --test scripts/tests/tokens.test.mjs",
     "test:evidence": "node --test backend/tests/evidence*.test.js",
-    "test": "npm run lint && npm run build && npm run test:qa && node scripts/agent-15-discovery.js"
+    "test": "npm run lint && npm run build && npm run test:qa && node scripts/agent-15-discovery.js",
+    "fonts:ensure": "node scripts/ensure-fonts.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
