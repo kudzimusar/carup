@@ -18,6 +18,16 @@
  *   - no NEW callers of legacy glass utilities (glass-card / glass-dark) until
  *     the owning component/screen is migrated with before/after evidence (S1-3).
  *
+ * CI-04 (S1-2) — controlled exceptions:
+ *   `baseline.exceptions` MAY map a pattern name to a list of
+ *     { file, justification, approvedBy, reviewBy? }
+ *   entries. A violation is excused ONLY when a matching (pattern, file)
+ *   exception exists with a non-empty `justification` AND `approvedBy`.
+ *   Malformed exception entries (missing file/justification/approvedBy)
+ *   FAIL the gate themselves, so an unjustified exception can never
+ *   silently pass. Excused violations are reported explicitly as EXCUSED,
+ *   and exceptions that no longer match any violation are reported stale.
+ *
  * Exits 0 when clean, 1 with a diagnostic report otherwise.
  * `--write-baseline` regenerates the baseline from the current tree
  * (Moderator-gated operation; never run silently in CI).
@@ -36,6 +46,27 @@ const BASELINE_PATH = process.env.RX02A_GATE_BASELINE
 
 const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'))
 const EXCLUDE = new Set(baseline.exclude ?? [])
+
+// CI-04 controlled exceptions. Every entry must carry a documented
+// justification and an approver; anything else is itself a gate failure.
+const EXCEPTIONS = baseline.exceptions ?? {}
+const malformedExceptions = []
+const exceptionIndex = new Map() // `${pattern} ${file}` -> entry
+for (const [patternName, entries] of Object.entries(EXCEPTIONS)) {
+  if (!Array.isArray(entries)) {
+    malformedExceptions.push(`${patternName}: exceptions must be an array`)
+    continue
+  }
+  for (const e of entries) {
+    if (!e || typeof e !== 'object' || typeof e.file !== 'string' || e.file.length === 0 ||
+        typeof e.justification !== 'string' || e.justification.trim().length === 0 ||
+        typeof e.approvedBy !== 'string' || e.approvedBy.trim().length === 0) {
+      malformedExceptions.push(`${patternName}: ${JSON.stringify(e)} — requires non-empty file, justification and approvedBy`)
+      continue
+    }
+    exceptionIndex.set(`${patternName} ${e.file}`, e)
+  }
+}
 
 function* walk(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -87,13 +118,24 @@ let failures = 0
 const report = []
 console.log('[style-gate] scanning', files.length, 'files under', baseline.scope)
 
+const usedExceptions = new Set()
 for (const [name, p] of Object.entries(baseline.patterns)) {
   const current = scanPattern(p)
   const base = p.baseline ?? {}
   const violations = []
+  const excused = []
   for (const [file, n] of Object.entries(current)) {
     const baseCount = base[file] ?? 0
-    if (n > baseCount) violations.push({ file, n, baseCount })
+    if (n > baseCount) {
+      const key = `${name} ${file}`
+      const ex = exceptionIndex.get(key)
+      if (ex) {
+        usedExceptions.add(key)
+        excused.push({ file, n, baseCount, ex })
+      } else {
+        violations.push({ file, n, baseCount })
+      }
+    }
   }
   const curTotal = Object.values(current).reduce((a, b) => a + b, 0)
   const baseTotal = Object.values(base).reduce((a, b) => a + b, 0)
@@ -101,6 +143,12 @@ for (const [name, p] of Object.entries(baseline.patterns)) {
   const baseFiles = Object.keys(base).length
   const status = violations.length > 0 ? 'FAIL' : curTotal < baseTotal ? 'ok (ratchet ↓)' : 'ok'
   report.push(`  ${status.padEnd(14)} ${name}: ${curFiles} files / ${curTotal} occurrences (baseline ${baseFiles} files / ${baseTotal} occurrences)`)
+  for (const v of excused) {
+    console.log(`\n[style-gate] EXCUSED violation for "${name}":`)
+    console.log(`   = ${v.file}: ${v.n} occurrences (baseline ${v.baseCount})`)
+    console.log(`     justification: ${v.ex.justification}`)
+    console.log(`     approvedBy: ${v.ex.approvedBy}${v.ex.reviewBy ? ` | reviewBy: ${v.ex.reviewBy}` : ''}`)
+  }
   if (violations.length > 0) {
     failures++
     console.log(`\n[style-gate] VIOLATIONS for "${name}":`)
@@ -108,6 +156,17 @@ for (const [name, p] of Object.entries(baseline.patterns)) {
       console.log(`   + ${v.file}: ${v.n} occurrences (baseline ${v.baseCount})`)
     }
   }
+}
+
+if (malformedExceptions.length > 0) {
+  failures++
+  console.error('\n[style-gate] MALFORMED EXCEPTIONS (each requires file, justification, approvedBy):')
+  for (const m of malformedExceptions) console.error(`   ! ${m}`)
+}
+const staleExceptions = [...exceptionIndex.keys()].filter((k) => !usedExceptions.has(k))
+if (staleExceptions.length > 0) {
+  console.log('\n[style-gate] note: stale exceptions (no matching violation; consider removing):')
+  for (const k of staleExceptions) console.log(`   ~ ${k}`)
 }
 
 console.log('\n[style-gate] baseline report:')

@@ -21,7 +21,12 @@
     "test:tokens": "node --test scripts/tests/tokens.test.mjs",
     "test:evidence": "node --test backend/tests/evidence*.test.js",
     "test": "npm run lint && npm run build && npm run test:qa && node scripts/agent-15-discovery.js",
-    "fonts:ensure": "node scripts/ensure-fonts.mjs"
+    "fonts:ensure": "node scripts/ensure-fonts.mjs",
+    "test:web:ci": "npm run test:ci --workspace=web",
+    "gate:contrast-ratchet": "node scripts/contrast-ratchet-gate.mjs",
+    "gate:ci04": "npm run gate:style-ratchet && npm run gate:contrast-ratchet",
+    "scan:contrast": "node scripts/ci04-contrast-scan.mjs",
+    "test:ci04": "node --test scripts/tests/ci04-gate.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
