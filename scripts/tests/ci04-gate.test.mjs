@@ -186,18 +186,51 @@ test('CI-04: baseline decrease in one file cannot mask an increase in another', 
 
 const CONTRAST_GATE = path.join(ROOT, 'scripts', 'contrast-ratchet-gate.mjs')
 
-function makeContrastFixture({ scanEntries, baselineEntries }) {
+const FIXTURE_WIDTHS = [360, 390, 768, 1280, 1920]
+const FIXTURE_ROUTES = ['/', '/marketplace', '/pricing']
+
+// A complete, fully-rendered coverage block over all 15 route/viewport
+// combinations. Tests that need an incomplete / unrendered / duplicate
+// scenario override `coverage` or `duplicates`.
+function fullCoverage({ render = true } = {}) {
+  const combos = []
+  for (const width of FIXTURE_WIDTHS) {
+    for (const route of FIXTURE_ROUTES) {
+      combos.push({
+        route, width,
+        httpStatus: render ? 200 : 500,
+        title: 'Fixture',
+        textLength: render ? 5000 : 0,
+        rendered: render,
+        violationCount: 0,
+      })
+    }
+  }
+  const rendered = combos.filter((c) => c.rendered).length
+  return {
+    expected: combos.length,
+    rendered,
+    complete: rendered === combos.length,
+    widths: FIXTURE_WIDTHS,
+    routes: FIXTURE_ROUTES,
+    combos,
+  }
+}
+
+function makeContrastFixture({ scanEntries, baselineEntries, coverage, duplicates }) {
   const dir = mkdtempSync(path.join(tmpdir(), 'ci04-contrast-'))
   const scanPath = path.join(dir, 'scan.json')
   const baselinePath = path.join(dir, 'baseline.json')
   writeFileSync(scanPath, JSON.stringify({
     scannedAt: '2026-11-12T00:00:00Z', baseUrl: 'http://fixture',
-    widths: [360, 390, 768, 1280, 1920], routes: ['/', '/marketplace', '/pricing'],
+    widths: FIXTURE_WIDTHS, routes: FIXTURE_ROUTES,
+    coverage: coverage ?? fullCoverage(),
+    duplicates: duplicates ?? [],
     entries: scanEntries,
   }, null, 2) + '\n')
   writeFileSync(baselinePath, JSON.stringify({
-    recordedAt: '2026-11-11', widths: [360, 390, 768, 1280, 1920],
-    routes: ['/', '/marketplace', '/pricing'], entries: baselineEntries,
+    recordedAt: '2026-11-11', widths: FIXTURE_WIDTHS,
+    routes: FIXTURE_ROUTES, entries: baselineEntries,
   }, null, 2) + '\n')
   return { scanPath, baselinePath }
 }
@@ -256,6 +289,76 @@ test('CI-04/R5: missing scan report FAILS closed', () => {
   const r = runContrastGate({ scanPath: path.join(dir, 'does-not-exist.json'), baselinePath })
   assert.equal(r.code, 1)
   assert.match(r.stdout, /scan report not found or unreadable/)
+})
+
+/* ------------------------------------------------------------------ *
+ * Scan-completeness hardening (LR-03 obj 4) — incomplete / blank /    *
+ * duplicate scans must never produce a false PASS.                    *
+ * ------------------------------------------------------------------ */
+
+test('CI-04: full 15-combo coverage with no new violations PASSES (positive control)', () => {
+  const fx = makeContrastFixture({
+    scanEntries: [V('/', 390, '.hero h1')],
+    baselineEntries: [V('/', 390, '.hero h1')],
+  })
+  const r = runContrastGate(fx)
+  assert.equal(r.code, 0)
+  assert.match(r.stdout, /full 15-combination coverage, no duplicates/)
+})
+
+test('CI-04: INCOMPLETE coverage (a combination missing) FAILS closed', () => {
+  const coverage = fullCoverage()
+  coverage.combos = coverage.combos.slice(0, 14) // drop the 15th combination
+  coverage.rendered = coverage.combos.filter((c) => c.rendered).length
+  coverage.complete = false
+  const fx = makeContrastFixture({
+    scanEntries: [], baselineEntries: [],
+    coverage,
+  })
+  const r = runContrastGate(fx)
+  assert.equal(r.code, 1)
+  assert.match(r.stdout, /INCOMPLETE COVERAGE/)
+})
+
+test('CI-04: an UNRENDERED (blank/error) combination FAILS closed — no false "0 violations"', () => {
+  const coverage = fullCoverage()
+  coverage.combos[3] = { ...coverage.combos[3], rendered: false, httpStatus: 500, textLength: 0 }
+  coverage.rendered = coverage.combos.filter((c) => c.rendered).length
+  coverage.complete = false
+  const fx = makeContrastFixture({
+    scanEntries: [], baselineEntries: [],
+    coverage,
+  })
+  const r = runContrastGate(fx)
+  assert.equal(r.code, 1)
+  assert.match(r.stdout, /did NOT render/)
+})
+
+test('CI-04: a scan report with NO coverage block FAILS closed', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'ci04-contrast-'))
+  const scanPath = path.join(dir, 'scan.json')
+  const baselinePath = path.join(dir, 'baseline.json')
+  writeFileSync(scanPath, JSON.stringify({
+    scannedAt: '2026-11-12T00:00:00Z', baseUrl: 'http://fixture',
+    widths: FIXTURE_WIDTHS, routes: FIXTURE_ROUTES,
+    entries: [],
+  }, null, 2) + '\n')
+  writeFileSync(baselinePath, JSON.stringify({ recordedAt: '2026-11-11', entries: [] }) + '\n')
+  const r = runContrastGate({ scanPath, baselinePath })
+  assert.equal(r.code, 1)
+  assert.match(r.stdout, /carries no `coverage` block/)
+})
+
+test('CI-04: DUPLICATE-SELECTOR anomaly within a combination FAILS closed', () => {
+  const fx = makeContrastFixture({
+    scanEntries: [V('/', 390, '.dup'), V('/', 768, '.ok')],
+    baselineEntries: [],
+    duplicates: [{ route: '/', width: 390, target: '.dup', count: 3 }],
+  })
+  const r = runContrastGate(fx)
+  assert.equal(r.code, 1)
+  assert.match(r.stdout, /DUPLICATE-SELECTOR anomalies \(1\)/)
+  assert.match(r.stdout, /\.dup ×3/)
 })
 
 /* ------------------------------------------------------------------ *
