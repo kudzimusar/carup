@@ -147,7 +147,7 @@ export function JourneyMediaStory({
         {image ? <VehicleBackdrop src={image} alt={alt} /> : <AbstractCar className="absolute inset-0" />}
         <div className="absolute inset-0 bg-gradient-to-r from-[#f8fafc]/95 via-[#f8fafc]/68 to-transparent" />
         <div className="absolute left-4 top-4 w-[58%] max-w-[230px] bg-white p-4 shadow-[0_18px_45px_rgba(15,23,42,0.14)]">
-          <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.16em] text-orange-600">
+          <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.16em] text-orange-700">
             <ShieldCheck className="h-4 w-4" /> Vehicle Passport
           </div>
           <div className="mt-4 space-y-3 text-[11px] font-bold text-slate-700">
