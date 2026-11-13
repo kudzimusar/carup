@@ -18,6 +18,7 @@ import {
   UserRound,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useFocusedEmbed } from '@/components/shell/FocusedEmbedContext'
 import type { AuthUser } from '@shared/types'
 
 const API_BASE = resolveApiBaseUrl(
@@ -62,6 +63,10 @@ const INITIAL = {
 }
 
 export default function Register() {
+  // C3 — beneath the unified focused chrome, suppress this page's own dark
+  // stage + brand block so the task gets ONE clear hierarchy. Outside the
+  // focused shell (default) the legacy presentation is exactly unchanged.
+  const focusedEmbed = useFocusedEmbed()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = searchParams.get('returnTo')
@@ -202,7 +207,9 @@ export default function Register() {
 
   if (registered) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4">
+      <div className={focusedEmbed
+        ? 'w-full py-2'
+        : 'min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4'}>
         <Card className="w-full max-w-lg border-0 shadow-2xl">
           <CardContent className="p-7 sm:p-9">
             <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-700">
@@ -262,8 +269,11 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4">
+    <div className={focusedEmbed
+      ? 'w-full py-2'
+      : 'min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4'}>
       <div className="w-full max-w-xl">
+        {!focusedEmbed && (
         <div className="text-center mb-7">
           <Link to="/" className="inline-flex items-center gap-2 mb-5">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
@@ -276,6 +286,7 @@ export default function Register() {
             Tell us who you are in the automotive journey. Verification happens only where it is actually needed.
           </p>
         </div>
+        )}
 
         <div className="flex items-center justify-center gap-3 mb-6" aria-label="Registration progress">
           {[1, 2, 3].map(value => (
