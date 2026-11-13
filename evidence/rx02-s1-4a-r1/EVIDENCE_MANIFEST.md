@@ -14,7 +14,7 @@
 | Focused | `npm run test:unit --workspace=web -- shellPrototype.test.tsx` | **Test Files 1 passed (1) / Tests 26 passed (26)** | 0 |
 | Complete web suite | `npm run test:unit --workspace=web` | **Test Files 171 passed (171) / Tests 1631 passed (1631)** | 0 |
 
-Logs (full, unabridged): `focused-tests.log`, `full-test-unit.log`.
+Logs: `focused-tests.log` and `full-test-unit.SUMMARY.log` (both in this directory). The full raw `full-test-unit.log` (493 lines, unabridged) ships in the evidence ZIP; its SHA-256 is anchored in `full-test-unit.SUMMARY.log` so the ZIP copy is verifiable.
 Install gate: `npm ci --no-audit --no-fund --include-staged=true` then `node scripts/ensure-fonts.mjs` (6 faces, hashes match manifest).
 
 ### 1,630 vs 1,631 reconciliation
@@ -70,7 +70,7 @@ evidence/rx02-s1-4a-r1/
 ├── tsc.log
 ├── build.log
 ├── focused-tests.log
-├── full-test-unit.log
+├── full-test-unit.SUMMARY.log    (full raw log in ZIP, SHA-256 anchored here)
 ├── dist-inventory.txt
 ├── dist-positive-marker.txt
 ├── dist-exclusion-search.txt

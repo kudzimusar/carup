@@ -1,0 +1,19 @@
+# full web-suite run — summary + integrity anchor
+# source SHA: f2f481d3dd2b014ff30ee75de1f5001ca368f0cf
+# command: npm run test:unit --workspace=web   (exit 0)
+# generated: 2026-11-13T01:20:00Z
+# The full raw log (493 lines, unabridged) ships in the evidence ZIP;
+# its SHA-256 is published here so the ZIP copy is verifiable:
+#
+#   SHA-256(full-test-unit.log) = ccb71a4546abb901d84b337179cf92297356f4fcf31e6c03121fea74e31deec1
+#
+# Result block copied verbatim from the raw log:
+
+ Test Files  171 passed (171)
+      Tests  1631 passed (1631)
+   Start at  09:03:40
+   Duration  162.14s (transform 5.01s, setup 13.86s, import 20.12s, tests 39.88s, environment 70.75s)
+
+# Focused suite (shellPrototype.test.tsx): see focused-tests.log — 26 passed (26), exit 0.
+# Key line from the raw log proving the prototype file ran in the full suite:
+#   ✓ src/components/ux-prototype/rx02-s1-4a/shellPrototype.test.tsx (26 tests) 474ms
