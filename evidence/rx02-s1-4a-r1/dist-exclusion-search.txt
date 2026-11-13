@@ -1,0 +1,31 @@
+# DEV-only prototype exclusion search across generated production assets
+# source SHA: f2f481d3dd2b014ff30ee75de1f5001ca368f0cf
+# build input: npm run build  (BUILD_EXIT=0), output web/dist
+# generated: 2026-11-13T01:07:38Z
+# tokens searched (each must have ZERO hits):
+#   rx02-s1-4a-shells | FICTIONAL_FIXTURE_NOTICE | fixture-dealer-001 | shell-public-footer | Rx02S14ShellPrototype | P. Ndlovu
+# NOTE: this run quotes each token as a single fixed string (grep -F), including the two-word token.
+
+=== token: rx02-s1-4a-shells ===
+command: grep -rnF "rx02-s1-4a-shells" web/dist
+exit status: 1 (1 = zero hits = PASS)
+
+=== token: FICTIONAL_FIXTURE_NOTICE ===
+command: grep -rnF "FICTIONAL_FIXTURE_NOTICE" web/dist
+exit status: 1 (1 = zero hits = PASS)
+
+=== token: fixture-dealer-001 ===
+command: grep -rnF "fixture-dealer-001" web/dist
+exit status: 1 (1 = zero hits = PASS)
+
+=== token: shell-public-footer ===
+command: grep -rnF "shell-public-footer" web/dist
+exit status: 1 (1 = zero hits = PASS)
+
+=== token: Rx02S14ShellPrototype ===
+command: grep -rnF "Rx02S14ShellPrototype" web/dist
+exit status: 1 (1 = zero hits = PASS)
+
+=== token: P. Ndlovu ===
+command: grep -rnF "P. Ndlovu" web/dist
+exit status: 1 (1 = zero hits = PASS)

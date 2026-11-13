@@ -1,0 +1,33 @@
+# dist inventory — production build output of web/ at source SHA f2f481d3dd2b014ff30ee75de1f5001ca368f0cf
+# command: npm run build  (exit code recorded in build.log / BUILD_EXIT=0)
+# generated: 2026-11-13T01:07:02Z
+
+33814	web/dist/assets/FeatureGovernanceConsole-Wd2oD605.js
+415967	web/dist/assets/index-2FOU-rfG.css
+3116114	web/dist/assets/index-Bu2xQqVL.js
+207684	web/dist/assets/supabase-CBpRCaiq.js
+184	web/dist/carup-provenance.json
+915	web/dist/email-assets/manifest.json
+905	web/dist/favicon.ico
+905	web/dist/favicon.svg
+86131	web/dist/images/avatars/dealer-1.jpg
+78612	web/dist/images/avatars/insurance-1.jpg
+89845	web/dist/images/avatars/mechanic-1.jpg
+144099	web/dist/images/avatars/owner-1.jpg
+95228	web/dist/images/avatars/owner-2.jpg
+106588	web/dist/images/facilities/garage-1.jpg
+94756	web/dist/images/hero/showroom.jpg
+101345	web/dist/images/vehicles/hatchback-golf.jpg
+230236	web/dist/images/vehicles/hatchback-honda.jpg
+158352	web/dist/images/vehicles/pickup-ford.jpg
+195611	web/dist/images/vehicles/pickup-hilux.jpg
+138274	web/dist/images/vehicles/sedan-bmw.jpg
+139140	web/dist/images/vehicles/sedan-mercedes.jpg
+137266	web/dist/images/vehicles/suv-fortuner.jpg
+143811	web/dist/images/vehicles/suv-landrover.jpg
+85650	web/dist/images/vehicles/suv-luxury.jpg
+139436	web/dist/images/vehicles/suv-mazda.jpg
+136850	web/dist/images/vehicles/suv-prado.jpg
+139352	web/dist/images/vehicles/suv-xtrail.jpg
+501	web/dist/index.html
+3766	web/dist/sw.js

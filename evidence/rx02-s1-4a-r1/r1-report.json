@@ -1,0 +1,184 @@
+{
+  "computed": [
+    {
+      "width": 360,
+      "display": "block",
+      "visibility": "visible",
+      "offsetHeight": 1269,
+      "rectTop": 960.5,
+      "rectHeight": 1269.1875,
+      "visible": true,
+      "clearance": {
+        "legalBottom": 704,
+        "barTop": 731,
+        "barHidden": false,
+        "innerHeight": 800,
+        "noOverlap": true,
+        "legalFullyVisible": true
+      }
+    },
+    {
+      "width": 390,
+      "display": "block",
+      "visibility": "visible",
+      "offsetHeight": 1269,
+      "rectTop": 960.5,
+      "rectHeight": 1269.1875,
+      "visible": true,
+      "clearance": {
+        "legalBottom": 704,
+        "barTop": 731,
+        "barHidden": false,
+        "innerHeight": 800,
+        "noOverlap": true,
+        "legalFullyVisible": true
+      }
+    },
+    {
+      "width": 768,
+      "display": "block",
+      "visibility": "visible",
+      "offsetHeight": 890,
+      "rectTop": 693,
+      "rectHeight": 889.75,
+      "visible": true,
+      "clearance": {
+        "legalBottom": 704,
+        "barTop": 731,
+        "barHidden": false,
+        "innerHeight": 800,
+        "noOverlap": true,
+        "legalFullyVisible": true
+      }
+    },
+    {
+      "width": 1280,
+      "display": "block",
+      "visibility": "visible",
+      "offsetHeight": 614,
+      "rectTop": 603,
+      "rectHeight": 613.8125,
+      "visible": true,
+      "clearance": {
+        "legalBottom": 800,
+        "barTop": null,
+        "barHidden": true,
+        "innerHeight": 800,
+        "noOverlap": true,
+        "legalFullyVisible": true
+      }
+    },
+    {
+      "width": 1920,
+      "display": "block",
+      "visibility": "visible",
+      "offsetHeight": 614,
+      "rectTop": 555,
+      "rectHeight": 613.8125,
+      "visible": true,
+      "clearance": {
+        "legalBottom": 800,
+        "barTop": null,
+        "barHidden": true,
+        "innerHeight": 800,
+        "noOverlap": true,
+        "legalFullyVisible": true
+      }
+    }
+  ],
+  "overflow": [
+    {
+      "width": 360,
+      "sw": 360,
+      "cw": 360,
+      "ok": true
+    },
+    {
+      "width": 390,
+      "sw": 390,
+      "cw": 390,
+      "ok": true
+    },
+    {
+      "width": 768,
+      "sw": 768,
+      "cw": 768,
+      "ok": true
+    },
+    {
+      "width": 1280,
+      "sw": 1280,
+      "cw": 1280,
+      "ok": true
+    },
+    {
+      "width": 1920,
+      "sw": 1920,
+      "cw": 1920,
+      "ok": true
+    }
+  ],
+  "axe": [
+    {
+      "width": 360,
+      "violations": []
+    },
+    {
+      "width": 390,
+      "violations": []
+    },
+    {
+      "width": 768,
+      "violations": []
+    },
+    {
+      "width": 1280,
+      "violations": []
+    },
+    {
+      "width": 1920,
+      "violations": []
+    }
+  ],
+  "keyboard": [
+    {
+      "width": 360,
+      "tag": "A",
+      "href": "/marketplace",
+      "isFooterLink": true,
+      "focusRing": true
+    },
+    {
+      "width": 360,
+      "mastheadDarkBrandTone": "ink"
+    },
+    {
+      "width": 390,
+      "tag": "A",
+      "href": "/marketplace",
+      "isFooterLink": true,
+      "focusRing": true
+    },
+    {
+      "width": 768,
+      "tag": "A",
+      "href": "/marketplace",
+      "isFooterLink": true,
+      "focusRing": true
+    }
+  ],
+  "shots": [
+    "/mnt/agents/temp/s14b/shots/r1-footer-mobile-360.png",
+    "/mnt/agents/temp/s14b/shots/r1-footer-full-mobile-360.png",
+    "/mnt/agents/temp/s14b/shots/r1-masthead-brand-dark-360.png",
+    "/mnt/agents/temp/s14b/shots/r1-footer-mobile-390.png",
+    "/mnt/agents/temp/s14b/shots/r1-footer-full-mobile-390.png",
+    "/mnt/agents/temp/s14b/shots/r1-footer-tablet-768.png",
+    "/mnt/agents/temp/s14b/shots/r1-footer-full-tablet-768.png",
+    "/mnt/agents/temp/s14b/shots/r1-footer-desktop-1280.png",
+    "/mnt/agents/temp/s14b/shots/r1-footer-full-desktop-1280.png",
+    "/mnt/agents/temp/s14b/shots/r1-footer-desktop-1920.png",
+    "/mnt/agents/temp/s14b/shots/r1-footer-full-desktop-1920.png"
+  ],
+  "overallOk": true
+}

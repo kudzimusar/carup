@@ -1,0 +1,35 @@
+# positive app-marker check — web/dist exists and contains REAL application assets
+# generated: 2026-11-13T01:07:02Z
+
+1) dist directory exists:
+drwxr-xr-x 5 root root 4096 Nov 13 09:06 web/dist
+
+2) index.html references the hashed production bundle:
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CarUp - Zimbabwe's Automotive Intelligence Platform</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script type="module" crossorigin src="/assets/index-Bu2xQqVL.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-2FOU-rfG.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+
+3) marker text 'Zimbabwe' (app identity string from index.html) found in dist bundle:
+7
+
+4) app runtime entrypoint evidence — React root mount / BrowserRouter tokens in main bundle:
+      8 __REACT_DEVTOOLS_GLOBAL_HOOK__
+      2 createRoot
+
+5) non-empty JS/CSS bundles:
+  33814 web/dist/assets/FeatureGovernanceConsole-Wd2oD605.js
+3116114 web/dist/assets/index-Bu2xQqVL.js
+ 207684 web/dist/assets/supabase-CBpRCaiq.js
+ 415967 web/dist/assets/index-2FOU-rfG.css
+3773579 total
