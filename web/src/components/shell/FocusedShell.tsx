@@ -40,11 +40,16 @@ export function FocusedShell({
 }) {
   const mainRef = useRef<HTMLElement | null>(null)
 
-  // Move focus to the focused main region on mount so keyboard/AT users land
-  // on the task content, not on the chrome.
-  useEffect(() => {
-    mainRef.current?.focus()
-  }, [])
+  // C5 (skip-link reconciliation): do NOT steal focus on mount. The skip link
+  // is the first focusable element in the document, so the first Tab from
+  // page load lands on it exactly as the R2 evidence packet claimed
+  // ("Tab → skip link"). Programmatically moving focus into <main> on mount
+  // pushed the live Tab order past the skip link into the form (the R2
+  // capture harness caught first-focusable=INPUT while the static DOM probe
+  // saw the skip link first — two true measurements of conflicting
+  // contracts). With no focus transfer, both measurements agree. Keyboard
+  // users tab: skip link → chrome controls → task fields; activating the
+  // skip link moves focus to <main> as usual.
 
   // Escape exits the focused task — but NEVER while the user is typing in a
   // form control (inadvertent abort of an in-progress/unsaved task, R2-5).
