@@ -1,0 +1,15 @@
+
+> carup-web@0.0.0 test:unit
+> vitest run shellPrototype.test.tsx
+
+[carup] API base for this build: (runtime host resolution) — not a preview build (VERCEL_ENV=unset); runtime host resolution applies
+
+ RUN  v4.1.8 /tmp/s14c/checkout/web
+
+ ✓ src/components/ux-prototype/rx02-s1-4a/shellPrototype.test.tsx (26 tests) 498ms
+
+ Test Files  1 passed (1)
+      Tests  26 passed (26)
+   Start at  09:03:35
+   Duration  1.79s (transform 278ms, setup 134ms, import 397ms, tests 498ms, environment 639ms)
+

@@ -1,0 +1,176 @@
+
+> carup-monorepo@1.0.0 prebuild
+> npm run tokens:check && npm run test:tokens && npm run gate:style-ratchet
+
+
+> carup-monorepo@1.0.0 tokens:check
+> node scripts/build-tokens.mjs --check && node scripts/validate-tokens.mjs
+
+[tokens] check OK — outputs match the token source.
+[validate-tokens] OK — /tmp/s14c/checkout/shared/tokens/tokens.json satisfies shared/schemas/token-package.schema.json
+
+> carup-monorepo@1.0.0 test:tokens
+> node --test scripts/tests/tokens.test.mjs
+
+TAP version 13
+# Subtest: R3: token package validates against the declared schema authority
+ok 1 - R3: token package validates against the declared schema authority
+  ---
+  duration_ms: 2.134004
+  ...
+# Subtest: R3 NEGATIVE: malformed token packages are rejected
+ok 2 - R3 NEGATIVE: malformed token packages are rejected
+  ---
+  duration_ms: 1.227242
+  ...
+# Subtest: generated artifacts match the token source (no drift)
+ok 3 - generated artifacts match the token source (no drift)
+  ---
+  duration_ms: 0.11556
+  ...
+# Subtest: every shipped pairing meets WCAG AA (>= 4.5:1)
+ok 4 - every shipped pairing meets WCAG AA (>= 4.5:1)
+  ---
+  duration_ms: 0.902332
+  ...
+# Subtest: MUTATION (deliberate regression): danger ink \#E45E5E must FAIL AA
+ok 5 - MUTATION (deliberate regression): danger ink \#E45E5E must FAIL AA
+  ---
+  duration_ms: 0.19335
+  ...
+# Subtest: R5: every certified RX-01B reference pairing resolves from the token source and passes AA
+ok 6 - R5: every certified RX-01B reference pairing resolves from the token source and passes AA
+  ---
+  duration_ms: 1.199442
+  ...
+# Subtest: R5 NEGATIVE: a token drifted from the certified reference is detected
+ok 7 - R5 NEGATIVE: a token drifted from the certified reference is detected
+  ---
+  duration_ms: 0.286321
+  ...
+# [style-gate] FAILED — 1 pattern(s) gained occurrences above the per-path Day-0 baseline.
+# [style-gate] Increases inside already-flagged files are violations and cannot be masked
+# [style-gate] by unrelated decreases. Fix: migrate the owning component/screen to semantic
+# [style-gate] carup tokens (ratchet the count down), or record an explicit Moderator-approved
+# [style-gate] baseline amendment via --write-baseline.
+# [style-gate] FAILED — 1 pattern(s) gained occurrences above the per-path Day-0 baseline.
+# [style-gate] Increases inside already-flagged files are violations and cannot be masked
+# [style-gate] by unrelated decreases. Fix: migrate the owning component/screen to semantic
+# [style-gate] carup tokens (ratchet the count down), or record an explicit Moderator-approved
+# [style-gate] baseline amendment via --write-baseline.
+# [style-gate] FAILED — 1 pattern(s) gained occurrences above the per-path Day-0 baseline.
+# [style-gate] Increases inside already-flagged files are violations and cannot be masked
+# [style-gate] by unrelated decreases. Fix: migrate the owning component/screen to semantic
+# [style-gate] carup tokens (ratchet the count down), or record an explicit Moderator-approved
+# [style-gate] baseline amendment via --write-baseline.
+# Subtest: R1: font packaging resolves from installed pinned packages, hash-verified
+ok 8 - R1: font packaging resolves from installed pinned packages, hash-verified
+  ---
+  duration_ms: 11.291441
+  ...
+# Subtest: R1 NEGATIVE: corrupted font bytes fail hash verification
+ok 9 - R1 NEGATIVE: corrupted font bytes fail hash verification
+  ---
+  duration_ms: 0.933862
+  ...
+# Subtest: font discipline: Inter ships exactly 400/500/600/700; mono 400/500
+ok 10 - font discipline: Inter ships exactly 400/500/600/700; mono 400/500
+  ---
+  duration_ms: 0.18601
+  ...
+# Subtest: typography is self-hosted: no external font requests anywhere in the CSS chain
+ok 11 - typography is self-hosted: no external font requests anywhere in the CSS chain
+  ---
+  duration_ms: 0.390301
+  ...
+# Subtest: dark-body scope is token-complete but unreferenced by app code (D-07 gate)
+ok 12 - dark-body scope is token-complete but unreferenced by app code (D-07 gate)
+  ---
+  duration_ms: 21.509509
+  ...
+# Subtest: R2 NEGATIVE: net-new glass caller fails the gate (fixture)
+ok 13 - R2 NEGATIVE: net-new glass caller fails the gate (fixture)
+  ---
+  duration_ms: 29.599284
+  ...
+# Subtest: R2 NEGATIVE: an extra violation inside an ALREADY-flagged file fails (original bypass)
+ok 14 - R2 NEGATIVE: an extra violation inside an ALREADY-flagged file fails (original bypass)
+  ---
+  duration_ms: 28.230091
+  ...
+# Subtest: R2 NEGATIVE: an increase cannot be masked by a decrease elsewhere (original bypass)
+ok 15 - R2 NEGATIVE: an increase cannot be masked by a decrease elsewhere (original bypass)
+  ---
+  duration_ms: 27.783501
+  ...
+# Subtest: R2 POSITIVE: gate passes on the real tree at the per-path baseline
+ok 16 - R2 POSITIVE: gate passes on the real tree at the per-path baseline
+  ---
+  duration_ms: 161.535884
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 338.010054
+
+> carup-monorepo@1.0.0 gate:style-ratchet
+> node scripts/no-new-glass-gate.mjs
+
+[style-gate] scanning 555 files under web/src
+
+[style-gate] baseline report:
+  ok             tailwind-orange-500: 101 files / 659 occurrences (baseline 101 files / 659 occurrences)
+  ok             tailwind-text-slate: 77 files / 1241 occurrences (baseline 77 files / 1241 occurrences)
+  ok             tailwind-font-black: 28 files / 275 occurrences (baseline 28 files / 275 occurrences)
+  ok             tailwind-font-extrabold: 7 files / 37 occurrences (baseline 7 files / 37 occurrences)
+  ok             hex-orange-signal: 5 files / 9 occurrences (baseline 5 files / 9 occurrences)
+  ok             css-backdrop-blur: 19 files / 30 occurrences (baseline 19 files / 30 occurrences)
+  ok             glass-card-callers: 0 files / 0 occurrences (baseline 0 files / 0 occurrences)
+  ok             glass-dark-callers: 0 files / 0 occurrences (baseline 0 files / 0 occurrences)
+
+[style-gate] PASS — no per-path occurrence increase over the Day-0 baseline.
+
+> carup-monorepo@1.0.0 build
+> npm run build --workspace=web
+
+
+> carup-web@0.0.0 prebuild
+> node ../scripts/ensure-fonts.mjs
+
+verified inter-latin-400 (23692 bytes, sha256 dd05e326cf8e…)
+verified inter-latin-500 (24368 bytes, sha256 b0e7558f4710…)
+verified inter-latin-600 (24304 bytes, sha256 62553d159189…)
+verified inter-latin-700 (24352 bytes, sha256 aac638f7503c…)
+verified jetbrains-mono-latin-400 (21168 bytes, sha256 14425ba9c695…)
+verified jetbrains-mono-latin-500 (21832 bytes, sha256 cb182feeed4d…)
+font packaging OK — 6 faces from node_modules (offline), all hashes match the manifest
+
+> carup-web@0.0.0 build
+> tsc -b && vite build
+
+[carup] API base for this build: (runtime host resolution) — not a preview build (VERCEL_ENV=unset); runtime host resolution applies
+vite v7.3.5 building client environment for production...
+transforming...
+Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do this regularly: https://github.com/browserslist/update-db#readme
+✓ 2818 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/carup-provenance.json                            0.18 kB │ gzip:   0.15 kB
+dist/index.html                                       0.50 kB │ gzip:   0.33 kB
+dist/assets/index-2FOU-rfG.css                      415.97 kB │ gzip: 175.03 kB
+dist/assets/FeatureGovernanceConsole-Wd2oD605.js     33.81 kB │ gzip:   8.43 kB
+dist/assets/supabase-CBpRCaiq.js                    207.68 kB │ gzip:  54.04 kB
+dist/assets/index-Bu2xQqVL.js                     3,116.11 kB │ gzip: 792.74 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 10.87s
