@@ -5,6 +5,7 @@ import { AlertCircle, CheckCircle2, Loader2, MailCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiRequest, resolveApiBaseUrl } from '@/lib/apiClient'
 import { useAuth } from '@/context/AuthContext'
+import { useFocusedEmbed } from '@/components/shell/FocusedEmbedContext'
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -14,6 +15,9 @@ const API_BASE = resolveApiBaseUrl(
 type State = 'loading' | 'success' | 'error' | 'missing'
 
 export default function VerifyEmail() {
+  // C3 — beneath the unified focused chrome, suppress the page's own dark
+  // full-height stage; default (legacy) presentation is unchanged.
+  const focusedEmbed = useFocusedEmbed()
   const [params] = useSearchParams()
   const token = params.get('token')
   const { isAuthenticated } = useAuth()
@@ -47,7 +51,9 @@ export default function VerifyEmail() {
   }, [token])
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4">
+    <div className={focusedEmbed
+      ? 'w-full py-2'
+      : 'min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4'}>
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
         {state === 'loading' && (
           <div className="text-center" data-testid="verify-email-loading">

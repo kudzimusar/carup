@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
+import { useFocusedEmbed } from '@/components/shell/FocusedEmbedContext'
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -19,6 +20,9 @@ const API_BASE = resolveApiBaseUrl(
  * A network failure shows the same confirmation for the same reason.
  */
 export default function ForgotPassword() {
+  // C3 — beneath the unified focused chrome, suppress the page's own dark
+  // stage + brand block; default (legacy) presentation is unchanged.
+  const focusedEmbed = useFocusedEmbed()
   const [email, setEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [sent, setSent] = useState(false)
@@ -43,8 +47,11 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4">
+    <div className={focusedEmbed
+      ? 'w-full py-2'
+      : 'min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4'}>
       <div className="w-full max-w-md">
+        {!focusedEmbed && (
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-2 mb-6">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
@@ -53,6 +60,7 @@ export default function ForgotPassword() {
             <span className="text-2xl font-bold text-white">Car<span className="text-orange-500">Up</span></span>
           </Link>
         </div>
+        )}
 
         <div className="bg-white rounded-2xl shadow-xl p-8">
           {sent ? (
