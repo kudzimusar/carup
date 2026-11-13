@@ -15,7 +15,7 @@ a412aa521e0078ec8e8323caf4978087ec9cbde0 web/src/components/ux-prototype/rx02-s1
 8caf503387fe38367e87a53d5a2b956f94279626 web/src/components/ux-prototype/rx02-s1-4a/pathUtils.ts
 404648d889542ef3ec76482277efbf02261f232a web/src/components/ux-prototype/rx02-s1-4a/index.ts
 30e2baa847e9577caa874d451ad5913213e64197 web/src/components/ux-prototype/rx02-s1-4a/shellPrototype.test.tsx
-3fbb6288d5896a11a20eea09d55412e71d62486f web/src/pages/dev/Rx02S14ShellPrototype.tsx
+3fbb6288d5896a11a20eea09e55412e71d62486f web/src/pages/dev/Rx02S14ShellPrototype.tsx
 0b5f885a99aa7836f620d61c279e622acd1c3f9d web/src/App.tsx
 944bd494f53fefdb8abb906615da1784fd15e153 docs/product-experience/RX02_S1_4A_SHELL_PROTOTYPE.md
 SHAS
