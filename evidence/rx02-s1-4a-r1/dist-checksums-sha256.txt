@@ -20,7 +20,7 @@ fe1146cd74d7e5759937fa78fb7f1d57a35be62318c9239b11c0f7ef040b318d  web/dist/image
 adbbcb949d942120640791c3d49ca3700b25eb3172e574c55084390e4d466283  web/dist/images/vehicles/sedan-bmw.jpg
 19ac80b22c1c09891afd4301a4b2bd299d925dea9dfc14055386f1ade693bcbf  web/dist/images/vehicles/sedan-mercedes.jpg
 fc71dfc4cb2be143537ae24ffc7825679d96e9f080728ec72a2079a94ab114a3  web/dist/images/vehicles/suv-fortuner.jpg
-4938850d9182c2a50dbfd9a2f8669ff983aaca727b4129376166462c7fd2f6e45  web/dist/images/vehicles/suv-landrover.jpg
+4938850d918c2a50dbfd9a2f8669ff983aaca727b4129376166462c7fd2f6e45  web/dist/images/vehicles/suv-landrover.jpg
 3e1e367f64b78a738e4d9c7ca03807586b28bc9bed370b88cbaa683bd9bfc1db  web/dist/images/vehicles/suv-luxury.jpg
 3405ef10799a79376c13f0f4f41491de8ba5c1eb3dd65a5c8d31d51f7cc001f6  web/dist/images/vehicles/suv-mazda.jpg
 9b5b479e2167a9924ed1591c30e60bddc460914308d537a089edcd1796ede97d  web/dist/images/vehicles/suv-prado.jpg
