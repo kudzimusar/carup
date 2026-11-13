@@ -131,7 +131,9 @@ export function WorkspaceShell({
   currentPath?: string
   breadcrumbs?: ShellBreadcrumbStep[]
   object: ShellObjectIdentity
-  primaryAction: ShellPrimaryAction
+  /** ONE prioritized action. OMITTED entirely when no real authorized action
+   * exists for the current context — the shell never renders an inert button. */
+  primaryAction?: ShellPrimaryAction
   statusPanel?: ReactNode
   bottomNav?: Array<{ label: string; href: string; active?: boolean }>
   /** Explicit rail sections; defaults to the registry projection for the family. */
@@ -329,6 +331,7 @@ export function WorkspaceShell({
                 <span key={m} className="hidden text-xs text-carup-text-3 lg:inline">{m}</span>
               ))}
             </div>
+            {primaryAction && (
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -341,6 +344,7 @@ export function WorkspaceShell({
                 {primaryAction.label}
               </button>
             </div>
+            )}
           </div>
         </div>
 
@@ -397,4 +401,3 @@ export function WorkspaceShell({
     </div>
   )
 }
-
