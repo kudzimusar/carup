@@ -341,7 +341,9 @@ export default function App() {
 
         {/* Auth Routes. S1-4B: focused-shell candidate DEFAULT-OFF (legacy hideNav MainLayout
             unless opted in). The real Login form + returnTo handling render unchanged beneath. */}
-        <Route element={<UnifiedRouteShell family="focused" legacy={<MainLayout hideNav />} focusedTitle="Sign in to CarUp" focusedStepLabel="Account access" />}>
+        {/* S1-4B R2: focused titles are path-appropriate inside the shell; KYC and
+            non-first-slice auth paths keep the legacy composition. */}
+        <Route element={<UnifiedRouteShell family="focused" legacy={<MainLayout hideNav />} />}>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           {/*
