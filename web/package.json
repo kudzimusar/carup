@@ -12,7 +12,8 @@
     "test:qa": "playwright test",
     "test": "npm run lint && npm run build && npm run test:qa && node scripts/agent-15-discovery.js",
     "prebuild": "node ../scripts/ensure-fonts.mjs",
-    "predev": "node ../scripts/ensure-fonts.mjs"
+    "predev": "node ../scripts/ensure-fonts.mjs",
+    "test:ci": "vitest run --reporter=default --reporter=junit --outputFile=test-results/vitest-junit.xml"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -27,7 +27,16 @@
   "bg_hex": "#EBEBE5",
   "ratio": 14.08,
   "wcag_aa_normal": true,
-  "wcag_aa_large": true
+  "wcag_aa_large": true,
+ "reconciliation": {
+  "status": "reconciled",
+  "authority": "design-contract",
+  "authority_ref": "shared/tokens/tokens.json color-bg-surface-2 = #E9E9E4 (PR #260)",
+  "contract_bg_hex": "#E9E9E4",
+  "historical_bg_hex": "#EBEBE5",
+  "decision_ref": "docs/RX02A_S1_2_SURFACE_2_RECONCILIATION.md",
+  "rationale": "RX-01B checker reference #EBEBE5 predates the accepted design contract; #E9E9E4 governs. AA holds on the contract value (13.83/5.12/4.87, all >= 4.5); historical certification values preserved, not overwritten."
+ }
  },
  {
   "mode": "light",
@@ -57,7 +66,16 @@
   "bg_hex": "#EBEBE5",
   "ratio": 5.22,
   "wcag_aa_normal": true,
-  "wcag_aa_large": true
+  "wcag_aa_large": true,
+ "reconciliation": {
+  "status": "reconciled",
+  "authority": "design-contract",
+  "authority_ref": "shared/tokens/tokens.json color-bg-surface-2 = #E9E9E4 (PR #260)",
+  "contract_bg_hex": "#E9E9E4",
+  "historical_bg_hex": "#EBEBE5",
+  "decision_ref": "docs/RX02A_S1_2_SURFACE_2_RECONCILIATION.md",
+  "rationale": "RX-01B checker reference #EBEBE5 predates the accepted design contract; #E9E9E4 governs. AA holds on the contract value (13.83/5.12/4.87, all >= 4.5); historical certification values preserved, not overwritten."
+ }
  },
  {
   "mode": "light",
@@ -87,7 +105,16 @@
   "bg_hex": "#EBEBE5",
   "ratio": 4.96,
   "wcag_aa_normal": true,
-  "wcag_aa_large": true
+  "wcag_aa_large": true,
+ "reconciliation": {
+  "status": "reconciled",
+  "authority": "design-contract",
+  "authority_ref": "shared/tokens/tokens.json color-bg-surface-2 = #E9E9E4 (PR #260)",
+  "contract_bg_hex": "#E9E9E4",
+  "historical_bg_hex": "#EBEBE5",
+  "decision_ref": "docs/RX02A_S1_2_SURFACE_2_RECONCILIATION.md",
+  "rationale": "RX-01B checker reference #EBEBE5 predates the accepted design contract; #E9E9E4 governs. AA holds on the contract value (13.83/5.12/4.87, all >= 4.5); historical certification values preserved, not overwritten."
+ }
  },
  {
   "mode": "light",
