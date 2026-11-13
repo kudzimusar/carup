@@ -20,20 +20,26 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  Building2,
   ChevronDown,
   CircleUserRound,
   Home,
   LayoutGrid,
   Menu,
+  Package,
   Search,
   ShieldCheck,
+  ShoppingCart,
   Tag,
+  Wrench,
   X,
 } from 'lucide-react'
 import type { ShellNavItem, ShellNavSection } from './contracts'
 import { projectDirectPublicLinks, projectFooterColumns, projectMegaMenu, projectMobileSurfaces } from './navProjection'
-import { getFooterSocial } from '@/config/navigationManifest'
+import { getFooterSocial, getMobileNavigation } from '@/config/navigationManifest'
 import { getDashboardRoute } from '@/config/featureRegistry'
+import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
+import type { UserRole } from '@shared/types'
 import { BrandMark } from './BrandMark'
 import { isActivePath } from './pathUtils'
 
@@ -44,18 +50,30 @@ const MEGA_MENUS: Array<{ id: 'buy' | 'sell' | 'verify' | 'parts'; label: string
   { id: 'parts', label: 'Parts', surface: 'navbar-mega-parts' },
 ]
 
-const BOTTOM_ICONS = [Home, LayoutGrid, ShieldCheck, Tag, CircleUserRound]
+/** Manifest icon names → components (decorative; labels carry meaning). */
+const MOBILE_ICON_BY_NAME: Record<string, typeof Home> = {
+  ShoppingCart,
+  Car: Tag,
+  Shield: ShieldCheck,
+  Package,
+  Building2,
+  Wrench,
+}
 
-function MegaMenu({ label, sections, currentPath }: { label: string; sections: ShellNavSection[]; currentPath: string }) {
+function MegaMenu({ id, label, sections, currentPath }: { id: string; label: string; sections: ShellNavSection[]; currentPath: string }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
     }
     document.addEventListener('mousedown', onDoc)
     document.addEventListener('keydown', onKey)
@@ -65,12 +83,17 @@ function MegaMenu({ label, sections, currentPath }: { label: string; sections: S
     }
   }, [open])
 
+  // C5 — standard labelled disclosure + navigation semantics (APG disclosure
+  // navigation), NOT an ARIA menu: the panel is a set of labelled link lists,
+  // Tab moves through links naturally, Escape closes and returns focus to the
+  // trigger. No role=menu / menuitem + arrow-key model is claimed.
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         aria-expanded={open}
-        aria-haspopup="true"
+        aria-controls={`mega-${id}`}
         onClick={() => setOpen(o => !o)}
         onMouseEnter={() => setOpen(true)}
         className="flex min-h-11 items-center gap-1 rounded-control px-3 text-sm font-medium text-[color-mix(in_srgb,var(--carup-raw-paper)_90%,transparent)] transition-colors hover:bg-carup-raw-ink-2 hover:text-carup-raw-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus"
@@ -80,8 +103,8 @@ function MegaMenu({ label, sections, currentPath }: { label: string; sections: S
       </button>
       {open && (
         <div
-          role="menu"
-          aria-label={`${label} menu`}
+          id={`mega-${id}`}
+          aria-label={`${label} navigation`}
           className="absolute left-0 top-full z-50 mt-1 grid w-[44rem] max-w-[calc(100vw-2rem)] grid-cols-3 gap-4 rounded-card border border-carup-raw-ink-2 bg-carup-raw-ink p-4 text-carup-raw-paper shadow-sheet"
         >
           {sections.map(section => (
@@ -279,13 +302,18 @@ function MobileDrawer({
   )
 }
 
-const BOTTOM_LABELS = ['Home', 'Market', 'Verify', 'Sell', 'Account']
-const BOTTOM_HREFS = ['/', '/marketplace', '/search', '/sell', '/login']
-
 export interface PublicIdentity {
   /** Display name of the signed-in user, or a generic visitor label. */
   displayName: string
   isAuthenticated: boolean
+  /**
+   * The REAL authenticated role from the session context (never assumed).
+   * Guests pass null; while the session is still bootstrapping the shell must
+   * not project role-gated destinations.
+   */
+  role?: UserRole | null
+  /** True while the session is still loading/validating — role is not yet authoritative. */
+  bootstrapping?: boolean
 }
 
 export function PublicShell({
@@ -298,22 +326,44 @@ export function PublicShell({
   children?: ReactNode
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const authenticated = identity.isAuthenticated
-  const workspaceHref = getDashboardRoute('owner')
+  // C4 — the session role comes from the caller (real AuthContext); it is
+  // NEVER assumed to be 'owner'. While bootstrapping, no role-gated surface
+  // is projected at all.
+  const bootstrapping = !!identity.bootstrapping
+  const authenticated = identity.isAuthenticated && !bootstrapping
+  const role = authenticated ? (identity.role ?? null) : null
+  const workspaceHref = role ? getDashboardRoute(role) : '/dashboard'
   const displayName = identity.displayName
 
-  const navCtx = { isAuthenticated: authenticated, role: authenticated ? ('owner' as const) : null }
+  // C4 — canonical feature effective states flow into every projection, so a
+  // disabled/planned feature never appears as an active navigable action.
+  const effectiveStates = useFeatureEffectiveStates()
+  const navCtx = { isAuthenticated: authenticated, role, effectiveStates }
   const megaSections = MEGA_MENUS.map(m => ({ ...m, sections: projectMegaMenu(m.surface, navCtx) }))
   const directLinks = projectDirectPublicLinks(navCtx)
   const footerColumns = projectFooterColumns(navCtx)
   const social = getFooterSocial()
   const mobile = projectMobileSurfaces(navCtx)
 
-  const bottomItems = BOTTOM_LABELS.map((label, i) => ({
-    label,
-    href: BOTTOM_HREFS[i],
-    icon: BOTTOM_ICONS[i],
-  }))
+  // C4/C5 — the 5-slot mobile bottom bar is projected from the AUTHORITATIVE
+  // mobile-primary manifest surface (first three active items after Home),
+  // plus one Account slot that leads to the real workspace entry when signed
+  // in or sign-in when a guest. Narrow fixed composition, manifest-derived.
+  const bottomItems = [
+    { key: 'home', label: 'Home', href: '/', icon: Home as typeof Home },
+    ...getMobileNavigation(navCtx).primary.slice(0, 3).map(item => ({
+      key: item.id,
+      label: item.label,
+      href: item.href,
+      icon: MOBILE_ICON_BY_NAME[item.icon ?? ''] ?? LayoutGrid,
+    })),
+    {
+      key: 'account',
+      label: 'Account',
+      href: authenticated ? workspaceHref : '/login',
+      icon: CircleUserRound as typeof CircleUserRound,
+    },
+  ]
 
   return (
     <div className="min-h-screen bg-carup-bg text-carup-text" style={{ scrollPaddingBottom: 'calc(60px + env(safe-area-inset-bottom))' }}>
@@ -330,7 +380,7 @@ export function PublicShell({
           <BrandMark slot="public-masthead" tone="ink" />
           <nav aria-label="Primary" className="ml-2 hidden items-center lg:flex">
             {megaSections.map(m => (
-              <MegaMenu key={m.id} label={m.label} sections={m.sections} currentPath={currentPath} />
+              <MegaMenu key={m.id} id={m.id} label={m.label} sections={m.sections} currentPath={currentPath} />
             ))}
             {directLinks.map(item =>
               item.planned ? (
@@ -371,6 +421,17 @@ export function PublicShell({
                 <CircleUserRound className="h-4 w-4" aria-hidden="true" />
                 My CarUp
               </Link>
+            ) : bootstrapping ? (
+              // C4 — while the session is validating, do not guess: show an
+              // inert, honestly-labelled placeholder, never a fictional role.
+              <span
+                aria-busy="true"
+                aria-label="Account — checking your session"
+                className="flex min-h-11 cursor-wait items-center gap-2 rounded-control px-4 text-sm text-[color-mix(in_srgb,var(--carup-raw-paper)_50%,transparent)]"
+              >
+                <CircleUserRound className="h-4 w-4" aria-hidden="true" />
+                My CarUp…
+              </span>
             ) : (
               <>
                 <Link
@@ -492,12 +553,15 @@ export function PublicShell({
         data-testid="shell-public-bottom-nav"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-carup-line bg-carup-bg-raised pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-1.5 shadow-sheet lg:hidden"
       >
-        <div className="mx-auto grid max-w-xl grid-cols-5">
-          {bottomItems.map(({ label, href, icon: Icon }) => {
+        <div
+          className="mx-auto grid max-w-xl"
+          style={{ gridTemplateColumns: `repeat(${bottomItems.length}, minmax(0, 1fr))` }}
+        >
+          {bottomItems.map(({ key, label, href, icon: Icon }) => {
             const active = isActivePath(currentPath, href)
             return (
               <Link
-                key={label}
+                key={key}
                 to={href}
                 aria-current={active ? 'page' : undefined}
                 className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-control px-1 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus focus-visible:ring-inset ${
