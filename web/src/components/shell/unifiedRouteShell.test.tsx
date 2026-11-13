@@ -21,7 +21,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, Outlet, useSearchParams } from 'react-router-dom'
 import type { EffectiveFeatureState } from '@/config/featureRegistry'
-import { safeReturnTarget } from './UnifiedRouteShell'
+import { safeReturnTarget } from './safeReturn'
 
 const KEY = 'carup-unified-ui'
 
@@ -70,7 +70,7 @@ afterEach(() => {
 
 describe('UnifiedRouteShell — DEFAULT-OFF', () => {
   it('returns the exact legacy element (reference identity) when not opted in', async () => {
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     const legacy = <div data-testid="legacy-layout">legacy</div>
     expect(UnifiedRouteShell({ family: 'public', legacy })).toBe(legacy)
     expect(UnifiedRouteShell({ family: 'focused', legacy })).toBe(legacy)
@@ -158,7 +158,7 @@ describe('P0-B — personal workspace guard equals legacy DashboardLayout', () =
   it('guest is redirected to /login?returnTo=…; workspace chrome never renders', async () => {
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => unauthenticatedAuth)
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     render(
       <MemoryRouter initialEntries={['/dashboard']}>
         <Routes>
@@ -177,7 +177,7 @@ describe('P0-B — personal workspace guard equals legacy DashboardLayout', () =
   it('wrong role is redirected away to their own dashboard; owner body never renders', async () => {
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => authenticatedAuth('mechanic', 'Simba Mechanic'))
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     render(
       <MemoryRouter initialEntries={['/dashboard']}>
         <Routes>
@@ -219,7 +219,7 @@ describe('P0-B — personal workspace guard equals legacy DashboardLayout', () =
   it('owner allowed: shell chrome renders with registry-derived context and NO inert primary action (R2-2)', async () => {
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner'))
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     const { container } = render(
       <MemoryRouter initialEntries={['/dashboard']}>
         <Routes>
@@ -260,7 +260,7 @@ describe('R2-1 — dealer workspace uses the shared server-enforced guard', () =
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => unauthenticatedAuth)
     mockApiClient(null)
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     render(
       <MemoryRouter initialEntries={['/dealer/dashboard']}>
         <Routes>
@@ -279,7 +279,7 @@ describe('R2-1 — dealer workspace uses the shared server-enforced guard', () =
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => authenticatedAuth('member', 'Tendai Moyo'))
     mockApiClient(eligibleWorkspace)
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     const { container } = render(
       <MemoryRouter initialEntries={['/dealer/dashboard']}>
         <Routes>
@@ -306,7 +306,7 @@ describe('R2-1 — dealer workspace uses the shared server-enforced guard', () =
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => authenticatedAuth('member', 'Tendai Moyo'))
     mockApiClient({ ...eligibleWorkspace, operational: false })
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     render(
       <MemoryRouter initialEntries={['/dealer/dashboard']}>
         <Routes>
@@ -337,7 +337,7 @@ describe('R2-3 — first-slice scope', () => {
 
   it('public off-slice path (diaspora) renders legacy even when opted in', async () => {
     window.sessionStorage.setItem(KEY, '1')
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     const { container } = render(
       <MemoryRouter initialEntries={['/diaspora']}>
         <Routes>
@@ -354,7 +354,7 @@ describe('R2-3 — first-slice scope', () => {
 
   it('focused off-slice path (/kyc) renders legacy even when opted in', async () => {
     window.sessionStorage.setItem(KEY, '1')
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     const { container } = render(
       <MemoryRouter initialEntries={['/kyc']}>
         <Routes>
@@ -371,7 +371,7 @@ describe('R2-3 — first-slice scope', () => {
 
   it('marketplace compare is NOT mistaken for a vehicle-detail slice route', async () => {
     window.sessionStorage.setItem(KEY, '1')
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     render(
       <MemoryRouter initialEntries={['/marketplace/compare']}>
         <Routes>
@@ -413,7 +413,7 @@ describe('R2-5 — safeReturnTarget bounds exit destinations', () => {
 describe('Unified shell chrome — opted in, in-scope routes', () => {
   it('public slice renders real page content with unified chrome: header, footer, bottom nav, skip link', async () => {
     window.sessionStorage.setItem(KEY, '1')
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     const { container } = render(
       <MemoryRouter initialEntries={['/marketplace']}>
         <Routes>
@@ -432,7 +432,7 @@ describe('Unified shell chrome — opted in, in-scope routes', () => {
 
   it('focused login renders the page own form beneath the path-appropriate focused chrome', async () => {
     window.sessionStorage.setItem(KEY, '1')
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     const { container } = render(
       <MemoryRouter initialEntries={['/login']}>
         <Routes>
@@ -449,7 +449,7 @@ describe('Unified shell chrome — opted in, in-scope routes', () => {
 
   it('focused register gets its own path-appropriate title (no static wrong title)', async () => {
     window.sessionStorage.setItem(KEY, '1')
-    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const { UnifiedRouteShell } = await loadSwitch()
     render(
       <MemoryRouter initialEntries={['/register']}>
         <Routes>
