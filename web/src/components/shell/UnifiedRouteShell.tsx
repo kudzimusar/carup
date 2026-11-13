@@ -31,11 +31,10 @@
  * Rollback is presentation-only: flag off ⇒ legacy layout, zero data effect.
  */
 import type { ReactElement } from 'react'
-import { matchPath, Navigate, Outlet, useLocation, useNavigate, type Location } from 'react-router-dom'
+import { matchPath, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundary'
 import { getFeatureByRoute } from '@/config/featureRegistry'
-import { isSafeReturnTo } from '@/lib/returnTo'
 import { loginWithReturnTo } from '@/lib/routeAccess'
 import { AuthBootstrapLoading } from '@/components/routing/RegistryRouteBoundary'
 import { DEALER_OPERATION_LINKS, useDealerOperationalWorkspace } from '@/components/dealer/useDealerOperationalWorkspace'
@@ -43,6 +42,7 @@ import { PublicShell } from './PublicShell'
 import type { PublicIdentity } from './PublicShell'
 import { WorkspaceShell } from './WorkspaceShell'
 import { FocusedShell } from './FocusedShell'
+import { safeReturnTarget } from './safeReturn'
 import { FocusedEmbedContext } from './FocusedEmbedContext'
 import { isUnifiedUiEnabled } from './unifiedFlag'
 import type { ShellIdentity, ShellNavSection, ShellObjectIdentity } from './contracts'
@@ -105,19 +105,6 @@ function PublicUnifiedShell({ legacy }: { legacy: ReactElement }) {
       </RegistryRouteBoundary>
     </PublicShell>
   )
-}
-
-/**
- * Bounded internal return target (R2-5): only same-origin root-relative paths
- * are honored; anything else (external URL, scheme-relative, control chars)
- * falls back to '/'.
- */
-export function safeReturnTarget(location: Location): string {
-  const candidate =
-    location.state && typeof location.state === 'object' && 'from' in location.state
-      ? (location.state as { from?: unknown }).from
-      : null
-  return typeof candidate === 'string' && isSafeReturnTo(candidate) ? candidate : '/'
 }
 
 /** Focused single-task chrome for the auth first slice. */
