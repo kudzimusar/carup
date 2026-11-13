@@ -46,10 +46,15 @@ export function FocusedShell({
     mainRef.current?.focus()
   }, [])
 
-  // Escape exits the focused task (e.g. back to where the user came from).
+  // Escape exits the focused task — but NEVER while the user is typing in a
+  // form control (inadvertent abort of an in-progress/unsaved task, R2-5).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onExit()
+      if (e.key !== 'Escape') return
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return
+      onExit()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
