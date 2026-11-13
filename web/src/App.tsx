@@ -30,6 +30,7 @@ import DealerClaimReview from './pages/DealerClaimReview'
 import DealerReviewerLayout from './components/dealer/DealerReviewerLayout'
 import DealerOperatingLifecycleReview from './pages/DealerOperatingLifecycleReview'
 import DealerCanonicalWorkspaceLayout from './components/dealer/DealerCanonicalWorkspaceLayout'
+import { UnifiedRouteShell } from './components/shell/UnifiedRouteShell'
 import LegacyDealerRouteGate from './components/dealer/LegacyDealerRouteGate'
 import LegacyDealerDashboard from './pages/dashboard/dealer/LegacyDealerDashboard'
 import DealerResearchReview from './pages/DealerResearchReview'
@@ -263,8 +264,10 @@ export default function App() {
       <ActivityInstrumentation />
       <FeatureGovernanceLoader>
       <Routes>
-        {/* Public Routes */}
-        <Route element={<MainLayout />}>
+        {/* Public Routes. S1-4B unified-shell candidate is DEFAULT-OFF: this renders
+            the legacy MainLayout unless the isolated presentation flag is opted in.
+            Presentation-only; no access change. */}
+        <Route element={<UnifiedRouteShell family="public" legacy={<MainLayout />} />}>
           <Route path="/" element={<Landing />} />
           <Route path="/marketplace" element={<Marketplace />} />
           <Route path="/sell" element={<GuestSell />} />
@@ -336,8 +339,9 @@ export default function App() {
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
         </Route>
 
-        {/* Auth Routes */}
-        <Route element={<MainLayout hideNav />}>
+        {/* Auth Routes. S1-4B: focused-shell candidate DEFAULT-OFF (legacy hideNav MainLayout
+            unless opted in). The real Login form + returnTo handling render unchanged beneath. */}
+        <Route element={<UnifiedRouteShell family="focused" legacy={<MainLayout hideNav />} focusedTitle="Sign in to CarUp" focusedStepLabel="Account access" />}>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           {/*
@@ -353,8 +357,9 @@ export default function App() {
           <Route path="/kyc" element={<KYCVerification />} />
         </Route>
 
-        {/* Owner Dashboard */}
-        <Route element={<DashboardLayout role="owner" />}>
+        {/* Owner Dashboard / My CarUp. S1-4B: personal-workspace shell candidate DEFAULT-OFF
+            (legacy DashboardLayout unless opted in). Access/auth unchanged. */}
+        <Route element={<UnifiedRouteShell family="workspace-personal" legacy={<DashboardLayout role="owner" />} />}>
           <Route path="/dashboard" element={<OwnerDashboard />} />
           <Route path="/dashboard/garage" element={<MyGarage />} />
           <Route path="/dashboard/evidence" element={<EvidenceVault />} />
@@ -372,8 +377,11 @@ export default function App() {
         </Route>
 
         {/* Canonical active dealer owners may retain global member role. Only
-            the real session/tenant/compliance authority unlocks this route. */}
-        <Route element={<DealerCanonicalWorkspaceLayout />}>
+            the real session/tenant/compliance authority unlocks this route.
+            S1-4B: dealer-workspace shell candidate DEFAULT-OFF. When opted in, the
+            canonical server-enforcing guard renders INSIDE the workspace chrome, so
+            tenant/compliance/owner-membership authorization is fully preserved. */}
+        <Route element={<UnifiedRouteShell family="workspace-dealer" legacy={<DealerCanonicalWorkspaceLayout />} />}>
           <Route path="/dealer/dashboard" element={<DealerDashboard />} />
         </Route>
 
