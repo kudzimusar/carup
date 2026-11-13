@@ -34,7 +34,7 @@ import type { ReactElement } from 'react'
 import { matchPath, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundary'
-import { getFeatureByRoute } from '@/config/featureRegistry'
+import { getFeatureByRoute, getRoleMetadata } from '@/config/featureRegistry'
 import { loginWithReturnTo } from '@/lib/routeAccess'
 import { AuthBootstrapLoading } from '@/components/routing/RegistryRouteBoundary'
 import { DEALER_OPERATION_LINKS, useDealerOperationalWorkspace } from '@/components/dealer/useDealerOperationalWorkspace'
@@ -46,14 +46,18 @@ import { safeReturnTarget } from './safeReturn'
 import { FocusedEmbedContext } from './FocusedEmbedContext'
 import { isUnifiedUiEnabled } from './unifiedFlag'
 import type { ShellIdentity, ShellNavSection, ShellObjectIdentity } from './contracts'
+import type { UserRole } from '@shared/types'
 
 type Family = 'public' | 'focused' | 'workspace-personal' | 'workspace-dealer'
 
-function useIdentity(): { displayName: string; isAuthenticated: boolean } {
-  const { user, isAuthenticated } = useAuth()
+function useIdentity(): { displayName: string; isAuthenticated: boolean; role: UserRole | null; bootstrapping: boolean } {
+  const { user, isAuthenticated, loading } = useAuth()
   return {
     displayName: user?.name ?? 'Visitor',
     isAuthenticated,
+    // C4 — the REAL session role (never assumed 'owner'); null while unknown.
+    role: user?.role ?? null,
+    bootstrapping: loading,
   }
 }
 
@@ -96,6 +100,8 @@ function PublicUnifiedShell({ legacy }: { legacy: ReactElement }) {
   const publicIdentity: PublicIdentity = {
     displayName: identity.displayName,
     isAuthenticated: identity.isAuthenticated,
+    role: identity.role,
+    bootstrapping: identity.bootstrapping,
   }
   return (
     <PublicShell identity={publicIdentity} currentPath={location.pathname}>
@@ -144,6 +150,8 @@ function FocusedUnifiedShell({ legacy }: { legacy: ReactElement }) {
  */
 function WorkspacePersonalUnifiedShell() {
   const identity = useIdentity()
+  const { logout } = useAuth()
+  const navigate = useNavigate()
   const location = useLocation()
   const feature = getFeatureByRoute(location.pathname)
   const object: ShellObjectIdentity = {
@@ -154,7 +162,9 @@ function WorkspacePersonalUnifiedShell() {
   }
   const shellIdentity: ShellIdentity = {
     displayName: identity.displayName,
-    roleTitle: 'My CarUp',
+    // C4 — the role title is the REAL session role's registry metadata, never
+    // a hard-coded label.
+    roleTitle: identity.role ? getRoleMetadata(identity.role).title : 'My CarUp',
   }
   return (
     <WorkspaceShell
@@ -163,6 +173,13 @@ function WorkspacePersonalUnifiedShell() {
       currentPath={location.pathname}
       object={object}
       overviewHref="/dashboard"
+      // C2 — sign-out uses the EXISTING safe session mechanism (AuthContext
+      // logout, which clears client auth state + stored session only); no new
+      // backend API, no storage nuking of unrelated user data.
+      onSignOut={() => {
+        logout()
+        navigate('/')
+      }}
     >
       <Outlet />
     </WorkspaceShell>
@@ -178,7 +195,7 @@ function WorkspacePersonalUnifiedShell() {
  * states render explicitly and imply no permission.
  */
 function WorkspaceDealerUnifiedShell() {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const { status, workspace } = useDealerOperationalWorkspace()
@@ -210,6 +227,11 @@ function WorkspaceDealerUnifiedShell() {
     roleTitle: 'Dealer OS',
     tenantLabel: dealerName,
   }
+  // C2 — dealer sign-out uses the same existing safe session mechanism.
+  const onSignOut = () => {
+    logout()
+    navigate('/')
+  }
   const object: ShellObjectIdentity = {
     title: dealerName,
     reference: `tenant ${workspace.tenant_id}`,
@@ -226,6 +248,7 @@ function WorkspaceDealerUnifiedShell() {
       primaryAction={{ label: 'Review buyer inquiries', onSelect: () => navigate('/dealers/inquiries') }}
       railSections={rail}
       overviewHref="/dealer/dashboard"
+      onSignOut={onSignOut}
     >
       <Outlet />
     </WorkspaceShell>
