@@ -19,8 +19,10 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route, Outlet, useSearchParams } from 'react-router-dom'
 import type { EffectiveFeatureState } from '@/config/featureRegistry'
+import { getDashboardItems, getDashboardRoute, getRoleMetadata } from '@/config/featureRegistry'
 import { safeReturnTarget } from './safeReturn'
 
 const KEY = 'carup-unified-ui'
@@ -468,3 +470,156 @@ function LoginProbe() {
   const [params] = useSearchParams()
   return <div data-testid="returnto">{params.get('returnTo') ?? ''}</div>
 }
+
+/* ── R3 C4: role-aware projection (never assumes owner) ──────────────────── */
+
+describe('R3-C4 — navigation truth from the real session role', () => {
+  it('public shell offers an authenticated DEALER their own dashboard (not the owner dashboard)', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('dealer', 'Croco Motors'))
+    const { UnifiedRouteShell } = await loadSwitch()
+    render(
+      <MemoryRouter initialEntries={['/marketplace']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="public" legacy={<div>legacy</div>} />}>
+            <Route path="/marketplace" element={<div>marketplace body</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    const entry = screen.getByTestId('shell-workspace-entry')
+    expect(entry).toHaveAttribute('href', getDashboardRoute('dealer'))
+    expect(entry).not.toHaveAttribute('href', getDashboardRoute('owner'))
+  })
+
+  it('personal workspace header shows the REAL role metadata title', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner'))
+    const { UnifiedRouteShell } = await loadSwitch()
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="workspace-personal" legacy={<div>legacy</div>} />}>
+            <Route path="/dashboard" element={<div>owner dashboard body</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    await userEvent.setup().click(screen.getByTestId('shell-ws-account'))
+    expect(screen.getByTestId('shell-ws-account-menu')).toHaveTextContent(getRoleMetadata('owner').title)
+  })
+
+  it('a feature marked PLANNED by governance is not an active rail action (registry visibility: omitted from the rail)', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner'))
+    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const target = getDashboardItems('owner').find(f => f.id !== 'owner.overview')
+    expect(target).toBeDefined()
+    const planned: EffectiveFeatureState = {
+      featureId: target!.id, state: 'planned',
+      // enabled stays true: enabled:false is the runtime kill-switch and
+      // short-circuits to DISABLED before the planned gate.
+      enabled: true, visible: true, accessible: false, beta: false,
+    }
+    render(
+      <FeatureGovernanceContext.Provider value={{ [target!.id]: planned }}>
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <Routes>
+            <Route element={<UnifiedRouteShell family="workspace-personal" legacy={<div>legacy</div>} />}>
+              <Route path="/dashboard" element={<div>owner dashboard body</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </FeatureGovernanceContext.Provider>,
+    )
+    // The planned feature must not appear as an active navigable link. The
+    // shared visibility resolver treats 'planned' as not visible, so the
+    // registry projection omits it from the rail entirely (never an action).
+    const rail = document.getElementById('shell-ws-rail')!
+    const activeLink = Array.from(rail.querySelectorAll('a[href]'))
+      .find(a => a.getAttribute('href') === target!.route)
+    expect(activeLink).toBeUndefined()
+  })
+
+  it('a feature DISABLED by governance disappears from the workspace rail entirely', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner'))
+    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const target = getDashboardItems('owner').find(f => f.id !== 'owner.overview')
+    const disabled: EffectiveFeatureState = {
+      featureId: target!.id, state: 'disabled',
+      enabled: false, visible: true, accessible: false, beta: false,
+    }
+    render(
+      <FeatureGovernanceContext.Provider value={{ [target!.id]: disabled }}>
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <Routes>
+            <Route element={<UnifiedRouteShell family="workspace-personal" legacy={<div>legacy</div>} />}>
+              <Route path="/dashboard" element={<div>owner dashboard body</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </FeatureGovernanceContext.Provider>,
+    )
+    const rail = document.getElementById('shell-ws-rail')!
+    expect(rail.textContent).not.toContain(target!.label)
+  })
+})
+
+/* ── R3 C2: safe sign-out via the existing session mechanism ─────────────── */
+
+describe('R3-C2 — sign-out uses the existing AuthContext logout', () => {
+  it('personal workspace Sign Out invokes the session logout (no new backend, no storage nuking)', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    const logout = vi.fn()
+    vi.doMock('@/context/AuthContext', () => ({
+      useAuth: () => ({
+        user: { id: 'u1', name: 'Tendai Moyo', email: 't@example.co.zw', role: 'owner', phone: '' },
+        token: 'tok', isAuthenticated: true, loading: false,
+        login: () => {}, logout, switchRole: async () => {},
+      }),
+    }))
+    const { UnifiedRouteShell } = await loadSwitch()
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="workspace-personal" legacy={<div>legacy</div>} />}>
+            <Route path="/dashboard" element={<div>owner dashboard body</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    await user.click(screen.getByTestId('shell-ws-account'))
+    await user.click(screen.getByTestId('shell-ws-sign-out'))
+    expect(logout).toHaveBeenCalledTimes(1)
+  })
+
+  it('dealer workspace Sign Out invokes the same session logout', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    const logout = vi.fn()
+    vi.doMock('@/context/AuthContext', () => ({
+      useAuth: () => ({
+        user: { id: 'u1', name: 'Tendai Moyo', email: 't@example.co.zw', role: 'member', phone: '' },
+        token: 'tok', isAuthenticated: true, loading: false,
+        login: () => {}, logout, switchRole: async () => {},
+      }),
+    }))
+    mockApiClient(eligibleWorkspace)
+    const { UnifiedRouteShell } = await loadSwitch()
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/dealer/dashboard']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="workspace-dealer" legacy={<div>legacy</div>} />}>
+            <Route path="/dealer/dashboard" element={<div>dealer dashboard body</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('dealer dashboard body')).toBeInTheDocument()
+    await user.click(screen.getByTestId('shell-ws-account'))
+    await user.click(screen.getByTestId('shell-ws-sign-out'))
+    expect(logout).toHaveBeenCalledTimes(1)
+  })
+})
