@@ -107,8 +107,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
+    // TI-10 — end the LOCAL session immediately and securely (auth keys only; the guest
+    // Sell draft lives in IndexedDB and is untouched), then attempt SERVER-side revocation
+    // of the presenting session. A revocation failure is surfaced honestly on the console
+    // and is never claimed as success; the local credential is gone either way.
+    const presentingToken = token
     clearAuth()
-  }, [clearAuth])
+    if (!presentingToken) return
+    void apiRequest<{ success: boolean }>({
+      baseUrl: API_BASE,
+      path: '/auth/logout',
+      options: { method: 'POST' },
+      authHeaders: { 'x-session-token': presentingToken },
+    }).catch((e: unknown) => {
+      console.error(
+        'Server session revocation failed — the local session was cleared, but the server session may remain valid until it expires.',
+        e,
+      )
+    })
+  }, [token, clearAuth])
 
   const switchRole = useCallback(async (role: UserRole, tenantId?: string) => {
     if (!user || !token) return
