@@ -104,8 +104,17 @@ export type RouteDecision =
   | { kind: 'disabled' }
 
 export interface RouteAccessInput {
-  /** Current pathname (no query). */
+  /** Current pathname (no query). Used for registry matching only. */
   route: string
+  /**
+   * TI-20 — full path to preserve as the login return-to (pathname + search +
+   * permitted hash), e.g. `/marketplace?make=Toyota&priceMax=15000`. Used ONLY
+   * to build the auth redirect; registry matching always uses `route`. When
+   * omitted the redirect preserves `route` (pathname) as before. Safety is not
+   * the caller's job: the value passes through `safeReturnTo` inside
+   * `loginWithReturnTo`, so external/unsafe values fall back to plain `/login`.
+   */
+  returnPath?: string
   /** Auth still restoring/validating the session. */
   isBootstrapping: boolean
   isAuthenticated: boolean
@@ -136,6 +145,9 @@ function effectiveState(
 
 export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
   const { route, isBootstrapping, isAuthenticated, effectiveStates } = input
+  // TI-20: the login redirect preserves the full journey (query/filters) when
+  // the caller supplies it; registry matching below still uses `route`.
+  const returnTarget = input.returnPath ?? route
   // Operations M6: backend platform_admin/super_admin route as admin — the
   // shared UserRole cannot represent them, and bouncing a platform authority
   // to the owner dashboard was the standing defect (manual §5.2).
@@ -164,7 +176,7 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
   if (!feature) {
     return isPublicRoute(route)
       ? { kind: 'render' }
-      : { kind: 'redirect', to: loginWithReturnTo(route), reason: 'auth' }
+      : { kind: 'redirect', to: loginWithReturnTo(returnTarget), reason: 'auth' }
   }
 
   const state = effectiveState(feature.id, getStaticLifecycle(feature), effectiveStates)
@@ -189,7 +201,7 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
   // 5. Authentication + role for PROTECTED features (when enforcing).
   if (enforceAuth && feature.requiresAuth) {
     if (!isAuthenticated || !role) {
-      return { kind: 'redirect', to: loginWithReturnTo(route), reason: 'auth' }
+      return { kind: 'redirect', to: loginWithReturnTo(returnTarget), reason: 'auth' }
     }
     if (!feature.roles.includes(role)) {
       return { kind: 'redirect', to: getDashboardRoute(role), reason: 'role' }
