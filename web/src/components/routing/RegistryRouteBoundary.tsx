@@ -54,6 +54,8 @@ export function RegistryRouteBoundary({
 
   const decision = evaluateRouteAccess({
     route: location.pathname,
+    // TI-20: preserve the complete return journey (query/filters) through login.
+    returnPath: location.pathname + location.search + location.hash,
     isBootstrapping: loading,
     isAuthenticated: !!user,
     role: (user?.role as UserRole) ?? null,
@@ -102,7 +104,7 @@ export function RequireAuthenticatedUser({ children }: { children: ReactNode }) 
   const location = useLocation()
   const { user, loading } = useAuth()
   if (loading) return <AuthBootstrapLoading />
-  if (!user) return <Navigate to={loginWithReturnTo(location.pathname)} replace />
+  if (!user) return <Navigate to={loginWithReturnTo(location.pathname + location.search + location.hash)} replace />
   return <>{children}</>
 }
 
@@ -117,7 +119,7 @@ export function RequireFrontendRole({
   const { user, loading } = useAuth()
   const location = useLocation()
   if (loading) return <AuthBootstrapLoading />
-  if (!user) return <Navigate to={loginWithReturnTo(location.pathname)} replace />
+  if (!user) return <Navigate to={loginWithReturnTo(location.pathname + location.search + location.hash)} replace />
   if (!roles.includes(user.role as UserRole)) {
     return <Navigate to="/" replace />
   }
