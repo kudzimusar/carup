@@ -231,3 +231,19 @@ describe('R4-3 — rail renders each item’s own registry icon', () => {
     expect(iconCalls.filter(c => c === 'Wrench').length).toBeGreaterThanOrEqual(1)
   })
 })
+
+describe('B1 — content grid reserves the status column only when a status panel exists', () => {
+  it('without a statusPanel the content grid has NO reserved 320px column', () => {
+    renderShell()
+    const grid = screen.getByTestId('shell-ws-content-grid')
+    expect(grid.className).toContain('lg:grid-cols-1')
+    expect(grid.className).not.toContain('320px')
+  })
+
+  it('with a statusPanel the two-column layout is applied and the panel is labelled', () => {
+    renderShell({ statusPanel: <div>status panel body</div> })
+    const grid = screen.getByTestId('shell-ws-content-grid')
+    expect(grid.className).toContain('lg:grid-cols-[1fr_320px]')
+    expect(screen.getByLabelText('Status and evidence')).toHaveTextContent('status panel body')
+  })
+})

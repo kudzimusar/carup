@@ -148,3 +148,45 @@ describe('C5 — mega-menu is a labelled disclosure, not an ARIA menu', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
   })
 })
+
+describe('B2 — mega-menu closes on route change (selection or navigation)', () => {
+  it('an open disclosure closes when the current route changes', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderShell(guest)
+    const trigger = screen.getByRole('button', { name: /Buy/ })
+    trigger.focus()
+    await user.keyboard('{Enter}')
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    // Simulate the route change produced by selecting a link / navigating.
+    rerender(
+      <FeatureGovernanceContext.Provider value={{}}>
+        <MemoryRouter initialEntries={['/search']}>
+          <PublicShell identity={guest} currentPath="/search">
+            <div>page body</div>
+          </PublicShell>
+        </MemoryRouter>
+      </FeatureGovernanceContext.Provider>,
+    )
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(document.getElementById(trigger.getAttribute('aria-controls')!)).toBeNull()
+  })
+
+  it('an open disclosure closes when the path changes to another public route', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderShell(guest)
+    const trigger = screen.getByRole('button', { name: /Parts/ })
+    trigger.focus()
+    await user.keyboard('{Enter}')
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    rerender(
+      <FeatureGovernanceContext.Provider value={{}}>
+        <MemoryRouter initialEntries={['/']}>
+          <PublicShell identity={guest} currentPath="/">
+            <div>page body</div>
+          </PublicShell>
+        </MemoryRouter>
+      </FeatureGovernanceContext.Provider>,
+    )
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  })
+})
