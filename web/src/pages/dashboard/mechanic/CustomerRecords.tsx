@@ -6,7 +6,7 @@ import { Search, Plus, Phone, Mail, Car, Wrench } from 'lucide-react'
 import { useState } from 'react'
 
 const customers = [
-  { id: 1, name: 'Tendai Moyo', phone: '+263 773 345 678', email: 'tendai@email.co.zw', vehicles: 2, visits: 8, totalSpent: 1240, lastVisit: '2026-04-20' },
+  { id: 1, name: 'Tendai Moyo', phone: '+263 773 345 678', email: 'customer1@example.co.zw', vehicles: 2, visits: 8, totalSpent: 1240, lastVisit: '2026-04-20' },
   { id: 2, name: 'Sarah Chikomo', phone: '+263 775 567 890', email: 'sarah@email.co.zw', vehicles: 1, visits: 5, totalSpent: 890, lastVisit: '2026-05-21' },
   { id: 3, name: 'James Ncube', phone: '+263 777 789 012', email: 'james@email.co.zw', vehicles: 2, visits: 12, totalSpent: 2340, lastVisit: '2026-03-10' },
   { id: 4, name: 'Grace Mupfumi', phone: '+263 778 890 123', email: 'grace@email.co.zw', vehicles: 1, visits: 3, totalSpent: 450, lastVisit: '2026-05-15' },

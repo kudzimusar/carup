@@ -12,11 +12,18 @@ import { test, expect, type Page, type Request } from '@playwright/test'
  *     npx playwright test e2e/diaspora-buyer-import-real.spec.ts --config web/playwright.config.ts
  *
  * Default E2E_BASE_URL is production. Point it at a seeded staging environment to avoid prod writes.
- * Login uses the seeded demo buyer (the backend login route authenticates by email).
+ * Login uses the REAL credential form with a seeded buyer account supplied via environment
+ * variables (E2E_BUYER_EMAIL / E2E_BUYER_PASSWORD). The former "Quick Demo Access" button was
+ * removed from the client by TI-01 (dispatch RX02-RS-R3); credentials are never printed or
+ * committed, and the test skips loudly when they are not provided.
  */
 
 const RUN_REAL = process.env.E2E_REAL === '1' || process.env.E2E_REAL === 'true'
 const BASE = (process.env.E2E_BASE_URL || 'https://carup.vercel.app').replace(/\/$/, '')
+// TI-01: demo access removed — the seeded buyer's credentials must come from the environment.
+// They are used only to fill the real login form and are never logged.
+const BUYER_EMAIL = process.env.E2E_BUYER_EMAIL || ''
+const BUYER_PASSWORD = process.env.E2E_BUYER_PASSWORD || ''
 
 interface Captured { status: number; body: string }
 
@@ -59,6 +66,10 @@ async function collectDebug(
 
 test.describe('Diaspora buyer import-order REAL flow (no mocks)', () => {
   test.skip(!RUN_REAL, 'Set E2E_REAL=1 to run against a real backend (writes real data). See file header.')
+  test.skip(
+    !BUYER_EMAIL || !BUYER_PASSWORD,
+    'Set E2E_BUYER_EMAIL / E2E_BUYER_PASSWORD for the seeded buyer (env only, never committed). See file header.',
+  )
 
   test('logged out → start import → login → /imports/new → submit → /imports/:id → documents', async ({ page }) => {
     const captured: Record<string, Captured> = {}
@@ -93,8 +104,10 @@ test.describe('Diaspora buyer import-order REAL flow (no mocks)', () => {
     await expect(page).toHaveURL(/\/login\?returnTo=/)
     expect(new URL(page.url()).searchParams.get('returnTo')).toBe('/diaspora/imports/new')
 
-    // 5: log in as the seeded demo buyer via the UI
-    await page.getByRole('button', { name: /Browse as Buyer/i }).click()
+    // 5: log in as the seeded buyer through the REAL credential form (TI-01 removed demo access)
+    await page.locator('[data-testid="email-input"]').fill(BUYER_EMAIL)
+    await page.locator('[data-testid="password-input"]').fill(BUYER_PASSWORD)
+    await page.locator('[data-testid="login-button"]').click()
 
     // 6: redirect lands back on the originally requested page
     await expect(page).toHaveURL(/\/diaspora\/imports\/new$/, { timeout: 20_000 })
