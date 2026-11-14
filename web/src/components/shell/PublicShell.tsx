@@ -496,7 +496,8 @@ export function PublicShell({
       >
         <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-8 px-4 py-8 sm:grid-cols-2 lg:grid-cols-5 lg:gap-6 lg:px-6 lg:py-10">
           <div>
-            <BrandMark slot="public-footer" tone="light" />\n            <p className="mt-3 text-xs text-carup-text-3">
+            <BrandMark slot="public-footer" tone="light" />
+            <p className="mt-3 text-xs text-carup-text-3">
               Zimbabwe's trusted vehicle marketplace.
             </p>
           </div>
