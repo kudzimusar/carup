@@ -64,6 +64,15 @@ function MegaMenu({ id, label, sections, currentPath }: { id: string; label: str
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
+  // B2 — a route change always closes the disclosure, whether the navigation
+  // came from selecting a menu link, the mobile drawer, or history traversal.
+  const lastPathRef = useRef(currentPath)
+  useEffect(() => {
+    if (lastPathRef.current !== currentPath) {
+      lastPathRef.current = currentPath
+      setOpen(false)
+    }
+  }, [currentPath])
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent) => {
@@ -487,8 +496,7 @@ export function PublicShell({
       >
         <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-8 px-4 py-8 sm:grid-cols-2 lg:grid-cols-5 lg:gap-6 lg:px-6 lg:py-10">
           <div>
-            <BrandMark slot="public-footer" tone="light" />
-            <p className="mt-3 text-xs text-carup-text-3">
+            <BrandMark slot="public-footer" tone="light" />\n            <p className="mt-3 text-xs text-carup-text-3">
               Zimbabwe's trusted vehicle marketplace.
             </p>
           </div>

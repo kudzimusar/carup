@@ -503,8 +503,15 @@ export function WorkspaceShell({
           </div>
         </div>
 
-        {/* Content grid + contextual status panel */}
-        <div className="mx-auto grid w-full max-w-[1560px] flex-1 gap-6 px-4 py-6 lg:grid-cols-[1fr_320px] lg:px-6">
+        {/* Content grid + contextual status panel. B1 — the reserved 320px
+            status column applies ONLY when a genuine status panel exists;
+            without one the content owns the full width. */}
+        <div
+          data-testid="shell-ws-content-grid"
+          className={`mx-auto grid w-full max-w-[1560px] flex-1 gap-6 px-4 py-6 lg:px-6 ${
+            statusPanel ? 'lg:grid-cols-[1fr_320px]' : 'lg:grid-cols-1'
+          }`}
+        >
           <main id="shell-ws-main" tabIndex={-1} className="min-w-0 outline-none">
             {children}
           </main>
