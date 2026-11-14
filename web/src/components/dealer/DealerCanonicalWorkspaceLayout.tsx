@@ -23,7 +23,7 @@ export default function DealerCanonicalWorkspaceLayout() {
   const { status, workspace } = useDealerOperationalWorkspace()
 
   if (status === 'bootstrapping') return <AuthBootstrapLoading />
-  if (!user || !token) return <Navigate to={loginWithReturnTo(location.pathname)} replace />
+  if (!user || !token) return <Navigate to={loginWithReturnTo(location.pathname + location.search + location.hash)} replace />
   if (status === 'verifying') return <AuthBootstrapLoading />
   if (status === 'unauthorized' || !workspace)
     return <main className="mx-auto max-w-3xl px-5 py-12">
