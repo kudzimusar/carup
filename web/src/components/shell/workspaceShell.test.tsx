@@ -94,7 +94,6 @@ describe('C1 — mobile drawer keyboard contract', () => {
 
   it('backdrop click closes the drawer and restores focus', async () => {
     const user = userEvent.setup()
-    renderShell()
     const { container } = renderShell()
     const trigger = screen.getByTestId('shell-ws-mobile-menu')
     await user.click(trigger)
