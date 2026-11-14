@@ -181,47 +181,47 @@ export default function DashboardLayout({ role }: { role: string }) {
                 </p>
               )}
               {items.map(({ item, vis }) => {
-                const isActive = location.pathname === item.route
-                  || (item.route !== '/dashboard' && location.pathname.startsWith(`${item.route}/`))
-                const navIdMap: Record<string, string> = {
-                  'Overview': 'nav-dashboard',
-                  'My Garage': 'nav-garage',
-                  'Inventory': 'nav-inventory',
-                  'Claims': 'nav-claims',
-                  'Work Orders': 'nav-workorders',
-                  'Registry Verification': 'nav-registry',
-                  'Import Orders': 'nav-diaspora-imports',
-                  'Start Import Order': 'nav-diaspora-new-import',
-                  'Diaspora Compliance': 'nav-diaspora-compliance',
-                  'Workbook Console': 'diaspora-workbook-console-nav-link',
-                  'Communications': role === 'admin' ? 'nav-admin-communications' : 'nav-communications',
-                }
-                const IconComponent = resolveIcon(item)
-                return (
-                  <Link
-                    key={item.id}
-                    to={item.route}
-                    onClick={() => setSidebarOpen(false)}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                      isActive
-                        ? 'bg-orange-50 text-orange-700 before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-r before:bg-orange-500'
-                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                    }`}
-                    data-testid={navIdMap[item.label]}
-                  >
-                    <IconComponent className={`w-5 h-5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />
-                    <span className="flex-1">{item.label}</span>
-                    {vis.beta && (
-                      <Badge className="text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700">Beta</Badge>
-                    )}
-                    {item.badge && (
-                      <Badge variant={isActive ? 'default' : 'secondary'} className="text-[10px] h-5 px-1.5">
-                        {item.badge}
-                      </Badge>
-                    )}
-                  </Link>
-                )
+            const isActive = location.pathname === item.route
+              || (item.route !== '/dashboard' && location.pathname.startsWith(`${item.route}/`))
+            const navIdMap: Record<string, string> = {
+              'Overview': 'nav-dashboard',
+              'My Garage': 'nav-garage',
+              'Inventory': 'nav-inventory',
+              'Claims': 'nav-claims',
+              'Work Orders': 'nav-workorders',
+              'Registry Verification': 'nav-registry',
+              'Import Orders': 'nav-diaspora-imports',
+              'Start Import Order': 'nav-diaspora-new-import',
+              'Diaspora Compliance': 'nav-diaspora-compliance',
+              'Workbook Console': 'diaspora-workbook-console-nav-link',
+              'Communications': role === 'admin' ? 'nav-admin-communications' : 'nav-communications',
+            }
+            const IconComponent = resolveIcon(item)
+            return (
+              <Link
+                key={item.id}
+                to={item.route}
+                onClick={() => setSidebarOpen(false)}
+                aria-current={isActive ? 'page' : undefined}
+                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-orange-50 text-orange-700 before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-r before:bg-orange-500'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+                data-testid={navIdMap[item.label]}
+              >
+                <IconComponent className={`w-5 h-5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />
+                <span className="flex-1">{item.label}</span>
+                {vis.beta && (
+                  <Badge className="text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700">Beta</Badge>
+                )}
+                {item.badge && (
+                  <Badge variant={isActive ? 'default' : 'secondary'} className="text-[10px] h-5 px-1.5">
+                    {item.badge}
+                  </Badge>
+                )}
+              </Link>
+            )
               })}
             </div>
           ))}
