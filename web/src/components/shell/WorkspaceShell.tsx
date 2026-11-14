@@ -86,7 +86,9 @@ function RailContent({
           )}
           <ul className={collapsed ? 'flex flex-col items-center gap-1' : 'space-y-0.5'}>
             {section.items.map(item => {
-              const Icon = resolveFeatureIcon(null)
+              // R4-3 — resolve the item's OWN registry icon; the FileText
+              // fallback applies only where metadata is genuinely absent.
+              const Icon = resolveFeatureIcon(item.icon ?? null)
               if (item.planned) {
                 // C4 — a planned feature is never an active navigable action:
                 // it renders as an honest non-navigating "Soon" entry.

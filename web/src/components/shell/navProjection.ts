@@ -16,9 +16,11 @@ import {
 } from '@/config/navigationManifest'
 import {
   getDashboardItems,
+  getFeatureByRoute,
   resolveFeatureVisibility,
   type NavigationContext,
 } from '@/config/featureRegistry'
+import { DEALER_OPERATION_LINKS } from '@/components/dealer/useDealerOperationalWorkspace'
 import type { UserRole } from '@shared/types'
 import type { ShellNavItem, ShellNavSection } from './contracts'
 
@@ -27,6 +29,8 @@ function toShellItem(item: ResolvedNavItem): ShellNavItem {
     id: item.id,
     label: item.label,
     href: item.href,
+    // R4-3 — carry the registry icon through instead of dropping it.
+    icon: item.icon ?? null,
     description: item.description,
     badge: item.badge,
     planned: !item.active,
@@ -99,9 +103,52 @@ export function projectWorkspaceRail(
       id: f.id,
       label: f.label,
       href: f.route,
+      // R4-3 — preserve the feature's own icon metadata.
+      icon: f.icon,
       planned: !(vis.state === 'active' || vis.state === 'beta'),
     })
     byDomain.set(f.domain, list)
   }
   return Array.from(byDomain.entries()).map(([title, items]) => ({ title, items }))
+}
+
+/**
+ * R4-2 — The ONLY dealer destination that lives inside the approved unified
+ * shell slice (App.tsx wraps exactly `/dealer/dashboard` for this family).
+ * Every other dealer destination remains under the legacy MainLayout /
+ * canonical layout chrome and must never be advertised as an active unified
+ * action.
+ */
+export const DEALER_UNIFIED_SLICE: ReadonlySet<string> = new Set(['/dealer/dashboard'])
+
+/**
+ * R4-2 — Dealer operations rail projected through the CANONICAL feature
+ * visibility / effective-state resolver (never a forced `planned: false`).
+ *
+ * Each static operations destination is governed:
+ *  - when a registry feature backs the destination, the shared resolver decides
+ *    visibility — a hidden/disabled feature is OMITTED from the rail;
+ *  - a destination outside the approved unified slice renders truthfully as
+ *    a non-navigating "Soon" entry (it stays reachable through the legacy
+ *    chrome it actually lives in);
+ *  - only an in-slice, resolver-active destination is a live navigable link.
+ */
+export function projectDealerOperationsRail(ctx: NavigationContext = {}): ShellNavSection[] {
+  const sessionCtx: NavigationContext = { isAuthenticated: true, role: 'dealer', ...ctx }
+  const items: ShellNavItem[] = []
+  for (const link of DEALER_OPERATION_LINKS) {
+    const feature = getFeatureByRoute(link.href)
+    const vis = feature ? resolveFeatureVisibility(feature, sessionCtx) : null
+    if (vis && !vis.visible) continue
+    const inSlice = DEALER_UNIFIED_SLICE.has(link.href)
+    const live = inSlice && (!vis || vis.state === 'active' || vis.state === 'beta')
+    items.push({
+      id: link.id,
+      label: link.label,
+      href: link.href,
+      icon: feature?.icon ?? null,
+      planned: !live,
+    })
+  }
+  return [{ title: 'Operations', items }]
 }

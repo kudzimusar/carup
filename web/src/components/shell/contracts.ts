@@ -9,6 +9,7 @@
  * authoritative. Derived from the approved S1-4A prototype (pull request 266) with the
  * fictional-fixture identity contract removed.
  */
+import type { LucideIconName } from '@/config/featureRegistry'
 
 /** Workspace tenant families from the route-to-shell authority register
  * (docs/product-experience/UI_ROUTE_SHELL_AUTHORITY_REGISTER.csv). */
@@ -59,6 +60,9 @@ export interface ShellNavItem {
   id: string
   label: string
   href: string
+  /** R4-3 — the registry icon metadata, preserved through the projection so
+   *  each feature renders its own icon (fallback only when genuinely absent). */
+  icon?: LucideIconName | null
   description?: string
   badge?: string
   /** Planned items are shown truthfully as "Soon" and never navigate. */

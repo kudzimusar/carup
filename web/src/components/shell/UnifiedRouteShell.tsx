@@ -37,7 +37,8 @@ import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundar
 import { getFeatureByRoute, getRoleMetadata } from '@/config/featureRegistry'
 import { loginWithReturnTo } from '@/lib/routeAccess'
 import { AuthBootstrapLoading } from '@/components/routing/RegistryRouteBoundary'
-import { DEALER_OPERATION_LINKS, useDealerOperationalWorkspace } from '@/components/dealer/useDealerOperationalWorkspace'
+import { useDealerOperationalWorkspace } from '@/components/dealer/useDealerOperationalWorkspace'
+import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import { PublicShell } from './PublicShell'
 import type { PublicIdentity } from './PublicShell'
 import { WorkspaceShell } from './WorkspaceShell'
@@ -45,7 +46,8 @@ import { FocusedShell } from './FocusedShell'
 import { safeReturnTarget } from './safeReturn'
 import { FocusedEmbedContext } from './FocusedEmbedContext'
 import { isUnifiedUiEnabled } from './unifiedFlag'
-import type { ShellIdentity, ShellNavSection, ShellObjectIdentity } from './contracts'
+import { projectDealerOperationsRail } from './navProjection'
+import type { ShellIdentity, ShellObjectIdentity } from './contracts'
 import type { UserRole } from '@shared/types'
 
 type Family = 'public' | 'focused' | 'workspace-personal' | 'workspace-dealer'
@@ -89,6 +91,35 @@ function focusedTitleFor(pathname: string): string | null {
     if (matchPath(entry.pattern, pathname)) return entry.title
   }
   return null
+}
+
+/**
+ * R4-1 — Personal-family first-slice allowlist (route-authority register).
+ * These are the owner routes whose unified chrome is IN SCOPE for this slice.
+ * `/dashboard/sell-vehicle` is deliberately ABSENT: register row R076 assigns
+ * the seller claim flow to its own `FocusedShell (seller-claim)` composition,
+ * so it must never enter the unified personal WorkspaceShell (the deferred
+ * seller redesign is NOT implemented here — the route keeps its exact legacy
+ * element, unchanged, when the opt-in is on).
+ */
+const PERSONAL_SLICE_PATTERNS: ReadonlyArray<string> = [
+  '/dashboard',
+  '/dashboard/garage',
+  '/dashboard/garage/:id',
+  '/dashboard/evidence',
+  '/dashboard/service-history',
+  '/dashboard/insurance',
+  '/dashboard/partsentry',
+  '/dashboard/listings',
+  '/dashboard/saved',
+  '/dashboard/ai',
+  '/dashboard/referrals',
+  '/dashboard/communications',
+  '/dashboard/intelligence',
+]
+
+function isPersonalSlicePath(pathname: string): boolean {
+  return PERSONAL_SLICE_PATTERNS.some(pattern => matchPath(pattern, pathname))
 }
 
 /** Public showroom chrome over the first-slice public pages. */
@@ -199,6 +230,9 @@ function WorkspaceDealerUnifiedShell() {
   const location = useLocation()
   const navigate = useNavigate()
   const { status, workspace } = useDealerOperationalWorkspace()
+  // R4-2 — canonical loaded feature effective states for rail governance
+  // (hook order is fixed: before any conditional return).
+  const effectiveStates = useFeatureEffectiveStates()
 
   if (status === 'bootstrapping' || status === 'verifying') return <AuthBootstrapLoading />
   if (status === 'guest') {
@@ -219,9 +253,12 @@ function WorkspaceDealerUnifiedShell() {
   }
 
   const dealerName = workspace.profile.trading_name || workspace.profile.legal_name || 'Approved dealer'
-  const rail: ShellNavSection[] = [
-    { title: 'Operations', items: DEALER_OPERATION_LINKS.map(l => ({ ...l, planned: false })) },
-  ]
+  // R4-2 — the rail is projected through the CANONICAL feature visibility /
+  // effective-state resolver: no forced `planned: false`, no advertising
+  // legacy destinations as active unified actions. Destinations outside the
+  // approved unified slice render truthfully as non-navigating "Soon" entries
+  // (they remain reachable in the legacy chrome they actually live in).
+  const rail = projectDealerOperationsRail({ effectiveStates })
   const identity: ShellIdentity = {
     displayName: user?.name ?? dealerName,
     roleTitle: 'Dealer OS',
@@ -245,13 +282,32 @@ function WorkspaceDealerUnifiedShell() {
       identity={identity}
       currentPath={location.pathname}
       object={object}
-      primaryAction={{ label: 'Review buyer inquiries', onSelect: () => navigate('/dealers/inquiries') }}
+      // R4-2 — no primary action is rendered: the only candidate ("review
+      // inquiries") navigates outside the approved slice, and the shell never
+      // ships an action that leaves the unified experience.
       railSections={rail}
       overviewHref="/dealer/dashboard"
       onSignOut={onSignOut}
     >
       <Outlet />
     </WorkspaceShell>
+  )
+}
+
+/**
+ * R4-1 — Personal-family scope switch. Routes inside the approved personal
+ * slice render behind the SAME centralized guard the legacy DashboardLayout
+ * uses; routes outside it (the seller claim flow) keep their exact assigned
+ * legacy element, so an opted-in nonproduction session cannot pull an
+ * out-of-scope seller flow into the unified WorkspaceShell.
+ */
+function WorkspacePersonalSwitch({ legacy }: { legacy: ReactElement }) {
+  const location = useLocation()
+  if (!isPersonalSlicePath(location.pathname)) return legacy
+  return (
+    <RegistryRouteBoundary>
+      <WorkspacePersonalUnifiedShell />
+    </RegistryRouteBoundary>
   )
 }
 
@@ -275,13 +331,9 @@ export function UnifiedRouteShell({
     case 'focused':
       return <FocusedUnifiedShell legacy={legacy} />
     case 'workspace-personal':
-      // P0-B: identical centralized guard to legacy DashboardLayout — the
-      // shell chrome only renders when the guard decides 'render'.
-      return (
-        <RegistryRouteBoundary>
-          <WorkspacePersonalUnifiedShell />
-        </RegistryRouteBoundary>
-      )
+      // R4-1: slice-gated — off-slice personal paths (seller claim) keep the
+      // exact legacy element; in-slice paths get the centralized guard.
+      return <WorkspacePersonalSwitch legacy={legacy} />
     case 'workspace-dealer':
       return <WorkspaceDealerUnifiedShell />
   }
