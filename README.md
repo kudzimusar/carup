@@ -1,73 +1,32 @@
-# React + TypeScript + Vite
+# R3 Evidence ZIP — Verification Manifest (branch: evidence/r3-download)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Artifact:** `CARUP-UX-REBUILD-01_RX02A_S1_4B_LR01_R3_EVIDENCE.zip`
+**Size:** 10,326,328 bytes
+**SHA-256:** `28ce07423c6604f7d42669c238340932861fe16519667ce2970aef241c1cb735`
 
-Currently, two official plugins are available:
+This branch carries the integrity manifest for the R3 evidence ZIP so any
+copy the reviewer obtains can be byte-verified against the canonical hash.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Verify
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```sh
+sha256sum CARUP-UX-REBUILD-01_RX02A_S1_4B_LR01_R3_EVIDENCE.zip
+# must equal 28ce07423c6604f7d42669c238340932861fe16519667ce2970aef241c1cb735
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Provenance
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- Produced 2026-11-14 from targeted Chromium captures against the isolated QA
+  fixture backend (engineering evidence, not live business UAT).
+- `SHA256SUMS.txt` — per-file checksums inside the archive.
+- `FILELIST.txt` — per-file byte sizes.
+- `report.json` excerpt is embedded in PR #269 (comment 6868064617).
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Download channel note
+
+The canonical ZIP is delivered with the R4 return bundle to the Owner
+(byte-identical, hash above). The engineer's GitHub write path (repository
+MCP, inline file content) cannot carry a 10.3 MB binary payload, so the ZIP
+itself is attached to the review thread by the Owner (GitHub comment
+attachments accept ZIP up to 25 MB) rather than committed to this branch.
+This branch exists so the attachment can be hash-verified on receipt.
