@@ -237,7 +237,8 @@ function WorkspaceDealerUnifiedShell() {
   if (status === 'bootstrapping' || status === 'verifying') return <AuthBootstrapLoading />
   if (status === 'guest') {
     // Canonical guest behavior: login with sanitized return-to (same as legacy).
-    return <Navigate to={loginWithReturnTo(location.pathname)} replace />
+    // TI-20: the return-to preserves the full journey (query/filters), not just the pathname.
+    return <Navigate to={loginWithReturnTo(location.pathname + location.search + location.hash)} replace />
   }
   if (status === 'unauthorized' || !workspace) {
     return (
