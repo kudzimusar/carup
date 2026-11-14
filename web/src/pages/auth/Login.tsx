@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import { Car, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/AuthContext'
+import { useFocusedEmbed } from '@/components/shell/FocusedEmbedContext'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { LoginErrorAlert } from './LoginErrorAlert'
 import { classifyLoginStatus, loginError, type LoginErrorState } from './loginError'
@@ -25,6 +26,10 @@ const API_BASE = resolveApiBaseUrl(
 
 export default function Login() {
   const { login } = useAuth()
+  // S1-4B R2-5: when rendered beneath the unified focused chrome, suppress this
+  // page's own brand block + dark stage so the task gets ONE clear hierarchy.
+  // Outside the focused shell (default) the legacy presentation is unchanged.
+  const focusedEmbed = useFocusedEmbed()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = searchParams.get('returnTo')
@@ -126,8 +131,11 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4">
+    <div className={focusedEmbed
+      ? 'w-full max-w-md mx-auto py-2'
+      : 'min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4'}>
       <div className="w-full max-w-md">
+        {!focusedEmbed && (
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-2 mb-6">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
@@ -140,6 +148,7 @@ export default function Login() {
           <h1 className="text-2xl font-bold text-white mb-2">Welcome Back</h1>
           <p className="text-gray-400">Sign in to your CarUp account</p>
         </div>
+        )}
 
         <Card className="border-0 card-shadow">
           <CardContent className="p-6">

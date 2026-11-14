@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '@/lib/passwordPolicy'
+import { useFocusedEmbed } from '@/components/shell/FocusedEmbedContext'
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -20,6 +21,9 @@ const API_BASE = resolveApiBaseUrl(
  * would mean minting a session for whoever holds the emailed link.
  */
 export default function ResetPassword() {
+  // C3 — beneath the unified focused chrome, suppress the page's own dark
+  // stage + brand block; default (legacy) presentation is unchanged.
+  const focusedEmbed = useFocusedEmbed()
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const token = params.get('token') || ''
@@ -58,8 +62,11 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4">
+    <div className={focusedEmbed
+      ? 'w-full py-2'
+      : 'min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4'}>
       <div className="w-full max-w-md">
+        {!focusedEmbed && (
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-2 mb-6">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
@@ -68,6 +75,7 @@ export default function ResetPassword() {
             <span className="text-2xl font-bold text-white">Car<span className="text-orange-500">Up</span></span>
           </Link>
         </div>
+        )}
 
         <div className="bg-white rounded-2xl shadow-xl p-8">
           {!token ? (
