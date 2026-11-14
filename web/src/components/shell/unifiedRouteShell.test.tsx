@@ -81,7 +81,7 @@ describe('UnifiedRouteShell — DEFAULT-OFF', () => {
   })
 })
 
-/* ── P0-A: lifecycle boundary enforced in unified public/focused flows ───── */
+/* ── P0-A: lifecycle boundary restored in unified public/focused flows ───── */
 
 describe('P0-A — lifecycle boundary enforced when opted in', () => {
   it('public slice renders FeatureDisabledPage when governance disables the marketplace', async () => {
