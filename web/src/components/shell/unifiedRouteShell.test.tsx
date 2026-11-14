@@ -81,7 +81,7 @@ describe('UnifiedRouteShell — DEFAULT-OFF', () => {
   })
 })
 
-/* ── P0-A: lifecycle boundary restored in unified public/focused flows ───── */
+/* ── P0-A: lifecycle boundary enforced in unified public/focused flows ───── */
 
 describe('P0-A — lifecycle boundary enforced when opted in', () => {
   it('public slice renders FeatureDisabledPage when governance disables the marketplace', async () => {
@@ -621,5 +621,166 @@ describe('R3-C2 — sign-out uses the existing AuthContext logout', () => {
     await user.click(screen.getByTestId('shell-ws-account'))
     await user.click(screen.getByTestId('shell-ws-sign-out'))
     expect(logout).toHaveBeenCalledTimes(1)
+  })
+})
+
+/* ── R4-1: seller route ownership ─────────────────────────────────────────── */
+
+describe('R4-1 — the seller claim flow never enters the unified personal shell', () => {
+  // Mirrors the real wiring: legacy DashboardLayout renders its own chrome +
+  // Outlet, so the seller flow keeps its FULL assigned composition.
+  const legacyOwnerDashboard = (
+    <div data-testid="legacy-owner-dashboard">
+      legacy owner dashboard layout
+      <Outlet />
+    </div>
+  )
+
+  it('/dashboard/sell-vehicle keeps its legacy composition when opted in — NO WorkspaceShell chrome', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner'))
+    const { UnifiedRouteShell } = await loadSwitch()
+    const { container } = render(
+      <MemoryRouter initialEntries={['/dashboard/sell-vehicle']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="workspace-personal" legacy={legacyOwnerDashboard} />}>
+            <Route path="/dashboard/sell-vehicle" element={<div data-testid="seller-flow-body">seller claim flow</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    // The assigned legacy composition renders the flow untouched…
+    expect(screen.getByTestId('legacy-owner-dashboard')).toBeInTheDocument()
+    expect(screen.getByTestId('seller-flow-body')).toBeInTheDocument()
+    // …and the unified workspace chrome does NOT take it over.
+    expect(container.querySelector('[data-testid="shell-ws-rail"]')).toBeNull()
+    expect(screen.queryByText('legacy owner dashboard layout')).toBeInTheDocument()
+  })
+
+  it('approved personal-slice routes still render the unified workspace chrome when opted in', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner'))
+    const { UnifiedRouteShell } = await loadSwitch()
+    const { container } = render(
+      <MemoryRouter initialEntries={['/dashboard/garage']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="workspace-personal" legacy={legacyOwnerDashboard} />}>
+            <Route path="/dashboard/garage" element={<div>garage body</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('garage body')).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="shell-ws-rail"]')).toBeInTheDocument()
+    expect(screen.queryByTestId('legacy-owner-dashboard')).toBeNull()
+  })
+})
+
+/* ── R4-2: dealer navigation governance ───────────────────────────────────── */
+
+describe('R4-2 — dealer rail is governed by the canonical resolver, not forced active', () => {
+  it('route continuity: only the approved /dealer/dashboard slice is a live rail link; legacy destinations are non-navigating Soon entries; no out-of-slice primary action', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('dealer', 'Croco Motors'))
+    mockApiClient(eligibleWorkspace)
+    const { UnifiedRouteShell } = await loadSwitch()
+    const { container } = render(
+      <MemoryRouter initialEntries={['/dealer/dashboard']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="workspace-dealer" legacy={<div>legacy</div>} />}>
+            <Route path="/dealer/dashboard" element={<div>dealer dashboard body</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('dealer dashboard body')).toBeInTheDocument()
+    const rail = document.getElementById('shell-ws-rail')!
+    // Continuity: no live link may point at a destination outside the unified
+    // shell (those routes live in legacy MainLayout and would drop the chrome).
+    const liveHrefs = Array.from(rail.querySelectorAll('a[href]')).map(a => a.getAttribute('href'))
+    for (const href of liveHrefs) {
+      expect(href === '/dealer/dashboard' || href === null || !href.startsWith('/dealers/')).toBe(true)
+    }
+    // The not-yet-migrated destinations stay VISIBLE but honest: non-navigating
+    // "Soon" entries (aria-disabled spans), never active actions.
+    const soonEntries = rail.querySelectorAll('span[aria-disabled="true"]')
+    expect(soonEntries.length).toBeGreaterThanOrEqual(4)
+    for (const entry of Array.from(soonEntries)) {
+      expect(entry.querySelector('a')).toBeNull()
+    }
+    // Governance: the forced "Review buyer inquiries" primary action is gone.
+    expect(container.querySelector('[data-testid="shell-ws-primary-action"]')).toBeNull()
+  })
+
+  it('a registry-backed dealer destination DISABLED by governance is omitted from the rail', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('dealer', 'Croco Motors'))
+    // Add a genuinely registry-backed operations destination so the resolver
+    // path is exercised end to end (dealer.inventory → /dealer/inventory).
+    vi.doMock('@/components/dealer/useDealerOperationalWorkspace', async importOriginal => {
+      const actual =
+        await importOriginal<typeof import('@/components/dealer/useDealerOperationalWorkspace')>()
+      return {
+        ...actual,
+        DEALER_OPERATION_LINKS: [
+          ...actual.DEALER_OPERATION_LINKS,
+          { id: 'registry-inventory', label: 'Registry inventory', href: '/dealer/inventory' },
+        ],
+      }
+    })
+    mockApiClient(eligibleWorkspace)
+    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const disabled: EffectiveFeatureState = {
+      featureId: 'dealer.inventory', state: 'disabled',
+      enabled: false, visible: true, accessible: false, beta: false,
+    }
+    render(
+      <FeatureGovernanceContext.Provider value={{ 'dealer.inventory': disabled }}>
+        <MemoryRouter initialEntries={['/dealer/dashboard']}>
+          <Routes>
+            <Route element={<UnifiedRouteShell family="workspace-dealer" legacy={<div>legacy</div>} />}>
+              <Route path="/dealer/dashboard" element={<div>dealer dashboard body</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </FeatureGovernanceContext.Provider>,
+    )
+    expect(await screen.findByText('dealer dashboard body')).toBeInTheDocument()
+    const rail = document.getElementById('shell-ws-rail')!
+    expect(rail.textContent).not.toContain('Registry inventory')
+  })
+
+  it('an out-of-slice registry-backed destination is never a live action (Soon, not a link)', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('dealer', 'Croco Motors'))
+    vi.doMock('@/components/dealer/useDealerOperationalWorkspace', async importOriginal => {
+      const actual =
+        await importOriginal<typeof import('@/components/dealer/useDealerOperationalWorkspace')>()
+      return {
+        ...actual,
+        DEALER_OPERATION_LINKS: [
+          ...actual.DEALER_OPERATION_LINKS,
+          { id: 'registry-inventory', label: 'Registry inventory', href: '/dealer/inventory' },
+        ],
+      }
+    })
+    mockApiClient(eligibleWorkspace)
+    const { UnifiedRouteShell } = await loadSwitch()
+    render(
+      <MemoryRouter initialEntries={['/dealer/dashboard']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="workspace-dealer" legacy={<div>legacy</div>} />}>
+            <Route path="/dealer/dashboard" element={<div>dealer dashboard body</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('dealer dashboard body')).toBeInTheDocument()
+    const rail = document.getElementById('shell-ws-rail')!
+    // Present (the feature is registry-active) but NOT a navigable link.
+    expect(rail.textContent).toContain('Registry inventory')
+    const link = Array.from(rail.querySelectorAll('a[href]'))
+      .find(a => a.getAttribute('href') === '/dealer/inventory')
+    expect(link).toBeUndefined()
   })
 })

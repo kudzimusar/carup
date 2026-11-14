@@ -94,6 +94,7 @@ describe('C1 — mobile drawer keyboard contract', () => {
 
   it('backdrop click closes the drawer and restores focus', async () => {
     const user = userEvent.setup()
+    renderShell()
     const { container } = renderShell()
     const trigger = screen.getByTestId('shell-ws-mobile-menu')
     await user.click(trigger)
@@ -193,5 +194,41 @@ describe('C5 — workspace touch targets', () => {
     for (const link of Array.from(drawerLinks)) {
       expect(link.className).toContain('min-h-11')
     }
+  })
+})
+
+/* ── R4-3: workspace rail renders each feature's own icon ─────────────────── */
+
+const iconCalls = vi.hoisted(() => [] as Array<string | null | undefined>)
+vi.mock('@/config/featureIcons', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/config/featureIcons')>()
+  return {
+    ...actual,
+    resolveFeatureIcon: (name?: Parameters<typeof actual.resolveFeatureIcon>[0]) => {
+      iconCalls.push(name ?? null)
+      return actual.resolveFeatureIcon(name)
+    },
+  }
+})
+
+describe('R4-3 — rail renders each item’s own registry icon', () => {
+  it('resolveFeatureIcon receives the item icon metadata (not a blanket null)', () => {
+    renderShell({
+      railSections: [{
+        title: 'Test',
+        items: [
+          { id: 'garage', label: 'Garage', href: '/dashboard/garage', icon: 'Car', planned: false },
+          { id: 'history', label: 'Service history', href: '/dashboard/service-history', icon: 'Wrench', planned: false },
+          { id: 'soon', label: 'Planned thing', href: '/dashboard/planned', icon: null, planned: true },
+        ],
+      }],
+    })
+    expect(iconCalls).toContain('Car')
+    expect(iconCalls).toContain('Wrench')
+    expect(iconCalls).toContain(null)
+    // Both distinct feature icons were requested — the renderer no longer
+    // collapses every entry to the fallback.
+    expect(iconCalls.filter(c => c === 'Car').length).toBeGreaterThanOrEqual(1)
+    expect(iconCalls.filter(c => c === 'Wrench').length).toBeGreaterThanOrEqual(1)
   })
 })
