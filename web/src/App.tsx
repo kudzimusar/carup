@@ -10,6 +10,9 @@ import MainLayout from './components/layout/MainLayout'
 import DashboardLayout from './components/layout/DashboardLayout'
 import { FeatureGovernanceLoader } from './context/FeatureGovernanceContext'
 import { NotFoundPage } from './components/routing/FeatureStatePages'
+// RX-02A S1-3: isolated component catalogue renderer (§10.3). Dev-only — the route
+// below is gated behind import.meta.env.DEV, so no production surface is added.
+import ComponentCatalogue from './pages/dev/ComponentCatalogue'
 import { AuthBootstrapLoading } from './components/routing/RegistryRouteBoundary'
 import LazyRouteBoundary from './components/routing/LazyRouteBoundary'
 
@@ -490,6 +493,9 @@ export default function App() {
           {/* R4 P0-3 (C12): governed operating lifecycle decisions. */}
           <Route path="/admin/dealer-operating-lifecycle" element={<DealerOperatingLifecycleReview />} />
         </Route>
+
+        {/* RX-02A S1-3: component catalogue (isolated renderer, §10.3). Dev build only. */}
+        {import.meta.env.DEV && <Route path="/dev/component-catalogue" element={<ComponentCatalogue />} />}
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
         <Route path="*" element={<NotFoundPage />} />
