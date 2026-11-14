@@ -64,6 +64,15 @@ function MegaMenu({ id, label, sections, currentPath }: { id: string; label: str
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
+  // B2 — a route change always closes the disclosure, whether the navigation
+  // came from selecting a menu link, the mobile drawer, or history traversal.
+  const lastPathRef = useRef(currentPath)
+  useEffect(() => {
+    if (lastPathRef.current !== currentPath) {
+      lastPathRef.current = currentPath
+      setOpen(false)
+    }
+  }, [currentPath])
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent) => {
