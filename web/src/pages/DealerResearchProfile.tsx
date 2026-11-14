@@ -312,7 +312,7 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
   const toggleSaved=useCallback(async(vin:string,vehicleName:string)=>{
     if(!signedIn){
       toast('Sign in to save vehicles to your CarUp account.',{
-        action:{label:'Sign in',onClick:()=>navigate(loginWithReturnTo(location.pathname))},
+        action:{label:'Sign in',onClick:()=>navigate(loginWithReturnTo(location.pathname + location.search + location.hash))},
       })
       return
     }
@@ -325,7 +325,7 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
         })
       }},
     })
-  },[signedIn,savedVins,persistSaved,navigate,location.pathname])
+  },[signedIn,savedVins,persistSaved,navigate,location.pathname,location.search,location.hash])
 
   async function submitClaim(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -797,7 +797,7 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
                   {!token || !user ? (
                     <p className="text-sm text-slate-800">
                       <Link className="font-semibold text-orange-700 underline underline-offset-4" data-testid="dealer-claim-sign-in"
-                        to={loginWithReturnTo(location.pathname)}>
+                        to={loginWithReturnTo(location.pathname + location.search + location.hash)}>
                         Sign in to your CarUp account
                       </Link> before requesting a business claim.
                     </p>
