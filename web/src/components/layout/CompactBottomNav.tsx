@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { CarFront, CircleUserRound, Globe2, Home, Search, Tag } from 'lucide-react'
+import { Box, CarFront, CircleUserRound, Home, Search, ShieldCheck, Tag } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useHonourBottomBarClaim } from '@/lib/bottomBarClaim'
 import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
@@ -37,10 +37,12 @@ export default function CompactBottomNav() {
   // governed Diaspora Trade gateway (product.diaspora, /diaspora); its route guard owns lifecycle.
   const showroomItems = [
     { label: 'Home', href: '/', icon: Home, active: location.pathname === '/' },
-    { label: 'Buy', href: '/marketplace', icon: CarFront, active: location.pathname.startsWith('/marketplace') },
-    { label: 'Verify', href: '/search', icon: Search, active: location.pathname.startsWith('/search') },
+    // Same icon vocabulary as the native tab bar (mobile/navigation/nativeShell.ts @88bffa50):
+    // search · shield-checkmark · pricetag · cube.
+    { label: 'Buy', href: '/marketplace', icon: Search, active: location.pathname.startsWith('/marketplace') },
+    { label: 'Verify', href: '/search', icon: ShieldCheck, active: location.pathname.startsWith('/search') },
     { label: 'Sell', href: sellHref, icon: Tag, active: location.pathname === '/sell' || location.pathname.includes('sell-vehicle') || location.pathname.includes('/inventory') },
-    { label: 'Trade', href: '/diaspora', icon: Globe2, active: location.pathname.startsWith('/diaspora') },
+    { label: 'Trade', href: '/diaspora', icon: Box, active: location.pathname.startsWith('/diaspora') },
   ]
 
   const acceptedItems = [
