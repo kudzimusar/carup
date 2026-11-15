@@ -18,7 +18,7 @@ import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDra
 import { CinematicHero } from '@/components/showroom/CinematicHero'
 import { reelFramesFrom } from '@/lib/homeReel'
 import { VehicleSilhouette } from '@/components/showroom/VehicleSilhouette'
-import { HOME_FILM } from '@/content/media/homeFilm'
+import { playableFilm } from '@/content/media/homeFilm'
 import type { MarketplaceListingSummary } from '@/types'
 import { canonicalMake, canonicalModel, makeTaxon, modelsForMake, resolveFuelType, resolveTransmission } from '@/data/vehicleTaxonomy'
 
@@ -163,7 +163,7 @@ export default function ShowroomLanding() {
 
   return (
     <div className="bg-white text-[#09122A]">
-      <CinematicHero film={HOME_FILM} frames={reelFrames} framesState={featuredState}>
+      <CinematicHero film={playableFilm()} frames={reelFrames} framesState={featuredState}>
         <div className="section-padding mx-auto flex w-full max-w-[1440px] flex-1 flex-col justify-end pb-5 pt-12 sm:pb-8 lg:justify-center lg:pb-10 lg:pt-20">
           <p className="carup-rise text-[11px] font-semibold uppercase tracking-[0.2em] text-[#FFB27A]">
             Zimbabwe’s car marketplace

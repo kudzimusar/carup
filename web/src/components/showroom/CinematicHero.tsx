@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react'
 import { BrandIdentity } from '@/components/brand/BrandIdentity'
-import type { CinematicFilm, CinematicRendition } from '@/content/media/homeFilm'
+import { validateFilm, type CinematicFilm, type CinematicRendition } from '@/content/media/homeFilm'
 import { resolveHeroMode, type ReelFrame } from './heroMode'
 import { useMotionBudget } from './useMotionBudget'
 import { ResponsivePhoto } from './ResponsivePhoto'
@@ -86,14 +86,14 @@ function FilmLayer({
   }, [playing])
 
   if (stillOnly) {
-    return <img src={rendition.poster} alt="" className="h-full w-full object-cover" data-testid="home-hero-film-poster" />
+    return <img src={rendition.poster.src} alt="" className="h-full w-full object-cover" data-testid="home-hero-film-poster" />
   }
 
   return (
     <video
       ref={videoRef}
       className="h-full w-full object-cover"
-      poster={rendition.poster}
+      poster={rendition.poster.src}
       muted
       playsInline
       loop
@@ -169,7 +169,9 @@ interface CinematicHeroProps {
   children: ReactNode
 }
 
-export function CinematicHero({ film, frames, framesState, children }: CinematicHeroProps) {
+export function CinematicHero({ film: filmProp, frames, framesState, children }: CinematicHeroProps) {
+  // Only a manifest that passes validation (rights, approval, hashes, same-origin files) may play.
+  const film = validateFilm(filmProp).ok ? filmProp : null
   const stageRef = useRef<HTMLElement>(null)
   const { reducedMotion, saveData } = useMotionBudget()
   const portrait = usePortraitPhone()

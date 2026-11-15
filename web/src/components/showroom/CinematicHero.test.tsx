@@ -10,11 +10,19 @@ const frames: ReelFrame[] = [
   { id: 'B', src: '/b.jpg', title: '2018 Subaru Impreza', href: '/marketplace/B' },
 ]
 
+const HASH = 'a'.repeat(64)
 const film: CinematicFilm = {
   id: 'test-film',
   disclosure: 'CarUp brand film — editorial, not inventory',
-  landscape: { sources: [{ src: '/film.webm', type: 'video/webm' }], poster: '/poster.jpg', width: 1920, height: 1080 },
-  provenance: { generator: 'test', model: 'test', generatedAt: '2026-11-15', owner: 'CarUp', sha256: {} },
+  landscape: {
+    sources: [{ src: '/media/home-film/film.webm', type: 'video/webm', sha256: HASH, bytes: 1000 }],
+    poster: { src: '/media/home-film/poster.jpg', sha256: HASH, bytes: 100 },
+    width: 1920,
+    height: 1080,
+    durationSeconds: 12,
+  },
+  provenance: { generator: 'test', model: 'test', generationIds: ['g1'], generatedAt: '2026-11-15', approvedBy: 'Owner', approvedAt: '2026-11-15', approvalRef: 'https://example.test/approval' },
+  rights: { owner: 'CarUp', licence: 'test licence', licenceRef: 'https://example.test/licence' },
 }
 
 function mockMedia({ reduce = false }: { reduce?: boolean } = {}) {
@@ -104,7 +112,7 @@ describe('CinematicHero', () => {
     expect(video).not.toBeNull()
     expect(video.muted).toBe(true)
     expect(video).toHaveAttribute('playsinline')
-    expect(video).toHaveAttribute('poster', '/poster.jpg')
+    expect(video).toHaveAttribute('poster', '/media/home-film/poster.jpg')
     expect(screen.getByTestId('home-hero-disclosure')).toHaveTextContent('editorial, not inventory')
   })
 
@@ -112,7 +120,7 @@ describe('CinematicHero', () => {
     mockMedia({ reduce: true })
     const reduced = renderHero({ film })
     expect(reduced.container.querySelector('video')).toBeNull()
-    expect(screen.getByTestId('home-hero-film-poster')).toHaveAttribute('src', '/poster.jpg')
+    expect(screen.getByTestId('home-hero-film-poster')).toHaveAttribute('src', '/media/home-film/poster.jpg')
     reduced.unmount()
 
     mockMedia()
@@ -135,5 +143,12 @@ describe('CinematicHero', () => {
     expect(slots[1].querySelector('img')).toBeNull()
     fireEvent.load(slots[0].querySelector('img') as HTMLImageElement)
     expect(screen.getAllByTestId('home-hero-reel-frame')[1].querySelector('img')).not.toBeNull()
+  })
+
+  it('refuses a film whose manifest does not validate (no rights record) and plays the reel instead', () => {
+    const unrecorded = { ...film, rights: { owner: '', licence: '', licenceRef: '' } }
+    const { container } = renderHero({ film: unrecorded })
+    expect(container.querySelector('video')).toBeNull()
+    expect(screen.getByTestId('home-hero')).toHaveAttribute('data-hero-mode', 'reel')
   })
 })
