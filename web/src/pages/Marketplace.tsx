@@ -419,6 +419,8 @@ export default function Marketplace() {
   const [liveListings, setLiveListings] = useState<CanonicalListing[]>([])
   const [loadingVehicles, setLoadingVehicles] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  // Bumped by the error state's "Try again" so the listings read re-runs without touching the URL.
+  const [listingsReadAttempt, setListingsReadAttempt] = useState(0)
   const [trustRanking, setTrustRanking] = useState<TrustRanking | null>(null)
   const [favorites, setFavoritesState] = useState<string[]>(getFavorites)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
@@ -505,14 +507,16 @@ export default function Marketplace() {
         console.error('Failed to fetch canonical marketplace listing summaries:', error)
         setTrustRanking(null)
         setLoadError(true)
-        setLiveListings(withMockFallback([], mockVehicles.map(mockVehicleToListing)))
+        // TI-13: a failed read is not an empty result. Hold NO listings (not even dev mock inventory)
+        // so nothing downstream can derive an empty state, a spotlight or a count from it.
+        setLiveListings([])
       })
       .finally(() => {
         if (!cancelled) setLoadingVehicles(false)
       })
 
     return () => { cancelled = true }
-  }, [url, fixtureScope, fetchMarketplaceListings])
+  }, [url, fixtureScope, fetchMarketplaceListings, listingsReadAttempt])
 
   const toggleCompare = useCallback((event: React.MouseEvent, vin: string) => {
     event.preventDefault()
@@ -810,7 +814,11 @@ export default function Marketplace() {
                 </Link>
               ) : (
                 <div className="absolute inset-x-0 top-3 flex h-[82%] items-center justify-center bg-slate-900 text-sm text-slate-500 [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]">
-                  {loadingVehicles ? 'Loading live showroom…' : 'No published vehicle to spotlight'}
+                  {loadingVehicles
+                    ? 'Loading live showroom…'
+                    : loadError
+                      ? 'The live showroom is unavailable right now'
+                      : 'No published vehicle to spotlight'}
                 </div>
               )}
             </div>
@@ -826,7 +834,7 @@ export default function Marketplace() {
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Search the showroom</p>
                 <p className="mt-0.5 text-xs text-slate-500">Make, model, year, location, seller or a vehicle identifier.</p>
               </div>
-              {!loadingVehicles && (
+              {!loadingVehicles && !loadError && (
                 <p className="hidden text-xs font-semibold text-slate-500 sm:block">
                   <span className="text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}
                 </p>
@@ -911,7 +919,9 @@ export default function Marketplace() {
                 <SheetFooter className="sticky bottom-0 flex-row gap-2 border-t border-slate-200 bg-white p-4">
                   <Button variant="ghost" className="flex-1 rounded-none" onClick={resetFilters}>Clear all</Button>
                   <Button className="flex-1 rounded-none bg-orange-600 hover:bg-orange-700" onClick={() => setMobileFiltersOpen(false)} data-testid="marketplace-mobile-filter-close">
-                    Show {visibleListings.length} published {visibleListings.length === 1 ? 'listing' : 'listings'}
+                    {loadError
+                      ? 'Close filters'
+                      : `Show ${visibleListings.length} published ${visibleListings.length === 1 ? 'listing' : 'listings'}`}
                   </Button>
                 </SheetFooter>
               </SheetContent>
@@ -978,12 +988,6 @@ export default function Marketplace() {
         )}
 
         <main className="mt-10 min-w-0">
-          {loadError && !loadingVehicles && (
-            <div className="mb-6 border-y border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900" data-testid="marketplace-error-state">
-              Marketplace data is temporarily unavailable. CarUp has not substituted another public vehicle endpoint or fabricated production inventory.
-            </div>
-          )}
-
           {!loadingVehicles && trustRanking?.requested === 'trust' && trustRanking.applied !== 'trust' && (
             <div className="mb-6 border-y border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600" data-testid="marketplace-trust-ranking-notice">
               {trustRanking.note || 'No listing on this page carries a canonical Trust evaluation, so these results are not ordered by Trust.'}
@@ -998,11 +1002,14 @@ export default function Marketplace() {
               <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Published listings only · Trust and vehicle facts retain their governed states.</p>
             </div>
             <div className="flex items-end gap-5">
-              <p className="text-sm text-slate-500" data-testid="marketplace-results-count">
-                {loadingVehicles
-                  ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading vehicles…</span>
-                  : <><span className="text-2xl font-black text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}</>}
-              </p>
+              {/* TI-13: no count at all while the read has failed — a failure is not a measured zero. */}
+              {!loadError && (
+                <p className="text-sm text-slate-500" data-testid="marketplace-results-count">
+                  {loadingVehicles
+                    ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading vehicles…</span>
+                    : <><span className="text-2xl font-black text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}</>}
+                </p>
+              )}
               <Button
                 variant="ghost"
                 className="hidden h-auto rounded-none border-b border-slate-300 px-0 pb-1 text-xs font-bold text-slate-600 hover:bg-transparent hover:text-orange-700 sm:inline-flex"
@@ -1016,6 +1023,21 @@ export default function Marketplace() {
           {loadingVehicles ? (
             <div className="grid gap-x-7 gap-y-12 md:grid-cols-2" data-testid="marketplace-loading-state">
               {Array.from({ length: 6 }).map((_, index) => <SkeletonCard key={index} />)}
+            </div>
+          ) : loadError ? (
+            <div
+              role="alert"
+              className="border-y border-amber-200 bg-amber-50 px-6 py-16 text-center"
+              data-testid="marketplace-error-state"
+            >
+              <h3 className="text-xl font-black text-amber-950">Vehicles could not be loaded</h3>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-amber-900">
+                Marketplace data is temporarily unavailable, so this is not an empty showroom. CarUp has not
+                substituted another public vehicle endpoint or fabricated production inventory.
+              </p>
+              <Button variant="outline" className="mt-5 rounded-none" onClick={() => setListingsReadAttempt(attempt => attempt + 1)}>
+                Try again
+              </Button>
             </div>
           ) : visibleListings.length === 0 ? (
             <div className="border-y border-dashed border-slate-300 bg-white px-6 py-20 text-center" data-testid="marketplace-empty-state">

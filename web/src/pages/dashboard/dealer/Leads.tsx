@@ -14,6 +14,7 @@ export default function Leads() {
   const [leadsData, setLeadsData] = useState<Lead[]>([])
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [leadsLoadError, setLeadsLoadError] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -32,7 +33,9 @@ export default function Leads() {
       }))
       setLeadsData(formatted)
     }).catch(() => {
-      // API offline — the empty state below stays truthful; never backfill with mock leads.
+      // TI-13: a failed read is not an empty pipeline. Never backfill with mock leads, and never
+      // claim "No leads yet" for data CarUp could not read.
+      if (mounted) setLeadsLoadError(true)
     })
     return () => { mounted = false }
   }, [fetchDealerLeads])
@@ -80,7 +83,13 @@ export default function Leads() {
         <Input placeholder="Search leads by name or vehicle..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 bg-white" />
       </div>
 
-      {filtered.length === 0 ? (
+      {leadsLoadError && leadsData.length === 0 ? (
+        <div role="alert" className="text-center py-12 bg-white rounded-xl border border-amber-200" data-testid="dealer-leads-error">
+          <Users className="w-12 h-12 text-gray-200 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-1">Leads could not be loaded</h3>
+          <p className="text-gray-500">This is not an empty pipeline — CarUp could not read your leads right now. Please try again shortly.</p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-xl border border-gray-100" data-testid="dealer-leads-empty">
           <Users className="w-12 h-12 text-gray-200 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-1">

@@ -92,6 +92,8 @@ export default function Communications() {
   } = useCommunicationProductApi()
 
   const [threads, setThreads] = useState<ConversationThread[]>([])
+  // TI-13: a failed conversations read is not an empty inbox (and not "0 unread").
+  const [threadsUnavailable, setThreadsUnavailable] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [detail, setDetail] = useState<ConversationDetail | null>(null)
   const [notifications, setNotifications] = useState<NotificationSummary[]>([])
@@ -138,7 +140,13 @@ export default function Communications() {
   }, [detail])
 
   const loadThreads = useCallback(async () => {
-    const response = await fetchCommunicationThreads().catch(() => ({ threads: [] }))
+    const response = await fetchCommunicationThreads().catch(() => null)
+    if (!response) {
+      // Keep whatever was last read rather than replacing it with a fabricated empty list.
+      setThreadsUnavailable(true)
+      return []
+    }
+    setThreadsUnavailable(false)
     const next = (response.threads || []) as ConversationThread[]
     setThreads(next)
     setActiveId((current) => current || next[0]?.id || null)
@@ -170,7 +178,7 @@ export default function Communications() {
   useEffect(() => {
     let active = true
     Promise.all([
-      fetchCommunicationThreads().catch(() => ({ threads: [] })),
+      fetchCommunicationThreads().catch(() => null),
       fetchCommunicationNotifications().catch(() => ({ notifications: [] })),
       fetchCommunicationAccountActivity().catch(() => ({ activity: [] })),
       fetchCommunicationPreferences().catch(() => ({ preferences: null })),
@@ -178,9 +186,12 @@ export default function Communications() {
       fetchAiHealth().catch(() => ({ ai: { available: false } })),
     ]).then(([threadRes, notificationRes, accountActivityRes, prefRes, analyticsRes, health]) => {
       if (!active) return
-      const next = (threadRes.threads || []) as ConversationThread[]
-      setThreads(next)
-      setActiveId((current) => current || next[0]?.id || null)
+      setThreadsUnavailable(threadRes === null)
+      if (threadRes) {
+        const next = (threadRes.threads || []) as ConversationThread[]
+        setThreads(next)
+        setActiveId((current) => current || next[0]?.id || null)
+      }
       setNotifications(notificationRes.notifications || [])
       setAccountActivity(accountActivityRes.activity || [])
       setPreferences(prefRes.preferences || null)
@@ -293,7 +304,7 @@ export default function Communications() {
           <h1 className="text-2xl font-bold">Communications</h1>
           <p className="text-gray-500">Your CarUp conversations across Marketplace and connected services</p>
         </div>
-        <Badge className="bg-orange-100 text-orange-700">{unreadCount} unread</Badge>
+        {!threadsUnavailable && <Badge className="bg-orange-100 text-orange-700">{unreadCount} unread</Badge>}
       </div>
 
       <div className="grid min-h-[620px] gap-5 lg:grid-cols-[320px_minmax(0,1fr)_290px]">
@@ -319,8 +330,15 @@ export default function Communications() {
             </select>
           </CardHeader>
           <CardContent className="space-y-2 px-3">
+            {threadsUnavailable && (
+              <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" data-testid="communication-threads-unavailable">
+                Conversations could not be loaded right now. This is not an empty inbox — please try again shortly.
+              </div>
+            )}
             {threads.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">No conversations yet. Marketplace inquiries and other CarUp workflows will appear here.</div>
+              threadsUnavailable ? null : (
+                <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">No conversations yet. Marketplace inquiries and other CarUp workflows will appear here.</div>
+              )
             ) : filteredThreads.length === 0 ? (
               <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">No conversations match this search or filter.</div>
             ) : filteredThreads.map((thread) => {
