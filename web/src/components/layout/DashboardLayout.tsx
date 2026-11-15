@@ -91,6 +91,8 @@ export default function DashboardLayout({ role }: { role: string }) {
   // authorization remains authoritative.
   const decision = evaluateRouteAccess({
     route: location.pathname,
+    // TI-20: preserve the complete return journey (query/filters) through login.
+    returnPath: location.pathname + location.search + location.hash,
     isBootstrapping: loading,
     isAuthenticated: !!user,
     role: (user?.role as UserRole) ?? null,

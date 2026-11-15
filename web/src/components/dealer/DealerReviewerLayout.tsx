@@ -32,7 +32,7 @@ export default function DealerReviewerLayout() {
   const {user,token,loading,logout}=useAuth()
   const location=useLocation()
   if(loading)return <AuthBootstrapLoading />
-  if(!user||!token)return <Navigate to={loginWithReturnTo(location.pathname)} replace />
+  if(!user||!token)return <Navigate to={loginWithReturnTo(location.pathname + location.search + location.hash)} replace />
   if(!REVIEW_ROLES.has(String(user.role)))return <Navigate to="/" replace />
 
   return (
