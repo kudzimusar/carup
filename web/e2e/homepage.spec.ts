@@ -5,17 +5,23 @@ test.describe('CarUp conversion homepage', () => {
     await page.goto('/')
 
     await expect(page.getByTestId('home-hero')).toBeVisible()
-    await expect(page.getByRole('heading', { name: /Buy\. Sell\. Verify\./i })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: /Find the car\. Know its story\./i })).toBeVisible()
     await expect(page.getByTestId('home-primary-search')).toBeVisible()
-    await expect(page.getByTestId('home-live-showroom')).toBeVisible()
+    await expect(page.getByTestId('home-hero')).toHaveAttribute('data-hero-mode', /film|reel|plate/)
   })
 
   test('primary journeys expose Buy, Sell and Verify without duplicating Marketplace IA', async ({ page }) => {
     await page.goto('/')
 
-    await expect(page.locator('a[href="/marketplace"]').filter({ hasText: 'Buy Cars' }).first()).toBeVisible()
-    await expect(page.locator('a[href="/sell"]').filter({ hasText: 'Sell Cars' }).first()).toBeVisible()
-    await expect(page.locator('a[href="/search"]').filter({ hasText: 'Verify Cars' }).first()).toBeVisible()
+    // RX03-P1a: one console with three intentions (ARIA tabs) instead of three competing buttons.
+    const console = page.getByTestId('home-primary-search')
+    await expect(console.getByRole('tab', { name: 'Buy' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByTestId('home-browse-all')).toHaveAttribute('href', '/marketplace')
+    await console.getByRole('tab', { name: 'Sell' }).click()
+    await expect(page.getByTestId('home-sell-start')).toHaveAttribute('href', '/sell')
+    await console.getByRole('tab', { name: 'Verify' }).click()
+    await expect(page.getByTestId('verify-before-buy-input')).toBeVisible()
+    await expect(console.locator('a[href="/search"]')).toBeVisible()
     await expect(page.getByTestId('marketplace-compact-header')).toHaveCount(0)
   })
 
@@ -33,8 +39,8 @@ test.describe('CarUp conversion homepage', () => {
 
     const journeys = page.getByTestId('home-ecosystem-promotions')
     await expect(journeys).toBeVisible()
-    await expect(journeys).toContainText('Find the right car')
-    await expect(journeys).toContainText('Turn your car into a credible listing')
+    await expect(page.getByTestId('home-body-style')).toHaveCount(6)
+    await expect(page.getByTestId('home-conversion-studio')).toContainText('Sell with a record buyers can read.')
     await expect(journeys).toContainText('Source and move a vehicle')
     await expect(journeys).toContainText('Explore how to fund the deal')
     await expect(journeys).toContainText('Find garages and service context')
@@ -54,7 +60,8 @@ test.describe('CarUp conversion homepage', () => {
   test('featured vehicle links use the same VIN-based Marketplace detail route', async ({ page }) => {
     await page.goto('/')
 
-    const passportLink = page.getByTestId('featured-view-passport').first()
+    // The cinematic reel caption names the live listing on screen and links to its Passport.
+    const passportLink = page.getByTestId('home-hero-reel-caption')
     await expect(passportLink).toBeVisible()
     const href = await passportLink.getAttribute('href')
 
@@ -87,7 +94,7 @@ test.describe('CarUp conversion homepage', () => {
   test('popular market shortcuts remain available below the main conversion paths', async ({ page }) => {
     await page.goto('/')
 
-    await expect(page.getByRole('heading', { name: /Start with what buyers ask for most/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Quick searches/i })).toBeVisible()
     await expect(page.getByTestId('popular-search-chip')).toHaveCount(19)
     await expect(page.getByTestId('popular-search-chip').filter({ hasText: 'Toyota Hilux' })).toBeVisible()
     await expect(page.getByTestId('popular-search-chip').filter({ hasText: 'Parts & Accessories' })).toBeVisible()
