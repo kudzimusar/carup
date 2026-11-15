@@ -5,6 +5,10 @@ name: Diaspora Ledger 19 Staging Grant Hardening
 # pins the migration name + frozen checksum, positively requires the staging project ref, and refuses
 # the production ref. Idempotent — re-dispatch re-verifies without re-applying. Never prints the
 # connection URL. Owner-authorized 2026-07-26 ("APPROVE #19 PHASE-8/9/10 HARDENING").
+#
+# RX-02 D6-B: the job runs only when dispatched on protected main, behind the staging environment's
+# required reviewers (and, after the Owner's A4 move, it reads the credential from that environment).
+# backend/tests/ci-shared-staging-isolation.test.js fails if a trigger, the guard or the environment changes.
 on:
   workflow_dispatch: {}
 
@@ -17,7 +21,9 @@ concurrency:
 
 jobs:
   apply-and-verify:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

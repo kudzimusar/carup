@@ -1,17 +1,12 @@
 name: Seller Phase D Account Diagnostic
 
+# RX-02 D6-B: workflow_dispatch on protected main only, behind the staging environment's required
+# reviewers. The former pull_request trigger (PRs into integration/vehicle-passport-v16-cert) handed the
+# full, write-capable shared-staging database credential to a pull request with no human gate (the query
+# is read-only, but the pull request controlled the script), and is removed.
+# backend/tests/ci-shared-staging-isolation.test.js fails if a pull_request or push trigger, the guard
+# or the environment changes.
 on:
-  pull_request:
-    branches:
-      - integration/vehicle-passport-v16-cert
-    paths:
-      - '.github/workflows/seller-phase-d-account-diagnostic.yml'
-      - 'backend/server.js'
-      - 'backend/routes/authRecoveryRoutes.js'
-      - 'backend/utils/passwordAuth.js'
-      - 'backend/services/auth/**'
-      - 'database/migrations/20260817120000_sa1_auth_action_tokens.sql'
-      - 'database/migrations/20260829123000_user_registration_profiles.sql'
   workflow_dispatch: {}
 
 permissions:
@@ -19,7 +14,9 @@ permissions:
 
 jobs:
   account-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 12
     env:
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}

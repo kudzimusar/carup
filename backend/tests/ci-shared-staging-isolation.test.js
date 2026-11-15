@@ -13,6 +13,10 @@
  * (workflow, secret) pair that an ungated event (pull requests, comments, reviews, pushes to branches other
  * than main, ...) can reach, so that the list can only shrink.
  *
+ * RX-02 D6-B applies the same containment to nine other jobs that held DIASPORA_STAGING_DATABASE_URL without a guard
+ * (six reachable from a pull request or branch push, three dispatchable from any ref): each is now dispatch-only on
+ * refs/heads/main behind the staging environment, and its ungated triples are gone from the ratchet below.
+ *
  * Limits: this is a guard against accidental regression, not against a malicious pull request (which could
  * edit this test). Repository-scoped secrets stay readable by any same-repository workflow until the Owner moves
  * them into the branch-restricted `staging` environment (RX-02 D6, A4).
@@ -38,10 +42,11 @@ const SHA_RE = "sha_re='^[0-9a-f]{40}$'";
 const GATED_EVENTS = new Set(['workflow_dispatch', 'schedule', 'workflow_call']);
 
 /**
- * (workflow, job, secret) triples reachable from an ungated event on main at f269ec03, minus the D6 triple this
- * change removes. Each is held today only by a PR-number/branch pin, a base-branch filter or a narrow path filter.
- * Job granularity means a NEW job in an already-listed file cannot quietly reuse that file's secret. This is a
- * ratchet, not an approval: the set may only shrink (follow-up D6-B and the Owner's A4 secret move).
+ * (workflow, job, secret) triples reachable from an ungated event on main at f269ec03, minus the D6 triple and the
+ * eight D6-B triples (operations-serena ×3, five seller workflows ×1) that are now gated. Each remaining triple is
+ * held today only by a PR-number/branch pin, a base-branch filter or a narrow path filter. Job granularity means a
+ * NEW job in an already-listed file cannot quietly reuse that file's secret. This is a ratchet, not an approval:
+ * the set may only shrink (retirement of the pinned one-shots and the Owner's A4 secret move).
  */
 const LEGACY_UNGATED_SECRET_TRIPLES = new Set([
   'communication-command-center-ci.yml::communication-staging::DIASPORA_STAGING_DATABASE_URL',
@@ -51,14 +56,6 @@ const LEGACY_UNGATED_SECRET_TRIPLES = new Set([
   'marketplace-reference-media-staging.yml::apply-and-verify::STAGING_SUPABASE_URL',
   'marketplace-reference-media-staging.yml::apply-and-verify::STAGING_SUPABASE_SERVICE_ROLE_KEY',
   'marketplace-reference-media-staging.yml::apply-and-verify::STAGING_SUPABASE_ANON_KEY',
-  'operations-serena-staging-uat.yml::serena-operations-uat::DIASPORA_STAGING_DATABASE_URL',
-  'operations-serena-staging-uat.yml::serena-operations-uat::SUPABASE_URL',
-  'operations-serena-staging-uat.yml::serena-operations-uat::SUPABASE_SERVICE_ROLE_KEY',
-  'seller-baseline-visual-audit.yml::capture-baseline::DIASPORA_STAGING_DATABASE_URL',
-  'seller-exact-head-staging-uat.yml::golden-dynamic-seller::DIASPORA_STAGING_DATABASE_URL',
-  'seller-media-lifecycle-staging-uat.yml::seller-media-lifecycle::DIASPORA_STAGING_DATABASE_URL',
-  'seller-phase-d-account-diagnostic.yml::account-diagnostic::DIASPORA_STAGING_DATABASE_URL',
-  'seller-phase-e-staging.yml::phase-e-staging::DIASPORA_STAGING_DATABASE_URL',
   'seller-registration-profile-staging.yml::preflight-apply-verify::DIASPORA_STAGING_DATABASE_URL',
   'seller-registration-profile-staging.yml::preflight-apply-verify::DIASPORA_STAGING_CA_CERT',
   'seller-s0-global-taxonomy-staging.yml::preflight-apply-verify::DIASPORA_STAGING_DATABASE_URL',
@@ -220,4 +217,33 @@ test('no workflow is started by pull_request_target or workflow_run', () => {
     .filter(({ doc }) => Object.keys(onMap(doc)).some((event) => event === 'pull_request_target' || event === 'workflow_run'))
     .map(({ name }) => name);
   assert.deepEqual(risky, []);
+});
+
+/**
+ * RX-02 D6-B: workflow → the one job that holds the shared-staging credential. Each must keep declaring
+ * `environment: staging`, or it silently loses the credential once the Owner moves it there (A4).
+ */
+const D6B_CONTAINED_JOBS = {
+  'diaspora-canonical-staging-uat.yml': 'canonical-staging-uat',
+  'diaspora-staging-19-grant-hardening.yml': 'apply-and-verify',
+  'diaspora-staging-20-oauth-states-hardening.yml': 'apply-and-verify',
+  'operations-serena-staging-uat.yml': 'serena-operations-uat',
+  'seller-baseline-visual-audit.yml': 'capture-baseline',
+  'seller-exact-head-staging-uat.yml': 'golden-dynamic-seller',
+  'seller-media-lifecycle-staging-uat.yml': 'seller-media-lifecycle',
+  'seller-phase-d-account-diagnostic.yml': 'account-diagnostic',
+  'seller-phase-e-staging.yml': 'phase-e-staging',
+};
+
+test('D6-B: each contained staging writer is dispatch-only on protected main behind the staging environment', () => {
+  for (const [name, jobId] of Object.entries(D6B_CONTAINED_JOBS)) {
+    const { doc } = load(name);
+    assert.deepEqual(Object.keys(onMap(doc)), ['workflow_dispatch'], `${name}: no pull_request, push or other trigger`);
+    assert.deepEqual(doc.permissions, { contents: 'read' }, `${name}: read-only workflow token`);
+    assert.deepEqual(Object.keys(doc.jobs), [jobId], `${name}: no other job`);
+    const job = doc.jobs[jobId];
+    assert.equal(normalise(job.if), EXACT_GUARD, `${name}: the job guard is exactly the protected-main dispatch guard`);
+    assert.equal(environmentName(job), 'staging', `${name}: required-reviewer staging environment`);
+    assert.ok(secretRefs(job).has(STAGING_SECRET), `${name}: still the consumer this list describes`);
+  }
 });

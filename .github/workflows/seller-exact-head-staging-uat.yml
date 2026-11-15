@@ -1,17 +1,15 @@
 name: Seller Exact-Head Staging UAT
 
 # Mandatory Golden Dynamic Seller deployed acceptance for the Seller remediation lane.
-# Runs only for PRs into the Passport integration branch; it never promotes or targets main.
+#
+# RX-02 D6-B: workflow_dispatch on protected main only, behind the staging environment's required
+# reviewers. The former pull_request trigger (PRs into integration/vehicle-passport-v16-cert) handed the
+# shared-staging database credential to a pull request with no human gate, and is removed. The preview
+# pair is resolved from the dispatched branch, which has no `main` entry in web/preview-*-pairing.json,
+# so the Seller lane owner must re-scope this workflow before it can run again.
+# backend/tests/ci-shared-staging-isolation.test.js fails if a pull_request or push trigger, the guard
+# or the environment changes.
 on:
-  pull_request:
-    branches:
-      - integration/vehicle-passport-v16-cert
-    paths:
-      - 'backend/**'
-      - 'web/**'
-      - 'tests/agents/38-seller-staging-browser-golden.spec.ts'
-      - 'playwright.staging.config.ts'
-      - '.github/workflows/seller-exact-head-staging-uat.yml'
   workflow_dispatch: {}
 
 
@@ -24,7 +22,9 @@ permissions:
 
 jobs:
   golden-dynamic-seller:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 35
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

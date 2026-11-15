@@ -3,8 +3,15 @@ name: Diaspora Canonical Staging UAT
 # Real Chromium acceptance against the CANONICAL staging aliases (owner-dispatched).
 # Rotates the staging-only UAT identities in-job via the GitHub secret, so it is immune to
 # concurrent identity rotations. Never touches production.
+#
+# RX-02 D6-B: the job runs only when dispatched on protected main, behind the staging environment's
+# required reviewers (and, after the Owner's A4 move, it reads the credential from that environment).
+# backend/tests/ci-shared-staging-isolation.test.js fails if a trigger, the guard or the environment changes.
 on:
   workflow_dispatch: {}
+
+permissions:
+  contents: read
 
 concurrency:
   group: diaspora-canonical-staging-uat
@@ -12,7 +19,9 @@ concurrency:
 
 jobs:
   canonical-staging-uat:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 35
     env:
       STAGING_WEB_URL: https://staging.carup.dev

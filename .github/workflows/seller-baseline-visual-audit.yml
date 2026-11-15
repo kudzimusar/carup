@@ -1,13 +1,13 @@
 name: Seller Phase B Baseline Visual Audit
 
+# RX-02 D6-B: workflow_dispatch on protected main only, behind the staging environment's required
+# reviewers. The former push trigger (pushes to integration/vehicle-passport-v16-cert) handed the
+# shared-staging database credential to any push to that unprotected branch with no human gate, and is
+# removed. BASELINE_WEB_URL/BASELINE_API_URL still name that branch's previews and EXPECTED_HEAD_SHA is
+# the dispatched main commit, so the Seller lane owner must re-scope this workflow before it can run
+# again. backend/tests/ci-shared-staging-isolation.test.js fails if a pull_request or push trigger, the
+# guard or the environment changes.
 on:
-  push:
-    branches:
-      - integration/vehicle-passport-v16-cert
-    paths:
-      - 'tests/agents/39-seller-baseline-visual-audit.spec.ts'
-      - 'playwright.seller-baseline.config.ts'
-      - '.github/workflows/seller-baseline-visual-audit.yml'
   workflow_dispatch: {}
 
 concurrency:
@@ -19,7 +19,9 @@ permissions:
 
 jobs:
   capture-baseline:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 25
     env:
       EXPECTED_HEAD_SHA: ${{ github.sha }}

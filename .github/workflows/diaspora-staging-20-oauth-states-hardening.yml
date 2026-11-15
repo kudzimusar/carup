@@ -4,6 +4,10 @@ name: Diaspora Ledger 20 Staging OAuth States Hardening
 # carup-staging and verifies the full ACL contract. Single-purpose and fail-closed (frozen
 # checksum, staging-ref-only, idempotent re-dispatch). Never prints the connection URL.
 # Owner-authorized 2026-07-27 ("APPROVE #20 DIASPORA OAUTH STATES GRANT HARDENING").
+#
+# RX-02 D6-B: the job runs only when dispatched on protected main, behind the staging environment's
+# required reviewers (and, after the Owner's A4 move, it reads the credential from that environment).
+# backend/tests/ci-shared-staging-isolation.test.js fails if a trigger, the guard or the environment changes.
 on:
   workflow_dispatch: {}
 
@@ -16,7 +20,9 @@ concurrency:
 
 jobs:
   apply-and-verify:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
