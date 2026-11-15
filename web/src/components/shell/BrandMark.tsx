@@ -1,13 +1,13 @@
 /**
- * RX-02A S1-4B — Reserved brand-asset slot with truthful text fallback.
+ * Brand slot for the unified shells (RX-02A S1-4B), now filled with the official identity.
  *
- * The Owner's brand asset is NOT yet approved for embedding, so every logo
- * location renders a RESERVED SLOT (dashed outline, `data-brand-slot`) with a
- * truthful text "CarUp" wordmark (`data-brand-fallback="text-wordmark"`).
- * No invented, traced, substituted, or AI-generated logo artwork appears
- * anywhere in this prototype. When brand assets ship, a resolver swaps the
- * fallback content inside the slot without touching shell chrome.
+ * RX03-P1b: the reserved slot's text fallback is replaced by the Owner-selected Option 5 artwork
+ * through `BrandIdentity` (hashed, ledgered files — see assets/brand/option5/ASSET_LEDGER.json).
+ * Shell chrome is unchanged: the same `data-brand-slot` locations, now resolved per the Option 5
+ * component contract — horizontal logo on wide public chrome, wordmark only (no tiny roofline)
+ * in compact and phone slots, reversed artwork on ink surfaces.
  */
+import { BrandIdentity } from '@/components/brand/BrandIdentity'
 import type { BrandAssetSlot } from './contracts'
 
 interface BrandMarkProps {
@@ -17,24 +17,20 @@ interface BrandMarkProps {
 }
 
 export function BrandMark({ slot, tone, compact = false }: BrandMarkProps) {
-  const wordmark = tone === 'ink' ? 'text-carup-raw-paper' : 'text-carup-raw-ink'
-  const box = tone === 'ink' ? 'border-carup-raw-ink-2' : 'border-carup-line'
+  const surface = tone === 'ink' ? 'dark' : 'light'
+  const responsive = slot === 'public-masthead' && !compact
   return (
-    <span
-      data-brand-slot={slot}
-      data-brand-fallback="text-wordmark"
-      data-tone={tone}
-      title="Reserved logo location — text fallback pending approved brand asset"
-      className={`inline-flex items-center gap-2 rounded-control border border-dashed ${box} ${
-        compact ? 'px-2 py-1' : 'px-3 py-1.5'
-      }`}
-    >
-      {/* Non-text accent marker only (orange-signal dot) — not a logo. */}
-      <span aria-hidden="true" className="inline-block h-2 w-2 rounded-chrome bg-carup-raw-orange-signal" />
-      <span className={`font-semibold tracking-tight ${compact ? 'text-sm' : 'text-base'} ${wordmark}`}>
-        CarUp
-      </span>
-      <span className="sr-only">CarUp — reserved logo location, text fallback</span>
+    <span data-brand-slot={slot} data-brand-source="option5" data-tone={tone} className="inline-flex items-center">
+      {compact ? (
+        <BrandIdentity role="wordmark" surface={surface} height={20} priority />
+      ) : responsive ? (
+        <>
+          <BrandIdentity role="wordmark" surface={surface} height={22} priority className="sm:hidden" />
+          <BrandIdentity role="logo" surface={surface} height={32} priority className="hidden sm:block" />
+        </>
+      ) : (
+        <BrandIdentity role="logo" surface={surface} height={30} />
+      )}
     </span>
   )
 }

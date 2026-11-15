@@ -41,6 +41,7 @@ import { getDashboardRoute } from '@/config/featureRegistry'
 import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import type { UserRole } from '@shared/types'
 import { BrandMark } from './BrandMark'
+import { useHonourBottomBarClaim } from '@/lib/bottomBarClaim'
 import { isActivePath } from './pathUtils'
 
 const MEGA_MENUS: Array<{ id: 'buy' | 'sell' | 'verify' | 'parts'; label: string; surface: 'navbar-mega-buy' | 'navbar-mega-sell' | 'navbar-mega-verify' | 'navbar-mega-parts' }> = [
@@ -96,7 +97,7 @@ function MegaMenu({ id, label, sections, currentPath }: { id: string; label: str
         aria-controls={`mega-${id}`}
         onClick={() => setOpen(o => !o)}
         onMouseEnter={() => setOpen(true)}
-        className="flex min-h-11 items-center gap-1 rounded-control px-3 text-sm font-medium text-[color-mix(in_srgb,var(--carup-raw-paper)_90%,transparent)] transition-colors hover:bg-carup-raw-ink-2 hover:text-carup-raw-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus"
+        className="flex min-h-11 items-center gap-1 rounded-control px-3 text-sm font-medium text-[color-mix(in_srgb,var(--carup-raw-ink)_90%,transparent)] transition-colors hover:bg-carup-bg-surface hover:text-carup-raw-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus"
       >
         {label}
         <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
@@ -105,11 +106,11 @@ function MegaMenu({ id, label, sections, currentPath }: { id: string; label: str
         <div
           id={`mega-${id}`}
           aria-label={`${label} navigation`}
-          className="absolute left-0 top-full z-50 mt-1 grid w-[44rem] max-w-[calc(100vw-2rem)] grid-cols-3 gap-4 rounded-card border border-carup-raw-ink-2 bg-carup-raw-ink p-4 text-carup-raw-paper shadow-sheet"
+          className="absolute left-0 top-full z-50 mt-1 grid w-[44rem] max-w-[calc(100vw-2rem)] grid-cols-3 gap-4 rounded-card border border-carup-line bg-white p-4 text-carup-raw-ink shadow-sheet"
         >
           {sections.map(section => (
             <div key={section.title}>
-              <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[color-mix(in_srgb,var(--carup-raw-paper)_50%,transparent)]">
+              <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[color-mix(in_srgb,var(--carup-raw-ink)_70%,transparent)]">
                 {section.title}
               </p>
               <ul>
@@ -132,10 +133,10 @@ function MegaMenuItem({ item, currentPath }: { item: ShellNavItem; currentPath: 
         <span
           aria-disabled="true"
           title={item.description ?? 'Coming soon'}
-          className="flex cursor-not-allowed items-center justify-between gap-2 rounded-control px-2 py-1.5 text-sm text-[color-mix(in_srgb,var(--carup-raw-paper)_40%,transparent)]"
+          className="flex cursor-not-allowed items-center justify-between gap-2 rounded-control px-2 py-1.5 text-sm text-[color-mix(in_srgb,var(--carup-raw-ink)_45%,transparent)]"
         >
           {item.label}
-          <span className="rounded-chrome border border-carup-raw-ink-2 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color-mix(in_srgb,var(--carup-raw-paper)_40%,transparent)]">
+          <span className="rounded-chrome border border-carup-line px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color-mix(in_srgb,var(--carup-raw-ink)_45%,transparent)]">
             Soon
           </span>
         </span>
@@ -148,7 +149,7 @@ function MegaMenuItem({ item, currentPath }: { item: ShellNavItem; currentPath: 
       <Link
         to={item.href}
         aria-current={active ? 'page' : undefined}
-        className="block rounded-control px-2 py-1.5 text-sm text-[color-mix(in_srgb,var(--carup-raw-paper)_80%,transparent)] transition-colors hover:bg-carup-raw-ink-2 hover:text-carup-raw-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus"
+        className="block rounded-control px-2 py-1.5 text-sm text-[color-mix(in_srgb,var(--carup-raw-ink)_85%,transparent)] transition-colors hover:bg-carup-bg-surface hover:text-carup-raw-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus"
       >
         {item.label}
       </Link>
@@ -326,6 +327,7 @@ export function PublicShell({
   children?: ReactNode
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const bottomBarYielded = useHonourBottomBarClaim()
   // C4 — the session role comes from the caller (real AuthContext); it is
   // NEVER assumed to be 'owner'. While bootstrapping, no role-gated surface
   // is projected at all.
@@ -374,10 +376,10 @@ export function PublicShell({
         Skip to main content
       </a>
 
-      {/* Ink masthead — reserved logo location + manifest-projected nav */}
-      <header className="sticky top-0 z-40 bg-carup-raw-ink text-carup-raw-paper" data-testid="shell-public-header">
+      {/* RX03-P1b / Owner O-1: light masthead with the official Option 5 logo + manifest-projected nav */}
+      <header className="sticky top-0 z-40 border-b border-carup-line bg-white/95 text-carup-raw-ink backdrop-blur supports-[backdrop-filter]:bg-white/85" data-testid="shell-public-header">
         <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-2 px-4 lg:px-6">
-          <BrandMark slot="public-masthead" tone="ink" />
+          <BrandMark slot="public-masthead" tone="light" />
           <nav aria-label="Primary" className="ml-2 hidden items-center lg:flex">
             {megaSections.map(m => (
               <MegaMenu key={m.id} id={m.id} label={m.label} sections={m.sections} currentPath={currentPath} />
@@ -387,17 +389,17 @@ export function PublicShell({
                 <span
                   key={item.id}
                   aria-disabled="true"
-                  className="flex min-h-11 cursor-not-allowed items-center gap-1 rounded-control px-3 text-sm text-[color-mix(in_srgb,var(--carup-raw-paper)_40%,transparent)]"
+                  className="flex min-h-11 cursor-not-allowed items-center gap-1 rounded-control px-3 text-sm text-[color-mix(in_srgb,var(--carup-raw-ink)_45%,transparent)]"
                 >
                   {item.label}
-                  <span className="rounded-chrome border border-carup-raw-ink-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">Soon</span>
+                  <span className="rounded-chrome border border-carup-line px-1.5 py-0.5 text-[10px] uppercase tracking-wide">Soon</span>
                 </span>
               ) : (
                 <Link
                   key={item.id}
                   to={item.href}
                   aria-current={isActivePath(currentPath, item.href) ? 'page' : undefined}
-                  className="flex min-h-11 items-center rounded-control px-3 text-sm font-medium text-[color-mix(in_srgb,var(--carup-raw-paper)_90%,transparent)] transition-colors hover:bg-carup-raw-ink-2 hover:text-carup-raw-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus"
+                  className="flex min-h-11 items-center rounded-control px-3 text-sm font-medium text-[color-mix(in_srgb,var(--carup-raw-ink)_90%,transparent)] transition-colors hover:bg-carup-bg-surface hover:text-carup-raw-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus"
                 >
                   {item.label}
                 </Link>
@@ -407,7 +409,7 @@ export function PublicShell({
           <div className="ml-auto flex items-center gap-2">
             <Link
               to="/search"
-              className="hidden min-h-11 items-center gap-1 rounded-control px-3 text-sm text-[color-mix(in_srgb,var(--carup-raw-paper)_90%,transparent)] transition-colors hover:bg-carup-raw-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus sm:flex"
+              className="hidden min-h-11 items-center gap-1 rounded-control px-3 text-sm text-[color-mix(in_srgb,var(--carup-raw-ink)_90%,transparent)] transition-colors hover:bg-carup-bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus sm:flex"
             >
               <Search className="h-4 w-4" aria-hidden="true" />
               Search
@@ -427,7 +429,7 @@ export function PublicShell({
               <span
                 aria-busy="true"
                 aria-label="Account — checking your session"
-                className="flex min-h-11 cursor-wait items-center gap-2 rounded-control px-4 text-sm text-[color-mix(in_srgb,var(--carup-raw-paper)_50%,transparent)]"
+                className="flex min-h-11 cursor-wait items-center gap-2 rounded-control px-4 text-sm text-[color-mix(in_srgb,var(--carup-raw-ink)_70%,transparent)]"
               >
                 <CircleUserRound className="h-4 w-4" aria-hidden="true" />
                 My CarUp…
@@ -436,7 +438,7 @@ export function PublicShell({
               <>
                 <Link
                   to="/login"
-                  className="hidden min-h-11 items-center justify-center rounded-control border border-carup-raw-ink-2 px-4 text-sm font-semibold text-carup-raw-paper transition-colors hover:bg-carup-raw-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus md:flex"
+                  className="hidden min-h-11 items-center justify-center rounded-control border border-carup-line px-4 text-sm font-semibold text-carup-raw-ink transition-colors hover:bg-carup-bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus md:flex"
                 >
                   Sign In
                 </Link>
@@ -454,7 +456,7 @@ export function PublicShell({
               aria-label="Open menu"
               aria-expanded={drawerOpen}
               data-testid="shell-mobile-menu"
-              className="flex h-11 w-11 items-center justify-center rounded-control text-carup-raw-paper transition-colors hover:bg-carup-raw-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus lg:hidden"
+              className="flex h-11 w-11 items-center justify-center rounded-control text-carup-raw-ink transition-colors hover:bg-carup-bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus lg:hidden"
             >
               <Menu className="h-5 w-5" aria-hidden="true" />
             </button>
@@ -547,8 +549,9 @@ export function PublicShell({
         </div>
       </footer>
 
-      {/* Mobile bottom tab bar — 5 slots, 60px + safe area (UI_DESIGN_REFERENCE §3/§8) */}
-      <nav
+      {/* Mobile bottom tab bar — 5 slots, 60px + safe area (UI_DESIGN_REFERENCE §3/§8).
+          RX03-P1b: steps aside while a page shows its own bottom action bar (one bar at a time). */}
+      {!bottomBarYielded && <nav
         aria-label="Compact app navigation"
         data-testid="shell-public-bottom-nav"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-carup-line bg-carup-bg-raised pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-1.5 shadow-sheet lg:hidden"
@@ -574,7 +577,7 @@ export function PublicShell({
             )
           })}
         </div>
-      </nav>
+      </nav>}
     </div>
   )
 }
