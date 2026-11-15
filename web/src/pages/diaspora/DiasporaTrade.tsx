@@ -93,8 +93,8 @@ function RequireDiasporaAuth({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
-    // Preserve the requested page so login can return the user here.
-    return <Navigate to={buildLoginRedirect(`${location.pathname}${location.search}`)} replace />
+    // Preserve the requested page so login can return the user here (TI-20: pathname + query + fragment).
+    return <Navigate to={buildLoginRedirect(`${location.pathname}${location.search}${location.hash}`)} replace />
   }
 
   return children
