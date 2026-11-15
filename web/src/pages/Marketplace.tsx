@@ -307,7 +307,7 @@ function FilterControls({
         <div className="min-w-0">
           <label className={FIELD_LABEL}>Make</label>
           <Select value={selectedMake} onValueChange={onMake}>
-            <SelectTrigger data-testid="marketplace-make-filter" className={FIELD_TRIGGER}><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Make" data-testid="marketplace-make-filter" className={FIELD_TRIGGER}><SelectValue /></SelectTrigger>
             <SelectContent>{makes.map(make => <SelectItem key={make} value={make}>{make}</SelectItem>)}</SelectContent>
           </Select>
         </div>
@@ -319,6 +319,7 @@ function FilterControls({
             value={selectedModel === ALL ? '' : selectedModel}
             onChange={event => onModel(event.target.value.trim() || ALL)}
             placeholder={selectedMake === ALL ? 'Any model' : `Any ${selectedMake} model`}
+            aria-label="Model"
             data-testid="marketplace-model-filter"
             className={FIELD_INPUT}
           />
@@ -333,7 +334,7 @@ function FilterControls({
         <div className="min-w-0">
           <label className={FIELD_LABEL}>Year</label>
           <Select value={selectedYear} onValueChange={onYear}>
-            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-year-filter"><SelectValue /></SelectTrigger>
+            <SelectTrigger className={FIELD_TRIGGER} aria-label="Year" data-testid="marketplace-year-filter"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All years</SelectItem>
               {marketplaceYears.map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}
@@ -343,7 +344,7 @@ function FilterControls({
         <div className="min-w-0">
           <label className={FIELD_LABEL}>Colour</label>
           <Select value={selectedColor} onValueChange={onColor}>
-            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-color-filter"><SelectValue /></SelectTrigger>
+            <SelectTrigger className={FIELD_TRIGGER} aria-label="Colour" data-testid="marketplace-color-filter"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All colours</SelectItem>
               {VEHICLE_COLORS.map(color => <SelectItem key={color} value={color}>{color}</SelectItem>)}
@@ -356,7 +357,7 @@ function FilterControls({
         <div className="min-w-0">
           <label className={FIELD_LABEL}>Body style</label>
           <Select value={selectedBodyStyle} onValueChange={onBodyStyle}>
-            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-body-style-filter"><SelectValue /></SelectTrigger>
+            <SelectTrigger className={FIELD_TRIGGER} aria-label="Body style" data-testid="marketplace-body-style-filter"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="All">All body styles</SelectItem>
               {BODY_STYLES.map(bodyStyle => <SelectItem key={bodyStyle} value={bodyStyle}>{bodyStyle}</SelectItem>)}
@@ -367,7 +368,7 @@ function FilterControls({
         <div className="min-w-0">
           <label className={FIELD_LABEL}>Location</label>
           <Select value={selectedLocation} onValueChange={onLocation}>
-            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-location-filter"><SelectValue /></SelectTrigger>
+            <SelectTrigger className={FIELD_TRIGGER} aria-label="Location" data-testid="marketplace-location-filter"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="All">All locations</SelectItem>
               {zimbabweLocations.map(location => <SelectItem key={location} value={location}>{location}</SelectItem>)}
@@ -380,14 +381,14 @@ function FilterControls({
         <div className="min-w-0">
           <label className={FIELD_LABEL}>Fuel</label>
           <Select value={selectedFuel} onValueChange={onFuel}>
-            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-fuel-filter"><SelectValue /></SelectTrigger>
+            <SelectTrigger className={FIELD_TRIGGER} aria-label="Fuel" data-testid="marketplace-fuel-filter"><SelectValue /></SelectTrigger>
             <SelectContent>{fuelTypes.map(fuel => <SelectItem key={fuel} value={fuel}>{fuel}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div className="min-w-0">
           <label className={FIELD_LABEL}>Transmission</label>
           <Select value={selectedTransmission} onValueChange={onTransmission}>
-            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-transmission-filter"><SelectValue /></SelectTrigger>
+            <SelectTrigger className={FIELD_TRIGGER} aria-label="Transmission" data-testid="marketplace-transmission-filter"><SelectValue /></SelectTrigger>
             <SelectContent>{transmissions.map(transmission => <SelectItem key={transmission} value={transmission}>{transmission}</SelectItem>)}</SelectContent>
           </Select>
         </div>
@@ -904,7 +905,7 @@ export default function Marketplace() {
             <div className="hidden shrink-0 items-center lg:flex">
               <span aria-hidden="true" className="mx-1 h-8 w-px bg-slate-200" />
               <Select value={url.selectedMake} onValueChange={value => updateUrl({ selectedMake: value, selectedModel: ALL })}>
-                <SelectTrigger className={commandSelectTrigger} data-testid="marketplace-command-make">
+                <SelectTrigger className={commandSelectTrigger} aria-label="Make" data-testid="marketplace-command-make">
                   <span className="min-w-0 truncate">
                     <span className={commandLabel}>Make</span>
                     <SelectValue />
@@ -917,7 +918,7 @@ export default function Marketplace() {
             <div className="hidden shrink-0 items-center lg:flex">
               <span aria-hidden="true" className="mx-1 h-8 w-px bg-slate-200" />
               <Select value={url.selectedYear} onValueChange={value => updateUrl({ selectedYear: value })}>
-                <SelectTrigger className={commandSelectTrigger} data-testid="marketplace-command-year">
+                <SelectTrigger className={commandSelectTrigger} aria-label="Year" data-testid="marketplace-command-year">
                   <span className="min-w-0 truncate">
                     <span className={commandLabel}>Year</span>
                     <SelectValue />
@@ -933,7 +934,7 @@ export default function Marketplace() {
             <div className="hidden shrink-0 items-center lg:flex">
               <span aria-hidden="true" className="mx-1 h-8 w-px bg-slate-200" />
               <Select value={url.selectedLocation} onValueChange={value => updateUrl({ selectedLocation: value })}>
-                <SelectTrigger className={commandSelectTrigger} data-testid="marketplace-command-location">
+                <SelectTrigger className={commandSelectTrigger} aria-label="Location" data-testid="marketplace-command-location">
                   <span className="min-w-0 truncate">
                     <span className={commandLabel}>Location</span>
                     <SelectValue />
@@ -1007,7 +1008,7 @@ export default function Marketplace() {
               <Select value={url.sortBy} onValueChange={value => updateUrl({ sortBy: value as MarketplaceSort })}>
                 <SelectTrigger
                   className="w-full min-w-0 rounded-full border-slate-200 bg-white px-4 text-left text-[14px] font-medium text-[#09122A] shadow-none hover:border-slate-300 focus-visible:ring-2 focus-visible:ring-[#C2410C] data-[size=default]:h-11 md:w-[12rem] md:rounded-xl lg:w-[10.5rem] xl:w-[11rem] 2xl:w-[12rem] md:border-transparent md:text-[15px] md:font-normal md:hover:bg-slate-50 md:data-[size=default]:h-12"
-                  data-testid="marketplace-sort-select"
+                  aria-label="Sort results" data-testid="marketplace-sort-select"
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     <ArrowUpDown className="h-4 w-4 shrink-0 text-slate-500 md:hidden" aria-hidden="true" />

@@ -133,3 +133,13 @@ describe('Marketplace showroom — header', () => {
     }
   })
 })
+
+describe('RX03-P1a — every filter control has an accessible name', () => {
+  it('names the Radix select triggers (role=combobox takes its name from aria-label, not content)', async () => {
+    fetchMarketplaceListings.mockResolvedValue({ listings: THREE })
+    renderMarketplace()
+    for (const name of ['Make', 'Year', 'Location', 'Sort results']) {
+      expect(screen.getByRole('combobox', { name })).toBeInTheDocument()
+    }
+  })
+})
