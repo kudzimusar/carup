@@ -125,7 +125,7 @@ export function SellerInquiryList({
 /**
  * Marketplace inquiries for the signed-in seller/dealer. Reads the ownership-scoped backend endpoint
  * (GET /api/marketplace/my-listings/inquiries) which only returns inquiries on the seller's own
- * listings. Degrades gracefully when the inquiries table is not yet provisioned.
+ * listings. A failed read is shown as a failed read (TI-13): never hidden, never a count of zero.
  */
 export function SellerInquiriesCard({ ownedListings }: SellerInquiriesCardProps) {
   const { fetchMyMarketplaceInquiries } = useCarUpApi()
@@ -142,17 +142,19 @@ export function SellerInquiriesCard({ ownedListings }: SellerInquiriesCardProps)
     return () => { mounted = false }
   }, [fetchMyMarketplaceInquiries])
 
-  if (unavailable) return null
-
   return (
     <Card className="border-0 card-shadow" data-testid="seller-inquiries-card">
       <CardContent className="p-5">
         <div className="mb-3 flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-orange-500" />
           <h3 className="font-semibold">Marketplace inquiries</h3>
-          {!loading && <Badge variant="secondary">{inquiries.length}</Badge>}
+          {!loading && !unavailable && <Badge variant="secondary">{inquiries.length}</Badge>}
         </div>
-        {loading ? (
+        {unavailable ? (
+          <p role="alert" className="text-sm text-amber-900" data-testid="seller-inquiries-unavailable">
+            Marketplace inquiries could not be loaded right now. This is not an empty inbox — please try again shortly.
+          </p>
+        ) : loading ? (
           <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
         ) : inquiries.length === 0 ? (
           <p className="text-sm text-gray-500">No inquiries yet. They will appear here when buyers contact you about your listings.</p>

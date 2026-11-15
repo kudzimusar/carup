@@ -36,13 +36,15 @@ export function SourceCoveragePanel({ vin, initialData }: { vin: string; initial
   const { fetchVehicleSourceCoverage } = useCarUpApi()
   const [data, setData] = useState<SourceCoverageEntry[] | null>(initialData ?? null)
   const [loading, setLoading] = useState(!initialData)
+  // TI-13: a failed read is not "Not yet checked" for every registry — it is an unknown.
+  const [unavailable, setUnavailable] = useState(false)
 
   useEffect(() => {
     if (initialData) return
     let cancelled = false
     fetchVehicleSourceCoverage(vin)
-      .then((r) => { if (!cancelled) setData(r.coverage || []) })
-      .catch(() => { if (!cancelled) setData([]) })
+      .then((r) => { if (!cancelled) { setData(r.coverage || []); setUnavailable(false) } })
+      .catch(() => { if (!cancelled) { setData(null); setUnavailable(true) } })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [vin, fetchVehicleSourceCoverage, initialData])
@@ -69,7 +71,12 @@ export function SourceCoveragePanel({ vin, initialData }: { vin: string; initial
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
-        {ALL_PROVIDERS.map((p) => {
+        {unavailable ? (
+          <p role="alert" className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded p-3" data-testid="source-coverage-unavailable">
+            Source checks could not be loaded right now. This does not mean the registries are unchecked or clear —
+            CarUp could not read their status.
+          </p>
+        ) : ALL_PROVIDERS.map((p) => {
           const st = statusFor(byProvider[p])
           const ui = STATUS_UI[st]
           return (
