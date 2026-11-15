@@ -127,4 +127,13 @@ describe('CinematicHero', () => {
     fireEvent.error(container.querySelector('video') as HTMLVideoElement)
     expect(screen.getByTestId('home-hero')).toHaveAttribute('data-hero-mode', 'reel')
   })
+
+  it('fetches one reel photo at a time: the next only after the current one has loaded', () => {
+    renderHero()
+    const slots = screen.getAllByTestId('home-hero-reel-frame')
+    expect(slots[0].querySelector('img')).not.toBeNull()
+    expect(slots[1].querySelector('img')).toBeNull()
+    fireEvent.load(slots[0].querySelector('img') as HTMLImageElement)
+    expect(screen.getAllByTestId('home-hero-reel-frame')[1].querySelector('img')).not.toBeNull()
+  })
 })

@@ -109,11 +109,15 @@ function FilmLayer({
 }
 
 function ReelLayer({ frames, active, playing }: { frames: ReelFrame[]; active: number; playing: boolean }) {
-  // Load the frame on screen and the next one; later frames are fetched only as the reel reaches
-  // them. "Furthest frame needed so far" only grows, so it is adjusted during render, not in an effect.
-  const [loadedUpTo, setLoadedUpTo] = useState(1)
-  if (active + 1 > loadedUpTo) setLoadedUpTo(active + 1)
-  const shouldLoad = (index: number) => index <= loadedUpTo || index === active
+  // Seller photos can be large originals, so the reel fetches one frame at a time: the frame on
+  // screen, and the next one only after the current one has finished loading. "Furthest frame
+  // needed so far" only grows, so it is adjusted during render or in onLoad, never in an effect.
+  const [loadedUpTo, setLoadedUpTo] = useState(0)
+  if (active > loadedUpTo) setLoadedUpTo(active)
+  const shouldLoad = (index: number) => index <= loadedUpTo
+  const prefetchNext = (index: number) => {
+    if (index === active && frames.length > 1) setLoadedUpTo(current => Math.max(current, Math.min(active + 1, frames.length - 1)))
+  }
 
   return (
     <>
@@ -136,6 +140,7 @@ function ReelLayer({ frames, active, playing }: { frames: ReelFrame[]; active: n
               loading={index === 0 ? 'eager' : 'lazy'}
               fetchPriority={index === 0 ? 'high' : 'low'}
               decoding="async"
+              onLoad={() => prefetchNext(index)}
             />
           )}
         </div>
