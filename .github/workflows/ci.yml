@@ -84,6 +84,32 @@ jobs:
       - name: Web build
         run: npm run build
 
+      # TI-01 (issue #261) BLOCKING: scan the web/dist this job just built for the removed login
+      # demo-access affordance and its demo-account identities. The scanner's own tests run first, so
+      # a scanner that cannot fail cannot pass. The JSON report (git SHA + merge parents + PR head,
+      # dist digest, every scanned file, every hit with byte offset) is uploaded even on failure.
+      - name: TI-01 demo-identity bundle scan (web/dist built above)
+        id: demo-identity-scan
+        continue-on-error: true
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node --test scripts/tests/scan-bundle-demo-identity.test.mjs
+          node scripts/scan-bundle-demo-identity.mjs --out demo-identity-bundle-scan.json
+
+      - name: Upload TI-01 demo-identity bundle scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-identity-bundle-scan
+          path: demo-identity-bundle-scan.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Enforce TI-01 demo-identity bundle scan result
+        if: steps.demo-identity-scan.outcome == 'failure'
+        run: exit 1
+
       - name: Backend tests (node:test)
         run: node --test backend/tests/*.test.js
 
