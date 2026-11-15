@@ -23,6 +23,22 @@ import Marketplace from './pages/Marketplace'
 import MarketplaceCompare from './pages/MarketplaceCompare'
 import MarketplaceCategoryPage from './pages/MarketplaceCategoryPage'
 import VehicleDetail from './pages/VehicleDetail'
+// RX03 showroom compositions: separate lazy chunks, selected per route by <ShowroomRoute>. With the
+// showroom presentation OFF (the production default) these are never requested.
+import { ShowroomRoute } from './components/showroom/ShowroomRoute'
+import { isShowroomPagesEnabled } from './lib/presentationFlags'
+const importShowroomLanding = () => import('./pages/showroom/ShowroomLanding')
+const importShowroomMarketplace = () => import('./pages/showroom/ShowroomMarketplace')
+const importShowroomVehicleDetail = () => import('./pages/showroom/ShowroomVehicleDetail')
+const ShowroomLanding = lazy(importShowroomLanding)
+const ShowroomMarketplace = lazy(importShowroomMarketplace)
+const ShowroomVehicleDetail = lazy(importShowroomVehicleDetail)
+if (isShowroomPagesEnabled()) {
+  // Warm the three journey chunks so moving Home -> Marketplace -> Vehicle Detail does not wait.
+  Promise.all([importShowroomLanding(), importShowroomMarketplace(), importShowroomVehicleDetail()]).catch(() => {
+    /* best effort: the route's own Suspense + LazyRouteBoundary handle a real failure */
+  })
+}
 import VehicleSearch from './pages/VehicleSearch'
 import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
@@ -271,14 +287,14 @@ export default function App() {
             the legacy MainLayout unless the isolated presentation flag is opted in.
             Presentation-only; no access change. */}
         <Route element={<UnifiedRouteShell family="public" legacy={<MainLayout />} />}>
-          <Route path="/" element={<Landing />} />
-          <Route path="/marketplace" element={<Marketplace />} />
+          <Route path="/" element={<ShowroomRoute accepted={<Landing />} showroom={ShowroomLanding} />} />
+          <Route path="/marketplace" element={<ShowroomRoute accepted={<Marketplace />} showroom={ShowroomMarketplace} />} />
           <Route path="/sell" element={<GuestSell />} />
           <Route path="/marketplace/parts" element={<MarketplaceCategoryPage kind="part" />} />
           <Route path="/marketplace/services" element={<MarketplaceCategoryPage kind="service" />} />
           <Route path="/marketplace/compare" element={<MarketplaceCompare />} />
-          <Route path="/marketplace/listing/:id" element={<VehicleDetail />} />
-          <Route path="/marketplace/:id" element={<VehicleDetail />} />
+          <Route path="/marketplace/listing/:id" element={<ShowroomRoute accepted={<VehicleDetail />} showroom={ShowroomVehicleDetail} />} />
+          <Route path="/marketplace/:id" element={<ShowroomRoute accepted={<VehicleDetail />} showroom={ShowroomVehicleDetail} />} />
           <Route path="/search" element={<VehicleSearch />} />
           <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
