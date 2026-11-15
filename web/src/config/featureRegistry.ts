@@ -243,8 +243,12 @@ export interface FeatureRegistryItem {
   requiresAuth: boolean
   /** Lucide icon component name */
   icon: LucideIconName
-  /** Optional badge text or count */
-  badge?: string | number
+  /**
+   * Optional static LABEL shown beside the nav item (e.g. 'Inbox', 'AI', 'SLA').
+   * Never a count: this registry is static, so a number here would be shown to every user as if it
+   * were their live queue (RX-02 TI-06). A live count must be read from a data source at render time.
+   */
+  badge?: string
   /** Tooltip / accessibility description */
   description?: string
   /** Whether the route is planned/mocked but not yet implemented in App.tsx */
@@ -474,7 +478,6 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'Users',
-    badge: 12,
   },
   {
     id: 'dealer.promotions',
@@ -527,7 +530,6 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ClipboardList',
-    badge: 8,
   },
   {
     id: 'mechanic.service-logs',
@@ -580,7 +582,6 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'FileText',
-    badge: 12,
   },
   {
     id: 'insurance.risk',
@@ -601,7 +602,6 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'AlertTriangle',
-    badge: 3,
   },
 
   // ─── Government Dashboard ──────────────────────────────────────────────
@@ -1104,7 +1104,6 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ClipboardList',
-    badge: 2,
   },
   {
     id: 'bank.collateral',

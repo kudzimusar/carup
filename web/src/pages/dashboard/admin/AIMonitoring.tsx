@@ -2,31 +2,27 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Brain, MessageSquare, Zap, Clock, CheckCircle } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import type { ServerHealthModel } from '@/types'
+import { DataState, DATA_STATE_HEADLINES } from '@/components/truth'
 
-const requestData = [
-  { hour: '00', requests: 120 },
-  { hour: '04', requests: 45 },
-  { hour: '08', requests: 450 },
-  { hour: '12', requests: 680 },
-  { hour: '16', requests: 520 },
-  { hour: '20', requests: 310 },
+/**
+ * RX-02 TI-06 — only the model-status list below is read from a source (/api/admin/health).
+ * CarUp does not record AI request volume, latency, accuracy over time or active sessions, so those
+ * tiles and charts say "Not measured" instead of showing fixed numbers as if they were live.
+ */
+const KPI_TILES = [
+  { label: 'Total Requests', icon: MessageSquare, color: 'text-blue-500', bg: 'bg-blue-50' },
+  { label: 'Avg Response Time', icon: Clock, color: 'text-green-500', bg: 'bg-green-50' },
+  { label: 'Accuracy', icon: CheckCircle, color: 'text-purple-500', bg: 'bg-purple-50' },
+  { label: 'Active Sessions', icon: Zap, color: 'text-amber-500', bg: 'bg-amber-50' },
 ]
 
-const accuracyData = [
-  { day: 'Mon', accuracy: 96 },
-  { day: 'Tue', accuracy: 97 },
-  { day: 'Wed', accuracy: 95 },
-  { day: 'Thu', accuracy: 98 },
-  { day: 'Fri', accuracy: 97 },
-  { day: 'Sat', accuracy: 96 },
-  { day: 'Sun', accuracy: 97 },
-]
+const recordedAccuracy = (model: ServerHealthModel) =>
+  typeof model.accuracy === 'number' && Number.isFinite(model.accuracy) ? model.accuracy : null
 
 export default function AIMonitoring() {
   const { fetchServerHealth } = useCarUpApi()
@@ -56,18 +52,13 @@ export default function AIMonitoring() {
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Requests', value: '24.5K', icon: MessageSquare, color: 'text-blue-500', bg: 'bg-blue-50' },
-          { label: 'Avg Response Time', value: '1.2s', icon: Clock, color: 'text-green-500', bg: 'bg-green-50' },
-          { label: 'Accuracy', value: '97.2%', icon: CheckCircle, color: 'text-purple-500', bg: 'bg-purple-50' },
-          { label: 'Active Sessions', value: '142', icon: Zap, color: 'text-amber-500', bg: 'bg-amber-50' },
-        ].map((stat) => (
-          <Card key={stat.label} className="border-0 card-shadow">
+        {KPI_TILES.map((stat) => (
+          <Card key={stat.label} className="border-0 card-shadow" data-testid={`ai-kpi-${stat.label.toLowerCase().replace(/\s+/g, '-')}`}>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500">{stat.label}</p>
-                  <p className="text-2xl font-bold mt-1">{stat.value}</p>
+                  <p className="text-base font-semibold text-gray-500 mt-1">{DATA_STATE_HEADLINES['not-measured']}</p>
                 </div>
                 <div className={`w-10 h-10 rounded-lg ${stat.bg} ${stat.color} flex items-center justify-center`}>
                   <stat.icon className="w-5 h-5" />
@@ -82,28 +73,14 @@ export default function AIMonitoring() {
         <Card className="border-0 card-shadow">
           <CardHeader className="pb-3"><CardTitle className="text-lg">Request Volume (24h)</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={requestData}>
-                <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Bar dataKey="requests" fill="#f97316" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <DataState state="not-measured" subject="Request volume" description="CarUp does not record AI request volume yet, so no series is drawn." />
           </CardContent>
         </Card>
 
         <Card className="border-0 card-shadow">
           <CardHeader className="pb-3"><CardTitle className="text-lg">Accuracy Trend</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={accuracyData}>
-                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                <YAxis domain={[90, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Line type="monotone" dataKey="accuracy" stroke="#f97316" strokeWidth={2} dot={{ fill: '#f97316' }} />
-              </LineChart>
-            </ResponsiveContainer>
+            <DataState state="not-measured" subject="Accuracy trend" description="CarUp does not record AI accuracy over time yet, so no trend is drawn." />
           </CardContent>
         </Card>
       </div>
@@ -124,21 +101,27 @@ export default function AIMonitoring() {
               ))}
             </div>
           ) : healthData.length > 0 ? (
-            healthData.map((model: ServerHealthModel, index: number) => (
-              <div key={model.name || index}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <Brain className="w-4 h-4 text-purple-500" />
-                    <span className="text-sm font-medium">{model.name || 'Unknown Model'}</span>
-                    <Badge className={`${model.status === 'Operational' ? 'bg-green-500' : 'bg-amber-500'} text-white text-[10px]`}>
-                      {model.status || 'Unknown'}
-                    </Badge>
+            healthData.map((model: ServerHealthModel, index: number) => {
+              // An absent accuracy is unknown, not 0%.
+              const accuracy = recordedAccuracy(model)
+              return (
+                <div key={model.name || index} data-testid={`ai-model-${model.name || index}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <Brain className="w-4 h-4 text-purple-500" />
+                      <span className="text-sm font-medium">{model.name || 'Unknown Model'}</span>
+                      <Badge className={`${model.status === 'Operational' ? 'bg-green-500' : 'bg-amber-500'} text-white text-[10px]`}>
+                        {model.status || 'Unknown'}
+                      </Badge>
+                    </div>
+                    {accuracy === null
+                      ? <span className="text-sm text-gray-500">{DATA_STATE_HEADLINES['not-measured']}</span>
+                      : <span className="text-sm">{accuracy}%</span>}
                   </div>
-                  <span className="text-sm">{model.accuracy || 0}%</span>
+                  {accuracy !== null && <Progress value={accuracy} className="h-2" />}
                 </div>
-                <Progress value={model.accuracy || 0} className="h-2" />
-              </div>
-            ))
+              )
+            })
           ) : (
             <div className="text-sm text-gray-500 py-4 text-center">No health data available</div>
           )}

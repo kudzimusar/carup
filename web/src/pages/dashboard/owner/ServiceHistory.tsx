@@ -5,6 +5,7 @@ import { Wrench, Search, Calendar, DollarSign } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { Vehicle, ServiceRecord, Part } from '@/types'
+import { DATA_STATE_HEADLINES } from '@/components/truth'
 
 export default function ServiceHistory() {
   const { fetchOwnedVehicles, fetchServiceHistory } = useCarUpApi()
@@ -57,7 +58,8 @@ export default function ServiceHistory() {
       <div className="grid sm:grid-cols-3 gap-4">
         <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Total Services</p><p className="text-2xl font-bold">{services.length}</p></CardContent></Card>
         <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Total Spent</p><p className="text-2xl font-bold text-orange-600">${totalCost.toLocaleString()}</p></CardContent></Card>
-        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Next Service</p><p className="text-2xl font-bold">500 km</p></CardContent></Card>
+        {/* TI-06: CarUp records no service schedule or interval, so there is no next-service figure to show. */}
+        <Card className="border-0 card-shadow" data-testid="service-next-service"><CardContent className="p-5"><p className="text-sm text-gray-500">Next Service</p><p className="mt-1 text-base font-semibold text-gray-500">{DATA_STATE_HEADLINES['not-measured']}</p><p className="text-xs text-gray-500">No service schedule is recorded for this vehicle.</p></CardContent></Card>
       </div>
 
       <div className="relative">
