@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, LogOut, LayoutDashboard, UserCog, LogIn, Car } from 'lucide-react'
+import { Menu, LogOut, LayoutDashboard, UserCog, LogIn, Car, CircleUserRound } from 'lucide-react'
+import { BrandIdentity } from '@/components/brand/BrandIdentity'
 import {
   Sheet,
   SheetTrigger,
@@ -36,7 +37,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
  * by desktop — so there is no hardcoded mobile route array and no cross-role
  * leakage. Active route is marked with aria-current.
  */
-export default function MobileNavDrawer() {
+export default function MobileNavDrawer({ showroom = false }: { showroom?: boolean } = {}) {
   const [open, setOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
@@ -104,11 +105,11 @@ export default function MobileNavDrawer() {
         <Button
           variant="ghost"
           size="icon"
-          className="lg:hidden"
+          className={showroom ? 'h-11 w-11 rounded-full text-[#09122A] hover:bg-[#F1EFEA] lg:hidden' : 'lg:hidden'}
           data-testid="mobile-menu-button"
-          aria-label="Open menu"
+          aria-label={showroom ? 'Profile and menu' : 'Open menu'}
         >
-          <Menu className="w-5 h-5" />
+          {showroom ? <CircleUserRound className="h-[22px] w-[22px]" strokeWidth={1.75} aria-hidden="true" /> : <Menu className="w-5 h-5" />}
         </Button>
       </SheetTrigger>
       <SheetContent
@@ -117,14 +118,20 @@ export default function MobileNavDrawer() {
         data-testid="mobile-nav-drawer"
       >
         <SheetHeader className="px-4 pt-4 pb-3 text-left border-b">
-          <SheetTitle className="flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
-              <Car className="w-4 h-4 text-white" aria-hidden="true" />
-            </span>
-            <span className="text-lg font-bold tracking-tight">
-              Car<span className="text-orange-700">Up</span>
-            </span>
-          </SheetTitle>
+          {showroom ? (
+            <SheetTitle className="flex items-center">
+              <BrandIdentity role="stacked" surface="light" height={44} />
+            </SheetTitle>
+          ) : (
+            <SheetTitle className="flex items-center gap-2">
+              <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
+                <Car className="w-4 h-4 text-white" aria-hidden="true" />
+              </span>
+              <span className="text-lg font-bold tracking-tight">
+                Car<span className="text-orange-700">Up</span>
+              </span>
+            </SheetTitle>
+          )}
           {user ? (
             <p className="text-xs text-gray-500">
               {user.name.split(' ')[0]} · {getRoleMetadata(user.role as UserRole).title}

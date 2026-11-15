@@ -10,8 +10,8 @@ import ledger from '@/assets/brand/option5/ASSET_LEDGER.json'
 const ASSET_DIR = join(__dirname, '../../assets/brand/option5')
 
 describe('Option 5 asset custody', () => {
-  it('every shipped SVG is listed in the ledger with its exact SHA-256 and size', () => {
-    const shipped = readdirSync(ASSET_DIR).filter(name => name.endsWith('.svg')).sort()
+  it('every shipped brand file is listed in the ledger with its exact SHA-256 and size', () => {
+    const shipped = readdirSync(ASSET_DIR).filter(name => name !== 'ASSET_LEDGER.json').sort()
     const listed = ledger.assets.map(asset => asset.file).sort()
     expect(shipped).toEqual(listed)
     for (const asset of ledger.assets) {
@@ -33,7 +33,7 @@ describe('Option 5 asset custody', () => {
   })
 
   it('no asset embeds a remote reference, raster or script', () => {
-    for (const asset of ledger.assets) {
+    for (const asset of ledger.assets.filter(entry => entry.file.endsWith('.svg'))) {
       const text = readFileSync(join(ASSET_DIR, asset.file), 'utf8')
       expect(text, asset.file).not.toMatch(/drive\.google|googleusercontent|<image|<script|href="https?:/i)
     }

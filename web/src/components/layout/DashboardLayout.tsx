@@ -1,3 +1,5 @@
+import { BrandIdentity } from '@/components/brand/BrandIdentity'
+import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
@@ -119,14 +121,20 @@ export default function DashboardLayout({ role }: { role: string }) {
       >
         {/* Sidebar Header */}
         <div className="h-16 flex items-center justify-between px-4 border-b">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
-              <Car className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-lg font-bold">
-              Car<span className="text-orange-700">Up</span>
-            </span>
-          </Link>
+          {isShowroomChromeEnabled() ? (
+            <Link to="/" className="flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C]" aria-label="CarUp home" data-testid="brand-home-link">
+              <BrandIdentity role="stacked" surface="light" height={40} decorative priority />
+            </Link>
+          ) : (
+            <Link to="/" className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
+                <Car className="w-4 h-4 text-white" />
+              </div>
+              <span className="text-lg font-bold">
+                Car<span className="text-orange-700">Up</span>
+              </span>
+            </Link>
+          )}
           <Button
             variant="ghost"
             size="icon"

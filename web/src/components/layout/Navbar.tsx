@@ -26,6 +26,10 @@ import {
 import MobileNavDrawer from '@/components/layout/MobileNavDrawer'
 import { BrandIdentity } from '@/components/brand/BrandIdentity'
 import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
+import { applyOption5BrowserIcons } from '@/components/brand/brandFavicon'
+
+// RX03-P1b R3: Option 5 favicon and touch icon only when the showroom chrome is on.
+if (typeof document !== 'undefined' && isShowroomChromeEnabled()) applyOption5BrowserIcons()
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -49,12 +53,14 @@ function CommerceMenu({
   sections,
   testId,
   menuTestId,
+  showroom = false,
 }: {
   label: string
   icon: typeof ShoppingCart
   sections: ResolvedNavSection[]
   testId: string
   menuTestId: string
+  showroom?: boolean
 }) {
   return (
     <DropdownMenu onOpenChange={(open) => { if (open) trackNav({ event_type: 'navigation_surface_opened', surface: 'mega_menu', node_id: menuTestId }) }}>
@@ -62,19 +68,21 @@ function CommerceMenu({
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1 px-3 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 data-[state=open]:bg-orange-50 data-[state=open]:text-orange-700"
+          className={showroom
+            ? 'h-10 gap-1 rounded-full px-3.5 text-[15px] font-medium text-[#09122A]/80 transition-colors hover:bg-[#F1EFEA] hover:text-[#09122A] data-[state=open]:bg-[#09122A] data-[state=open]:text-white'
+            : 'gap-1 px-3 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 data-[state=open]:bg-orange-50 data-[state=open]:text-orange-700'}
           data-testid={testId}
         >
-          <Icon className="h-4 w-4" aria-hidden="true" />
+          {!showroom && <Icon className="h-4 w-4" aria-hidden="true" />}
           {label}
           <ChevronDown className="h-3 w-3 transition-transform duration-200" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" sideOffset={8} className="w-[760px] max-w-[calc(100vw-2rem)] p-5" data-testid={menuTestId}>
+      <DropdownMenuContent align="start" sideOffset={showroom ? 12 : 8} className={showroom ? 'w-[760px] max-w-[calc(100vw-2rem)] rounded-3xl border-0 p-6 shadow-[0_30px_80px_-24px_rgba(9,18,42,0.45)] ring-1 ring-black/5' : 'w-[760px] max-w-[calc(100vw-2rem)] p-5'} data-testid={menuTestId}>
         <div className="grid gap-x-6 gap-y-5 md:grid-cols-4">
           {sections.map(section => (
             <div key={section.title} className="min-w-0">
-              <p className="mb-2 pb-1.5 border-b border-gray-100 text-[11px] font-bold uppercase tracking-wider text-gray-400">{section.title}</p>
+              <p className={showroom ? 'mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#C2410C]' : 'mb-2 pb-1.5 border-b border-gray-100 text-[11px] font-bold uppercase tracking-wider text-gray-400'}>{section.title}</p>
               <div className="space-y-0.5">
                 {section.items.map(item => item.active ? (
                   <DropdownMenuItem key={item.id} asChild>
@@ -83,7 +91,9 @@ function CommerceMenu({
                       data-testid={`navitem-${item.id}`}
                       title={item.description}
                       onClick={() => trackNav({ event_type: 'navigation_item_selected', surface: 'mega_menu', feature_id: item.id, node_id: item.id, destination_route_pattern: item.href })}
-                      className="flex min-h-[34px] items-center justify-between gap-2 cursor-pointer rounded-md px-2 py-1.5 text-sm text-gray-700 transition-colors hover:bg-orange-50 hover:text-orange-700 focus-visible:bg-orange-50 focus-visible:text-orange-700"
+                      className={showroom
+                        ? 'flex min-h-[38px] items-center justify-between gap-2 cursor-pointer rounded-xl px-2.5 py-1.5 text-[14px] text-[#09122A] transition-colors hover:bg-[#F6F4F0] focus-visible:bg-[#F6F4F0]'
+                        : 'flex min-h-[34px] items-center justify-between gap-2 cursor-pointer rounded-md px-2 py-1.5 text-sm text-gray-700 transition-colors hover:bg-orange-50 hover:text-orange-700 focus-visible:bg-orange-50 focus-visible:text-orange-700'}
                     >
                       <span className="truncate">{item.label}</span>
                       {item.beta && <Badge className="shrink-0 bg-blue-100 text-blue-700 text-[10px]">Beta</Badge>}
@@ -112,6 +122,7 @@ function CommerceMenu({
 }
 
 export default function Navbar() {
+  const showroom = isShowroomChromeEnabled()
   const location = useLocation()
   const navigate = useNavigate()
   const { user, switchRole, logout } = useAuth()
@@ -197,15 +208,22 @@ export default function Navbar() {
   }
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+    <header
+      className={showroom
+        ? 'sticky top-0 z-50 w-full border-b border-slate-200/70 bg-white/90 backdrop-blur-xl supports-[backdrop-filter]:bg-white/80'
+        : 'sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60'}
+      data-chrome={showroom ? 'showroom' : 'accepted'}
+    >
       <div className="section-padding mx-auto max-w-[1440px]">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          {isShowroomChromeEnabled() ? (
-            /* RX03-P1b: the official Option 5 identity (wordmark only on phones, per the brand contract). */
-            <Link to="/" className="mr-4 flex min-h-11 items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C]" aria-label="CarUp home" data-testid="navbar-brand">
-              <BrandIdentity role="wordmark" surface="light" height={22} decorative priority className="sm:hidden" />
-              <BrandIdentity role="logo" surface="light" height={32} decorative priority className="hidden sm:block" />
+          {showroom ? (
+            /* RX03-P1b R3: the stacked Option 5 logo — the orange roofline above the wordmark — at
+               every width. The wordmark-only export and the horizontal lockup (tiny roofline) both read
+               as the old text logo at header size (Owner, 2026-11-16). */
+            <Link to="/" className="mr-4 flex min-h-11 shrink-0 items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C]" aria-label="CarUp home" data-testid="navbar-brand">
+              <BrandIdentity role="stacked" surface="light" height={40} decorative priority className="lg:hidden" />
+              <BrandIdentity role="stacked" surface="light" height={46} decorative priority className="hidden lg:block" />
             </Link>
           ) : (
             <Link to="/" className="flex items-center gap-2 mr-4">
@@ -220,10 +238,19 @@ export default function Navbar() {
 
           {/* Desktop Nav */}
           <nav className="hidden lg:flex items-center gap-1" data-testid="public-primary-nav">
-            <CommerceMenu label="Buy" icon={ShoppingCart} sections={buyMenu} testId="nav-buy" menuTestId="nav-buy-menu" />
-            <CommerceMenu label="Sell" icon={Car} sections={sellMenu} testId="nav-sell" menuTestId="nav-sell-menu" />
-            <CommerceMenu label="Verify" icon={Shield} sections={verifyMenu} testId="nav-verify" menuTestId="nav-verify-menu" />
-            <CommerceMenu label="Parts" icon={Package} sections={partsMenu} testId="nav-parts" menuTestId="nav-parts-menu" />
+            <CommerceMenu label="Buy" icon={ShoppingCart} sections={buyMenu} testId="nav-buy" menuTestId="nav-buy-menu" showroom={showroom} />
+            <CommerceMenu label="Sell" icon={Car} sections={sellMenu} testId="nav-sell" menuTestId="nav-sell-menu" showroom={showroom} />
+            <CommerceMenu label="Verify" icon={Shield} sections={verifyMenu} testId="nav-verify" menuTestId="nav-verify-menu" showroom={showroom} />
+            {showroom && effectiveStates?.['product.diaspora']?.enabled !== false && (
+              <Link
+                to="/diaspora"
+                data-testid="nav-trade"
+                className={`inline-flex h-10 items-center rounded-full px-3.5 text-[15px] font-medium transition-colors ${location.pathname.startsWith('/diaspora') ? 'bg-[#09122A] text-white' : 'text-[#09122A]/80 hover:bg-[#F1EFEA] hover:text-[#09122A]'}`}
+              >
+                Trade
+              </Link>
+            )}
+            <CommerceMenu label="Parts" icon={Package} sections={partsMenu} testId="nav-parts" menuTestId="nav-parts-menu" showroom={showroom} />
             {getVisiblePublicNavigationItems(navContext).map((link) => {
               const testId = `nav-${link.label.toLowerCase()}`
               return (
@@ -231,7 +258,9 @@ export default function Navbar() {
                   key={link.route}
                   to={link.route}
                   data-testid={testId}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  className={showroom
+                    ? `inline-flex h-10 items-center rounded-full px-3.5 text-[15px] font-medium transition-colors ${location.pathname === link.route ? 'bg-[#09122A] text-white' : 'text-[#09122A]/80 hover:bg-[#F1EFEA] hover:text-[#09122A]'}`
+                    : `px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     location.pathname === link.route
                       ? 'bg-orange-50 text-orange-700'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
@@ -241,7 +270,7 @@ export default function Navbar() {
                 </Link>
               )
             })}
-            <CommerceMenu label="More" icon={MoreHorizontal} sections={moreMenu} testId="nav-more" menuTestId="nav-more-menu" />
+            <CommerceMenu label="More" icon={MoreHorizontal} sections={moreMenu} testId="nav-more" menuTestId="nav-more-menu" showroom={showroom} />
           </nav>
 
           {/* Right Actions */}
@@ -249,7 +278,7 @@ export default function Navbar() {
             {/* Currency Selector */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="hidden md:flex gap-1 text-xs" aria-label={`Currency: ${currency}. Change currency`}>
+                <Button variant="ghost" size="sm" className={showroom ? 'hidden md:flex h-10 gap-1 rounded-full px-3 text-[13px] font-semibold text-[#09122A]/70 hover:bg-[#F1EFEA]' : 'hidden md:flex gap-1 text-xs'} aria-label={`Currency: ${currency}. Change currency`}>
                   {currency} <ChevronDown className="w-3 h-3" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
@@ -268,7 +297,7 @@ export default function Navbar() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="relative"
+                  className={showroom ? 'relative h-10 w-10 rounded-full text-[#09122A]/75 hover:bg-[#F1EFEA]' : 'relative'}
                   aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
                 >
                   <Bell className="w-5 h-5" aria-hidden="true" />
@@ -369,17 +398,17 @@ export default function Navbar() {
               </DropdownMenu>
             ) : (
               <div className="hidden md:flex items-center gap-2">
-                <Button variant="ghost" size="sm" asChild>
+                <Button variant="ghost" size="sm" asChild className={showroom ? 'h-10 rounded-full px-4 text-[15px] font-medium text-[#09122A] hover:bg-[#F1EFEA]' : undefined}>
                   <Link to="/login">Sign In</Link>
                 </Button>
-                <Button size="sm" className="bg-orange-700 hover:bg-orange-800" asChild>
+                <Button size="sm" className={showroom ? 'h-10 rounded-full bg-[#09122A] px-5 text-[15px] font-semibold text-white hover:bg-[#111D3D]' : 'bg-orange-700 hover:bg-orange-800'} asChild>
                   <Link to={sellerPath} data-testid="nav-sell-cta">Sell Your Car</Link>
                 </Button>
               </div>
             )}
 
             {/* Mobile Menu — registry-driven drawer with focus trap (Milestone 4) */}
-            <MobileNavDrawer />
+            <MobileNavDrawer showroom={showroom} />
           </div>
         </div>
       </div>

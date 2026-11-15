@@ -50,23 +50,27 @@ describe('RX03-P1b — one bottom bar at a time (chrome presentation on)', () =>
     expect(screen.getByTestId('contact-bar')).toHaveAttribute('data-docked', 'above-nav')
   })
 
-  it('the active tab label meets AA contrast (Option 5 orange ink, not orange-600)', () => {
+  it('the active tab is Option 5 navy (well above AA at 11px), never the low-contrast orange-600', () => {
     render(<MemoryRouter initialEntries={['/marketplace']}><CompactBottomNav /></MemoryRouter>)
     const active = screen.getByRole('link', { current: 'page' })
-    expect(active.className).toContain('text-[#C2410C]')
+    expect(active.className).toContain('text-[#09122A]')
     expect(active.className).not.toContain('text-orange-600')
+    expect(active.querySelector('span.bg-\\[\\#09122A\\]')).not.toBeNull()
+    expect(screen.getByTestId('compact-bottom-nav')).toHaveAttribute('data-chrome', 'showroom')
   })
 })
 
 describe('RX03-P1b — brand slots carry the official Option 5 artwork', () => {
+  // R3: every slot shows the stacked lockup (roofline above the wordmark); reversed on ink.
   it.each([
-    ['public-masthead', 'light', false, ['carup-wordmark-on-light.svg', 'carup-logo-horizontal-on-light.svg']],
-    ['public-footer', 'light', false, ['carup-logo-horizontal-on-light.svg']],
-    ['workspace-rail', 'ink', true, ['carup-wordmark-on-dark.svg']],
-  ] as const)('%s (%s) uses %j', (slot, tone, compact, files) => {
+    ['public-masthead', 'light', false, ['carup-logo-stacked-on-light.svg'], 42],
+    ['public-footer', 'light', false, ['carup-logo-stacked-on-light.svg'], 42],
+    ['workspace-rail', 'ink', true, ['carup-logo-stacked-on-dark.svg'], 32],
+  ] as const)('%s (%s) uses %j', (slot, tone, compact, files, height) => {
     const { container } = render(<BrandMark slot={slot} tone={tone} compact={compact} />)
-    const used = Array.from(container.querySelectorAll('img')).map(img => img.getAttribute('data-brand-file'))
-    expect(used).toEqual(files)
+    const images = Array.from(container.querySelectorAll('img'))
+    expect(images.map(img => img.getAttribute('data-brand-file'))).toEqual(files)
+    expect(images[0]).toHaveAttribute('height', String(height))
     expect(container.querySelector('[data-brand-fallback]')).toBeNull()
     expect(container.querySelector('[data-brand-source="option5"]')).not.toBeNull()
   })
@@ -114,6 +118,21 @@ describe('RX03-P1b — the chrome is independently controlled (R3)', () => {
     unmount()
     chromeOn()
     render(<MemoryRouter><Footer /></MemoryRouter>)
-    expect(screen.getByTestId('footer-brand').querySelector('img')).toHaveAttribute('data-brand-file', 'carup-logo-horizontal-on-dark.svg')
+    expect(screen.getByTestId('footer-brand').querySelector('img')).toHaveAttribute('data-brand-file', 'carup-logo-stacked-on-dark.svg')
+  })
+})
+
+describe('RX03 R3 — mobile-web navigation follows the binding native IA (13 Oct 2026)', () => {
+  const labels = () => Array.from(screen.getByTestId('compact-bottom-nav').querySelectorAll('a')).map(a => [a.textContent, a.getAttribute('href')])
+
+  it('showroom chrome: Home | Buy | Verify | Sell | Trade; Account is not a tab; Trade is the governed gateway', () => {
+    chromeOn()
+    render(<MemoryRouter initialEntries={['/']}><CompactBottomNav /></MemoryRouter>)
+    expect(labels()).toEqual([['Home', '/'], ['Buy', '/marketplace'], ['Verify', '/search'], ['Sell', '/sell'], ['Trade', '/diaspora']])
+  })
+
+  it('accepted chrome (switch off) is unchanged', () => {
+    render(<MemoryRouter initialEntries={['/']}><CompactBottomNav /></MemoryRouter>)
+    expect(labels().map(([label]) => label)).toEqual(['Home', 'Market', 'Verify', 'Sell', 'Account'])
   })
 })

@@ -18,19 +18,11 @@ interface BrandMarkProps {
 
 export function BrandMark({ slot, tone, compact = false }: BrandMarkProps) {
   const surface = tone === 'ink' ? 'dark' : 'light'
-  const responsive = slot === 'public-masthead' && !compact
+  // R3: the stacked Option 5 logo in every slot — compact slots smaller — so the roofline mark is
+  // always visible; reversed artwork on ink surfaces.
   return (
     <span data-brand-slot={slot} data-brand-source="option5" data-tone={tone} className="inline-flex items-center">
-      {compact ? (
-        <BrandIdentity role="wordmark" surface={surface} height={20} priority />
-      ) : responsive ? (
-        <>
-          <BrandIdentity role="wordmark" surface={surface} height={22} priority className="sm:hidden" />
-          <BrandIdentity role="logo" surface={surface} height={32} priority className="hidden sm:block" />
-        </>
-      ) : (
-        <BrandIdentity role="logo" surface={surface} height={30} />
-      )}
+      <BrandIdentity role="stacked" surface={surface} height={compact ? 32 : 42} priority />
     </span>
   )
 }
