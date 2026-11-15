@@ -3,7 +3,11 @@ name: Diaspora Phases 3-7 Validation
 # Independent acceptance workflow for the Diaspora Trade OS Phases 3-7 hardening program.
 # Proves the reported local results in CI: backend focused tests, TypeScript, route validation,
 # Playwright (Phase 2C + 3-7), production build, migration sanity, and a secret-scan guard.
-# Staging integration runs only when secrets are configured; otherwise it reports skipped.
+# Pull requests start this workflow, so it holds NO secret and writes nothing outside the runner (RX-02 D6).
+# The shared-staging integration suite that used to run here as `staging-integration` on almost every
+# pull request (inserting, then deleting, rows on SHARED staging via DIASPORA_STAGING_DATABASE_URL) now runs
+# only as diaspora-staging-integration.yml: workflow_dispatch on refs/heads/main, behind the staging environment.
+# backend/tests/ci-shared-staging-isolation.test.js fails if a secret or a shared-staging job returns here.
 
 on:
   pull_request:
@@ -16,6 +20,9 @@ on:
     branches:
       - 'claude/diaspora-phases-3-7-program'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   backend-and-build:
@@ -135,26 +142,3 @@ jobs:
             web/playwright-report
             web/test-results
           retention-days: 7
-
-  staging-integration:
-    # Cross-programme safety: an isolated dealership PR may never rotate/write shared staging identities.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref != 'feat/carup-dealer-1-0-unified-longrun'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - name: Install dependencies (lockfile)
-        run: npm ci
-      - name: Staging integration (gated on secrets)
-        env:
-          STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
-        run: |
-          if [ -z "$STAGING_DATABASE_URL" ]; then
-            echo 'skipped — secrets unavailable (DIASPORA_STAGING_DATABASE_URL not configured)'
-            exit 0
-          fi
-          RUN_DIASPORA_STAGING_INTEGRATION=true DATABASE_URL="$STAGING_DATABASE_URL" \
-            node --test backend/tests/staging/diaspora-staging-integration.test.js

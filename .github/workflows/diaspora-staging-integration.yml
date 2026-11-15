@@ -1,0 +1,123 @@
+name: Diaspora staging integration (governed, main only)
+
+# The shared-staging integration suite (backend/tests/staging/diaspora-staging-integration.test.js) writes, then
+# deletes, synthetic rows on SHARED staging: stock reservation, RFQ acceptance and container capacity approval.
+# It used to run as diaspora-phases-3-7-validation › staging-integration on almost every pull request
+# (RX-02 decision D6; same finding as CARUP-PAY-05 Checkpoint A). It now runs only here, behind these controls:
+#   • workflow_dispatch only — no pull request, push or schedule can start it;
+#   • the job runs only when dispatched on refs/heads/main (protected by the "Protect main" ruleset), and tests
+#     exactly that commit: expected_sha must equal the dispatched main head;
+#   • environment: staging — its required reviewers approve every run before the job starts. That review is the
+#     authorization boundary; the Owner configures it (required reviewers, no self-review, no admin bypass,
+#     deployment branch main) — this workflow cannot verify those settings;
+#   • authorization_ref — an AUDIT POINTER only: the URL of the Owner's written authorization comment. It is
+#     format-checked and recorded in the run summary; it is not fetched and does not authenticate anyone.
+# backend/tests/ci-shared-staging-isolation.test.js fails if any of these controls is removed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization_ref:
+        description: "Audit pointer only (format-checked, not verified): URL of the Owner's written authorization comment for this run"
+        required: true
+        type: string
+      expected_sha:
+        description: 'Full 40-character SHA of the main commit to test (must be the current main head)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shared-staging-diaspora-integration
+  cancel-in-progress: false
+
+jobs:
+  staging-integration:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: staging
+    timeout-minutes: 20
+    steps:
+      - name: Refuse a malformed audit reference or a candidate other than the dispatched main head
+        shell: bash
+        env:
+          AUTHORIZATION_REF: ${{ inputs.authorization_ref }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          DISPATCHED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Whole-string matches: a multi-line input cannot smuggle a valid line past these checks.
+          auth_re='^https://github\.com/kudzimusar/carup/(issues|pull)/[0-9]+#(issuecomment|discussion_r)-?[0-9]+$'
+          sha_re='^[0-9a-f]{40}$'
+          if [[ ! "$AUTHORIZATION_REF" =~ $auth_re ]]; then
+            echo "::error::authorization_ref must be a kudzimusar/carup issue or pull-request comment URL (audit pointer; format check only)"
+            exit 1
+          fi
+          if [[ ! "$EXPECTED_SHA" =~ $sha_re ]]; then
+            echo "::error::expected_sha must be a full 40-character lowercase commit SHA"
+            exit 1
+          fi
+          if [ "$EXPECTED_SHA" != "$DISPATCHED_SHA" ]; then
+            echo "::error::expected_sha ($EXPECTED_SHA) is not the dispatched main head ($DISPATCHED_SHA)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Assert the exact main commit, and that main has not moved since approval
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]; then
+            echo "::error::checked-out commit is not expected_sha"
+            exit 1
+          fi
+          current_main="$(git ls-remote "https://github.com/$REPOSITORY.git" refs/heads/main | cut -f1)"
+          if [ "$current_main" != "$EXPECTED_SHA" ]; then
+            echo "::error::main moved to $current_main after this run was requested; dispatch again for the new head"
+            exit 1
+          fi
+
+      - name: Record the audit reference
+        env:
+          AUTHORIZATION_REF: ${{ inputs.authorization_ref }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          {
+            echo '### Shared-staging write — audit record'
+            echo "- audit reference (format-checked only, not verified by this workflow): $AUTHORIZATION_REF"
+            echo "- approval: the staging environment's required-reviewer decision for this run"
+            echo "- main commit: $EXPECTED_SHA"
+            echo "- dispatched by: $ACTOR (triggering actor $TRIGGERING_ACTOR)"
+            echo "- run: $RUN_URL attempt $RUN_ATTEMPT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies (lockfile)
+        run: npm ci
+
+      - name: Staging integration (writes, then deletes, synthetic rows on shared staging)
+        env:
+          STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured'
+            exit 1
+          fi
+          RUN_DIASPORA_STAGING_INTEGRATION=true DATABASE_URL="$STAGING_DATABASE_URL" \
+            node --test backend/tests/staging/diaspora-staging-integration.test.js
