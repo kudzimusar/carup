@@ -60,7 +60,7 @@ export default function CompactBottomNav() {
   return (
     <nav
       className={showroomChrome
-        ? 'fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/70 bg-white/92 px-2 pb-[max(env(safe-area-inset-bottom),0.4rem)] pt-1 backdrop-blur-xl lg:hidden'
+        ? 'fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white px-2 pb-[max(env(safe-area-inset-bottom),0.4rem)] pt-1 shadow-[0_-8px_24px_rgba(9,18,42,0.06)] lg:hidden'
         : 'fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-1.5 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl lg:hidden'}
       data-chrome={showroomChrome ? 'showroom' : 'accepted'}
       aria-label="Compact app navigation"
