@@ -22,6 +22,12 @@ import type { UserRole } from '@shared/types'
 
 // Hoisted to module scope so its identity is stable across renders (a component
 // declared inside the parent's render body would be recreated every render).
+// Destinations the showroom tab bar already offers (Home | Buy | Verify | Sell | Trade).
+const TAB_DESTINATIONS = new Set(['/', '/marketplace', '/search', '/sell', '/dashboard/sell-vehicle', '/diaspora'])
+// The manifest's mobile-primary entries for the same pillars (guest Sell points at /register).
+const TAB_ITEM_IDS = new Set(['mobile.buy', 'mobile.sell', 'mobile.verify'])
+const isTabDestination = (item: ResolvedNavItem) => TAB_ITEM_IDS.has(item.id) || TAB_DESTINATIONS.has(item.href.split('?')[0])
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <p className="px-3 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">{children}</p>
@@ -86,13 +92,15 @@ export default function MobileNavDrawer({ showroom = false }: { showroom?: boole
         onClick={close}
         data-testid={testid ?? `mobile-navitem-${item.id}`}
         aria-current={active ? 'page' : undefined}
-        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium min-h-[44px] transition-colors ${
+        className={showroom
+          ? `flex min-h-[44px] items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium transition-colors ${active ? 'bg-[#09122A] text-white' : 'text-[#09122A] hover:bg-[#F1EFEA]'}`
+          : `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium min-h-[44px] transition-colors ${
           active
             ? 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-100'
             : 'text-gray-700 hover:bg-gray-50 active:bg-gray-100'
         }`}
       >
-        {Icon && <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />}
+        {Icon && <Icon className={showroom ? `h-[18px] w-[18px] shrink-0 ${active ? 'text-white' : 'text-slate-500'}` : `w-4 h-4 shrink-0 ${active ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />}
         <span className="flex-1">{item.label}</span>
         {item.beta && <Badge className="bg-blue-100 text-blue-700 text-[10px]">Beta</Badge>}
       </Link>
@@ -113,7 +121,7 @@ export default function MobileNavDrawer({ showroom = false }: { showroom?: boole
         </Button>
       </SheetTrigger>
       <SheetContent
-        side="left"
+        side={showroom ? 'right' : 'left'}
         className="w-[310px] max-w-[85vw] overflow-y-auto p-0"
         data-testid="mobile-nav-drawer"
       >
@@ -142,47 +150,59 @@ export default function MobileNavDrawer({ showroom = false }: { showroom?: boole
           <SheetDescription className="sr-only">Site and account navigation</SheetDescription>
         </SheetHeader>
 
-        <nav className="px-2 pb-6 space-y-1" aria-label="Mobile navigation">
-          {/* Primary public links */}
-          <section aria-label="Browse">
-            <SectionLabel>Browse</SectionLabel>
-            {nav.primary.map(item => <DrawerLink key={item.id} item={item} />)}
-          </section>
-
-          {/* Authenticated dashboard + role-specific items */}
-          {user && nav.dashboardRoot && (
-            <section aria-label="Your dashboard" className="border-t mt-2 pt-1">
-              <SectionLabel>Your Dashboard</SectionLabel>
-              <Link
-                to={nav.dashboardRoot.href}
-                onClick={close}
-                data-testid="mobile-dashboard-root"
-                aria-current={isActive(nav.dashboardRoot.href) ? 'page' : undefined}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium min-h-[44px] transition-colors ${
-                  isActive(nav.dashboardRoot.href)
-                    ? 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-100'
-                    : 'text-gray-700 hover:bg-gray-50 active:bg-gray-100'
-                }`}
-              >
-                <LayoutDashboard className={`w-4 h-4 shrink-0 ${isActive(nav.dashboardRoot.href) ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />
-                <span className="flex-1">{nav.dashboardRoot.label}</span>
-              </Link>
-              {nav.roleItems.map(item => <DrawerLink key={item.id} item={item} />)}
-            </section>
-          )}
-
-          {/* Secondary / More */}
-          {nav.secondary.length > 0 && (
-            <section aria-label="More" className="border-t mt-2 pt-1">
-              <SectionLabel>More</SectionLabel>
-              {nav.secondary.map(item => <DrawerLink key={item.id} item={item} />)}
-            </section>
-          )}
-
-          {/* Account */}
-          <section aria-label="Account" className="border-t mt-2 pt-2">
+        {showroom ? (
+          <nav className="space-y-1 px-2 pb-8" aria-label="Profile and navigation">
+            {/* RX03 R3: Profile first. Signed out: sign in / create account. Signed in: dashboard,
+                role items (incl. Communications — the Inbox), then everything not already a tab. */}
             {user ? (
-              <>
+              nav.dashboardRoot && (
+                <section aria-label="Your dashboard" className="pt-2">
+                  <SectionLabel>Your CarUp</SectionLabel>
+                  <Link
+                    to={nav.dashboardRoot.href}
+                    onClick={close}
+                    data-testid="mobile-dashboard-root"
+                    aria-current={isActive(nav.dashboardRoot.href) ? 'page' : undefined}
+                    className={`flex min-h-[44px] items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium transition-colors ${isActive(nav.dashboardRoot.href) ? 'bg-[#09122A] text-white' : 'text-[#09122A] hover:bg-[#F1EFEA]'}`}
+                  >
+                    <LayoutDashboard className={`h-[18px] w-[18px] shrink-0 ${isActive(nav.dashboardRoot.href) ? 'text-white' : 'text-slate-500'}`} aria-hidden="true" />
+                    <span className="flex-1">{nav.dashboardRoot.label}</span>
+                  </Link>
+                  {nav.roleItems.map(item => <DrawerLink key={item.id} item={item} />)}
+                </section>
+              )
+            ) : (
+              <section aria-label="Account" className="flex flex-col gap-2 px-2 pt-4">
+                <Button asChild className="h-11 w-full justify-center gap-2 rounded-full bg-[#09122A] text-[15px] font-semibold text-white hover:bg-[#111D3D]" data-testid="mobile-signin">
+                  <Link to="/login" onClick={close}>
+                    <LogIn className="h-4 w-4" aria-hidden="true" /> Sign In
+                  </Link>
+                </Button>
+                <Button variant="outline" asChild className="h-11 w-full justify-center rounded-full border-slate-300 text-[15px] font-semibold text-[#09122A]" data-testid="mobile-register">
+                  <Link to="/register" onClick={close}>Create account</Link>
+                </Button>
+              </section>
+            )}
+
+            {(() => {
+              const explore = nav.primary.filter(item => !isTabDestination(item))
+              return explore.length > 0 && (
+                <section aria-label="Explore" className="mt-3 border-t border-slate-200 pt-1">
+                  <SectionLabel>Explore</SectionLabel>
+                  {explore.map(item => <DrawerLink key={item.id} item={item} />)}
+                </section>
+              )
+            })()}
+
+            {nav.secondary.length > 0 && (
+              <section aria-label="More" className="mt-3 border-t border-slate-200 pt-1">
+                <SectionLabel>More</SectionLabel>
+                {nav.secondary.filter(item => !isTabDestination(item)).map(item => <DrawerLink key={item.id} item={item} />)}
+              </section>
+            )}
+
+            {user && (
+              <section aria-label="Account" className="mt-3 border-t border-slate-200 pt-1">
                 <SectionLabel>Switch Portal Role</SectionLabel>
                 {getAllRoles().filter(r => r !== user.role).map(r => (
                   <button
@@ -190,9 +210,9 @@ export default function MobileNavDrawer({ showroom = false }: { showroom?: boole
                     type="button"
                     onClick={() => handleRoleChange(r)}
                     data-testid={`mobile-roleswitch-${r}`}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50 min-h-[44px]"
+                    className="flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] text-[#09122A] hover:bg-[#F1EFEA]"
                   >
-                    <UserCog className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    <UserCog className="h-[18px] w-[18px] shrink-0 text-slate-500" aria-hidden="true" />
                     <span className="flex-1 text-left">Change to {getRoleMetadata(r).title}</span>
                   </button>
                 ))}
@@ -200,26 +220,94 @@ export default function MobileNavDrawer({ showroom = false }: { showroom?: boole
                   type="button"
                   onClick={handleLogout}
                   data-testid="mobile-signout"
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-red-600 hover:bg-red-50 min-h-[44px]"
+                  className="mt-1 flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium text-red-700 hover:bg-red-50"
                 >
-                  <LogOut className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <LogOut className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
                   <span className="flex-1 text-left">Sign Out</span>
                 </button>
-              </>
-            ) : (
-              <div className="flex flex-col gap-2 px-2 pt-1">
-                <Button variant="outline" asChild className="w-full justify-start gap-2" data-testid="mobile-signin">
-                  <Link to="/login" onClick={close}>
-                    <LogIn className="w-4 h-4" /> Sign In
-                  </Link>
-                </Button>
-                <Button asChild className="w-full justify-start gap-2 bg-orange-500 hover:bg-orange-600" data-testid="mobile-register">
-                  <Link to="/register" onClick={close}>Create account</Link>
-                </Button>
-              </div>
+              </section>
             )}
-          </section>
-        </nav>
+          </nav>
+        ) : (
+          <nav className="px-2 pb-6 space-y-1" aria-label="Mobile navigation">
+            {/* Primary public links */}
+            <section aria-label="Browse">
+              <SectionLabel>Browse</SectionLabel>
+              {nav.primary.map(item => <DrawerLink key={item.id} item={item} />)}
+            </section>
+
+            {/* Authenticated dashboard + role-specific items */}
+            {user && nav.dashboardRoot && (
+              <section aria-label="Your dashboard" className="border-t mt-2 pt-1">
+                <SectionLabel>Your Dashboard</SectionLabel>
+                <Link
+                  to={nav.dashboardRoot.href}
+                  onClick={close}
+                  data-testid="mobile-dashboard-root"
+                  aria-current={isActive(nav.dashboardRoot.href) ? 'page' : undefined}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium min-h-[44px] transition-colors ${
+                    isActive(nav.dashboardRoot.href)
+                      ? 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-100'
+                      : 'text-gray-700 hover:bg-gray-50 active:bg-gray-100'
+                  }`}
+                >
+                  <LayoutDashboard className={`w-4 h-4 shrink-0 ${isActive(nav.dashboardRoot.href) ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />
+                  <span className="flex-1">{nav.dashboardRoot.label}</span>
+                </Link>
+                {nav.roleItems.map(item => <DrawerLink key={item.id} item={item} />)}
+              </section>
+            )}
+
+            {/* Secondary / More */}
+            {nav.secondary.length > 0 && (
+              <section aria-label="More" className="border-t mt-2 pt-1">
+                <SectionLabel>More</SectionLabel>
+                {nav.secondary.map(item => <DrawerLink key={item.id} item={item} />)}
+              </section>
+            )}
+
+            {/* Account */}
+            <section aria-label="Account" className="border-t mt-2 pt-2">
+              {user ? (
+                <>
+                  <SectionLabel>Switch Portal Role</SectionLabel>
+                  {getAllRoles().filter(r => r !== user.role).map(r => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => handleRoleChange(r)}
+                      data-testid={`mobile-roleswitch-${r}`}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50 min-h-[44px]"
+                    >
+                      <UserCog className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      <span className="flex-1 text-left">Change to {getRoleMetadata(r).title}</span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    data-testid="mobile-signout"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-red-600 hover:bg-red-50 min-h-[44px]"
+                  >
+                    <LogOut className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    <span className="flex-1 text-left">Sign Out</span>
+                  </button>
+                </>
+              ) : (
+                <div className="flex flex-col gap-2 px-2 pt-1">
+                  <Button variant="outline" asChild className="w-full justify-start gap-2" data-testid="mobile-signin">
+                    <Link to="/login" onClick={close}>
+                      <LogIn className="w-4 h-4" /> Sign In
+                    </Link>
+                  </Button>
+                  <Button asChild className="w-full justify-start gap-2 bg-orange-500 hover:bg-orange-600" data-testid="mobile-register">
+                    <Link to="/register" onClick={close}>Create account</Link>
+                  </Button>
+                </div>
+              )}
+            </section>
+          </nav>
+        )}
       </SheetContent>
     </Sheet>
   )
