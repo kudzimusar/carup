@@ -2,9 +2,9 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import {
-  MarketplaceListingCard,
-  type MarketplaceListingCardModel,
-} from '@/components/marketplace/MarketplaceListingCard'
+  ShowroomListingCard,
+  type ShowroomListingCardModel,
+} from '@/components/showroom/ShowroomListingCard'
 import { marketplaceListingToCardModel } from '@/lib/marketplaceCardModel'
 import type { MarketplaceListingSummary } from '@/types'
 
@@ -17,7 +17,7 @@ import type { MarketplaceListingSummary } from '@/types'
 
 afterEach(cleanup)
 
-function model(overrides: Partial<MarketplaceListingCardModel> = {}): MarketplaceListingCardModel {
+function model(overrides: Partial<ShowroomListingCardModel> = {}): ShowroomListingCardModel {
   return {
     vin: 'VINSHOWROOM0000001',
     name: '2021 Toyota Land Cruiser Prado',
@@ -40,15 +40,15 @@ function model(overrides: Partial<MarketplaceListingCardModel> = {}): Marketplac
   }
 }
 
-function renderCard(props: Partial<React.ComponentProps<typeof MarketplaceListingCard>> = {}) {
+function renderCard(props: Partial<React.ComponentProps<typeof ShowroomListingCard>> = {}) {
   return render(
     <MemoryRouter>
-      <MarketplaceListingCard vehicle={props.vehicle ?? model()} href="/marketplace/VINSHOWROOM0000001" {...props} />
+      <ShowroomListingCard vehicle={props.vehicle ?? model()} href="/marketplace/VINSHOWROOM0000001" {...props} />
     </MemoryRouter>,
   )
 }
 
-describe('MarketplaceListingCard — canonical Trust line', () => {
+describe('ShowroomListingCard — canonical Trust line', () => {
   it('shows score, band and confidence only for an evaluated canonical projection', () => {
     renderCard({ vehicle: model({ trust: { evaluation_state: 'evaluated', score: 82, band: 'high', confidence: 'medium' } }) })
     const trust = screen.getByTestId('marketplace-card-trust')
@@ -77,7 +77,7 @@ describe('MarketplaceListingCard — canonical Trust line', () => {
   })
 })
 
-describe('MarketplaceListingCard — price and facts', () => {
+describe('ShowroomListingCard — price and facts', () => {
   it.each([
     [{ price: 61500, currency: 'USD' }, '$61,500'],
     [{ price: 21500, currency: 'zig' }, 'ZiG 21,500'],
@@ -115,7 +115,7 @@ describe('MarketplaceListingCard — price and facts', () => {
   })
 })
 
-describe('MarketplaceListingCard — status pills come only from the data', () => {
+describe('ShowroomListingCard — status pills come only from the data', () => {
   it('renders no governed pill for a listing that carries no signal', () => {
     renderCard()
     for (const id of ['carup-gold-badge', 'synthetic-demo-media-badge', 'marketplace-plate-confirmed-badge', 'marketplace-partsentry-badge']) {
@@ -134,7 +134,7 @@ describe('MarketplaceListingCard — status pills come only from the data', () =
   })
 })
 
-describe('MarketplaceListingCard — actions and navigation', () => {
+describe('ShowroomListingCard — actions and navigation', () => {
   it('labels every round action, exposes pressed state and keeps them out of the links', () => {
     const onCompare = vi.fn()
     const onShare = vi.fn()
@@ -195,7 +195,7 @@ describe('MarketplaceListingCard — actions and navigation', () => {
   })
 })
 
-describe('MarketplaceListingCard — studio plate silhouette wiring', () => {
+describe('ShowroomListingCard — studio plate silhouette wiring', () => {
   it('passes the listing body style through to the placeholder', () => {
     renderCard({ vehicle: model({ bodyStyle: 'Pickup' }) })
     expect(screen.getByTestId('listing-image-placeholder')).toHaveAttribute('data-studio-plate', 'pickup')

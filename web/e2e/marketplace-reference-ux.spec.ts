@@ -58,7 +58,7 @@ async function commonMocks(page: Page) {
   await page.route('**/api/marketplace/nav-coverage', (route: Route) => route.fulfill({ json: { threshold: 3, categories: {}, tags: {}, governed_deferred: [] } }))
 }
 
-test('Home renders body-style shortcuts and the ecosystem index without mobile crowding', async ({ page }) => {
+test('Home renders eight communicative journey stories without mobile crowding', async ({ page }) => {
   await commonMocks(page)
   await page.route(/\/api\/marketplace\/listings(\?|$)/, (route: Route) => route.fulfill({
     json: {
@@ -74,17 +74,14 @@ test('Home renders body-style shortcuts and the ecosystem index without mobile c
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
 
-  // RX03-P1a replaced the eight look-alike journey cards with a body-style rail (real Marketplace
-  // filters) and a typographic ecosystem index; both must stay inside a 390px viewport.
-  await expect(page.getByTestId('home-body-style')).toHaveCount(6)
-  await expect(page.getByTestId('home-body-style').first()).toHaveAttribute('href', '/marketplace?bodyStyle=SUV')
-  await expect(page.getByTestId('home-ecosystem-link')).toHaveCount(6)
-  for (const href of ['/diaspora', '/pricing', '/insurance', '/garages', '/marketplace/parts', '/dealers']) {
-    await expect(page.locator(`[data-testid="home-ecosystem-link"][href="${href}"]`)).toHaveCount(1)
+  await expect(page.getByTestId('home-journey-card')).toHaveCount(8)
+  await expect(page.getByTestId('home-journey-media')).toHaveCount(8)
+  for (const scene of ['buy', 'sell', 'verify', 'diaspora', 'finance', 'protect', 'maintain', 'parts']) {
+    await expect(page.locator(`[data-testid="home-journey-media"][data-scene="${scene}"]`)).toHaveCount(1)
   }
 
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
-    message: 'Home rails and index must not create horizontal overflow on compact screens',
+    message: 'Home journey media must not create horizontal overflow on compact screens',
   }).toBe(true)
 })
 

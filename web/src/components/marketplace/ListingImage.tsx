@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { VehicleSilhouette } from '@/components/showroom/VehicleSilhouette'
+import { Car, ImageOff } from 'lucide-react'
 
 /**
  * Consistent marketplace listing media for BOTH the grid card and the detail gallery.
@@ -16,9 +16,6 @@ import { VehicleSilhouette } from '@/components/showroom/VehicleSilhouette'
  *   Golden fixture's dangling `media.carup-staging.test` URLs rendered the browser's broken-image
  *   glyph on every surface while the branded placeholder stayed unreachable. A dead locator must
  *   degrade to "unavailable", which is the honest statement, not to a broken icon.
- * - RX03-P1a / Owner decision O-6: the placeholder is a light "studio plate" — an original line-art
- *   profile of the listing's body style on a studio floor, captioned "Image unavailable". It is
- *   marked as a placeholder in its accessible name and is never presented as the vehicle itself.
  */
 export function ListingImage({
   src,
@@ -27,7 +24,6 @@ export function ListingImage({
   imgClassName = '',
   representative = false,
   loading = 'lazy',
-  bodyStyle = null,
 }: {
   src?: string | null
   alt: string
@@ -35,8 +31,6 @@ export function ListingImage({
   imgClassName?: string
   representative?: boolean
   loading?: 'lazy' | 'eager'
-  /** Body style of the listing, used only to choose the studio-plate silhouette. */
-  bodyStyle?: string | null
 }) {
   // Remember WHICH src failed, not merely THAT one did. A new src is then a fresh attempt by
   // construction — no reset effect, so switching gallery photos after one failure cannot suppress
@@ -68,15 +62,16 @@ export function ListingImage({
 
   return (
     <div
-      className={`relative flex flex-col items-center justify-center overflow-hidden bg-[linear-gradient(180deg,#F7F6F3_0%,#EEECE7_62%,#E3E0D9_100%)] text-slate-500 ${className}`}
+      className={`flex flex-col items-center justify-center gap-1 bg-gray-100 text-gray-400 ${className}`}
       data-testid="listing-image-placeholder"
-      data-studio-plate={bodyStyle ? bodyStyle.toLowerCase() : 'generic'}
       role="img"
-      aria-label={`${alt} — image unavailable (studio placeholder, not a photo of this vehicle)`}
+      aria-label={`${alt} — image unavailable`}
     >
-      <div className="absolute inset-x-[8%] bottom-[22%] h-px bg-slate-300/70" aria-hidden="true" />
-      <VehicleSilhouette bodyStyle={bodyStyle} tone="muted" accent={false} className="w-[62%] max-w-[260px] opacity-80" strokeWidth={1.75} />
-      <span className="mt-1 rounded-full border border-slate-300/80 bg-white/70 px-2.5 py-0.5 text-[11px] font-medium text-slate-600">Image unavailable</span>
+      <div className="relative">
+        <Car className="h-8 w-8" />
+        <ImageOff className="absolute -bottom-1 -right-1 h-4 w-4" />
+      </div>
+      <span className="text-[11px] font-medium">Image unavailable</span>
     </div>
   )
 }

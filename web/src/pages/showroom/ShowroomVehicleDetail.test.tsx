@@ -54,7 +54,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 vi.mock('@/components/DisputePanel', () => ({ default: () => null }))
 vi.mock('@/components/EvidenceUploadModal', () => ({ default: () => null }))
 
-const VehicleDetail = (await import('./VehicleDetail')).default
+const VehicleDetail = (await import('./ShowroomVehicleDetail')).default
 
 function httpError(status: number): Error {
   const err = new Error(`HTTP error! status: ${status}`) as Error & { status: number }

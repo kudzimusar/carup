@@ -12,6 +12,7 @@
  * and is hidden from assistive technology. Motion stops for reduced-motion users, off-screen,
  * in a background tab, and whenever the visitor presses Pause. Data Saver / 2G never downloads video.
  */
+import '@/styles/showroom.css'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react'

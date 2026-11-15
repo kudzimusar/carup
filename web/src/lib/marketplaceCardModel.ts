@@ -16,7 +16,7 @@ function sellerLabel(listing: MarketplaceListingSummary) {
 
 export function marketplaceListingToCardModel(
   listing: MarketplaceListingSummary,
-): MarketplaceListingCardModel {
+): MarketplaceListingCardModel & { bodyStyle?: string | null } {
   const labels = [
     titleCase(listing.condition_category),
     ...(listing.marketplace_tags || []).map(tag => titleCase(tag)),

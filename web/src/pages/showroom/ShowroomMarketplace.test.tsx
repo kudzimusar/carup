@@ -28,7 +28,7 @@ vi.mock('@/hooks/useCarUpApi', () => ({
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: false }) }))
 vi.mock('@/lib/intelligenceActivity', () => ({ track: vi.fn() }))
 
-const { default: Marketplace } = await import('./Marketplace')
+const { default: Marketplace } = await import('./ShowroomMarketplace')
 
 afterAll(() => { vi.unstubAllEnvs() })
 

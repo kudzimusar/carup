@@ -1,5 +1,5 @@
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { PremiumEvidenceGallery } from '@/components/PremiumEvidenceGallery'
 import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
 import VehicleTemporalComparison from '@/components/VehicleTemporalComparison'
@@ -8,22 +8,17 @@ import VehicleHistoryReport from '@/components/VehicleHistoryReport'
 import { VehicleHistoryObligationsSections } from '@/components/vehicle/VehicleHistoryObligationsSections'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import {
   Car, CheckCircle, Shield, ShieldCheck, Gauge, Fuel, Settings2, MapPin, Calendar,
-  Phone, MessageSquare, Heart, Share2, AlertTriangle, Search,
-  FileCheck, Loader2, Lock, ChevronLeft, ChevronRight,
+  Phone, MessageSquare, Heart, Share2, ArrowLeft, AlertTriangle, Search,
+  FileCheck, Star, Loader2, Lock, ChevronLeft, ChevronRight,
   XCircle, HelpCircle, Wrench, UserCheck, TrendingDown, ClipboardCheck,
-  Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy, GitCompare, X, UserRound, Fingerprint,
+  Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy, GitCompare
 } from 'lucide-react'
-import { VehicleSilhouette } from '@/components/showroom/VehicleSilhouette'
-import { GalleryStage } from '@/components/vehicle-detail/GalleryStage'
-import { DossierNav } from '@/components/vehicle-detail/DossierNav'
-import { DossierSection } from '@/components/vehicle-detail/DossierSection'
-import { MobileContactBar } from '@/components/vehicle-detail/MobileContactBar'
-import { ScoreRing } from '@/components/vehicle-detail/ScoreRing'
-import { useClaimBottomBar } from '@/lib/bottomBarClaim'
 import { formatPrice } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
@@ -1217,9 +1212,6 @@ export default function VehicleDetail() {
   const [financeInterestRequested, setFinanceInterestRequested] = useState(false)
 
   const [lookupQuery, setLookupQuery] = useState('')
-  // Phones show the lookup as an icon that expands into the same field; ≥1024 always shows it.
-  const [lookupOpen, setLookupOpen] = useState(false)
-  const lookupInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let active = true
@@ -1637,12 +1629,6 @@ export default function VehicleDetail() {
   const readsStalled = readWatch === 'stalled'
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false
 
-  // RX03-P1A-R2 — the phone contact bar claims the bottom of the screen only while a public listing
-  // is actually on screen: never in Seller Preview, never without the governed marketplace detail,
-  // never over a loading/failure stage. Called before the early returns (hooks order).
-  const contactBarActive = Boolean(detail) && Boolean(vehicle) && !isSellerPreview && !(isReading && !readsStalled)
-  const bottomBar = useClaimBottomBar(contactBarActive)
-
   if (isReading && !readsStalled) {
     return <VehicleDetailLoadingStage identifier={id ?? ''} slow={readWatch === 'slow'} />
   }
@@ -1665,16 +1651,14 @@ export default function VehicleDetail() {
 
   if (isSellerPreview && sellerPreviewAuthorization !== 'allowed') {
     return (
-      <div className="flex min-h-[70vh] items-center justify-center bg-[#F6F4F0] px-4 py-16">
-        <div className="max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-[#09122A] shadow-[0_1px_2px_rgba(9,18,42,0.06),0_18px_40px_-18px_rgba(9,18,42,0.28)]" data-testid="seller-preview-not-authorized">
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-orange-50 text-[#C2410C]">
-            <Lock className="h-6 w-6" aria-hidden="true" />
-          </span>
-          <h1 className="mt-5 text-2xl font-bold leading-tight tracking-[-0.02em]">Seller Preview is private to this vehicle&rsquo;s Seller scope.</h1>
-          <p className="mt-2 text-[15px] leading-6 text-slate-600">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
+        <div className="max-w-lg border border-white/10 bg-[#0b1625] p-8 text-white" data-testid="seller-preview-not-authorized">
+          <Lock className="h-10 w-10 text-orange-400" />
+          <h1 className="mt-4 text-2xl font-black">Seller Preview is private to this vehicle&rsquo;s Seller scope.</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
             CarUp could not confirm this VIN in your owned/current-Seller Garage scope. No unpublished listing has been exposed.
           </p>
-          <Button asChild className="mt-6 h-11 rounded-full bg-[#09122A] px-6 font-semibold text-white hover:bg-[#111D3D]">
+          <Button asChild className="mt-6 rounded-none bg-orange-700 font-black hover:bg-orange-800">
             <Link to="/dashboard/listings">Back to My Listings</Link>
           </Button>
         </div>
@@ -1858,903 +1842,676 @@ export default function VehicleDetail() {
   const trustSignals = readTrustSignals(passport)
   const serviceRecordCount = trustSignals?.maintenance_logs_count ?? null
 
-  // ── Presentation (RX03-P1A-R2) ─────────────────────────────────────────────
-  // Everything below arranges what the governed reads above produced; it decides nothing.
-
-  // Plate advisory — the same four-way decision as before, lifted out of the JSX so the Trust
-  // section can tell whether it has anything to say.
-  const plateAdvisory = passport
-    ? (() => {
-      const plateState = identifierState(identity?.plateNumber, identifiersRedacted);
-      const tempIdState = identifierState(identity?.temporaryIdentificationNumber, identifiersRedacted);
-      // Only assertable once the identifiers are visible: under redaction the page knows
-      // neither whether a plate exists nor whether it was verified.
-      const isMissing = plateState === 'unrecorded' && tempIdState === 'unrecorded';
-      const isUnverified = plateState === 'present' && !identity?.plateVerifiedAt;
-      // plateStatus is public in every audience, so a flag is assertable even under redaction.
-      const isFlagged = identity?.plateStatus === 'Flagged' || identity?.plateStatus === 'Suspended';
-
-      if (isFlagged) {
-        return (
-          <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900" data-testid="plate-advisory">
-            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" aria-hidden="true" />
-            <div>
-              <p className="text-sm font-semibold">SECURITY WARNING: Plate Flagged/Suspended</p>
-              <p className="mt-1 text-[13px] leading-5 text-red-800">The registration plate registered to this vehicle has been marked as Flagged or Suspended by the registry authority. Proceed with caution.</p>
-            </div>
-          </div>
-        );
-      } else if (identifiersRedacted) {
-        return (
-          <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-4 text-slate-700" data-testid="plate-advisory-withheld">
-            <Lock className="mt-0.5 h-5 w-5 flex-shrink-0 text-slate-500" aria-hidden="true" />
-            <div>
-              <p className="text-sm font-semibold text-[#09122A]">Registration identifiers are not shown publicly</p>
-              <p className="mt-1 text-[13px] leading-5 text-slate-600">Plate, temporary ID, chassis and engine numbers are withheld from public view. This is a privacy rule for every listing — it says nothing about this vehicle and does not affect its trust score.</p>
-            </div>
-          </div>
-        );
-      } else if (isMissing) {
-        return (
-          <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900" data-testid="plate-advisory">
-            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" aria-hidden="true" />
-            <div>
-              <p className="text-sm font-semibold">Confidence Advisory: Missing Number Plate</p>
-              <p className="mt-1 text-[13px] leading-5 text-amber-800">This vehicle does not have a permanent registration plate or temporary identification number registered. Trust score confidence has been reduced.</p>
-            </div>
-          </div>
-        );
-      } else if (isUnverified) {
-        return (
-          <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900" data-testid="plate-advisory">
-            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" aria-hidden="true" />
-            <div>
-              <p className="text-sm font-semibold">Confidence Advisory: Unverified Number Plate</p>
-              <p className="mt-1 text-[13px] leading-5 text-amber-800">A number plate is assigned but has not yet been verified against the Central Vehicle Registry (CVR). Trust score confidence has been reduced.</p>
-            </div>
-          </div>
-        );
-      }
-      return null;
-    })()
-    : null
-
-  // A section with nothing to say is not rendered and not offered in the dossier rail.
-  const showTrustSection = Boolean(plateAdvisory || detail || publicTrust || passport?.chainVerification)
-  const dossierItems = [
-    { id: 'vd-overview', label: 'Overview' },
-    ...(showTrustSection ? [{ id: 'vd-trust', label: 'Trust' }] : []),
-    { id: 'vd-history', label: 'History' },
-    { id: 'vd-evidence', label: 'Evidence' },
-    { id: 'vd-seller', label: 'Seller' },
-  ]
-
-  const stepPhoto = (delta: -1 | 1) => {
-    if (galleryItems.length < 2) return
-    setCurrentImageIdx((activeImageIdx + delta + galleryItems.length) % galleryItems.length)
-  }
-
-  const openLookup = () => {
-    setLookupOpen(true)
-    // After the commit that reveals the field.
-    window.setTimeout(() => lookupInputRef.current?.focus(), 0)
-  }
-
-  // Shared class strings, so every control of one kind looks and focuses the same way.
-  const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] focus-visible:ring-offset-2'
-  const overlayButton = 'flex h-11 w-11 items-center justify-center rounded-full bg-white/90 text-[#09122A] shadow-[0_2px_10px_rgba(9,18,42,0.18)] backdrop-blur-sm transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FE7D18] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09122A]'
-  const secondaryAction = `h-12 w-full rounded-full border-slate-300 bg-white text-[15px] font-semibold text-[#09122A] shadow-none hover:bg-slate-50 hover:text-[#09122A] ${focusRing}`
-  const eyebrow = 'text-[11px] font-semibold uppercase tracking-[0.18em]'
-  const pagePadding = 'px-4 sm:px-6 lg:px-8 xl:px-10 2xl:px-12'
-
   return (
-    <div className={`min-h-screen bg-white text-[#09122A] ${contactBarActive ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-0' : ''}`}>
-      {/* ── Top bar: breadcrumb + lookup (light, slim) ─────────────────────────── */}
-      <div className="border-b border-slate-200 bg-white">
-        <div className={`relative mx-auto flex h-14 max-w-[1440px] items-center justify-between gap-3 ${pagePadding}`}>
-          <nav aria-label="Breadcrumb" className="min-w-0">
-            <ol className="flex min-w-0 items-center gap-1.5 text-[13px] text-slate-500">
-              <li className="shrink-0">
-                <Link to="/" className={`rounded-sm hover:text-[#09122A] ${focusRing}`}>Home</Link>
-              </li>
-              <li aria-hidden="true" className="shrink-0"><ChevronRight className="h-3.5 w-3.5 text-slate-400" /></li>
-              <li className="shrink-0">
-                <Link to="/marketplace" className={`rounded-sm hover:text-[#09122A] ${focusRing}`}>Marketplace</Link>
-              </li>
-              <li aria-hidden="true" className="shrink-0"><ChevronRight className="h-3.5 w-3.5 text-slate-400" /></li>
-              <li className="min-w-0 truncate font-medium text-[#09122A]" aria-current="page">{vehicle.make} {vehicle.model}</li>
-            </ol>
-          </nav>
+    <div className="min-h-screen bg-white text-slate-950">
+      {/* Breadcrumb */}
+      <div className="border-b border-slate-800 bg-[#08111f] text-white">
+        <div className="section-padding mx-auto max-w-[1440px] py-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-sm text-slate-400">
+              <Link to="/" className="hover:text-orange-400">Home</Link>
+              <span>/</span>
+              <Link to="/marketplace" className="hover:text-orange-400">Marketplace</Link>
+              <span>/</span>
+              <span className="text-white">{vehicle.make} {vehicle.model}</span>
+            </div>
 
-          {isSellerPreview ? (
-            <Button asChild variant="outline" className={`h-10 shrink-0 rounded-full border-slate-300 bg-white px-4 text-[13px] font-semibold text-[#09122A] hover:bg-slate-50 ${focusRing}`}>
-              <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>
-                Back to Seller Studio
-              </Link>
-            </Button>
-          ) : (
-            <div className="flex shrink-0 items-center">
-              <button
-                type="button"
-                onClick={openLookup}
-                aria-label="Look up a vehicle"
-                aria-expanded={lookupOpen}
-                aria-controls="vd-lookup"
-                className={`flex h-11 w-11 items-center justify-center rounded-full text-[#09122A] hover:bg-slate-100 lg:hidden ${focusRing}`}
-              >
-                <Search className="h-5 w-5" aria-hidden="true" />
-              </button>
-              <form
-                id="vd-lookup"
-                role="search"
-                onSubmit={handleLookupSubmit}
-                onKeyDown={(e) => { if (e.key === 'Escape') setLookupOpen(false) }}
-                className={`${lookupOpen ? 'flex' : 'hidden'} absolute inset-0 z-20 items-center gap-2 bg-white ${pagePadding} lg:static lg:flex lg:w-[360px] lg:bg-transparent lg:p-0 xl:w-[400px]`}
-              >
-                <div className="relative min-w-0 flex-1">
-                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" aria-hidden="true" />
+            {isSellerPreview ? (
+              <Button asChild variant="outline" className="min-h-10 rounded-none border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white">
+                <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>
+                  Back to Seller Studio
+                </Link>
+              </Button>
+            ) : (
+              <form onSubmit={handleLookupSubmit} className="flex gap-2 max-w-sm w-full">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
                   <Input
-                    ref={lookupInputRef}
                     placeholder="Enter VIN, chassis, plate, or temporary ID"
-                    aria-label="Look up a vehicle by VIN, chassis, plate, or temporary ID"
                     value={lookupQuery}
                     onChange={(e) => setLookupQuery(e.target.value)}
-                    className="h-11 rounded-full border-slate-200 bg-slate-50 pl-10 pr-4 text-[13px] text-[#09122A] shadow-none placeholder:text-slate-500 focus-visible:border-slate-300 focus-visible:ring-2 focus-visible:ring-[#C2410C] lg:h-10"
+                    className="h-10 rounded-none border-slate-700 bg-slate-950 pl-9 text-xs text-white placeholder:text-slate-500 focus-visible:ring-orange-500"
                   />
                 </div>
-                <Button type="submit" className={`h-11 shrink-0 rounded-full bg-[#09122A] px-4 text-[13px] font-semibold text-white hover:bg-[#111D3D] lg:h-10 ${focusRing}`}>
-                  Lookup
-                </Button>
-                <button
-                  type="button"
-                  onClick={() => setLookupOpen(false)}
-                  aria-label="Close vehicle lookup"
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100 lg:hidden ${focusRing}`}
-                >
-                  <X className="h-5 w-5" aria-hidden="true" />
-                </button>
+                <Button type="submit" size="sm" className="h-10 rounded-none bg-orange-700 px-4 text-xs font-bold text-white hover:bg-orange-800">Lookup</Button>
               </form>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
-      <div className={`mx-auto max-w-[1440px] pb-16 md:pt-6 lg:pt-8 ${pagePadding}`}>
-        {(listingPartial || isSellerPreview) && (
-          <div className="pt-4 md:pt-0">
-            {listingPartial && <VehicleDetailPartialNotice onRetry={retryReads} />}
-            {isSellerPreview && (
-              <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-orange-200 bg-orange-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" data-testid="seller-preview-banner">
-                <div>
-                  <p className={`${eyebrow} text-[#C2410C]`}>Buyer Preview — not public</p>
-                  <p className="mt-1 text-sm font-semibold text-[#09122A]">This is the shared buyer presentation, shown inside your authenticated Seller scope.</p>
-                  <p className="mt-1 text-[13px] leading-5 text-slate-700">Save, compare, share, inquiry, reservation and financing controls are disabled here. Publication state is not changed by previewing.</p>
+      <div className="section-padding mx-auto max-w-[1440px] py-7 sm:py-9">
+        {listingPartial && <VehicleDetailPartialNotice onRetry={retryReads} />}
+        {isSellerPreview && (
+          <div className="mb-6 flex flex-col gap-4 border-l-4 border-orange-500 bg-orange-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" data-testid="seller-preview-banner">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-700">Buyer Preview — not public</p>
+              <p className="mt-1 text-sm font-bold text-slate-950">This is the shared buyer presentation, shown inside your authenticated Seller scope.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">Save, compare, share, inquiry, reservation and financing controls are disabled here. Publication state is not changed by previewing.</p>
+            </div>
+            <Button asChild className="min-h-11 rounded-none bg-slate-950 font-black hover:bg-orange-800">
+              <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Return to editing</Link>
+            </Button>
+          </div>
+        )}
+        <Button variant="ghost" size="sm" className="mb-4 gap-1" onClick={() => navigate(-1)}>
+          <ArrowLeft className="w-4 h-4" /> Back
+        </Button>
+
+        <div className="mb-10 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.72fr)] lg:items-start" data-testid="vehicle-detail-showroom">
+        <div className="min-w-0" data-testid="vehicle-detail-gallery-first">
+          {/* ── LISTING MEDIA — the seller's presentation of the car ─────────────────
+              Marketing photos. Nothing in this block asserts governance, because nothing in
+              `listing_images` could support such an assertion. Note what is NOT here any more:
+              the "Police Checked" badge used to be stamped across the top-left of this photo,
+              which put a registry verification claim physically on top of a seller's snapshot.
+              It is a fact about the VEHICLE, not about the picture, and it now sits with the
+              other vehicle-status badges in the identity row below. */}
+          <section className="space-y-3" data-testid="listing-media-block">
+            <div className="flex items-center gap-2">
+              <ImageIcon className="w-4 h-4 text-gray-600" aria-hidden="true" />
+              <h2 className="text-sm font-semibold text-gray-900">Listing photos</h2>
+            </div>
+            <p className="text-xs text-gray-500" data-testid="listing-media-caption">
+              {listingMedia.items.some((item) => item.synthetic_demo)
+                ? 'Synthetic reference media for this staging demonstration. These images are not verified evidence and do not affect CarUp Trust.'
+                : 'Photos supplied by the seller to advertise this vehicle. CarUp does not review them and makes no claim about what they show.'}
+            </p>
+
+            <div className="relative overflow-hidden bg-[#070d16] shadow-[0_28px_80px_rgba(15,23,42,0.24)]" data-testid="image-gallery">
+              {hasListingPhotos && activeImage ? (
+                <>
+                  {/* Rule 6b: `data-media-id` is the identity of the photograph on screen, so a
+                      test — and a support conversation about "the third photo on this listing" —
+                      can name THIS picture rather than whichever one is currently in slot 2. The
+                      attribute is absent entirely when the transport carried no identity; it is
+                      never a fabricated value. */}
+                  <img
+                    src={activeImage.url}
+                    alt={`${vehicle.make} ${vehicle.model}`}
+                    className="aspect-[16/9] w-full object-cover sm:aspect-[2/1]"
+                    data-testid="vehicle-image"
+                    data-url-form={activeImage.url_form}
+                    data-media-id={activeImage.media_id ?? undefined}
+                    onError={() => markListingMediaFailed(activeImage.url)}
+                  />
+                  {/* Rule 6: shown only where a row claims it. No primary is elected when the
+                      seller named none — that choice is theirs to make or leave unmade. */}
+                  {(activeImage.is_primary || activeImage.photo_label) && (
+                    <div className="absolute bottom-3 left-3 flex flex-wrap gap-2">
+                      {activeImage.is_primary && (
+                        <span className="rounded-full bg-black/55 px-2 py-1 text-xs text-white" data-testid="listing-media-primary">
+                          Seller’s main photo
+                        </span>
+                      )}
+                      {activeImage.photo_label && (
+                        <span className="rounded-full bg-white/90 px-2 py-1 text-xs font-bold text-slate-900" data-testid="listing-media-photo-label">
+                          {activeImage.photo_label}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {galleryItems.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => setCurrentImageIdx((activeImageIdx - 1 + galleryItems.length) % galleryItems.length)}
+                        aria-label="Previous photo"
+                        data-testid="listing-media-previous"
+                        className="absolute left-4 top-1/2 z-[60] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-700"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => setCurrentImageIdx((activeImageIdx + 1) % galleryItems.length)}
+                        aria-label="Next photo"
+                        data-testid="listing-media-next"
+                        className="absolute right-4 top-1/2 z-[60] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-700"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                      <div className="absolute bottom-4 right-4 border border-white/20 bg-black/55 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm">
+                        {activeImageIdx + 1} / {galleryItems.length}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <div
+                  className="w-full aspect-[16/9] bg-gray-100 flex flex-col items-center justify-center gap-2 px-6 text-center text-gray-600"
+                  data-testid="no-images-placeholder"
+                  data-media-state={allListingMediaFailed ? 'published_unavailable' : listingMedia.state}
+                >
+                  <Car className="w-14 h-14 opacity-30" aria-hidden="true" />
+                  {allListingMediaFailed ? (
+                    <div data-testid="listing-media-load-failed">
+                      <p className="text-sm font-medium text-gray-600">Listing photo unavailable</p>
+                      <p className="mt-1 text-xs text-gray-600">
+                        CarUp received a published photo address for this listing, but the browser could
+                        not load it. That is a delivery failure, not a statement about the vehicle or
+                        whether the seller added photos.
+                      </p>
+                    </div>
+                  ) : listingMedia.state === 'none' ? (
+                    <div data-testid="listing-media-empty">
+                      {/* The block's own sentence, not one authored here. A gallery that invents
+                          its own empty-state wording is how the previous one came to publish a
+                          governance finding over a seller's advertising photos. */}
+                      <p className="text-sm font-medium text-gray-600">{listingMedia.empty_statement}</p>
+                      {/* THE SUPPORTING LINE HAD TO CHANGE WITH THE SENTENCE ABOVE IT, and this is
+                          the more important half. It used to read "The seller has not added any
+                          photos." — which is the EXACT claim the contract withdrew in Rule 1b, and
+                          leaving it here would have restored the falsehood one line below the
+                          correction: a gated block (an unpublished listing that DOES hold
+                          photographs) would have rendered the contract's honest "none published"
+                          and then had this page assert, on its own authority, that the seller
+                          added nothing. It also breaks the byte-identity the gate depends on the
+                          other way round — a surface that describes the three indistinguishable
+                          cases differently re-opens the enumeration the gate closed.
+                          This line now says only what the block says: nothing is published here,
+                          and no reading about the seller follows from that. */}
+                      <p className="mt-1 text-xs text-gray-600">
+                        That is a statement about what this page publishes, and about nothing else.
+                        Nothing follows from it about what the seller did.
+                      </p>
+                    </div>
+                  ) : (
+                    <div data-testid="listing-media-not-loaded">
+                      {/* RULE 1. This page reads the listing gallery through the governed
+                          marketplace detail; when that does not resolve, `listing_images` was
+                          never consulted and no negative about it may be published. */}
+                      <p className="text-sm font-medium text-gray-600">
+                        CarUp did not read this listing’s photo gallery on this page.
+                      </p>
+                      <p className="mt-1 text-xs text-gray-600">
+                        That is a fact about this request, not a finding about the listing. Nothing is
+                        stated either way about whether the seller added photos.
+                      </p>
+                    </div>
+                  )}
                 </div>
-                <Button asChild className={`h-11 shrink-0 rounded-full bg-[#09122A] px-5 font-semibold text-white hover:bg-[#111D3D] ${focusRing}`}>
-                  <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Return to editing</Link>
-                </Button>
+              )}
+              <div className="absolute top-4 left-4 flex gap-2">
+                {/* No "Featured" badge: it was awarded by a client-side score threshold, which is a
+                    merchandising claim the page has no authority to make. "Reserved" stays — it is
+                    a listing state, not a claim about the photograph under it. */}
+                {detail?.carup_gold?.state === 'qualified' && (
+                  <Badge className="border border-amber-200 bg-[linear-gradient(135deg,#f59e0b,#facc15)] font-black uppercase tracking-[0.1em] text-slate-950 shadow-lg" data-testid="vehicle-detail-carup-gold">
+                    ★ CarUp Gold
+                  </Badge>
+                )}
+                {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
+              </div>
+              {!isSellerPreview && (
+                <div className="absolute top-4 right-4 flex gap-2">
+                  <button onClick={toggleFavorite} aria-label="Save this vehicle" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
+                    <Heart className={`w-5 h-5 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
+                  </button>
+                  <Link
+                    to={compareHref}
+                    aria-label="Compare this vehicle"
+                    className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white"
+                    data-testid="vehicle-detail-compare"
+                  >
+                    <GitCompare className="w-5 h-5 text-gray-600" />
+                  </Link>
+                  <button onClick={handleShare} aria-label="Share this listing" data-testid="vehicle-detail-share" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
+                    <Share2 className="w-5 h-5 text-gray-600" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Rule 5: counted, never silently dropped. A short gallery that hides what it could
+                not render is passing our defect off as the seller's omission.
+
+                THE SENTENCE NAMES NO SINGLE CAUSE, AND THAT IS A CORRECTION. It used to end "the
+                stored address is not a form CarUp will publish" — a definite finding about ONE
+                field, published over a number that has never only counted that field. The
+                backend's `unpublishable_count` already merged url failures with identity failures
+                (`form === null || mediaId === null || identitiesTaken.has(mediaId)` — one
+                increment, three causes), and the count arrives here already merged, so the page
+                cannot know which applied and may not say. Rule 6b's uniqueness check on this page
+                adds a fourth contributor to the same number. One count, one honest sentence: the
+                record could not be published, and the reason is not something this surface
+                determined. */}
+            {listingMedia.unpublishable_count > 0 && (
+              <p className="text-xs text-amber-700" data-testid="listing-media-unpublishable">
+                {listingMedia.unpublishable_count} recorded photo(s) could not be shown here, because
+                what CarUp holds for them — the stored address, or the name that tells one photograph
+                from another — is not in a form it will publish. That is a fault in the record, not a
+                statement about the vehicle.
+              </p>
+            )}
+
+            {/* Thumbnails */}
+            {galleryItems.length > 1 && (
+              <div className="flex gap-3 overflow-x-auto border-b border-slate-200 pb-4 pt-1">
+                {/* Rule 6b, and the reason the identity is not decorative: React reconciles on
+                    this key. Keyed on `position` the previous thumbnail's DOM node — and its
+                    decoded bitmap — is reused for a DIFFERENT photograph whenever the payload
+                    re-orders, which is how a gallery briefly shows the wrong car. `media_id` names
+                    the photograph, so the node follows the picture rather than the slot. The
+                    composite falls back only for the marketplace transport, which carries no
+                    identity to key on. */}
+                {galleryItems.map((item, galleryIndex) => (
+                  <button key={item.media_id ?? `${item.position}-${item.url}`} onClick={() => setCurrentImageIdx(galleryIndex)}
+                    data-testid="listing-media-thumb"
+                    data-media-id={item.media_id ?? undefined}
+                    aria-label={item.photo_label ? `Show photo ${galleryIndex + 1}: ${item.photo_label}` : `Show photo ${galleryIndex + 1}`}
+                    className={`h-20 w-28 flex-shrink-0 overflow-hidden border-b-4 transition-all ${galleryIndex === activeImageIdx ? 'border-orange-500 opacity-100' : 'border-transparent opacity-65 hover:opacity-100'}`}>
+                    <img src={item.url} alt="" className="w-full h-full object-cover" onError={() => markListingMediaFailed(item.url)} />
+                  </button>
+                ))}
               </div>
             )}
+          </section>
+        </div>
+
+        <section
+          className="h-fit bg-[#08111f] px-5 py-6 text-white shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:px-7 sm:py-7 lg:sticky lg:top-5 lg:mt-10"
+          data-testid="vehicle-detail-intelligence-hero"
+        >
+          <div>
+            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-orange-400">
+              <ShieldCheck className="h-4 w-4" /> CarUp Vehicle Passport
+            </div>
+            <h1 className="mt-2 text-4xl font-black leading-none tracking-[-0.045em] text-white sm:text-5xl">
+              {vehicle.year ?? ''} {vehicle.make} {vehicle.model}
+            </h1>
+            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300">
+              <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-orange-700" /> {locationLine.label}</span>
+              {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) && (
+                <span className="inline-flex items-center gap-1.5"><Gauge className="h-4 w-4 text-orange-700" /> {vehicle.mileage.toLocaleString()} km</span>
+              )}
+            </div>
+          </div>
+          <div className="mt-7 grid grid-cols-2 border-y border-white/10 py-5">
+            <div className="pr-4">
+              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-300">Asking price</p>
+              <p className="mt-1 text-2xl font-black tracking-[-0.035em] text-white">{governedPrice(vehicle.price, vehicle.currency)}</p>
+            </div>
+            <div className="border-l border-white/10 pl-4">
+              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-300">Canonical Trust</p>
+              <p className="mt-1 text-2xl font-black tracking-[-0.035em] text-white">{trust.score !== null ? `${trust.score}/100` : trust.headline}</p>
+              {trust.score !== null && <p className="mt-0.5 text-[10px] text-slate-400">{trust.headline}</p>}
+            </div>
+          </div>
+
+          {detail && !isSellerPreview && (
+            <div className="mt-6 space-y-2" data-testid="vehicle-detail-primary-actions">
+              <InquiryModal
+                listingId={detail.vin}
+                inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                triggerLabel="Ask about this vehicle"
+                triggerClassName="w-full h-12 rounded-none bg-orange-700 font-black text-white hover:bg-orange-800"
+              />
+              <InquiryModal
+                listingId={detail.vin}
+                inquiryTypes={['vehicle_inspection_request']}
+                defaultInquiryType="vehicle_inspection_request"
+                triggerLabel="Request an inspection"
+                triggerVariant="outline"
+                triggerClassName="w-full h-11 rounded-none border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white"
+              />
+              <p className="pt-2 text-[10px] leading-4 text-slate-300">CarUp keeps the inquiry inside the governed Communications path. Never pay outside CarUp.</p>
+            </div>
+          )}
+        </section>
+        </div>
+
+        {/* Backend-governed marketplace panels (trust, all-in price, inquiry, safety) */}
+        {detail && (
+          <div className="mb-6 grid gap-4 lg:grid-cols-3" data-testid="marketplace-detail-panels">
+            <div className="space-y-4 lg:col-span-2">
+              <TrustSummaryPanel trust={detail.trust_summary} verification={detail.verification_summary} />
+              {(vehicle?.vin || id) && <TrustDecisionPanel vin={(vehicle?.vin || id) as string} />}
+              {(vehicle?.vin || id) && <SourceCoveragePanel vin={(vehicle?.vin || id) as string} />}
+              <SafetyWarnings warnings={detail.safety_warnings} />
+            </div>
+            <div className="space-y-4">
+              <AllInPricePanel pricing={detail.pricing_summary} />
+              {isSellerPreview ? (
+                <div className="border-y border-orange-200 bg-orange-50 py-4" data-testid="seller-preview-transactions-disabled">
+                  <h3 className="text-sm font-black text-slate-950">Buyer transactions disabled in preview</h3>
+                  <p className="mt-2 text-[11px] leading-5 text-slate-600">
+                    Pricing and Trust presentation are shared with Marketplace, but inquiry and inspection actions do not run from the Seller&rsquo;s own preview.
+                  </p>
+                </div>
+              ) : (
+                <div className="border-y border-slate-200 bg-white py-4">
+                <h3 className="mb-2 text-sm font-semibold text-gray-900">Contact &amp; inquire</h3>
+                <div className="flex flex-col gap-2">
+                <InquiryModal
+                listingId={detail.vin}
+                inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                triggerLabel="Send inquiry"
+                triggerClassName="w-full"
+                />
+                <InquiryModal
+                listingId={detail.vin}
+                inquiryTypes={['vehicle_inspection_request']}
+                defaultInquiryType="vehicle_inspection_request"
+                triggerLabel="Request inspection"
+                triggerVariant="outline"
+                triggerClassName="w-full"
+                />
+                </div>
+                <p className="mt-2 text-[11px] text-gray-500">Inquiries are safe — the CarUp team helps connect you. Never pay outside CarUp.</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* ── Showroom grid ────────────────────────────────────────────────────
-            Phones: stage → decision rail → key facts → dossier (one column, DOM order).
-            ≥1024: the stage, key facts and dossier share the left column and the decision rail
-            sticks in the right one for the whole length of the page. */}
-        <div
-          className="grid min-w-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-x-10 xl:grid-cols-[minmax(0,1fr)_420px] xl:gap-x-14 2xl:grid-cols-[minmax(0,1fr)_440px]"
-          data-testid="vehicle-detail-showroom"
-        >
-          <div className="min-w-0 lg:col-start-1 lg:row-start-1" data-testid="vehicle-detail-gallery-first">
-            {/* ── LISTING MEDIA — the seller's presentation of the car ─────────────────
-                Marketing photos. Nothing in this block asserts governance, because nothing in
-                `listing_images` could support such an assertion. Note what is NOT here any more:
-                the "Police Checked" badge used to be stamped across the top-left of this photo,
-                which put a registry verification claim physically on top of a seller's snapshot.
-                It is a fact about the VEHICLE, not about the picture, and it now sits with the
-                other vehicle-status badges in the identity row below. */}
-            <section className="min-w-0" data-testid="listing-media-block" aria-labelledby="vd-listing-photos">
-              <h2
-                id="vd-listing-photos"
-                className={`sr-only lg:not-sr-only lg:mb-3 lg:block ${eyebrow} lg:text-slate-500`}
-              >
-                Listing photos
-              </h2>
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* ── Left column ─────────────────────────────────────────────── */}
+          <div className="min-w-0 lg:col-span-2 space-y-6">
 
-              <GalleryStage
-                count={hasListingPhotos ? galleryItems.length : 0}
-                onStep={stepPhoto}
-                label="Listing photos. Use the left and right arrow keys, or swipe, to change photo."
-                className={`relative -mx-4 overflow-hidden sm:-mx-6 md:mx-0 md:rounded-2xl lg:rounded-3xl lg:shadow-[0_1px_2px_rgba(9,18,42,0.06),0_18px_40px_-18px_rgba(9,18,42,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FE7D18] focus-visible:ring-offset-2 ${hasListingPhotos ? 'bg-[#09122A]' : 'bg-[#F6F4F0]'}`}
-                data-testid="image-gallery"
-              >
-                {hasListingPhotos && activeImage ? (
-                  <>
-                    {/* Rule 6b: `data-media-id` is the identity of the photograph on screen, so a
-                        test — and a support conversation about "the third photo on this listing" —
-                        can name THIS picture rather than whichever one is currently in slot 2. The
-                        attribute is absent entirely when the transport carried no identity; it is
-                        never a fabricated value. */}
-                    <img
-                      src={activeImage.url}
-                      alt={`${vehicle.make} ${vehicle.model}`}
-                      className="aspect-[4/3] w-full object-cover md:aspect-[16/10]"
-                      draggable={false}
-                      data-testid="vehicle-image"
-                      data-url-form={activeImage.url_form}
-                      data-media-id={activeImage.media_id ?? undefined}
-                      onError={() => markListingMediaFailed(activeImage.url)}
-                    />
-                    {/* Rule 6: shown only where a row claims it. No primary is elected when the
-                        seller named none — that choice is theirs to make or leave unmade. */}
-                    {(activeImage.is_primary || activeImage.photo_label) && (
-                      <div className="absolute bottom-3 left-3 right-24 flex flex-wrap gap-2 md:bottom-4 md:left-4">
-                        {activeImage.is_primary && (
-                          <span className="rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white backdrop-blur-sm" data-testid="listing-media-primary">
-                            Seller’s main photo
-                          </span>
-                        )}
-                        {activeImage.photo_label && (
-                          <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-[#09122A] backdrop-blur-sm" data-testid="listing-media-photo-label">
-                            {activeImage.photo_label}
-                          </span>
-                        )}
+            {/* Plate Advisory Banner */}
+            {passport && (
+              (() => {
+                const plateState = identifierState(identity?.plateNumber, identifiersRedacted);
+                const tempIdState = identifierState(identity?.temporaryIdentificationNumber, identifiersRedacted);
+                // Only assertable once the identifiers are visible: under redaction the page knows
+                // neither whether a plate exists nor whether it was verified.
+                const isMissing = plateState === 'unrecorded' && tempIdState === 'unrecorded';
+                const isUnverified = plateState === 'present' && !identity?.plateVerifiedAt;
+                // plateStatus is public in every audience, so a flag is assertable even under redaction.
+                const isFlagged = identity?.plateStatus === 'Flagged' || identity?.plateStatus === 'Suspended';
+
+                if (isFlagged) {
+                  return (
+                    <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg text-red-800 flex items-start gap-3" data-testid="plate-advisory">
+                      <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-sm">SECURITY WARNING: Plate Flagged/Suspended</p>
+                        <p className="text-xs mt-0.5">The registration plate registered to this vehicle has been marked as Flagged or Suspended by the registry authority. Proceed with caution.</p>
                       </div>
-                    )}
-                    {galleryItems.length > 1 && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => stepPhoto(-1)}
-                          aria-label="Previous photo"
-                          data-testid="listing-media-previous"
-                          className={`absolute left-3 top-1/2 z-10 -translate-y-1/2 md:left-4 ${overlayButton}`}
-                        >
-                          <ChevronLeft className="h-5 w-5" aria-hidden="true" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => stepPhoto(1)}
-                          aria-label="Next photo"
-                          data-testid="listing-media-next"
-                          className={`absolute right-3 top-1/2 z-10 -translate-y-1/2 md:right-4 ${overlayButton}`}
-                        >
-                          <ChevronRight className="h-5 w-5" aria-hidden="true" />
-                        </button>
-                        <div className="absolute bottom-3 right-3 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold tabular-nums text-white backdrop-blur-sm md:bottom-4 md:right-4" aria-live="polite">
-                          {activeImageIdx + 1} / {galleryItems.length}
-                        </div>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <div
-                    className="flex min-h-[18rem] w-full flex-col items-center justify-center gap-3 px-6 pb-8 pt-16 text-center md:aspect-[16/10] md:min-h-0"
-                    data-testid="no-images-placeholder"
-                    data-media-state={allListingMediaFailed ? 'published_unavailable' : listingMedia.state}
-                  >
-                    <div className="w-[min(62%,300px)]">
-                      <VehicleSilhouette bodyStyle={vehicle.body_style} tone="muted" accent={false} className="w-full" strokeWidth={1.75} />
                     </div>
-                    {allListingMediaFailed ? (
-                      <div className="max-w-md" data-testid="listing-media-load-failed">
-                        <p className="text-[15px] font-semibold text-[#09122A]">Listing photo unavailable</p>
-                        <p className="mt-1 text-[13px] leading-5 text-slate-600">
-                          CarUp received a published photo address for this listing, but the browser could
-                          not load it. That is a delivery failure, not a statement about the vehicle or
-                          whether the seller added photos.
-                        </p>
+                  );
+                } else if (identifiersRedacted) {
+                  return (
+                    <div className="bg-gray-50 border-l-4 border-gray-300 p-4 rounded-r-lg text-gray-700 flex items-start gap-3" data-testid="plate-advisory-withheld">
+                      <Lock className="w-5 h-5 text-gray-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-sm">Registration identifiers are not shown publicly</p>
+                        <p className="text-xs mt-0.5">Plate, temporary ID, chassis and engine numbers are withheld from public view. This is a privacy rule for every listing — it says nothing about this vehicle and does not affect its trust score.</p>
                       </div>
-                    ) : listingMedia.state === 'none' ? (
-                      <div className="max-w-md" data-testid="listing-media-empty">
-                        {/* The block's own sentence, not one authored here. A gallery that invents
-                            its own empty-state wording is how the previous one came to publish a
-                            governance finding over a seller's advertising photos. */}
-                        <p className="text-[15px] font-semibold text-[#09122A]">{listingMedia.empty_statement}</p>
-                        {/* THE SUPPORTING LINE HAD TO CHANGE WITH THE SENTENCE ABOVE IT, and this is
-                            the more important half. It used to read "The seller has not added any
-                            photos." — which is the EXACT claim the contract withdrew in Rule 1b, and
-                            leaving it here would have restored the falsehood one line below the
-                            correction: a gated block (an unpublished listing that DOES hold
-                            photographs) would have rendered the contract's honest "none published"
-                            and then had this page assert, on its own authority, that the seller
-                            added nothing. It also breaks the byte-identity the gate depends on the
-                            other way round — a surface that describes the three indistinguishable
-                            cases differently re-opens the enumeration the gate closed.
-                            This line now says only what the block says: nothing is published here,
-                            and no reading about the seller follows from that. */}
-                        <p className="mt-1 text-[13px] leading-5 text-slate-600">
-                          That is a statement about what this page publishes, and about nothing else.
-                          Nothing follows from it about what the seller did.
-                        </p>
+                    </div>
+                  );
+                } else if (isMissing) {
+                  return (
+                    <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg text-amber-800 flex items-start gap-3" data-testid="plate-advisory">
+                      <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-sm">Confidence Advisory: Missing Number Plate</p>
+                        <p className="text-xs mt-0.5">This vehicle does not have a permanent registration plate or temporary identification number registered. Trust score confidence has been reduced.</p>
                       </div>
-                    ) : (
-                      <div className="max-w-md" data-testid="listing-media-not-loaded">
-                        {/* RULE 1. This page reads the listing gallery through the governed
-                            marketplace detail; when that does not resolve, `listing_images` was
-                            never consulted and no negative about it may be published. */}
-                        <p className="text-[15px] font-semibold text-[#09122A]">
-                          CarUp did not read this listing’s photo gallery on this page.
-                        </p>
-                        <p className="mt-1 text-[13px] leading-5 text-slate-600">
-                          That is a fact about this request, not a finding about the listing. Nothing is
-                          stated either way about whether the seller added photos.
-                        </p>
+                    </div>
+                  );
+                } else if (isUnverified) {
+                  return (
+                    <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg text-amber-800 flex items-start gap-3" data-testid="plate-advisory">
+                      <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-sm">Confidence Advisory: Unverified Number Plate</p>
+                        <p className="text-xs mt-0.5">A number plate is assigned but has not yet been verified against the Central Vehicle Registry (CVR). Trust score confidence has been reduced.</p>
                       </div>
-                    )}
-                  </div>
-                )}
-                <div className="absolute left-3 top-3 flex flex-wrap gap-2 md:left-4 md:top-4">
-                  {/* No "Featured" badge: it was awarded by a client-side score threshold, which is a
-                      merchandising claim the page has no authority to make. "Reserved" stays — it is
-                      a listing state, not a claim about the photograph under it. */}
-                  {detail?.carup_gold?.state === 'qualified' && (
-                    <Badge className="h-8 rounded-full border border-amber-200 bg-[linear-gradient(135deg,#f59e0b,#facc15)] px-3 font-bold uppercase tracking-[0.1em] text-[#09122A] shadow-lg" data-testid="vehicle-detail-carup-gold">
-                      ★ CarUp Gold
-                    </Badge>
-                  )}
-                  {isReservedOnServer && <Badge className="h-8 rounded-full bg-amber-500 px-3 font-semibold text-[#09122A]">Reserved</Badge>}
-                </div>
-                {!isSellerPreview && (
-                  <div className="absolute right-3 top-3 flex gap-2 md:right-4 md:top-4">
-                    <button type="button" onClick={toggleFavorite} aria-label="Save this vehicle" aria-pressed={isFav} className={overlayButton}>
-                      <Heart className={`h-5 w-5 ${isFav ? 'fill-red-500 text-red-500' : ''}`} aria-hidden="true" />
-                    </button>
-                    <Link
-                      to={compareHref}
-                      aria-label="Compare this vehicle"
-                      className={overlayButton}
-                      data-testid="vehicle-detail-compare"
-                    >
-                      <GitCompare className="h-5 w-5" aria-hidden="true" />
-                    </Link>
-                    <button type="button" onClick={handleShare} aria-label="Share this listing" data-testid="vehicle-detail-share" className={overlayButton}>
-                      <Share2 className="h-5 w-5" aria-hidden="true" />
-                    </button>
-                  </div>
-                )}
-              </GalleryStage>
+                    </div>
+                  );
+                }
+                return null;
+              })()
+            )}
 
-              {/* Filmstrip (≥768). Phones step through the stage by swipe or the arrow buttons. */}
-              {galleryItems.length > 1 && (
-                <div className="carup-rail mt-3 hidden gap-2 overflow-x-auto p-1 md:flex">
-                  {/* Rule 6b, and the reason the identity is not decorative: React reconciles on
-                      this key. Keyed on `position` the previous thumbnail's DOM node — and its
-                      decoded bitmap — is reused for a DIFFERENT photograph whenever the payload
-                      re-orders, which is how a gallery briefly shows the wrong car. `media_id` names
-                      the photograph, so the node follows the picture rather than the slot. The
-                      composite falls back only for the marketplace transport, which carries no
-                      identity to key on. */}
-                  {galleryItems.map((item, galleryIndex) => (
-                    <button key={item.media_id ?? `${item.position}-${item.url}`} type="button" onClick={() => setCurrentImageIdx(galleryIndex)}
-                      data-testid="listing-media-thumb"
-                      data-media-id={item.media_id ?? undefined}
-                      aria-label={item.photo_label ? `Show photo ${galleryIndex + 1}: ${item.photo_label}` : `Show photo ${galleryIndex + 1}`}
-                      aria-current={galleryIndex === activeImageIdx ? 'true' : undefined}
-                      className={`h-[68px] w-[102px] flex-shrink-0 overflow-hidden rounded-xl transition-opacity lg:h-[76px] lg:w-[114px] ${focusRing} ${galleryIndex === activeImageIdx ? 'opacity-100 ring-2 ring-[#09122A] ring-offset-2' : 'opacity-60 hover:opacity-100'}`}>
-                      <img src={item.url} alt="" className="h-full w-full object-cover" draggable={false} onError={() => markListingMediaFailed(item.url)} />
-                    </button>
-                  ))}
-                </div>
-              )}
 
-              <div className="mt-3 space-y-2">
-                <p className="max-w-[72ch] text-[13px] leading-5 text-slate-500" data-testid="listing-media-caption">
-                  {listingMedia.items.some((item) => item.synthetic_demo)
-                    ? 'Synthetic reference media for this staging demonstration. These images are not verified evidence and do not affect CarUp Trust.'
-                    : 'Photos supplied by the seller to advertise this vehicle. CarUp does not review them and makes no claim about what they show.'}
+
+            {/* ── VERIFIED EVIDENCE — governed artifacts, deliberately not a gallery ────
+                The convergence: both blocks are composed on this page, adjacent, and neither can be
+                read as the other. The listing block above is a full-width 16:9 carousel of the
+                seller's own pictures; this one is a list of records, each with a review decision and
+                its own provenance. A buyer scanning the page meets the difference before they meet
+                any individual file. */}
+            <Card className="card-shadow border border-gray-100 border-l-4 border-l-emerald-600" data-testid="verified-evidence-block">
+              <CardContent className="p-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <FileCheck className="w-4 h-4 text-emerald-600" aria-hidden="true" />
+                  <h2 className="text-sm font-semibold text-gray-900">Verified evidence</h2>
+                </div>
+                <p className="text-xs text-gray-500 mb-4" data-testid="verified-evidence-caption">
+                  Governed artifacts CarUp has reviewed — registration, inspection, clearance, customs,
+                  insurance and service records. These are not the listing photos above: each item here
+                  carries its own provenance and a review decision.
                 </p>
-                {/* Rule 5: counted, never silently dropped. A short gallery that hides what it could
-                    not render is passing our defect off as the seller's omission.
 
-                    THE SENTENCE NAMES NO SINGLE CAUSE, AND THAT IS A CORRECTION. It used to end "the
-                    stored address is not a form CarUp will publish" — a definite finding about ONE
-                    field, published over a number that has never only counted that field. The
-                    backend's `unpublishable_count` already merged url failures with identity failures
-                    (`form === null || mediaId === null || identitiesTaken.has(mediaId)` — one
-                    increment, three causes), and the count arrives here already merged, so the page
-                    cannot know which applied and may not say. Rule 6b's uniqueness check on this page
-                    adds a fourth contributor to the same number. One count, one honest sentence: the
-                    record could not be published, and the reason is not something this surface
-                    determined. */}
-                {listingMedia.unpublishable_count > 0 && (
-                  <p className="max-w-[72ch] text-[13px] leading-5 text-amber-800" data-testid="listing-media-unpublishable">
-                    {listingMedia.unpublishable_count} recorded photo(s) could not be shown here, because
-                    what CarUp holds for them — the stored address, or the name that tells one photograph
-                    from another — is not in a form it will publish. That is a fault in the record, not a
-                    statement about the vehicle.
-                  </p>
-                )}
-              </div>
-            </section>
-          </div>
-
-          {/* ── DECISION RAIL — identity, price, trust and every buyer action, once ──────────
-              OBS-02: sticky only where there is a second column to stick beside, and capped to the
-              viewport with its own scroll so it can never cover the content. */}
-          <section
-            className="min-w-0 border-b border-slate-200 pb-8 pt-6 md:grid md:grid-cols-2 md:gap-x-10 md:pt-8 lg:col-start-2 lg:row-span-3 lg:row-start-1 lg:mt-7 lg:block lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:sticky lg:top-20 lg:rounded-3xl lg:border lg:border-slate-200 lg:bg-white lg:p-7 lg:shadow-[0_1px_2px_rgba(9,18,42,0.05),0_24px_48px_-28px_rgba(9,18,42,0.30)]"
-            data-testid="vehicle-detail-intelligence-hero"
-            aria-labelledby="vd-title"
-          >
-            <div className="min-w-0">
-              <p className={`flex items-center gap-2 ${eyebrow} text-[#C2410C]`}>
-                <ShieldCheck className="h-4 w-4" aria-hidden="true" /> CarUp Vehicle Passport
-              </p>
-              <h1 id="vd-title" className="mt-2 text-[clamp(1.85rem,3vw,2.5rem)] font-bold leading-[1.02] tracking-[-0.035em] text-[#09122A]">
-                {vehicle.year ?? ''} {vehicle.make} {vehicle.model}
-              </h1>
-              <div className="mt-3 flex flex-wrap gap-2 text-[13px] text-slate-700">
-                <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-slate-100 px-3">
-                  <MapPin className="h-3.5 w-3.5 text-[#C2410C]" aria-hidden="true" /> {locationLine.label}
-                </span>
-                {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) && (
-                  <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-slate-100 px-3 tabular-nums">
-                    <Gauge className="h-3.5 w-3.5 text-[#C2410C]" aria-hidden="true" /> {vehicle.mileage.toLocaleString()} km
-                  </span>
-                )}
-              </div>
-
-              <div className="mt-6 border-t border-slate-200 pt-5">
-                <p className={`${eyebrow} text-slate-500`}>Asking price</p>
-                <p className="mt-1.5 text-[2rem] font-bold leading-none tabular-nums tracking-[-0.02em] text-[#09122A]">
-                  {governedPrice(vehicle.price, vehicle.currency)}
-                </p>
-              </div>
-
-              {/* The trust lens: the authority's published number and band, or its honest state. */}
-              <div className="mt-5 flex items-center gap-4 rounded-2xl border border-slate-200 p-4" data-testid="sidebar-trust">
-                {trust.score !== null ? (
-                  <ScoreRing value={trust.score} className={`h-14 w-14 shrink-0 ${trust.toneText}`} />
-                ) : (
-                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-                    <Shield className="h-6 w-6" aria-hidden="true" />
-                  </span>
-                )}
-                <div className="min-w-0">
-                  <p className={`${eyebrow} text-slate-500`}>CarUp Trust</p>
-                  <p className="mt-0.5 text-lg font-semibold leading-snug text-[#09122A]">
-                    {trust.score !== null ? `${trust.score}/100` : trust.headline}
-                  </p>
-                  {trust.score !== null && <p className={`text-[13px] font-medium ${trust.toneText}`}>{trust.headline}</p>}
-                </div>
-              </div>
-            </div>
-
-            <div className="min-w-0">
-              {detail && !isSellerPreview && (
-                <div className="mt-6 space-y-3 md:mt-0 lg:mt-6" data-testid="vehicle-detail-primary-actions">
-                  <InquiryModal
-                    listingId={detail.vin}
-                    inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
-                    triggerLabel="Ask about this vehicle"
-                    triggerClassName={`h-12 w-full rounded-full bg-[#09122A] text-[15px] font-semibold text-white hover:bg-[#111D3D] ${focusRing}`}
-                  />
-                  <InquiryModal
-                    listingId={detail.vin}
-                    inquiryTypes={['vehicle_inspection_request']}
-                    defaultInquiryType="vehicle_inspection_request"
-                    triggerLabel="Request an inspection"
-                    triggerVariant="outline"
-                    triggerClassName={secondaryAction}
-                  />
-                  <p className="text-[13px] leading-5 text-slate-600">CarUp keeps the inquiry inside the governed Communications path. Never pay outside CarUp.</p>
-                </div>
-              )}
-
-              {isSellerPreview ? (
-                <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-4 md:mt-0 lg:mt-6" data-testid="seller-preview-sidebar-disabled">
-                  <p className="flex items-center gap-2 text-sm font-semibold text-[#09122A]">
-                    <Lock className="h-4 w-4 text-[#C2410C]" aria-hidden="true" /> Buyer actions are disabled
-                  </p>
-                  <p className="mt-2 text-[13px] leading-5 text-slate-700">
-                    This is the Seller&rsquo;s buyer-facing preview. Contact, reservation, financing and SafePay requests only activate for a governed public buyer context.
-                  </p>
-                  <Button asChild variant="outline" className={`mt-4 h-11 w-full rounded-full border-slate-300 bg-white font-semibold text-[#09122A] hover:bg-slate-50 ${focusRing}`}>
-                    <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Return to Seller Studio</Link>
-                  </Button>
-                </div>
-              ) : detail ? (
-                <div className="mt-6 border-t border-slate-200 pt-5" data-testid="vehicle-detail-buyer-actions">
-                  <p className={`${eyebrow} text-slate-500`}>More ways to proceed</p>
-                  <div className="mt-3 space-y-4">
-                    {sellerContactNumber && sellerWhatsAppLink ? (
-                      <div className="flex gap-2">
-                        <Button asChild className={`h-12 flex-1 rounded-full bg-[#09122A] font-semibold text-white hover:bg-[#111D3D] ${focusRing}`}>
-                          <a href={`tel:${sellerContactNumber}`} onClick={() => toast.info(`Calling ${vehicle.sellerName ?? 'the seller'}...`)}>
-                            <Phone className="h-4 w-4" aria-hidden="true" /> Call
-                          </a>
-                        </Button>
-                        <Button asChild variant="outline" className={`h-12 flex-1 rounded-full border-slate-300 bg-white font-semibold text-[#09122A] hover:bg-slate-50 hover:text-[#09122A] ${focusRing}`}>
-                          <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer">
-                            <MessageSquare className="h-4 w-4" aria-hidden="true" /> WhatsApp
-                          </a>
-                        </Button>
-                      </div>
-                    ) : (
-                      <div data-testid="seller-contact-unavailable">
-                        <InquiryModal
-                          listingId={detail.vin}
-                          inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
-                          defaultInquiryType="vehicle_purchase_interest"
-                          triggerLabel="Contact through CarUp"
-                          triggerVariant="outline"
-                          triggerClassName={secondaryAction}
-                          defaultMessage="I am interested in this vehicle. Please connect me with the seller through CarUp."
-                          intentMetadata={{ buyer_intent: 'seller_contact' }}
-                        />
-                        <p className="mt-2 text-[13px] leading-5 text-slate-600">
-                          The seller has not published a direct number. CarUp can route your inquiry without exposing private contact details.
-                        </p>
-                      </div>
-                    )}
-                    {isReservedOnServer ? (
-                      <div className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-center text-sm font-semibold text-amber-900 ring-1 ring-inset ring-amber-200" data-testid="reserved-state">
-                        <Lock className="h-4 w-4 shrink-0" aria-hidden="true" /> Reserved
-                      </div>
-                    ) : reserveRequested ? (
-                      <div className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-center text-sm font-semibold text-slate-700" data-testid="reserve-requested-state">
-                        <Clock className="h-4 w-4 shrink-0" aria-hidden="true" /> Reservation requested — awaiting confirmation
-                      </div>
-                    ) : (
-                      <div data-testid="reservation-request-entry">
-                        <InquiryModal
-                          listingId={detail.vin}
-                          inquiryTypes={['vehicle_purchase_interest']}
-                          defaultInquiryType="vehicle_purchase_interest"
-                          triggerLabel="Request reservation"
-                          triggerVariant="outline"
-                          triggerClassName={secondaryAction}
-                          defaultMessage="I want to reserve this vehicle. Please confirm the seller and tell me the next SafePay step."
-                          intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}
-                          onSubmitted={() => setReserveRequested(true)}
-                        />
-                        <p className="mt-2 text-[13px] leading-5 text-slate-600">
-                          CarUp resolves the current seller, purchase inquiry, listing terms and Trust gates before a reservation or SafePay step can open.
-                        </p>
-                      </div>
-                    )}
-                    {financeInterestRequested ? (
-                      <div className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-sky-50 px-4 py-3 text-center text-sm font-semibold text-sky-900 ring-1 ring-inset ring-sky-200" data-testid="financing-interest-state">
-                        <CheckCircle className="h-4 w-4 shrink-0" aria-hidden="true" /> Financing interest sent
-                      </div>
-                    ) : (
-                      <div data-testid="financing-request-entry">
-                        <InquiryModal
-                          listingId={detail.vin}
-                          inquiryTypes={['vehicle_purchase_interest']}
-                          defaultInquiryType="vehicle_purchase_interest"
-                          triggerLabel="Ask about financing"
-                          triggerVariant="outline"
-                          triggerClassName={secondaryAction}
-                          defaultMessage="I am interested in financing this vehicle. Please tell me which governed lender path is available and what information I need to provide."
-                          intentMetadata={{ buyer_intent: 'financing_interest' }}
-                          onSubmitted={() => setFinanceInterestRequested(true)}
-                        />
-                        <p className="mt-2 text-[13px] leading-5 text-slate-600">
-                          CarUp will not invent a lender, approval, currency or loan terms. A financing application starts only when a real lender path and listing currency are verified.
-                        </p>
-                      </div>
-                    )}
-                    <p className="flex items-center justify-center gap-1.5 border-t border-slate-200 pt-4 text-center text-[13px] font-medium text-slate-600">
-                      <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> SafePay opens only after CarUp verifies transaction eligibility
+                {verifiedEvidence.state === 'published' ? (
+                  <ul className="space-y-3" data-testid="verified-evidence-list">
+                    {verifiedEvidence.items.map((item, i) => {
+                      const isImageArtifact = (item.mime_type ?? '').startsWith('image/')
+                      const advertisement = isAdvertisementEvidence(item)
+                      return (
+                        <li
+                          key={item.id ?? `evidence-${i}`}
+                          className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-3"
+                          data-testid="verified-evidence-item"
+                        >
+                          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded border border-gray-200 bg-gray-50">
+                            {isImageArtifact && item.file_url ? (
+                              <img src={item.file_url} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              <FileText className="h-5 w-5 text-gray-600" aria-hidden="true" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-medium text-gray-900">{humaniseEvidenceType(item)}</p>
+                              <Badge className="bg-emerald-600 text-white text-[10px]" data-testid="verified-evidence-status">
+                                Reviewed &amp; verified
+                              </Badge>
+                            </div>
+                            {/* Provenance, and only the kind that belongs to the public projection.
+                                Who uploaded it and who reviewed it are internal identities that
+                                Phase 0 allow-listed out of every public body; a date that was never
+                                recorded says so rather than being back-filled from another column. */}
+                            <p className="mt-1 text-xs text-gray-500" data-testid="verified-evidence-provenance">
+                              Captured {evidenceDate(item.captured_at)} · reviewed {evidenceDate(item.verified_at)}
+                              {' · source '}{item.source_name || 'not recorded'}
+                            </p>
+                            {/* The record is published; the document is not. Saying so is the point —
+                                silence here would read as "there is nothing to see", which is the
+                                false-absence this whole block exists to avoid. */}
+                            {item.file_availability === 'withheld_private' && (
+                              <p className="mt-1 text-xs text-gray-500" data-testid="verified-evidence-file-withheld">
+                                CarUp reviewed this document and is not publishing the file itself.
+                              </p>
+                            )}
+                            {advertisement && (
+                              <p className="mt-1 text-xs text-amber-700" data-testid="verified-evidence-advertisement-note">
+                                This is a record of how the vehicle was advertised. The review attests the
+                                advertisement, not the vehicle.
+                              </p>
+                            )}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : verifiedEvidence.state === 'none' ? (
+                  <div className="rounded-lg border border-dashed border-gray-200 p-4 text-center" data-testid="verified-evidence-empty">
+                    <p className="text-sm font-medium text-gray-600">{verifiedEvidence.empty_statement}</p>
+                    <p className="mt-1 text-xs text-gray-600">
+                      Whether this listing carries photos is a different question, and it is answered
+                      separately above.
                     </p>
                   </div>
-                </div>
-              ) : (
-                <div className="mt-6 rounded-2xl bg-slate-50 p-4 md:mt-0 lg:mt-6" data-testid="marketplace-actions-unavailable">
-                  <p className="flex items-center gap-2 text-sm font-semibold text-[#09122A]">
-                    <Lock className="h-4 w-4 text-[#C2410C]" aria-hidden="true" /> Marketplace actions unavailable
-                  </p>
-                  <p className="mt-2 text-[13px] leading-5 text-slate-600">
-                    This Vehicle Passport is not currently backed by a published Marketplace listing. Contact, reservation, and financing requests stay hidden until a canonical public listing resolves.
-                  </p>
-                </div>
-              )}
-            </div>
-            {/* ≥1024 the rail is capped to the viewport and scrolls inside itself; this soft fade at
-                its lower edge says there is more below without adding a word. Decorative only. */}
-            <div className="pointer-events-none sticky bottom-0 -mx-7 -mb-7 hidden h-10 bg-gradient-to-t from-white to-transparent lg:block" aria-hidden="true" />
-          </section>
-
-          {/* ── KEY FACTS — directly under the stage ───────────────────────────── */}
-          <section
-            id="vd-overview"
-            tabIndex={-1}
-            aria-labelledby="vd-overview-title"
-            className="min-w-0 scroll-mt-20 pt-8 outline-none lg:col-start-1 lg:row-start-2 lg:scroll-mt-24 lg:pt-10"
-          >
-            <p className={`${eyebrow} text-[#C2410C]`}>Overview</p>
-            {/* FR-9: a section heading, not a second page title. The decision rail owns the page's
-                single <h1>; this heading is visually hidden because the rail already shows the name,
-                and it stays in the outline so the overview has a name. */}
-            <h2 id="vd-overview-title" className="sr-only">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''}</h2>
-
-            {/* Plate, VIN and Registration Status identity block */}
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-slate-100 px-3 font-mono text-xs font-medium text-slate-700">
-                <Fingerprint className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" /> VIN: {vehicle.vin}
-              </span>
-              {identity?.plateNumber ? (
-                <span className="inline-flex h-8 items-center gap-1 rounded-full bg-blue-50 px-3 font-mono text-xs font-semibold text-blue-800 ring-1 ring-inset ring-blue-200" data-testid="identity-plate">
-                  Plate: {identity.plateNumber}
-                </span>
-              ) : identity?.temporaryIdentificationNumber ? (
-                <span className="inline-flex h-8 items-center gap-1 rounded-full bg-amber-50 px-3 font-mono text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-200" data-testid="identity-temp-id">
-                  Temp ID: {identity.temporaryIdentificationNumber}
-                </span>
-              ) : identifiersRedacted ? (
-                <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-slate-100 px-3 text-xs font-medium text-slate-600" data-testid="identity-plate-withheld">
-                  <Lock className="h-3 w-3" aria-hidden="true" /> Plate: not shown publicly
-                </span>
-              ) : (
-                <span className="inline-flex h-8 items-center rounded-full bg-red-50 px-3 text-xs font-semibold text-red-700 ring-1 ring-inset ring-red-200" data-testid="identity-no-plate">
-                  No Plate Assigned
-                </span>
-              )}
-              {passport?.identity?.registrationStatus && (
-                <Badge className={`${
-                  passport.identity.registrationStatus === 'Current' || passport.identity.registrationStatus === 'Active' ? 'bg-emerald-50 text-emerald-800 ring-emerald-200' :
-                  passport.identity.registrationStatus === 'Pending' ? 'bg-amber-50 text-amber-800 ring-amber-200' : 'bg-red-50 text-red-700 ring-red-200'
-                } h-8 rounded-full border-0 px-3 text-xs font-semibold ring-1 ring-inset`} data-testid="registration-status-badge">
-                  {passport.identity.registrationStatus}
-                </Badge>
-              )}
-              {/* Government-approval claims (CID/police/ZIMRA/duty) are deliberately absent here.
-                  Legacy booleans without authoritative public provenance cannot produce buyer-facing approval badges. */}
-              <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-slate-100 px-3 text-xs font-medium text-slate-700">
-                <MapPin className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
-                <span data-testid="detail-location">{locationLine.label}</span>
-              </span>
-              <span className="inline-flex h-8 items-center gap-2 rounded-full bg-white px-3 text-xs font-semibold ring-1 ring-inset ring-slate-200" data-testid="trust-score-badge">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${trust.tone}`} aria-hidden="true" />
-                {trust.score !== null && (
-                  <span className={`tabular-nums ${trust.toneText}`} data-testid="trust-score-value">{trust.score}</span>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-gray-200 p-4 text-center" data-testid="verified-evidence-not-loaded">
+                    <p className="text-sm font-medium text-gray-600">
+                      CarUp did not read this vehicle’s evidence record on this page.
+                    </p>
+                    <p className="mt-1 text-xs text-gray-600">
+                      Nothing is stated either way about whether governed evidence exists for it.
+                    </p>
+                  </div>
                 )}
-                <span className={trust.toneText} data-testid="trust-score-label">{trust.headline}</span>
-              </span>
-            </div>
 
-            {/* Key facts — borderless tiles. */}
-            <div className="mt-8 grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-5">
-              {[
-                // 0 km is a real reading, so presence is tested on the number, not on truthiness.
-                { label: 'Mileage',       value: Number.isFinite(vehicle.mileage) ? `${vehicle.mileage.toLocaleString()} km` : null, icon: Gauge, testId: 'spec-mileage' },
-                { label: 'Transmission',  value: vehicle.transmission || null, icon: Settings2, testId: 'spec-transmission' },
-                { label: 'Fuel Type',     value: vehicle.fuel_type || vehicle.fuelType || null, icon: Fuel, testId: 'spec-fuel-type' },
-                { label: 'Body style',    value: vehicle.body_style || null, icon: Car, testId: 'spec-body-style' },
-                // LABELLED, DELIBERATELY. This tile used to read `vehicle.condition`, another key
-                // the projection does not emit, so it said "Not recorded" for every vehicle on the
-                // platform. The honest value is the seller's statement — and it is captioned as
-                // the seller's, because CarUp's own governed classification is a different
-                // question with a different answer (`vehicle_condition_category`).
-                { label: 'Condition (seller-stated)', value: vehicle.seller_stated_condition || null, icon: FileCheck, testId: 'spec-seller-condition' },
-              ].map((item) => (
-                <div key={item.label} className="flex min-w-0 items-start gap-3" data-testid={item.testId}>
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F6F4F0] text-[#C2410C]">
-                    <item.icon className="h-[18px] w-[18px]" aria-hidden="true" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[12px] leading-4 text-slate-500">{item.label}</p>
-                    {item.value ? (
-                      <p className="mt-1 break-words text-[15px] font-semibold leading-5 text-[#09122A]">{item.value}</p>
-                    ) : (
-                      <p className="mt-1 text-[15px] italic leading-5 text-slate-500" data-testid="spec-not-recorded">Not recorded</p>
+                {/* One truth state renders ONE message.
+                    This note used to sit outside the state ternary above, so a block reporting
+                    state 'none' printed "No verified evidence has been published for this vehicle"
+                    and, immediately beneath it, "4 reviewed item(s) could not be displayed" — two
+                    statements that cannot both be true of the same vehicle. The backend no longer
+                    produces that combination (a row naming a real artifact is published as a fact
+                    with the file withheld), and the guard here makes it unrenderable regardless:
+                    the shortfall note belongs only to a block that DID publish something. */}
+                {verifiedEvidence.state === 'published' && verifiedEvidence.unpublishable_count > 0 && (
+                  <p className="mt-3 text-xs text-amber-700" data-testid="verified-evidence-unpublishable">
+                    {verifiedEvidence.unpublishable_count} further reviewed item(s) could not be displayed
+                    because the stored file address is unusable. The record exists; CarUp could not render
+                    it here.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Info card */}
+            <Card className="border-0 card-shadow">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    {/* FR-9: a section heading, not a second page title. The showroom hero above owns
+                        the page's single <h1>; this card's <h3> sections now nest under this <h2>. */}
+                    <h2 className="text-2xl font-bold">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''}</h2>
+
+                    {/* Plate, VIN and Registration Status identity block */}
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <span className="text-xs font-semibold px-2 py-1 bg-gray-100 rounded text-gray-700 font-mono">
+                        VIN: {vehicle.vin}
+                      </span>
+                      {identity?.plateNumber ? (
+                        <span className="text-xs font-bold px-2 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded font-mono flex items-center gap-1" data-testid="identity-plate">
+                          Plate: {identity.plateNumber}
+                        </span>
+                      ) : identity?.temporaryIdentificationNumber ? (
+                        <span className="text-xs font-bold px-2 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded font-mono flex items-center gap-1" data-testid="identity-temp-id">
+                          Temp ID: {identity.temporaryIdentificationNumber}
+                        </span>
+                      ) : identifiersRedacted ? (
+                        <span className="text-xs font-medium px-2 py-1 bg-gray-100 text-gray-600 border border-gray-200 rounded flex items-center gap-1" data-testid="identity-plate-withheld">
+                          <Lock className="w-3 h-3" /> Plate: not shown publicly
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold px-2 py-1 bg-red-50 text-red-700 border border-red-200 rounded" data-testid="identity-no-plate">
+                          No Plate Assigned
+                        </span>
+                      )}
+                      {passport?.identity?.registrationStatus && (
+                        <Badge className={`${
+                          passport.identity.registrationStatus === 'Current' || passport.identity.registrationStatus === 'Active' ? 'bg-green-500 text-white' :
+                          passport.identity.registrationStatus === 'Pending' ? 'bg-amber-500 text-white' : 'bg-red-500 text-white'
+                        } text-[10px] font-semibold`} data-testid="registration-status-badge">
+                          {passport.identity.registrationStatus}
+                        </Badge>
+                      )}
+                      {/* Government-approval claims (CID/police/ZIMRA/duty) are deliberately absent here.
+                          Legacy booleans without authoritative public provenance cannot produce buyer-facing approval badges. */}
+                    </div>
+
+                    <div className="flex items-center gap-2 mt-3 text-sm text-gray-500">
+                      <MapPin className="w-4 h-4" />
+                      <span data-testid="detail-location">{locationLine.label}</span>
+                    </div>
+                  </div>
+                  <div className={`${trust.tone} text-white px-4 py-2 rounded-xl text-center min-w-[70px] max-w-[150px]`} data-testid="trust-score-badge">
+                    {trust.score !== null && (
+                      <p className="text-2xl font-bold" data-testid="trust-score-value">{trust.score}</p>
                     )}
+                    <p className="text-xs" data-testid="trust-score-label">{trust.headline}</p>
                   </div>
                 </div>
-              ))}
-            </div>
-
-            {/* THE SELLER'S OWN WORDS, from the field the projection actually publishes. This
-                block read `vehicle.description` — a key `PUBLIC_VEHICLE_FIELDS` never emitted —
-                so a seller could write a full description and no buyer would ever see a
-                character of it. Same defect shape as the gallery reading `vehicle.images`. */}
-            {sellerDescription && (
-              <div className="mt-10 max-w-[68ch]">
-                <p className={`${eyebrow} text-slate-500`}>In the seller’s words</p>
-                <p className="mt-3 whitespace-pre-line text-[17px] leading-8 text-slate-700" data-testid="seller-description">{sellerDescription}</p>
-              </div>
-            )}
-            {sellerFeatures.length > 0 && (
-              <div className="mt-10">
-                {/* "Features" alone read as a CarUp finding. These are the seller's claims. */}
-                <h3 className="text-lg font-semibold tracking-[-0.015em] text-[#09122A]">Features stated by the seller</h3>
-                <ul className="mt-4 flex flex-wrap gap-2" data-testid="seller-features">
-                  {sellerFeatures.map((f) => (
-                    <li key={f} className="inline-flex min-h-9 items-center rounded-full bg-slate-100 px-3.5 py-1.5 text-[13px] text-slate-700">{f}</li>
+                {/* THE SELLER'S OWN WORDS, from the field the projection actually publishes. This
+                    block read `vehicle.description` — a key `PUBLIC_VEHICLE_FIELDS` never emitted —
+                    so a seller could write a full description and no buyer would ever see a
+                    character of it. Same defect shape as the gallery reading `vehicle.images`. */}
+                {sellerDescription && (
+                  <p className="text-gray-700 mb-6 leading-relaxed" data-testid="seller-description">{sellerDescription}</p>
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+                  {[
+                    // 0 km is a real reading, so presence is tested on the number, not on truthiness.
+                    { label: 'Mileage',       value: Number.isFinite(vehicle.mileage) ? `${vehicle.mileage.toLocaleString()} km` : null, icon: Gauge, testId: 'spec-mileage' },
+                    { label: 'Transmission',  value: vehicle.transmission || null, icon: Settings2, testId: 'spec-transmission' },
+                    { label: 'Fuel Type',     value: vehicle.fuel_type || vehicle.fuelType || null, icon: Fuel, testId: 'spec-fuel-type' },
+                    { label: 'Body style',    value: vehicle.body_style || null, icon: Car, testId: 'spec-body-style' },
+                    // LABELLED, DELIBERATELY. This tile used to read `vehicle.condition`, another key
+                    // the projection does not emit, so it said "Not recorded" for every vehicle on the
+                    // platform. The honest value is the seller's statement — and it is captioned as
+                    // the seller's, because CarUp's own governed classification is a different
+                    // question with a different answer (`vehicle_condition_category`).
+                    { label: 'Condition (seller-stated)', value: vehicle.seller_stated_condition || null, icon: FileCheck, testId: 'spec-seller-condition' },
+                  ].map((item) => (
+                    <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center" data-testid={item.testId}>
+                      <item.icon className="w-5 h-5 text-orange-700 mx-auto mb-1" />
+                      <p className="text-xs text-gray-500">{item.label}</p>
+                      {item.value ? (
+                        <p className="font-semibold text-sm">{item.value}</p>
+                      ) : (
+                        <p className="text-sm text-gray-600 italic" data-testid="spec-not-recorded">Not recorded</p>
+                      )}
+                    </div>
                   ))}
-                </ul>
-              </div>
-            )}
-          </section>
+                </div>
+                {sellerFeatures.length > 0 && (
+                  <>
+                    <Separator className="mb-6" />
+                    {/* "Features" alone read as a CarUp finding. These are the seller's claims. */}
+                    <h3 className="font-semibold mb-3">Features stated by the seller</h3>
+                    <div className="flex flex-wrap gap-2" data-testid="seller-features">
+                      {sellerFeatures.map((f) => (
+                        <Badge key={f} variant="secondary" className="bg-gray-100 text-gray-700 font-normal">{f}</Badge>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
 
-          {/* ── THE DOSSIER ──────────────────────────────────────────────────── */}
-          <div className="min-w-0 pt-10 lg:col-start-1 lg:row-start-3 lg:pt-12">
-            <DossierNav
-              items={dossierItems}
-              className="mb-2 bg-white lg:sticky lg:top-16 lg:z-20 lg:-mx-2 lg:border-b lg:border-slate-200 lg:px-2 lg:py-3"
+            {/* Vehicle History Intelligence: a buyer should see the living vehicle story before
+                navigating into the deeper report/evidence tools. It renders only the public-safe
+                report projection already governed by Truth & Trust. */}
+            {report && <VehicleIntelligenceStory report={report} />}
+
+            {/* §14 items 9–11 (K17–K19): accident/damage/repair · insurance · finance/title
+                obligations. Renders the seller_stated history_disclosures block — identical in
+                Buyer Preview and public mode (K20) — with "Not recorded" as the honest state for
+                every unanswered topic. Governed evidence stays in its own sections above/below. */}
+            <VehicleHistoryObligationsSections
+              disclosures={passport?.history_disclosures ?? null}
+              financeObligation={passport?.finance_obligation ?? null}
             />
 
-            {showTrustSection && (
-              <DossierSection id="vd-trust" eyebrow="Trust" title="Trust, safety and cost">
-                <div className="space-y-8">
-                  {plateAdvisory}
-
-                  {/* What the canonical assessment is based on. The former "Trust Score Breakdown"
-                      invented per-category percentages on the client; a fabricated precision is worse
-                      than no breakdown, so only what the authority actually published is rendered here.
-                      This block is where the projection's other two axes surface: `confidence` (how much
-                      evidence is behind the number) and `evidence_basis` (what that evidence is). A
-                      number alone cannot tell an unevidenced vehicle from a genuinely low-scoring one. */}
-                  {publicTrust && (
-                    <div data-testid="trust-basis">
-                      <h3 className="text-lg font-semibold tracking-[-0.015em] text-[#09122A]">What this assessment is based on</h3>
-                      <p className="mt-2 max-w-[68ch] text-[15px] leading-6 text-slate-600" data-testid="trust-state-detail">
-                        {trust.detail} CarUp does not estimate a sub-score for a signal it has no record of.
-                      </p>
-
-                      <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <Badge variant="outline" className="h-7 rounded-full border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-700" data-testid="trust-evaluation-state">
-                          {TRUST_STATE_LABELS[publicTrust.evaluation_state] ?? publicTrust.evaluation_state}
-                        </Badge>
-                        <Badge variant="outline" className="h-7 rounded-full border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-700" data-testid="trust-confidence">
-                          {TRUST_CONFIDENCE_LABELS[publicTrust.confidence] ?? publicTrust.confidence}
-                        </Badge>
-                        {trust.score !== null && publicTrust.evaluated_at && (
-                          <span className="text-xs text-slate-500" data-testid="trust-evaluated-at">
-                            Evaluated {new Date(publicTrust.evaluated_at).toLocaleDateString()}
-                          </span>
-                        )}
-                        {/* The rules this number was produced under. It was published only inside the
-                            "Market Analysis" tab, which is not the active tab, so the version was absent
-                            from the Trust panel that states the score — a number with its provenance one
-                            click away is a number without provenance. Gated on a published score for the
-                            same reason as `evaluated_at`: naming a version beside a WITHHELD score would
-                            read as provenance for a number this page is deliberately not showing. */}
-                        {trust.score !== null && publicTrust.calculation_version && (
-                          <span className="font-mono text-xs text-slate-500" data-testid="trust-calculation-version">
-                            {publicTrust.calculation_version}
-                          </span>
-                        )}
-                      </div>
-
-                      {evidenceBasis && (
-                        <div className="mt-6">
-                          <p className="text-[13px] font-semibold text-[#09122A]">Evidence behind this assessment</p>
-                          <dl className="mt-2 grid max-w-xl grid-cols-[1fr_auto] border-t border-slate-200 text-[13px] text-slate-600 [&>dd]:border-b [&>dd]:border-slate-200 [&>dd]:py-2.5 [&>dd]:pl-6 [&>dt]:border-b [&>dt]:border-slate-200 [&>dt]:py-2.5" data-testid="trust-evidence-basis">
-                            <dt>Governed facts backed by a record</dt>
-                            <dd className="text-right font-semibold text-[#09122A]">
-                              {basisValue(evidenceBasis.governed_facts_substantiated)}
-                              {evidenceBasis.governed_facts_total === null ? '' : ` of ${evidenceBasis.governed_facts_total}`}
-                            </dd>
-                            <dt>Adverse findings</dt>
-                            <dd className="text-right font-semibold text-[#09122A]">{basisValue(evidenceBasis.governed_facts_adverse)}</dd>
-                            <dt>Connected sources</dt>
-                            <dd className="text-right font-semibold text-[#09122A]">{basisValue(evidenceBasis.connected_sources)}</dd>
-                            <dt>Stored claims with no backing record</dt>
-                            <dd className="text-right font-semibold text-[#09122A]" data-testid="trust-unbacked-claims">
-                              {basisValue(evidenceBasis.unbacked_legacy_claims)}
-                            </dd>
-                          </dl>
-                        </div>
-                      )}
-
-                      {trustReasonCodes.length > 0 && (
-                        <div className="mt-6">
-                          <p className="text-[13px] font-semibold text-[#09122A]">Reason codes</p>
-                          <div className="mt-2 flex flex-wrap gap-1.5" data-testid="trust-reason-codes">
-                            {trustReasonCodes.map((code) => (
-                              <Badge key={code} variant="outline" className="rounded-full border-slate-200 bg-slate-50 font-mono text-[11px] text-slate-700">
-                                {code}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {trustLimitations.length > 0 && (
-                        <div className="mt-6">
-                          <p className="text-[13px] font-semibold text-[#09122A]">Known limitations</p>
-                          <ul className="mt-2 list-inside list-disc space-y-1 text-[13px] leading-5 text-slate-600" data-testid="trust-known-limitations">
-                            {trustLimitations.map((limitation, i) => (
-                              <li key={i}>{limitation}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Backend-governed marketplace panels (trust, verification, coverage, safety,
-                      all-in price). The duplicated "Contact & inquire" box that used to live here is
-                      gone: every buyer action now lives once, in the decision rail. */}
-                  {detail && (
-                    <div
-                      className="grid gap-5 2xl:grid-cols-2 [&_.card-shadow]:shadow-none [&_.shadow-sm]:shadow-none [&_.rounded-xl]:rounded-2xl [&_[data-slot=card]]:rounded-2xl [&_[data-slot=card]]:border [&_[data-slot=card]]:border-slate-200"
-                      data-testid="marketplace-detail-panels"
-                    >
-                      <div className="min-w-0 space-y-5">
-                        <TrustSummaryPanel trust={detail.trust_summary} verification={detail.verification_summary} />
-                        {(vehicle?.vin || id) && <TrustDecisionPanel vin={(vehicle?.vin || id) as string} />}
-                        {(vehicle?.vin || id) && <SourceCoveragePanel vin={(vehicle?.vin || id) as string} />}
-                      </div>
-                      <div className="min-w-0 space-y-5">
-                        <AllInPricePanel pricing={detail.pricing_summary} />
-                        <SafetyWarnings warnings={detail.safety_warnings} />
-                        {isSellerPreview && (
-                          <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4" data-testid="seller-preview-transactions-disabled">
-                            <h3 className="text-sm font-semibold text-[#09122A]">Buyer transactions disabled in preview</h3>
-                            <p className="mt-2 text-[13px] leading-5 text-slate-700">
-                              Pricing and Trust presentation are shared with Marketplace, but inquiry and inspection actions do not run from the Seller&rsquo;s own preview.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Ledger verification */}
-                  {passport?.chainVerification && (
-                    <p className={`flex items-center gap-2 text-[13px] font-medium ${passport.chainVerification.verified ? 'text-emerald-700' : 'text-amber-800'}`}>
-                      {passport.chainVerification.verified
-                        ? <><CheckCircle className="h-4 w-4" aria-hidden="true" /> CarUp audit ledger verified — hash chain intact</>
-                        : <><AlertTriangle className="h-4 w-4" aria-hidden="true" /> Ledger integrity unconfirmed</>
-                      }
-                    </p>
-                  )}
-                </div>
-              </DossierSection>
-            )}
-
-            <DossierSection id="vd-history" eyebrow="History" title="History and records">
-              <div className="space-y-10">
-                {/* Vehicle History Intelligence: a buyer should see the living vehicle story before
-                    navigating into the deeper report/evidence tools. It renders only the public-safe
-                    report projection already governed by Truth & Trust. */}
-                {report && <VehicleIntelligenceStory report={report} />}
-
-                {/* §14 items 9–11 (K17–K19): accident/damage/repair · insurance · finance/title
-                    obligations. Renders the seller_stated history_disclosures block — identical in
-                    Buyer Preview and public mode (K20) — with "Not recorded" as the honest state for
-                    every unanswered topic. Governed evidence stays in its own sections above/below. */}
-                <VehicleHistoryObligationsSections
-                  disclosures={passport?.history_disclosures ?? null}
-                  financeObligation={passport?.finance_obligation ?? null}
-                />
-
-                {/* ── Tabs ─────────────────────────────────────────────────── */}
-                <Tabs defaultValue="history" className="gap-5">
-                  <TabsList className="carup-rail -mx-4 flex h-auto w-auto scroll-px-4 justify-start gap-2 overflow-x-auto rounded-none bg-transparent px-4 py-1 sm:-mx-6 sm:scroll-px-6 sm:px-6 md:mx-0 md:scroll-px-0 md:px-0">
-                    {[
-                      ['history', 'Vehicle History'],
-                      ['report', 'History Report'],
-                      ['evidence', 'Evidence Vault'],
-                      ['verification', 'Verification'],
-                      ['market', 'Market Analysis'],
-                    ].map(([value, label]) => (
-                      <TabsTrigger
-                        key={value}
-                        value={value}
-                        className={`h-11 flex-none rounded-full border-0 bg-white px-4 text-[14px] font-medium text-slate-600 shadow-none ring-1 ring-inset ring-slate-200 hover:text-[#09122A] data-[state=active]:bg-[#F6F4F0] data-[state=active]:font-semibold data-[state=active]:text-[#09122A] data-[state=active]:shadow-none data-[state=active]:ring-2 data-[state=active]:ring-[#09122A] ${focusRing}`}
-                      >
-                        {label}
-                      </TabsTrigger>
-                    ))}
+            {/* ── Tabs ─────────────────────────────────────────────────── */}
+            <Card className="border-0 card-shadow">
+              <CardContent className="p-6">
+                <Tabs defaultValue="history">
+                  <TabsList className="w-full flex-wrap">
+                    <TabsTrigger value="history" className="flex-1">Vehicle History</TabsTrigger>
+                    <TabsTrigger value="report" className="flex-1">History Report</TabsTrigger>
+                    <TabsTrigger value="evidence" className="flex-1">Evidence Vault</TabsTrigger>
+                    <TabsTrigger value="verification" className="flex-1">Verification</TabsTrigger>
+                    <TabsTrigger value="market" className="flex-1">Market Analysis</TabsTrigger>
                   </TabsList>
 
                   {/* ── History tab: canonical lifecycle first, legacy audit timeline as compatibility fallback ── */}
-                  <TabsContent value="history" className="mt-2" data-testid="history-tab-content">
+                  <TabsContent value="history" className="mt-4" data-testid="history-tab-content">
                     {lifecycleLoaded ? (
                       lifecycleEvents.length === 0 ? (
-                        <div className="rounded-2xl bg-slate-50 px-6 py-10 text-center text-slate-600" data-testid="history-empty-state">
-                          <Clock className="mx-auto mb-3 h-9 w-9 text-slate-400" aria-hidden="true" />
-                          <p className="font-semibold text-[#09122A]">No dated lifecycle records in current coverage</p>
-                          <p className="mx-auto mt-1 max-w-md text-[13px] leading-5 text-slate-600">This is not proof of a clean history. Add governed evidence, service, ownership or inspection records to expand coverage.</p>
+                        <div className="text-center py-8 text-gray-600" data-testid="history-empty-state">
+                          <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                          <p className="font-medium">No dated lifecycle records in current coverage</p>
+                          <p className="text-xs mt-1 text-gray-600">This is not proof of a clean history. Add governed evidence, service, ownership or inspection records to expand coverage.</p>
                         </div>
                       ) : (
-                        <div className="border-t border-slate-200" data-testid="history-timeline" data-history-source="canonical-lifecycle">
+                        <div className="space-y-3" data-testid="history-timeline" data-history-source="canonical-lifecycle">
                           {lifecycleEvents.map((event: VehicleLifecycleEvent) => {
                             const { icon: Icon, color } = lifecycleIcon(event.category)
                             const evidenceItem = event.evidence_id
@@ -2766,39 +2523,39 @@ export default function VehicleDetail() {
                             return (
                               <div
                                 key={event.id}
-                                className="flex items-start gap-4 border-b border-slate-200 py-4"
+                                className="flex items-start gap-3 border-b border-slate-200 bg-white py-4"
                                 data-testid="timeline-event"
                                 data-lifecycle-category={event.category}
                               >
-                                <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full ${color}`}>
-                                  <Icon className="h-4 w-4" aria-hidden="true" />
+                                <div className={`flex-shrink-0 w-9 h-9 flex items-center justify-center ${color}`}>
+                                  <Icon className="w-4 h-4" />
                                 </div>
-                                <div className="min-w-0 flex-1">
+                                <div className="flex-1 min-w-0">
                                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                    <p className="text-sm font-semibold text-[#09122A]">{event.label}</p>
-                                    <Badge variant="outline" className="rounded-full border-slate-200 text-[11px] capitalize text-slate-700">{event.category.replace(/_/g, ' ')}</Badge>
-                                    <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">{lifecycleStatusLabel(event)}</span>
+                                    <p className="font-semibold text-sm text-slate-900">{event.label}</p>
+                                    <Badge variant="outline" className="rounded-none text-[10px] capitalize">{event.category.replace(/_/g, ' ')}</Badge>
+                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-600">{lifecycleStatusLabel(event)}</span>
                                   </div>
-                                  <p className="mt-1 text-[13px] text-slate-500">
+                                  <p className="text-xs text-slate-500 mt-1">
                                     {event.date ? new Date(event.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date unknown'}
                                     {typeof event.mileage === 'number' ? ` · ${event.mileage.toLocaleString()} ${event.mileage_unit || 'km'}` : ''}
                                     {event.source_kind ? ` · ${event.source_kind.replace(/_/g, ' ')}` : ''}
                                   </p>
                                   {event.detail_state === 'summary_only' && (
-                                    <p className="mt-1 text-[12px] text-slate-500">A maintenance event is recorded; public part-level detail is not published from this record.</p>
+                                    <p className="mt-1 text-[11px] text-slate-400">A maintenance event is recorded; public part-level detail is not published from this record.</p>
                                   )}
                                   {evidenceItem && (
-                                    <div className="mt-3 flex items-center gap-3">
-                                      <div className="h-14 w-16 overflow-hidden rounded-lg border border-slate-200 bg-slate-50" data-testid={`history-thumbnail-${evidenceItem.id}`}>
+                                    <div className="mt-3 flex items-center gap-2">
+                                      <div className="h-14 w-16 overflow-hidden border border-slate-200 bg-slate-50" data-testid={`history-thumbnail-${evidenceItem.id}`}>
                                         {!evidenceItem.file_url || isDoc ? (
                                           <div className="flex h-full w-full items-center justify-center" data-testid={!evidenceItem.file_url ? 'history-thumbnail-withheld' : undefined}>
-                                            <FileText className="h-6 w-6 text-slate-500" aria-hidden="true" />
+                                            <FileText className="w-6 h-6 text-gray-600" />
                                           </div>
                                         ) : (
-                                          <img src={evidenceItem.file_url} className="h-full w-full object-cover" alt="" />
+                                          <img src={evidenceItem.file_url} className="w-full h-full object-cover" alt="" />
                                         )}
                                       </div>
-                                      <span className="text-[12px] text-slate-500">Governed evidence linked to this lifecycle event</span>
+                                      <span className="text-[11px] text-slate-500">Governed evidence linked to this lifecycle event</span>
                                     </div>
                                   )}
                                 </div>
@@ -2808,24 +2565,24 @@ export default function VehicleDetail() {
                         </div>
                       )
                     ) : timeline.length === 0 ? (
-                      <div className="rounded-2xl bg-slate-50 px-6 py-10 text-center text-slate-600" data-testid="history-empty-state">
-                        <Clock className="mx-auto mb-3 h-9 w-9 text-slate-400" aria-hidden="true" />
-                        <p className="font-semibold text-[#09122A]">Vehicle lifecycle was not loaded</p>
-                        <p className="mx-auto mt-1 max-w-md text-[13px] leading-5 text-slate-600">CarUp will not turn a missing lifecycle projection into a claim that the vehicle has no history.</p>
+                      <div className="text-center py-8 text-gray-600" data-testid="history-empty-state">
+                        <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                        <p className="font-medium">Vehicle lifecycle was not loaded</p>
+                        <p className="text-xs mt-1 text-gray-600">CarUp will not turn a missing lifecycle projection into a claim that the vehicle has no history.</p>
                       </div>
                     ) : (
-                      <div className="border-t border-slate-200" data-testid="history-timeline" data-history-source="legacy-audit-fallback">
+                      <div className="space-y-3" data-testid="history-timeline" data-history-source="legacy-audit-fallback">
                         {timeline.map((event: TimelineEvent, idx) => {
                           const { icon: Icon, color } = timelineIcon(event.event_source)
                           return (
-                            <div key={`${event.event_source}-${event.id ?? idx}`} className="flex items-start gap-4 border-b border-slate-200 py-4" data-testid="timeline-event">
-                              <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full ${color}`}>
-                                <Icon className="h-4 w-4" aria-hidden="true" />
+                            <div key={`${event.event_source}-${event.id ?? idx}`} className="flex items-start gap-3 p-3 bg-gray-50" data-testid="timeline-event">
+                              <div className={`flex-shrink-0 w-8 h-8 flex items-center justify-center ${color}`}>
+                                <Icon className="w-4 h-4" />
                               </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-semibold text-[#09122A]">{event.label}</p>
-                                {event.desc && <p className="mt-0.5 truncate text-[13px] text-slate-500">{event.desc}</p>}
-                                <p className="mt-1 text-[13px] text-slate-600">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm">{event.label}</p>
+                                {event.desc && <p className="text-xs text-gray-500 mt-0.5 truncate">{event.desc}</p>}
+                                <p className="text-xs text-gray-600 mt-1">
                                   {event.timestamp ? new Date(event.timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date unknown'}
                                   {event.details?.mileage ? ` · ${event.details.mileage.toLocaleString()} km` : ''}
                                 </p>
@@ -2838,14 +2595,14 @@ export default function VehicleDetail() {
                   </TabsContent>
 
                   {/* ── Vehicle History Report tab (M4): full buyer report ── */}
-                  <TabsContent value="report" className="mt-2" data-testid="history-report-tab-content">
+                  <TabsContent value="report" className="mt-4" data-testid="history-report-tab-content">
                     {/* Owner/dealer/admin actions: snapshot a version + create an expiring share link.
                         Backend role-gates the writes; UI keeps them unobtrusive for privileged roles. */}
                     {canManageReport && (
-                      <div className="mb-5 rounded-2xl bg-slate-50 p-4" data-testid="report-owner-actions">
+                      <div className="mb-5 rounded-xl border border-gray-200 bg-gray-50 p-4" data-testid="report-owner-actions">
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div className="flex items-center gap-2 text-sm text-slate-600">
-                            <FileSearch className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <FileSearch className="h-4 w-4 text-gray-600" aria-hidden="true" />
                             <span>Snapshot this report or share it with a buyer via an expiring link.</span>
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -2853,7 +2610,6 @@ export default function VehicleDetail() {
                               type="button"
                               variant="outline"
                               size="sm"
-                              className="h-10 rounded-full border-slate-300 bg-white px-4"
                               onClick={handleGenerateReportVersion}
                               disabled={reportBusy}
                             >
@@ -2863,7 +2619,6 @@ export default function VehicleDetail() {
                             <Button
                               type="button"
                               size="sm"
-                              className="h-10 rounded-full bg-[#09122A] px-4 text-white hover:bg-[#111D3D]"
                               onClick={handleCreateShareLink}
                               disabled={reportBusy}
                             >
@@ -2873,9 +2628,9 @@ export default function VehicleDetail() {
                           </div>
                         </div>
                         {shareLink && (
-                          <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-2" data-testid="report-share-link">
-                            <Copy className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
-                            <code className="min-w-0 flex-1 truncate text-xs text-slate-600">{shareLink}</code>
+                          <div className="mt-3 flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-2" data-testid="report-share-link">
+                            <Copy className="h-4 w-4 shrink-0 text-gray-600" aria-hidden="true" />
+                            <code className="min-w-0 flex-1 truncate text-xs text-gray-600">{shareLink}</code>
                             <Button
                               type="button"
                               variant="ghost"
@@ -2890,27 +2645,27 @@ export default function VehicleDetail() {
                     )}
 
                     {reportLoading ? (
-                      <div className="flex flex-col items-center py-12 text-slate-600">
+                      <div className="flex flex-col items-center py-12 text-gray-600">
                         <Loader2 className="h-7 w-7 animate-spin" aria-hidden="true" />
                         <p className="mt-3 text-sm">Loading vehicle history report…</p>
                       </div>
                     ) : report ? (
                       <VehicleHistoryReport report={report} />
                     ) : (
-                      <div className="rounded-2xl bg-slate-50 px-6 py-10 text-center text-slate-600" data-testid="history-report-unavailable">
-                        <HelpCircle className="mx-auto mb-3 h-9 w-9 text-slate-400" aria-hidden="true" />
-                        <p className="font-semibold text-[#09122A]">History report unavailable</p>
-                        <p className="mt-1 text-[13px]">{reportError || 'The report could not be loaded for this vehicle.'}</p>
+                      <div className="text-center py-10 text-gray-600" data-testid="history-report-unavailable">
+                        <HelpCircle className="w-10 h-10 mx-auto mb-3 opacity-30" aria-hidden="true" />
+                        <p className="font-medium">History report unavailable</p>
+                        <p className="text-xs mt-1">{reportError || 'The report could not be loaded for this vehicle.'}</p>
                       </div>
                     )}
                   </TabsContent>
 
                   {/* ── Evidence tab: buyer-facing visual proof timeline ── */}
-                  <TabsContent value="evidence" className="mt-2" data-testid="evidence-timeline-tab-content">
+                  <TabsContent value="evidence" className="mt-4" data-testid="evidence-timeline-tab-content">
                     {/* Vehicle life-stage timeline (M1): groups verified, public-safe evidence by the eight life stages. */}
                     {publicEvidence.length > 0 && (
                       <div className="mb-8">
-                        <h3 className="mb-3 text-lg font-semibold tracking-[-0.015em] text-[#09122A]">Vehicle Life Timeline</h3>
+                        <h3 className="text-lg font-semibold mb-3">Vehicle Life Timeline</h3>
                         <VehicleLifeStageTimeline
                           evidence={publicEvidence}
                           taxonomy={evidenceTaxonomy}
@@ -2923,9 +2678,9 @@ export default function VehicleDetail() {
                     {/* Vehicle Life Intelligence (M3): reviewer-confirmed, public-safe
                         before/after comparisons across the vehicle's life. Empty is the
                         expected case for most vehicles and implies nothing is wrong. */}
-                    <div className="mt-10" data-testid="temporal-comparison-section">
-                      <h3 className="mb-1 text-lg font-semibold tracking-[-0.015em] text-[#09122A]">Component Changes Over Time</h3>
-                      <p className="mb-3 text-[13px] text-slate-500">
+                    <div className="mt-8" data-testid="temporal-comparison-section">
+                      <h3 className="text-lg font-semibold mb-1">Component Changes Over Time</h3>
+                      <p className="text-xs text-gray-500 mb-3">
                         Reviewer-confirmed before/after comparisons of vehicle components across its life.
                       </p>
                       <VehicleTemporalComparison findings={temporalFindings} />
@@ -2933,29 +2688,29 @@ export default function VehicleDetail() {
 
                     {/* Disclosure conflicts: neutral comparison of seller disclosures
                         against available evidence. Empty is the expected case. */}
-                    <div className="mt-10" data-testid="disclosure-panel-section">
-                      <h3 className="mb-1 text-lg font-semibold tracking-[-0.015em] text-[#09122A]">Disclosure Review</h3>
-                      <p className="mb-3 text-[13px] text-slate-500">
+                    <div className="mt-8" data-testid="disclosure-panel-section">
+                      <h3 className="text-lg font-semibold mb-1">Disclosure Review</h3>
+                      <p className="text-xs text-gray-500 mb-3">
                         How the seller's disclosures compare against available evidence, as confirmed by a reviewer.
                       </p>
                       <VehicleDisclosurePanel conflicts={disclosureConflicts} />
                     </div>
                     {/* M5 governance: disputes & corrections (public-safe; owners can raise). */}
-                    <div className="mt-10" data-testid="dispute-panel-section">
+                    <div className="mt-8" data-testid="dispute-panel-section">
                       <DisputePanel vin={vehicle?.vin || id || ''} />
                     </div>
                   </TabsContent>
 
                   {/* ── Verification tab: real trust metrics ── */}
-                  <TabsContent value="verification" className="mt-2" data-testid="verification-tab-content">
+                  <TabsContent value="verification" className="mt-4" data-testid="verification-tab-content">
                     {verificationSources.length === 0 ? (
-                      <div className="rounded-2xl bg-slate-50 px-6 py-10 text-center text-slate-600">
-                        <HelpCircle className="mx-auto mb-3 h-9 w-9 text-slate-400" aria-hidden="true" />
-                        <p className="font-semibold text-[#09122A]">Verification data unavailable</p>
-                        <p className="mt-1 text-[13px]">Trust report could not be loaded for this vehicle</p>
+                      <div className="text-center py-8 text-gray-600">
+                        <HelpCircle className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                        <p className="font-medium">Verification data unavailable</p>
+                        <p className="text-xs mt-1">Trust report could not be loaded for this vehicle</p>
                       </div>
                     ) : (
-                      <div className="border-t border-slate-200" data-testid="verification-list">
+                      <div className="space-y-2" data-testid="verification-list">
                         {verificationSources.map((src: PassportVerificationSource) => {
                           const Icon = src.status === 'verified' ? CheckCircle
                             : src.status === 'warning' ? AlertTriangle
@@ -2967,13 +2722,13 @@ export default function VehicleDetail() {
 
                           return (
                             <div key={src.label}
-                              className="flex items-center gap-3 border-b border-slate-200 py-3.5"
+                              className="flex items-center gap-3 p-3 rounded-lg bg-gray-50"
                               data-testid="verification-item"
                             >
-                              <Icon className={`h-5 w-5 flex-shrink-0 ${iconColor}`} aria-hidden="true" />
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-semibold text-[#09122A]">{src.label}</p>
-                                {src.detail && <p className="mt-0.5 text-[13px] text-slate-500">{src.detail}</p>}
+                              <Icon className={`w-5 h-5 flex-shrink-0 ${iconColor}`} />
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm">{src.label}</p>
+                                {src.detail && <p className="text-xs text-gray-500 mt-0.5">{src.detail}</p>}
                               </div>
                               <VerificationBadge status={src.status} />
                             </div>
@@ -2984,32 +2739,32 @@ export default function VehicleDetail() {
                   </TabsContent>
 
                   {/* ── Market Analysis tab ── */}
-                  <TabsContent value="market" className="mt-2">
-                    <div className="grid gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-200 sm:grid-cols-3">
-                      <div className="bg-white p-5">
-                        <p className="text-[12px] text-slate-500">Listed Price</p>
-                        <p className="mt-1 text-xl font-bold tabular-nums text-[#09122A]">{governedPrice(vehicle.price, vehicle.currency)}</p>
+                  <TabsContent value="market" className="mt-4">
+                    <div className="grid sm:grid-cols-3 gap-4">
+                      <div className="bg-gray-50 rounded-lg p-4 text-center">
+                        <p className="text-xs text-gray-500 mb-1">Listed Price</p>
+                        <p className="text-xl font-bold">{governedPrice(vehicle.price, vehicle.currency)}</p>
                       </div>
-                      <div className="bg-white p-5">
-                        <p className="text-[12px] text-slate-500">Trust Score</p>
+                      <div className="bg-gray-50 rounded-lg p-4 text-center">
+                        <p className="text-xs text-gray-500 mb-1">Trust Score</p>
                         {trust.score !== null ? (
-                          <p className={`mt-1 text-xl font-bold tabular-nums ${trust.toneText}`} data-testid="market-trust-score">{trust.score} / 100</p>
+                          <p className={`text-xl font-bold ${trust.toneText}`} data-testid="market-trust-score">{trust.score} / 100</p>
                         ) : (
-                          <p className={`mt-1 text-sm font-semibold ${trust.toneText}`} data-testid="market-trust-unscored">{trust.headline}</p>
+                          <p className={`text-sm font-semibold ${trust.toneText}`} data-testid="market-trust-unscored">{trust.headline}</p>
                         )}
                       </div>
-                      <div className="bg-white p-5">
-                        <p className="text-[12px] text-slate-500">Service Records</p>
+                      <div className="bg-gray-50 rounded-lg p-4 text-center">
+                        <p className="text-xs text-gray-500 mb-1">Service Records</p>
                         {serviceRecordCount === null ? (
-                          <p className="mt-1 text-sm italic text-slate-500" data-testid="service-records-unrecorded">Not recorded</p>
+                          <p className="text-sm text-gray-600 italic" data-testid="service-records-unrecorded">Not recorded</p>
                         ) : (
-                          <p className="mt-1 text-xl font-bold tabular-nums text-[#09122A]">{serviceRecordCount}</p>
+                          <p className="text-xl font-bold">{serviceRecordCount}</p>
                         )}
                       </div>
                     </div>
-                    <div className="mt-5 rounded-2xl bg-[#F6F4F0] p-5">
-                      <h4 className="mb-2 text-sm font-semibold text-[#09122A]">CarUp Data Summary</h4>
-                      <p className="text-sm leading-6 text-slate-700" data-testid="carup-data-summary">
+                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                      <h4 className="font-medium text-sm mb-2">CarUp Data Summary</h4>
+                      <p className="text-sm text-gray-600" data-testid="carup-data-summary">
                         {trust.score !== null
                           ? `CarUp's trust authority published ${trust.score}/100 for this vehicle — ${trust.headline.toLowerCase()}.`
                           : `${trust.headline}: CarUp has published no trust score for this vehicle.`}
@@ -3031,351 +2786,427 @@ export default function VehicleDetail() {
                           ? ' ⚠️ WARNING: This vehicle has an active police alert.'
                           : ''}
                       </p>
-                      <p className="mt-2 text-[13px] leading-5 text-slate-600">
+                      <p className="mt-2 text-xs text-gray-500">
                         A recorded event is not by itself a verification, so CarUp does not turn a count of
                         events into a trust claim. Each signal is shown separately in the trust breakdown.
                       </p>
                     </div>
                   </TabsContent>
                 </Tabs>
-              </div>
-            </DossierSection>
+              </CardContent>
+            </Card>
+          </div>
 
-            {/* ── VERIFIED EVIDENCE — governed artifacts, deliberately not a gallery ────
-                The convergence: both blocks are composed on this page, and neither can be read as
-                the other. The listing block is the seller's own pictures on a photo stage; this one
-                is a list of records, each with a review decision and its own provenance. A buyer
-                scanning the page meets the difference before they meet any individual file. */}
-            <DossierSection id="vd-evidence" eyebrow="Evidence" labelledBy="vd-evidence-title">
-              <div data-testid="verified-evidence-block">
-                <h2 id="vd-evidence-title" className="text-[clamp(1.5rem,2.4vw,2.125rem)] font-bold leading-[1.08] tracking-[-0.03em] text-[#09122A]">Verified evidence</h2>
-                <p className="mt-3 max-w-[68ch] text-[15px] leading-6 text-slate-600" data-testid="verified-evidence-caption">
-                  Governed artifacts CarUp has reviewed — registration, inspection, clearance, customs,
-                  insurance and service records. These are not the listing photos above: each item here
-                  carries its own provenance and a review decision.
-                </p>
-
-                <div className="mt-7">
-                  {verifiedEvidence.state === 'published' ? (
-                    <ul className="border-t border-slate-200" data-testid="verified-evidence-list">
-                      {verifiedEvidence.items.map((item, i) => {
-                        const isImageArtifact = (item.mime_type ?? '').startsWith('image/')
-                        const advertisement = isAdvertisementEvidence(item)
-                        return (
-                          <li
-                            key={item.id ?? `evidence-${i}`}
-                            className="flex items-start gap-4 border-b border-slate-200 py-4"
-                            data-testid="verified-evidence-item"
-                          >
-                            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-emerald-50 text-emerald-700">
-                              {isImageArtifact && item.file_url ? (
-                                <img src={item.file_url} alt="" className="h-full w-full object-cover" />
-                              ) : (
-                                <FileText className="h-6 w-6" aria-hidden="true" />
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="text-[15px] font-semibold text-[#09122A]">{humaniseEvidenceType(item)}</p>
-                                <Badge className="rounded-full border-0 bg-emerald-50 text-[11px] font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-200" data-testid="verified-evidence-status">
-                                  Reviewed &amp; verified
-                                </Badge>
-                              </div>
-                              {/* Provenance, and only the kind that belongs to the public projection.
-                                  Who uploaded it and who reviewed it are internal identities that
-                                  Phase 0 allow-listed out of every public body; a date that was never
-                                  recorded says so rather than being back-filled from another column. */}
-                              <p className="mt-1 text-[13px] text-slate-500" data-testid="verified-evidence-provenance">
-                                Captured {evidenceDate(item.captured_at)} · reviewed {evidenceDate(item.verified_at)}
-                                {' · source '}{item.source_name || 'not recorded'}
-                              </p>
-                              {/* The record is published; the document is not. Saying so is the point —
-                                  silence here would read as "there is nothing to see", which is the
-                                  false-absence this whole block exists to avoid. */}
-                              {item.file_availability === 'withheld_private' && (
-                                <p className="mt-1 text-[13px] text-slate-500" data-testid="verified-evidence-file-withheld">
-                                  CarUp reviewed this document and is not publishing the file itself.
-                                </p>
-                              )}
-                              {advertisement && (
-                                <p className="mt-1 text-[13px] text-amber-800" data-testid="verified-evidence-advertisement-note">
-                                  This is a record of how the vehicle was advertised. The review attests the
-                                  advertisement, not the vehicle.
-                                </p>
-                              )}
-                            </div>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  ) : verifiedEvidence.state === 'none' ? (
-                    <div className="rounded-2xl bg-slate-50 p-6" data-testid="verified-evidence-empty">
-                      <p className="text-[15px] font-semibold text-[#09122A]">{verifiedEvidence.empty_statement}</p>
-                      <p className="mt-1 text-[13px] leading-5 text-slate-600">
-                        Whether this listing carries photos is a different question, and it is answered
-                        separately above.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl bg-slate-50 p-6" data-testid="verified-evidence-not-loaded">
-                      <p className="text-[15px] font-semibold text-[#09122A]">
-                        CarUp did not read this vehicle’s evidence record on this page.
-                      </p>
-                      <p className="mt-1 text-[13px] leading-5 text-slate-600">
-                        Nothing is stated either way about whether governed evidence exists for it.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* One truth state renders ONE message.
-                      This note used to sit outside the state ternary above, so a block reporting
-                      state 'none' printed "No verified evidence has been published for this vehicle"
-                      and, immediately beneath it, "4 reviewed item(s) could not be displayed" — two
-                      statements that cannot both be true of the same vehicle. The backend no longer
-                      produces that combination (a row naming a real artifact is published as a fact
-                      with the file withheld), and the guard here makes it unrenderable regardless:
-                      the shortfall note belongs only to a block that DID publish something. */}
-                  {verifiedEvidence.state === 'published' && verifiedEvidence.unpublishable_count > 0 && (
-                    <p className="mt-3 text-[13px] text-amber-800" data-testid="verified-evidence-unpublishable">
-                      {verifiedEvidence.unpublishable_count} further reviewed item(s) could not be displayed
-                      because the stored file address is unusable. The record exists; CarUp could not render
-                      it here.
-                    </p>
-                  )}
+          {/* ── Right sidebar ────────────────────────────────────────────── */}
+          <div className="space-y-6">
+            {/* Price / CTA card */}
+            {/* OBS-02: this panel was `sticky top-6` at every breakpoint and unbounded in height, so
+                on a short viewport it pinned itself over the vehicle details while the reader
+                scrolled. It now sticks only where there is a second column to stick beside, and is
+                capped to the viewport with its own scroll so it can never cover the content. */}
+            <Card className="border-0 card-shadow bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] text-white lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+              <CardContent className="p-6">
+                <p className="text-sm text-gray-300 mb-1">Price</p>
+                <p className="text-3xl font-bold">{governedPrice(vehicle.price, vehicle.currency)}</p>
+                <div className="flex items-center gap-1 mt-1">
+                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                  <span className="text-sm text-gray-300" data-testid="sidebar-trust">
+                    {trust.score !== null
+                      ? `CarUp Trust Score: ${trust.score}`
+                      : `CarUp Trust: ${trust.headline}`}
+                  </span>
                 </div>
-              </div>
-            </DossierSection>
-
-            <DossierSection id="vd-seller" eyebrow="Seller" title="Seller and vehicle identity" className="pb-4 lg:pb-6">
-              <div className="grid gap-x-12 gap-y-12 md:grid-cols-2">
-                {/* Seller */}
-                <div className="min-w-0">
-                  <h3 className="text-lg font-semibold tracking-[-0.015em] text-[#09122A]">Seller Information</h3>
-                  <div className="mt-4 flex items-center gap-3">
-                    {vehicle.sellerAvatar ? (
-                      <img src={vehicle.sellerAvatar} alt="" className="h-12 w-12 rounded-full object-cover" />
-                    ) : (
-                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#F6F4F0] text-slate-500">
-                        <UserRound className="h-5 w-5" aria-hidden="true" />
-                      </span>
-                    )}
-                    <div className="min-w-0">
-                      <p className="font-semibold text-[#09122A]" data-testid="seller-name">
-                        {/* Marketplace seller-profile consent is authoritative as soon as detail loads.
-                            Do not wait for passport enrichment before honoring a disabled public profile:
-                            that race exposed "Not recorded" for a seller whose public identity is withheld. */}
-                        {detail?.seller_summary?.public_profile_enabled === false
-                          ? 'Not shown publicly'
-                          : vehicle.sellerName
-                            ?? (passport?.ownershipSummary?.currentSellerRecorded ? 'Not shown publicly' : 'Not recorded')}
-                      </p>
-                      {vehicle.sellerType && (
-                        <span className="mt-1 inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">{vehicle.sellerType}</span>
-                      )}
+                {isSellerPreview ? (
+                  <div className="mt-6 border border-orange-400/30 bg-orange-400/10 p-4" data-testid="seller-preview-sidebar-disabled">
+                    <div className="flex items-center gap-2 text-sm font-black text-white">
+                      <Lock className="h-4 w-4 text-orange-400" /> Buyer actions are disabled
                     </div>
+                    <p className="mt-2 text-xs leading-5 text-slate-300">
+                      This is the Seller&rsquo;s buyer-facing preview. Contact, reservation, financing and SafePay requests only activate for a governed public buyer context.
+                    </p>
+                    <Button asChild variant="outline" className="mt-4 w-full rounded-none border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white">
+                      <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Return to Seller Studio</Link>
+                    </Button>
                   </div>
-                  <div className="mt-4 flex items-center gap-2 border-t border-slate-200 pt-4 text-sm">
-                    <Phone className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                ) : detail ? (
+                  <>
+                    {sellerContactNumber && sellerWhatsAppLink ? (
+                      <div className="flex gap-2 mt-6">
+                        <a href={`tel:${sellerContactNumber}`} onClick={() => toast.info(`Calling ${vehicle.sellerName ?? 'the seller'}...`)} className="flex-1">
+                          <Button className="w-full bg-orange-700 hover:bg-orange-800 gap-1"><Phone className="w-4 h-4" /> Call</Button>
+                        </a>
+                        <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer" className="flex-1">
+                          <Button variant="outline" className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="mt-6" data-testid="seller-contact-unavailable">
+                        <InquiryModal
+                          listingId={detail.vin}
+                          inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                          defaultInquiryType="vehicle_purchase_interest"
+                          triggerLabel="Contact through CarUp"
+                          triggerClassName="w-full bg-orange-700 text-white hover:bg-orange-800"
+                          defaultMessage="I am interested in this vehicle. Please connect me with the seller through CarUp."
+                          intentMetadata={{ buyer_intent: 'seller_contact' }}
+                        />
+                        <p className="mt-2 text-xs text-gray-600">
+                          The seller has not published a direct number. CarUp can route your inquiry without exposing private contact details.
+                        </p>
+                      </div>
+                    )}
+                    <Separator className="my-4 border-white/20" />
+                    {isReservedOnServer ? (
+                      <div className="w-full flex items-center justify-center gap-2 bg-amber-600/20 border border-amber-500/40 rounded-lg py-3 text-amber-300 font-semibold text-sm" data-testid="reserved-state">
+                        <Lock className="w-4 h-4" /> Reserved
+                      </div>
+                    ) : reserveRequested ? (
+                      <div className="w-full flex items-center justify-center gap-2 bg-white/10 border border-white/20 rounded-lg py-3 text-gray-200 font-semibold text-sm" data-testid="reserve-requested-state">
+                        <Clock className="w-4 h-4" /> Reservation requested — awaiting confirmation
+                      </div>
+                    ) : (
+                      <div data-testid="reservation-request-entry">
+                        <InquiryModal
+                          listingId={detail.vin}
+                          inquiryTypes={['vehicle_purchase_interest']}
+                          defaultInquiryType="vehicle_purchase_interest"
+                          triggerLabel="Request reservation"
+                          triggerClassName="w-full bg-white text-slate-950 hover:bg-orange-50"
+                          defaultMessage="I want to reserve this vehicle. Please confirm the seller and tell me the next SafePay step."
+                          intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}
+                          onSubmitted={() => setReserveRequested(true)}
+                        />
+                        <p className="mt-2 text-xs text-gray-600">
+                          CarUp resolves the current seller, purchase inquiry, listing terms and Trust gates before a reservation or SafePay step can open.
+                        </p>
+                      </div>
+                    )}
+                    {financeInterestRequested ? (
+                      <div className="mt-3 w-full flex items-center justify-center gap-2 bg-blue-600/20 border border-blue-500/40 rounded-lg py-3 text-blue-300 font-semibold text-sm" data-testid="financing-interest-state">
+                        <CheckCircle className="w-4 h-4" /> Financing interest sent
+                      </div>
+                    ) : (
+                      <div className="mt-3" data-testid="financing-request-entry">
+                        <InquiryModal
+                          listingId={detail.vin}
+                          inquiryTypes={['vehicle_purchase_interest']}
+                          defaultInquiryType="vehicle_purchase_interest"
+                          triggerLabel="Ask about financing"
+                          triggerVariant="outline"
+                          triggerClassName="w-full border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white"
+                          defaultMessage="I am interested in financing this vehicle. Please tell me which governed lender path is available and what information I need to provide."
+                          intentMetadata={{ buyer_intent: 'financing_interest' }}
+                          onSubmitted={() => setFinanceInterestRequested(true)}
+                        />
+                        <p className="mt-2 text-xs text-gray-600">
+                          CarUp will not invent a lender, approval, currency or loan terms. A financing application starts only when a real lender path and listing currency are verified.
+                        </p>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-600 text-center mt-3">🔒 SafePay opens only after CarUp verifies transaction eligibility</p>
+                  </>
+                ) : (
+                  <div className="mt-6 border border-white/15 bg-white/5 p-4" data-testid="marketplace-actions-unavailable">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                      <Lock className="h-4 w-4 text-orange-400" /> Marketplace actions unavailable
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-gray-600">
+                      This Vehicle Passport is not currently backed by a published Marketplace listing. Contact, reservation, and financing requests stay hidden until a canonical public listing resolves.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Seller card */}
+            <Card className="border-0 card-shadow">
+              <CardContent className="p-6">
+                <h3 className="font-semibold mb-4">Seller Information</h3>
+                <div className="flex items-center gap-3 mb-4">
+                  {vehicle.sellerAvatar && <img src={vehicle.sellerAvatar} alt="" className="w-12 h-12 rounded-full object-cover" />}
+                  <div>
+                    <p className="font-medium" data-testid="seller-name">
+                      {/* Marketplace seller-profile consent is authoritative as soon as detail loads.
+                          Do not wait for passport enrichment before honoring a disabled public profile:
+                          that race exposed "Not recorded" for a seller whose public identity is withheld. */}
+                      {detail?.seller_summary?.public_profile_enabled === false
+                        ? 'Not shown publicly'
+                        : vehicle.sellerName
+                          ?? (passport?.ownershipSummary?.currentSellerRecorded ? 'Not shown publicly' : 'Not recorded')}
+                    </p>
+                    {vehicle.sellerType && (
+                      <Badge variant="outline" className="text-[10px] mt-0.5">{vehicle.sellerType}</Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-4 h-4 text-gray-600" />
                     {sellerContactNumber ? (
                       isSellerPreview
                         ? <span data-testid="seller-phone-preview">{sellerContactNumber}</span>
-                        : <a href={`tel:${sellerContactNumber}`} className={`rounded-sm font-medium text-[#09122A] hover:text-[#C2410C] ${focusRing}`}>{sellerContactNumber}</a>
+                        : <a href={`tel:${sellerContactNumber}`} className="hover:text-orange-700">{sellerContactNumber}</a>
                     ) : (
-                      <span className="text-slate-500" data-testid="seller-phone-unavailable">No contact number published</span>
+                      <span className="text-gray-500" data-testid="seller-phone-unavailable">No contact number published</span>
                     )}
                   </div>
-                  <Button variant="outline" className={`mt-5 h-11 rounded-full border-slate-300 bg-white px-5 font-semibold text-[#09122A] hover:bg-slate-50 ${focusRing}`} asChild>
-                    <Link to="/dealers">View All Listings</Link>
-                  </Button>
                 </div>
+                <Button variant="outline" className="w-full mt-4" asChild>
+                  <Link to="/dealers">View All Listings</Link>
+                </Button>
+              </CardContent>
+            </Card>
 
-                {/* Vehicle Identity */}
-                <div className="min-w-0">
-                  <h3 className="text-lg font-semibold tracking-[-0.015em] text-[#09122A]">Vehicle Identity</h3>
-                  <dl className="mt-4 border-t border-slate-200 text-sm">
-                    {[
-                      // `redactable` marks the rows the projection withholds from an unauthorized
-                      // audience; the rest are public, so absence there can only mean unrecorded.
-                      { label: 'VIN', value: identity?.vin || vehicle.vin, redactable: false },
-                      { label: 'Chassis No.', value: identity?.chassisNumber || vehicle.chassis_number, redactable: true },
-                      { label: 'Engine No.', value: identity?.engineNumber || vehicle.engine_number || vehicle.engineNumber, redactable: true },
-                      // Governed identity only. The raw `vehicle.registration_country`/`_authority`
-                      // columns carry a fabricated DB DEFAULT ('ZW'/'CVR') on most rows; the passport
-                      // withdrew them, so falling back to the column here re-introduced the fabrication.
-                      { label: 'Reg. Country', value: identity?.registrationCountry, redactable: false },
-                      { label: 'Reg. Authority', value: identity?.registrationAuthority, redactable: false },
-                      { label: 'Color', value: vehicle.color, redactable: false },
-                    ].map(({ label, value, redactable }) => {
-                      const state = identifierState(value, redactable && identifiersRedacted)
-                      return (
-                        <div key={label} className="flex items-center justify-between gap-4 border-b border-slate-200 py-3">
-                          <dt className="text-slate-500">{label}</dt>
-                          <dd className="min-w-0 text-right">
-                            {state === 'present' ? (
-                              <span className="break-all font-mono text-[13px] text-[#09122A]" data-testid="identity-field-present" data-field={label}>{value}</span>
-                            ) : state === 'withheld' ? (
-                              <span className="text-[13px] italic text-slate-500" data-testid="identity-field-withheld" data-field={label}>Not shown publicly</span>
-                            ) : (
-                              <span className="text-[13px] italic text-slate-500" data-testid="identity-field-unrecorded" data-field={label}>Not recorded</span>
-                            )}
-                          </dd>
-                        </div>
-                      )
-                    })}
-                  </dl>
+            {/* Vehicle Identity */}
+            <Card className="border-0 card-shadow">
+              <CardContent className="p-6">
+                <h3 className="font-semibold mb-4">Vehicle Identity</h3>
+                <div className="space-y-3 text-sm">
+                  {[
+                    // `redactable` marks the rows the projection withholds from an unauthorized
+                    // audience; the rest are public, so absence there can only mean unrecorded.
+                    { label: 'VIN', value: identity?.vin || vehicle.vin, redactable: false },
+                    { label: 'Chassis No.', value: identity?.chassisNumber || vehicle.chassis_number, redactable: true },
+                    { label: 'Engine No.', value: identity?.engineNumber || vehicle.engine_number || vehicle.engineNumber, redactable: true },
+                    // Governed identity only. The raw `vehicle.registration_country`/`_authority`
+                    // columns carry a fabricated DB DEFAULT ('ZW'/'CVR') on most rows; the passport
+                    // withdrew them, so falling back to the column here re-introduced the fabrication.
+                    { label: 'Reg. Country', value: identity?.registrationCountry, redactable: false },
+                    { label: 'Reg. Authority', value: identity?.registrationAuthority, redactable: false },
+                    { label: 'Color', value: vehicle.color, redactable: false },
+                  ].map(({ label, value, redactable }) => {
+                    const state = identifierState(value, redactable && identifiersRedacted)
+                    return (
+                      <div key={label} className="flex justify-between">
+                        <span className="text-gray-500">{label}</span>
+                        {state === 'present' ? (
+                          <span className="font-mono text-xs" data-testid="identity-field-present" data-field={label}>{value}</span>
+                        ) : state === 'withheld' ? (
+                          <span className="text-xs text-gray-500 italic" data-testid="identity-field-withheld" data-field={label}>Not shown publicly</span>
+                        ) : (
+                          <span className="text-xs text-gray-600 italic" data-testid="identity-field-unrecorded" data-field={label}>Not recorded</span>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
+              </CardContent>
+            </Card>
 
-                {/* Ownership Summary */}
-                {passport?.ownershipSummary && (
-                  <div className="min-w-0" data-testid="ownership-summary-card">
-                    <h3 className="text-lg font-semibold tracking-[-0.015em] text-[#09122A]">Ownership Summary</h3>
-                    <dl className="mt-4 border-t border-slate-200 text-sm">
-                      <div className="flex items-center justify-between gap-4 border-b border-slate-200 py-3">
-                        <dt className="text-slate-500">Current Seller</dt>
-                        <dd className="min-w-0 text-right">
-                          {passport.ownershipSummary.currentSellerDisplayName ? (
-                            <span className="font-medium text-[#09122A]" data-testid="ownership-seller-present">
-                              {passport.ownershipSummary.currentSellerDisplayName}
-                            </span>
-                          ) : passport.ownershipSummary.currentSellerRecorded ? (
-                            <span className="font-medium text-slate-500" data-testid="ownership-seller-withheld">
-                              Not shown publicly
-                            </span>
-                          ) : (
-                            <span className="font-medium text-slate-500" data-testid="ownership-seller-unrecorded">
-                              Not recorded
-                            </span>
-                          )}
-                        </dd>
-                      </div>
-                      <div className="flex items-center justify-between gap-4 border-b border-slate-200 py-3">
-                        <dt className="text-slate-500">Current Owner Type</dt>
-                        <dd className="min-w-0 text-right">
-                          {passport.ownershipSummary.currentSellerType ? (
-                            <span className="font-medium text-[#09122A]" data-testid="ownership-seller-type-present">
-                              {passport.ownershipSummary.currentSellerType}
-                            </span>
-                          ) : (
-                            <span className="font-medium text-slate-500" data-testid="ownership-seller-type-unrecorded">
-                              Not recorded
-                            </span>
-                          )}
-                        </dd>
-                      </div>
-                      <div className="flex items-center justify-between gap-4 border-b border-slate-200 py-3">
-                        <dt className="text-slate-500">Previous Owners</dt>
-                        <dd className="min-w-0 text-right">
-                          {passport.ownershipSummary.previousOwnerCountState === 'unavailable'
-                            || passport.ownershipSummary.previousOwnerCount === null ? (
-                            <span className="font-medium text-amber-800" data-testid="prev-owner-count-unavailable">
-                              History source unavailable
-                            </span>
-                          ) : (
-                            <span className="font-medium text-[#09122A]" data-testid="prev-owner-count">
-                              {passport.ownershipSummary.previousOwnerCount} transfer record(s) ({passport.ownershipSummary.previousOwnersPublicLabel})
-                            </span>
-                          )}
-                        </dd>
-                      </div>
-                      <div className="flex items-center justify-between gap-4 border-b border-slate-200 py-3">
-                        <dt className="text-slate-500">Owner PII Status</dt>
-                        <dd>
-                          <Badge variant="outline" className="rounded-full border-slate-200 text-[11px] text-slate-600">
-                            {passport.ownershipSummary.ownerNamesRedacted ? 'Redacted' : 'Full Access'}
-                          </Badge>
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
-                )}
-
-                {/* Plate History */}
-                {passport?.plateHistory && (
-                  <div className="min-w-0" data-testid="plate-history-card">
-                    <h3 className="text-lg font-semibold tracking-[-0.015em] text-[#09122A]">Plate Registration History</h3>
-                    {passport.plateHistory.length === 0 ? (
-                      passport.plateHistoryState === 'unavailable' ? (
-                        <p className="mt-3 text-[13px] leading-5 text-amber-800" data-testid="plate-history-unavailable">
-                          Plate history could not be read. CarUp is not treating this as an empty history.
-                        </p>
-                      ) : passport.plateHistoryRedacted ? (
-                        <p className="mt-3 text-[13px] leading-5 text-slate-600" data-testid="plate-history-withheld">
-                          Plate registration history is not shown publicly for this vehicle.
-                        </p>
+            {/* Ownership Summary */}
+            {passport?.ownershipSummary && (
+              <Card className="border-0 card-shadow" data-testid="ownership-summary-card">
+                <CardContent className="p-6">
+                  <h3 className="font-semibold mb-4">Ownership Summary</h3>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Current Seller</span>
+                      {passport.ownershipSummary.currentSellerDisplayName ? (
+                        <span className="font-medium" data-testid="ownership-seller-present">
+                          {passport.ownershipSummary.currentSellerDisplayName}
+                        </span>
+                      ) : passport.ownershipSummary.currentSellerRecorded ? (
+                        <span className="font-medium text-gray-500" data-testid="ownership-seller-withheld">
+                          Not shown publicly
+                        </span>
                       ) : (
-                        <p className="mt-3 text-[13px] leading-5 text-slate-600" data-testid="plate-history-empty">
-                          No plate-history rows are held in the CarUp records read for this vehicle.
-                        </p>
-                      )
+                        <span className="font-medium text-gray-500" data-testid="ownership-seller-unrecorded">
+                          Not recorded
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Current Owner Type</span>
+                      {passport.ownershipSummary.currentSellerType ? (
+                        <span className="font-medium" data-testid="ownership-seller-type-present">
+                          {passport.ownershipSummary.currentSellerType}
+                        </span>
+                      ) : (
+                        <span className="font-medium text-gray-500" data-testid="ownership-seller-type-unrecorded">
+                          Not recorded
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-gray-500">Previous Owners</span>
+                      {passport.ownershipSummary.previousOwnerCountState === 'unavailable'
+                        || passport.ownershipSummary.previousOwnerCount === null ? (
+                        <span className="text-right font-medium text-amber-700" data-testid="prev-owner-count-unavailable">
+                          History source unavailable
+                        </span>
+                      ) : (
+                        <span className="text-right font-medium" data-testid="prev-owner-count">
+                          {passport.ownershipSummary.previousOwnerCount} transfer record(s) ({passport.ownershipSummary.previousOwnersPublicLabel})
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Owner PII Status</span>
+                      <Badge variant="outline" className="text-[10px] text-gray-500 border-gray-200">
+                        {passport.ownershipSummary.ownerNamesRedacted ? 'Redacted' : 'Full Access'}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Plate History */}
+            {passport?.plateHistory && (
+              <Card className="border-0 card-shadow" data-testid="plate-history-card">
+                <CardContent className="p-6">
+                  <h3 className="font-semibold mb-4">Plate Registration History</h3>
+                  {passport.plateHistory.length === 0 ? (
+                    passport.plateHistoryState === 'unavailable' ? (
+                      <p className="text-xs text-amber-700" data-testid="plate-history-unavailable">
+                        Plate history could not be read. CarUp is not treating this as an empty history.
+                      </p>
+                    ) : passport.plateHistoryRedacted ? (
+                      <p className="text-xs text-gray-600" data-testid="plate-history-withheld">
+                        Plate registration history is not shown publicly for this vehicle.
+                      </p>
                     ) : (
-                      <div className="mt-4 border-t border-slate-200">
-                        {passport.plateHistory.map((h, i) => {
-                          const plateState = identifierState(h.plate_number, identifiersRedacted)
-                          return (
-                          <div key={h.id || i} className="border-b border-slate-200 py-3">
-                            <div className="flex items-center justify-between gap-3 text-sm">
-                              {plateState === 'present' ? (
-                                <span className="font-mono text-[13px] font-semibold text-[#09122A]" data-testid="plate-history-number-present">{h.plate_number}</span>
-                              ) : plateState === 'withheld' ? (
-                                <span className="text-[13px] italic text-slate-500" data-testid="plate-history-number-withheld">Plate not shown publicly</span>
-                              ) : (
-                                <span className="text-[13px] italic text-slate-500" data-testid="plate-history-number-unrecorded">Plate not recorded</span>
-                              )}
-                              <Badge variant="outline" className={`rounded-full text-[10px] uppercase ${
-                                h.status === 'active' ? 'border-green-300 bg-green-50 text-green-700' : 'border-slate-200 text-slate-500'
-                              }`}>
-                                {h.status || 'status not recorded'}
-                              </Badge>
-                            </div>
-                            <div className="mt-1 flex justify-between gap-3 text-[12px] text-slate-500">
-                              <span>Type: {h.plate_type || 'not recorded'}</span>
-                              <span>{h.issued_at ? new Date(h.issued_at).toLocaleDateString() : 'date not recorded'}</span>
-                            </div>
-                            {h.reason && <p className="mt-1 text-[12px] italic text-slate-500">Reason: {h.reason}</p>}
+                      <p className="text-xs text-gray-600" data-testid="plate-history-empty">
+                        No plate-history rows are held in the CarUp records read for this vehicle.
+                      </p>
+                    )
+                  ) : (
+                    <div className="space-y-3">
+                      {passport.plateHistory.map((h, i) => {
+                        const plateState = identifierState(h.plate_number, identifiersRedacted)
+                        return (
+                        <div key={h.id || i} className="border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                          <div className="flex justify-between items-center text-sm">
+                            {plateState === 'present' ? (
+                              <span className="font-mono font-bold text-xs" data-testid="plate-history-number-present">{h.plate_number}</span>
+                            ) : plateState === 'withheld' ? (
+                              <span className="text-xs text-gray-500 italic" data-testid="plate-history-number-withheld">Plate not shown publicly</span>
+                            ) : (
+                              <span className="text-xs text-gray-600 italic" data-testid="plate-history-number-unrecorded">Plate not recorded</span>
+                            )}
+                            <Badge variant="outline" className={`text-[9px] uppercase ${
+                              h.status === 'active' ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-200 text-gray-500'
+                            }`}>
+                              {h.status || 'status not recorded'}
+                            </Badge>
                           </div>
-                          )
-                        })}
-                      </div>
+                          <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+                            <span>Type: {h.plate_type || 'not recorded'}</span>
+                            <span>{h.issued_at ? new Date(h.issued_at).toLocaleDateString() : 'date not recorded'}</span>
+                          </div>
+                          {h.reason && <p className="text-[10px] text-gray-500 mt-1 italic">Reason: {h.reason}</p>}
+                        </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* What the canonical assessment is based on. The former "Trust Score Breakdown"
+                invented per-category percentages on the client; a fabricated precision is worse
+                than no breakdown, so only what the authority actually published is rendered here.
+                This card is where the projection's other two axes surface: `confidence` (how much
+                evidence is behind the number) and `evidence_basis` (what that evidence is). A
+                number alone cannot tell an unevidenced vehicle from a genuinely low-scoring one. */}
+            {publicTrust && (
+              <Card className="border-0 card-shadow" data-testid="trust-basis">
+                <CardContent className="p-6">
+                  <h3 className="font-semibold mb-1">What this assessment is based on</h3>
+                  <p className="text-xs text-gray-500 mb-4" data-testid="trust-state-detail">
+                    {trust.detail} CarUp does not estimate a sub-score for a signal it has no record of.
+                  </p>
+
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className="border-gray-200 bg-gray-50 text-[10px] text-gray-600" data-testid="trust-evaluation-state">
+                      {TRUST_STATE_LABELS[publicTrust.evaluation_state] ?? publicTrust.evaluation_state}
+                    </Badge>
+                    <Badge variant="outline" className="border-gray-200 bg-gray-50 text-[10px] text-gray-600" data-testid="trust-confidence">
+                      {TRUST_CONFIDENCE_LABELS[publicTrust.confidence] ?? publicTrust.confidence}
+                    </Badge>
+                    {trust.score !== null && publicTrust.evaluated_at && (
+                      <span className="text-[10px] text-gray-500" data-testid="trust-evaluated-at">
+                        Evaluated {new Date(publicTrust.evaluated_at).toLocaleDateString()}
+                      </span>
+                    )}
+                    {/* The rules this number was produced under. It was published only inside the
+                        "Market Analysis" tab, which is not the active tab, so the version was absent
+                        from the Trust panel that states the score — a number with its provenance one
+                        click away is a number without provenance. Gated on a published score for the
+                        same reason as `evaluated_at`: naming a version beside a WITHHELD score would
+                        read as provenance for a number this page is deliberately not showing. */}
+                    {trust.score !== null && publicTrust.calculation_version && (
+                      <span className="text-[10px] font-mono text-gray-500" data-testid="trust-calculation-version">
+                        {publicTrust.calculation_version}
+                      </span>
                     )}
                   </div>
-                )}
-              </div>
-            </DossierSection>
+
+                  {evidenceBasis && (
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold text-gray-700 mb-2">Evidence behind this assessment</p>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600" data-testid="trust-evidence-basis">
+                        <dt>Governed facts backed by a record</dt>
+                        <dd className="text-right font-medium">
+                          {basisValue(evidenceBasis.governed_facts_substantiated)}
+                          {evidenceBasis.governed_facts_total === null ? '' : ` of ${evidenceBasis.governed_facts_total}`}
+                        </dd>
+                        <dt>Adverse findings</dt>
+                        <dd className="text-right font-medium">{basisValue(evidenceBasis.governed_facts_adverse)}</dd>
+                        <dt>Connected sources</dt>
+                        <dd className="text-right font-medium">{basisValue(evidenceBasis.connected_sources)}</dd>
+                        <dt>Stored claims with no backing record</dt>
+                        <dd className="text-right font-medium" data-testid="trust-unbacked-claims">
+                          {basisValue(evidenceBasis.unbacked_legacy_claims)}
+                        </dd>
+                      </dl>
+                    </div>
+                  )}
+
+                  {trustReasonCodes.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold text-gray-700 mb-2">Reason codes</p>
+                      <div className="flex flex-wrap gap-1.5" data-testid="trust-reason-codes">
+                        {trustReasonCodes.map((code) => (
+                          <Badge key={code} variant="outline" className="border-gray-200 bg-gray-50 font-mono text-[10px] text-gray-600">
+                            {code}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {trustLimitations.length > 0 && (
+                    <>
+                      <p className="text-xs font-semibold text-gray-700 mb-2">Known limitations</p>
+                      <ul className="list-disc list-inside space-y-1 text-xs text-gray-600" data-testid="trust-known-limitations">
+                        {trustLimitations.map((limitation, i) => (
+                          <li key={i}>{limitation}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Ledger verification badge */}
+            {passport?.chainVerification && (
+              <Card className="border-0 card-shadow">
+                <CardContent className="p-4">
+                  <div className={`flex items-center gap-2 text-sm ${passport.chainVerification.verified ? 'text-green-700' : 'text-amber-700'}`}>
+                    {passport.chainVerification.verified
+                      ? <><CheckCircle className="w-4 h-4" /> CarUp audit ledger verified — hash chain intact</>
+                      : <><AlertTriangle className="w-4 h-4" /> Ledger integrity unconfirmed</>
+                    }
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>
-
-      {/* ── Phone contact bar — the rail's contact path, kept in reach of the thumb ─────────
-          Same predicate as the rail (a published number → Call / WhatsApp; otherwise the governed
-          seller-contact inquiry), never in Seller Preview, never without the public listing. */}
-      {contactBarActive && detail && (
-        <MobileContactBar honoured={bottomBar.honoured} price={governedPrice(vehicle.price, vehicle.currency)}>
-          {sellerContactNumber && sellerWhatsAppLink ? (
-            <>
-              <Button asChild variant="outline" className={`h-12 w-12 rounded-full border-slate-300 bg-white p-0 text-[#09122A] hover:bg-slate-50 ${focusRing}`}>
-                <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp the seller">
-                  <MessageSquare className="h-5 w-5" aria-hidden="true" />
-                </a>
-              </Button>
-              <Button asChild className={`h-12 rounded-full bg-[#09122A] px-6 text-[15px] font-semibold text-white hover:bg-[#111D3D] ${focusRing}`}>
-                <a href={`tel:${sellerContactNumber}`} onClick={() => toast.info(`Calling ${vehicle.sellerName ?? 'the seller'}...`)}>
-                  <Phone className="h-4 w-4" aria-hidden="true" /> Call
-                </a>
-              </Button>
-            </>
-          ) : (
-            <InquiryModal
-              listingId={detail.vin}
-              inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
-              defaultInquiryType="vehicle_purchase_interest"
-              triggerLabel="Contact"
-              triggerClassName={`h-12 rounded-full bg-[#09122A] px-6 text-[15px] font-semibold text-white hover:bg-[#111D3D] ${focusRing}`}
-              defaultMessage="I am interested in this vehicle. Please connect me with the seller through CarUp."
-              intentMetadata={{ buyer_intent: 'seller_contact' }}
-            />
-          )}
-        </MobileContactBar>
-      )}
 
       <MarketplaceShareSheet
         open={shareOpen}

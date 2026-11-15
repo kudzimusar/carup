@@ -16,7 +16,7 @@ vi.mock('@/components/marketplace/BuyerAssistantDrawer', () => ({
   BuyerAssistantDrawer: ({ triggerLabel }: { triggerLabel: string }) => <button type="button" data-testid="marketplace-ai-assistant-open">{triggerLabel}</button>,
 }))
 
-const { default: Landing } = await import('./Landing')
+const { default: Landing } = await import('./ShowroomLanding')
 const { reelFramesFrom } = await import('@/lib/homeReel')
 
 function listing(vin: string, overrides: Partial<MarketplaceListingSummary> = {}) {
