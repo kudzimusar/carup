@@ -47,16 +47,25 @@ describe('OBS-06 — unavailable direct actions must become legible governed nex
     expect(VEHICLE_DETAIL).toContain("intentMetadata={{ buyer_intent: 'seller_contact' }}")
   })
 
+  // RX03-P1A-R2: the action panel is now a LIGHT decision rail. The rule these two tests pin is
+  // unchanged — the secondary actions are outlined, full-strength and legible on the surface they
+  // sit on — but the surface changed, so the classes that satisfy it changed with it. The old
+  // dark-panel string (`bg-transparent text-white`) would now render white text on white, which is
+  // exactly the illegible-control defect OBS-06 exists to catch, so its absence is asserted too.
   it('direct call and WhatsApp links are conditional on an actually published number', () => {
     expect(VEHICLE_DETAIL).toContain('sellerContactNumber && sellerWhatsAppLink ?')
     expect(VEHICLE_DETAIL).toContain('tel:${sellerContactNumber}')
     expect(VEHICLE_DETAIL).toContain('href={sellerWhatsAppLink}')
-    expect(VEHICLE_DETAIL).toContain('border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white')
+    expect(VEHICLE_DETAIL).toContain('border-slate-300 bg-white font-semibold text-[#09122A] hover:bg-slate-50 hover:text-[#09122A]')
+    expect(VEHICLE_DETAIL, 'no white-on-white control on the light rail').not.toContain('bg-transparent text-white')
   })
 
-  it('financing inquiry remains legible on the dark action panel', () => {
+  it('financing inquiry remains legible on the light decision rail', () => {
     expect(VEHICLE_DETAIL).toContain('triggerLabel="Ask about financing"')
-    expect(VEHICLE_DETAIL).toContain('border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white')
+    const at = VEHICLE_DETAIL.indexOf('triggerLabel="Ask about financing"')
+    expect(VEHICLE_DETAIL.slice(at, at + 200)).toContain('triggerClassName={secondaryAction}')
+    expect(VEHICLE_DETAIL).toMatch(/const secondaryAction = `h-12 w-full rounded-full border-slate-300 bg-white text-\[15px\] font-semibold text-\[#09122A\]/)
+    expect(VEHICLE_DETAIL).not.toMatch(/const secondaryAction = `[^`]*opacity-/)
   })
 
   it('reservation stays a governed request until the server proves transaction state', () => {
@@ -96,14 +105,27 @@ describe('OBS-14 — owner search parity on mobile', () => {
 describe('OBS-02 — the price/action panel must not obstruct the page', () => {
   // `sticky top-6` at every breakpoint, with no height bound: on a short viewport the panel pinned
   // itself over the vehicle details as the reader scrolled.
+  //
+  // RX03-P1A-R2: the price/action panel is now the decision rail (`vehicle-detail-intelligence-hero`)
+  // and sits below the sticky 4rem site header, so it sticks at `top-20` and its cap grew from
+  // 3rem to 6rem of reserved height (5rem offset + 1rem breathing room). The assertions are now
+  // bound to that one element's class list instead of to the whole file, which is stricter: an
+  // unscoped `sticky`/`top-*` anywhere on the rail fails, not only the one old spelling.
+  const railClasses = (() => {
+    const at = VEHICLE_DETAIL.indexOf('data-testid="vehicle-detail-intelligence-hero"')
+    const before = VEHICLE_DETAIL.slice(0, at)
+    const match = /className="([^"]*)"\s*$/.exec(before)
+    return match ? match[1].split(/\s+/) : []
+  })()
+
   it('the panel sticks only where there is a column to stick beside', () => {
-    expect(VEHICLE_DETAIL, 'sticky must be breakpoint-scoped').toContain('lg:sticky lg:top-6')
-    expect(VEHICLE_DETAIL, 'the unscoped sticky must be gone')
-      .not.toMatch(/text-white sticky top-6/)
+    expect(railClasses.length, 'the rail className must be found').toBeGreaterThan(0)
+    expect(railClasses, 'sticky must be breakpoint-scoped').toEqual(expect.arrayContaining(['lg:sticky', 'lg:top-20']))
+    expect(railClasses, 'the unscoped sticky must be gone').not.toContain('sticky')
+    expect(railClasses.filter((c) => /^top-/.test(c)), 'no unscoped top offset').toEqual([])
   })
 
   it('the panel is capped to the viewport and scrolls within itself', () => {
-    expect(VEHICLE_DETAIL).toContain('lg:max-h-[calc(100vh-3rem)]')
-    expect(VEHICLE_DETAIL).toContain('lg:overflow-y-auto')
+    expect(railClasses).toEqual(expect.arrayContaining(['lg:max-h-[calc(100vh-6rem)]', 'lg:overflow-y-auto']))
   })
 })
