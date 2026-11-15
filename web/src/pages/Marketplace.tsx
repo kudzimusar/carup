@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -7,17 +7,17 @@ import {
 } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 import {
-  Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetTrigger,
+  Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger,
 } from '@/components/ui/sheet'
 import {
-  ArrowRight,
+  ArrowUpDown,
   CarFront,
   GitCompare,
+  Info,
   Loader2,
   Search,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -28,6 +28,7 @@ import type { MarketplaceListingSummary } from '@/types'
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
 import { summaryLocationLine } from '@/lib/governedLocation'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import { VehicleSilhouette } from '@/components/showroom/VehicleSilhouette'
 import {
   MarketplaceListingCard,
   type MarketplaceListingCardModel,
@@ -60,6 +61,44 @@ const allTaxonomyModels = Array.from(new Set(VEHICLE_TAXONOMY.flatMap(make => ma
 const CONDITION_CHIPS = [...CATEGORY_CHIPS, 'Parts & Accessories']
 const TRUST_CHIPS = TRUST_TAG_CHIPS
 
+/** Marketplace's own sub-navigation. Same destinations as before; presentation only. */
+const CATEGORY_LINKS: Array<{ to: string; label: string; current?: boolean }> = [
+  { to: '/marketplace', label: 'Cars', current: true },
+  { to: '/marketplace/parts', label: 'Parts' },
+  { to: '/marketplace/services', label: 'Garages' },
+  { to: '/diaspora', label: 'Imports' },
+  { to: '/insurance', label: 'Insurance' },
+  { to: '/pricing', label: 'Finance' },
+]
+
+/* Shared Showroom (Option 5) class strings for this page. */
+const FOCUS_LIGHT = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] focus-visible:ring-offset-2'
+const EYEBROW = 'text-[11px] font-semibold uppercase tracking-[0.18em]'
+const FIELD_LABEL = 'mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500'
+const FIELD_TRIGGER = 'w-full rounded-xl border-slate-200 bg-white text-[15px] text-[#09122A] shadow-none data-[size=default]:h-11'
+const FIELD_INPUT = 'h-11 rounded-xl border-slate-200 bg-white text-[15px] shadow-none md:text-[15px]'
+
+function chipClass(active: boolean) {
+  return `inline-flex h-11 shrink-0 items-center rounded-full border px-4 text-[14px] font-medium transition-colors ${FOCUS_LIGHT} ${active
+    ? 'border-[#09122A] bg-[#09122A] text-white hover:bg-[#111D3D]'
+    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:text-[#09122A]'}`
+}
+
+/** Live `min-width` media query; false where matchMedia is unavailable (SSR, jsdom). */
+function useMinWidth(px: number) {
+  const query = `(min-width: ${px}px)`
+  const subscribe = useCallback((onChange: () => void) => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {}
+    const list = window.matchMedia(query)
+    list.addEventListener?.('change', onChange)
+    return () => list.removeEventListener?.('change', onChange)
+  }, [query])
+  return useSyncExternalStore(
+    subscribe,
+    () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches,
+    () => false,
+  )
+}
 
 function MarketplaceImpression({
   vin,
@@ -91,7 +130,7 @@ function MarketplaceImpression({
     return () => observer.disconnect()
   }, [position, vin])
 
-  return <div ref={ref}>{children}</div>
+  return <div ref={ref} className="h-full min-w-0">{children}</div>
 }
 
 const ALLOW_MOCK_LISTINGS = import.meta.env.DEV || import.meta.env.VITE_MARKETPLACE_ALLOW_MOCK === 'true'
@@ -100,7 +139,7 @@ function marketplacePriceLabel(price: number | null | undefined, currency: strin
   if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded'
   const amount = price.toLocaleString()
   if (!currency?.trim()) return `${amount} · currency not recorded`
-  return currency.toUpperCase() === 'USD' ? `${amount}` : `${currency.toUpperCase()} ${amount}`
+  return currency.toUpperCase() === 'USD' ? `$${amount}` : `${currency.toUpperCase()} ${amount}`
 }
 
 /** Real listings when present; mock only when explicitly allowed; otherwise an honest empty list. */
@@ -135,6 +174,10 @@ function listingLabels(listing: MarketplaceListingSummary) {
 
 function sellerLabel(listing: MarketplaceListingSummary) {
   return listing.seller_display_label?.trim() || 'Seller not disclosed'
+}
+
+function listingName(listing: MarketplaceListingSummary) {
+  return [listing.year, listing.make, listing.model].filter(Boolean).join(' ')
 }
 
 function readTrustRanking(payload: unknown): TrustRanking | null {
@@ -258,45 +301,48 @@ function FilterControls({
   setPriceRange,
 }: FilterControlsProps) {
   return (
-    <div className="grid gap-4">
-      <div>
-        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Make</label>
-        <Select value={selectedMake} onValueChange={onMake}>
-          <SelectTrigger data-testid="marketplace-make-filter" className="bg-white"><SelectValue /></SelectTrigger>
-          <SelectContent>{makes.map(make => <SelectItem key={make} value={make}>{make}</SelectItem>)}</SelectContent>
-        </Select>
+    <div className="grid gap-5">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="min-w-0">
+          <label className={FIELD_LABEL}>Make</label>
+          <Select value={selectedMake} onValueChange={onMake}>
+            <SelectTrigger data-testid="marketplace-make-filter" className={FIELD_TRIGGER}><SelectValue /></SelectTrigger>
+            <SelectContent>{makes.map(make => <SelectItem key={make} value={make}>{make}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+
+        <div className="min-w-0">
+          <label className={FIELD_LABEL}>Model</label>
+          <Input
+            list="marketplace-model-options"
+            value={selectedModel === ALL ? '' : selectedModel}
+            onChange={event => onModel(event.target.value.trim() || ALL)}
+            placeholder={selectedMake === ALL ? 'Any model' : `Any ${selectedMake} model`}
+            data-testid="marketplace-model-filter"
+            className={FIELD_INPUT}
+          />
+          <datalist id="marketplace-model-options">
+            {(selectedMake === ALL ? allTaxonomyModels : modelsForMake(selectedMake).map(model => model.name))
+              .map(model => <option key={model} value={model} />)}
+          </datalist>
+        </div>
       </div>
 
-      <div>
-        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Model</label>
-        <Input
-          list="marketplace-model-options"
-          value={selectedModel === ALL ? '' : selectedModel}
-          onChange={event => onModel(event.target.value.trim() || ALL)}
-          placeholder={selectedMake === ALL ? 'Any model' : `Any ${selectedMake} model`}
-          data-testid="marketplace-model-filter"
-        />
-        <datalist id="marketplace-model-options">
-          {(selectedMake === ALL ? allTaxonomyModels : modelsForMake(selectedMake).map(model => model.name))
-            .map(model => <option key={model} value={model} />)}
-        </datalist>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Year</label>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="min-w-0">
+          <label className={FIELD_LABEL}>Year</label>
           <Select value={selectedYear} onValueChange={onYear}>
-            <SelectTrigger className="bg-white" data-testid="marketplace-year-filter"><SelectValue /></SelectTrigger>
+            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-year-filter"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All years</SelectItem>
               {marketplaceYears.map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Colour</label>
+        <div className="min-w-0">
+          <label className={FIELD_LABEL}>Colour</label>
           <Select value={selectedColor} onValueChange={onColor}>
-            <SelectTrigger className="bg-white" data-testid="marketplace-color-filter"><SelectValue /></SelectTrigger>
+            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-color-filter"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All colours</SelectItem>
               {VEHICLE_COLORS.map(color => <SelectItem key={color} value={color}>{color}</SelectItem>)}
@@ -305,40 +351,42 @@ function FilterControls({
         </div>
       </div>
 
-      <div>
-        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Body style</label>
-        <Select value={selectedBodyStyle} onValueChange={onBodyStyle}>
-          <SelectTrigger className="bg-white" data-testid="marketplace-body-style-filter"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="All">All body styles</SelectItem>
-            {BODY_STYLES.map(bodyStyle => <SelectItem key={bodyStyle} value={bodyStyle}>{bodyStyle}</SelectItem>)}
-          </SelectContent>
-        </Select>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="min-w-0">
+          <label className={FIELD_LABEL}>Body style</label>
+          <Select value={selectedBodyStyle} onValueChange={onBodyStyle}>
+            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-body-style-filter"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">All body styles</SelectItem>
+              {BODY_STYLES.map(bodyStyle => <SelectItem key={bodyStyle} value={bodyStyle}>{bodyStyle}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="min-w-0">
+          <label className={FIELD_LABEL}>Location</label>
+          <Select value={selectedLocation} onValueChange={onLocation}>
+            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-location-filter"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">All locations</SelectItem>
+              {zimbabweLocations.map(location => <SelectItem key={location} value={location}>{location}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <div>
-        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Location</label>
-        <Select value={selectedLocation} onValueChange={onLocation}>
-          <SelectTrigger className="bg-white" data-testid="marketplace-location-filter"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="All">All locations</SelectItem>
-            {zimbabweLocations.map(location => <SelectItem key={location} value={location}>{location}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Fuel</label>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="min-w-0">
+          <label className={FIELD_LABEL}>Fuel</label>
           <Select value={selectedFuel} onValueChange={onFuel}>
-            <SelectTrigger className="bg-white" data-testid="marketplace-fuel-filter"><SelectValue /></SelectTrigger>
+            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-fuel-filter"><SelectValue /></SelectTrigger>
             <SelectContent>{fuelTypes.map(fuel => <SelectItem key={fuel} value={fuel}>{fuel}</SelectItem>)}</SelectContent>
           </Select>
         </div>
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Transmission</label>
+        <div className="min-w-0">
+          <label className={FIELD_LABEL}>Transmission</label>
           <Select value={selectedTransmission} onValueChange={onTransmission}>
-            <SelectTrigger className="bg-white" data-testid="marketplace-transmission-filter"><SelectValue /></SelectTrigger>
+            <SelectTrigger className={FIELD_TRIGGER} data-testid="marketplace-transmission-filter"><SelectValue /></SelectTrigger>
             <SelectContent>{transmissions.map(transmission => <SelectItem key={transmission} value={transmission}>{transmission}</SelectItem>)}</SelectContent>
           </Select>
         </div>
@@ -346,12 +394,12 @@ function FilterControls({
 
       <div>
         <div className="mb-2 flex items-center justify-between gap-3">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Price</label>
-          <span className="text-[11px] font-medium text-slate-500">
+          <label className={`${FIELD_LABEL} mb-0`}>Price</label>
+          <span className="text-[13px] font-medium tabular-nums text-slate-600">
             ${priceRange[0].toLocaleString()} – {priceRange[1] >= 100000 ? 'Any max' : `$${priceRange[1].toLocaleString()}`}
           </span>
         </div>
-        <div className="mb-3 grid grid-cols-2 gap-2">
+        <div className="mb-4 grid grid-cols-2 gap-3">
           <Input
             type="number"
             inputMode="numeric"
@@ -359,6 +407,7 @@ function FilterControls({
             placeholder="Min $"
             aria-label="Minimum price"
             data-testid="marketplace-price-min-filter"
+            className={FIELD_INPUT}
             value={priceRange[0] > 0 ? priceRange[0] : ''}
             onChange={event => {
               const parsed = Number(event.target.value)
@@ -373,6 +422,7 @@ function FilterControls({
             placeholder="No max"
             aria-label="Maximum price"
             data-testid="marketplace-price-max-filter"
+            className={FIELD_INPUT}
             value={priceRange[1] < 100000 ? priceRange[1] : ''}
             onChange={event => {
               const parsed = Number(event.target.value)
@@ -388,16 +438,57 @@ function FilterControls({
   )
 }
 
+/** Skeleton shaped like the Showroom card so the page does not jump when results land. */
 function SkeletonCard() {
   return (
-    <div className="animate-pulse overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <div className="aspect-[16/10] bg-slate-200" />
-      <div className="space-y-3 p-4">
-        <div className="h-4 w-3/4 rounded bg-slate-200" />
-        <div className="h-6 w-1/2 rounded bg-slate-200" />
-        <div className="h-16 rounded-xl bg-slate-100" />
-        <div className="h-9 rounded bg-slate-200" />
+    <div aria-hidden="true" className="motion-safe:animate-pulse">
+      <div className="aspect-[4/3] rounded-2xl bg-slate-100 max-sm:-mx-4 max-sm:rounded-none" />
+      <div className="pt-4">
+        <div className="h-3 w-1/3 rounded-full bg-slate-100" />
+        <div className="mt-3 h-5 w-3/4 rounded-full bg-slate-200/80" />
+        <div className="mt-2.5 h-4 w-1/2 rounded-full bg-slate-100" />
+        <div className="mt-4 h-7 w-2/5 rounded-full bg-slate-200/80" />
+        <div className="mt-6 h-px bg-slate-200" />
+        <div className="mt-4 h-4 w-2/3 rounded-full bg-slate-100" />
       </div>
+    </div>
+  )
+}
+
+/**
+ * The stage the empty and failed states stand on: an empty studio floor with the state's own
+ * sentence, then the headline and the way out. `spotlight` keeps the spotlight slot's message
+ * (`marketplace-showroom-spotlight`) — it says what the first position of the showroom holds.
+ */
+function ShowroomStageNotice({
+  testId,
+  role,
+  spotlight,
+  spotlightTone,
+  title,
+  children,
+  action,
+}: {
+  testId: string
+  role?: 'alert'
+  spotlight: string
+  spotlightTone: 'amber' | 'slate'
+  title: string
+  children: ReactNode
+  action: ReactNode
+}) {
+  return (
+    <div role={role} className="rounded-3xl bg-[#F6F4F0] px-5 py-12 text-center sm:px-8 sm:py-16" data-testid={testId}>
+      <div className="mx-auto flex max-w-sm flex-col items-center" data-testid="marketplace-showroom-spotlight">
+        <VehicleSilhouette tone="muted" accent={false} strokeWidth={1.75} className="w-44 opacity-80 sm:w-52" />
+        <p className="mt-3 inline-flex max-w-full items-center gap-2 rounded-[1.25rem] bg-white px-3 py-1.5 text-balance text-[12px] font-medium sm:px-3.5 sm:text-[13px] text-slate-700 shadow-[0_1px_2px_rgba(9,18,42,0.06)]">
+          <span aria-hidden="true" className={`h-2 w-2 rounded-full ${spotlightTone === 'amber' ? 'bg-amber-500' : 'bg-slate-400'}`} />
+          {spotlight}
+        </p>
+      </div>
+      <h3 className="mt-6 text-xl font-semibold tracking-[-0.015em] text-[#09122A] sm:text-2xl">{title}</h3>
+      <p className="mx-auto mt-2 max-w-md text-[15px] leading-6 text-slate-600">{children}</p>
+      <div className="mt-6">{action}</div>
     </div>
   )
 }
@@ -412,6 +503,7 @@ export default function Marketplace() {
   } = useCarUpApi()
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
+  const isMdUp = useMinWidth(768)
 
   useEffect(() => { captureReferralFromUrl() }, [])
 
@@ -592,7 +684,10 @@ export default function Marketplace() {
     return matchesSearch && matchesPrice
   }), [liveListings, searchQuery, priceRange])
 
-  const spotlightListing = visibleListings[0] ?? null
+  // The first result is the showroom spotlight. From 1024 px it opens up into a wide feature card,
+  // but only when there is enough inventory to break the rhythm and the buyer is not mid-compare
+  // (a uniform grid is easier to compare across).
+  const featureFirstResult = visibleListings.length >= 3 && compareVins.length === 0
   const compareSelections = compareVins
     .map(vin => liveListings.find(listing => listing.vin === vin))
     .filter((listing): listing is CanonicalListing => Boolean(listing))
@@ -604,6 +699,7 @@ export default function Marketplace() {
   }
   const activeChips = getActiveFilterChips(filterState)
   const activeFilterCount = activeChips.filter(chip => chip.key !== 'sort').length
+  const publishedCountLabel = `published ${visibleListings.length === 1 ? 'listing' : 'listings'}`
 
   const resetFilters = () => {
     setSearchQuery('')
@@ -664,20 +760,20 @@ export default function Marketplace() {
   )
 
   const taxonomyControls = (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div data-testid="marketplace-condition-group">
-        <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Vehicle condition</p>
-            <p className="mt-0.5 text-xs leading-4 text-slate-500">Choose one classification.</p>
+            <p className="text-[15px] font-semibold text-[#09122A]">Vehicle condition</p>
+            <p className="mt-0.5 text-[13px] leading-5 text-slate-500">Choose one classification.</p>
           </div>
           {url.selectedCategory !== ALL && (
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => updateUrl({ selectedCategory: ALL })} data-testid="marketplace-clear-condition">
+            <Button variant="ghost" size="sm" className="h-9 rounded-full px-3 text-[13px] text-[#C2410C] hover:bg-orange-50 hover:text-[#C2410C]" onClick={() => updateUrl({ selectedCategory: ALL })} data-testid="marketplace-clear-condition">
               Clear
             </Button>
           )}
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {['All', ...CONDITION_CHIPS].map(chip => {
             const active = chip === 'All' ? url.selectedCategory === ALL : url.selectedCategory === chip
             return (
@@ -686,9 +782,7 @@ export default function Marketplace() {
                 type="button"
                 aria-pressed={active}
                 onClick={() => (chip === 'All' ? updateUrl({ selectedCategory: ALL }) : setCategoryFilter(chip))}
-                className={`rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${active
-                  ? 'border-orange-500 bg-orange-50 text-orange-800'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'}`}
+                className={chipClass(active)}
                 data-testid="marketplace-category-chip"
               >
                 {chip}
@@ -698,21 +792,21 @@ export default function Marketplace() {
         </div>
       </div>
 
-      <div className="border-t border-slate-200 pt-5" data-testid="marketplace-trust-group">
-        <div className="mb-2 flex items-start justify-between gap-3">
+      <div className="border-t border-slate-200 pt-6" data-testid="marketplace-trust-group">
+        <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-              <ShieldCheck className="h-4 w-4 text-orange-600" /> Trust signals
+            <p className="flex items-center gap-1.5 text-[15px] font-semibold text-[#09122A]">
+              <ShieldCheck className="h-4 w-4 text-[#C2410C]" aria-hidden="true" /> Trust signals
             </p>
-            <p className="mt-0.5 text-xs leading-4 text-slate-500">Stack filters; every selected signal must match.</p>
+            <p className="mt-0.5 text-[13px] leading-5 text-slate-500">Stack filters; every selected signal must match.</p>
           </div>
           {url.selectedTags.length > 0 && (
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => updateUrl({ selectedTags: [] })} data-testid="marketplace-clear-trust">
+            <Button variant="ghost" size="sm" className="h-9 rounded-full px-3 text-[13px] text-[#C2410C] hover:bg-orange-50 hover:text-[#C2410C]" onClick={() => updateUrl({ selectedTags: [] })} data-testid="marketplace-clear-trust">
               Clear
             </Button>
           )}
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {TRUST_CHIPS.map(chip => {
             const active = url.selectedTags.includes(chip)
             return (
@@ -721,9 +815,7 @@ export default function Marketplace() {
                 type="button"
                 aria-pressed={active}
                 onClick={() => toggleTrustTag(chip)}
-                className={`rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${active
-                  ? 'border-orange-500 bg-orange-50 text-orange-800'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'}`}
+                className={chipClass(active)}
                 data-testid="marketplace-trust-chip"
               >
                 {chip}
@@ -735,144 +827,100 @@ export default function Marketplace() {
     </div>
   )
 
+  const sheetSide = isMdUp ? 'left' : 'bottom'
+  const commandSelectTrigger = `h-12 w-[7.75rem] shrink-0 rounded-xl border-0 bg-transparent px-3.5 text-left text-[15px] text-[#09122A] shadow-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-[#C2410C] data-[size=default]:h-12 xl:w-[8.5rem] 2xl:w-[10rem]`
+  const commandLabel = 'block text-[10px] font-semibold uppercase leading-3 tracking-[0.16em] text-slate-500'
+
   return (
-    <div className="min-h-screen bg-white text-slate-950" data-testid="marketplace-page">
-      <section
-        className="relative overflow-hidden bg-[#070b12] text-white"
-        data-testid="marketplace-compact-header"
-      >
-        <div className="pointer-events-none absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_18%_20%,rgba(249,115,22,0.16),transparent_24%),linear-gradient(120deg,transparent_0%,transparent_58%,rgba(255,255,255,0.04)_58%,rgba(255,255,255,0.04)_59%,transparent_59%)]" />
-        <div className="section-padding relative mx-auto max-w-[1440px] pb-20 pt-5 sm:pb-24 lg:pb-28 lg:pt-7">
-          <div className="flex items-center justify-between gap-5 border-b border-white/10 pb-4">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-orange-400">
-              <CarFront className="h-4 w-4" /> CarUp Marketplace
-            </div>
-            <nav className="flex max-w-[72vw] gap-1 overflow-x-auto text-xs font-semibold sm:text-sm" aria-label="Marketplace categories">
-              <Link to="/marketplace" className="shrink-0 border-b border-orange-400 px-2.5 py-2 text-white">Cars</Link>
-              <Link to="/marketplace/parts" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Parts</Link>
-              <Link to="/marketplace/services" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Garages</Link>
-              <Link to="/diaspora" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Imports</Link>
-              <Link to="/insurance" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Insurance</Link>
-              <Link to="/pricing" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Finance</Link>
-            </nav>
-          </div>
-
-          <div className="grid gap-8 pt-8 lg:grid-cols-[0.78fr_1.22fr] lg:items-end lg:gap-12 lg:pt-12">
-            <div className="relative z-10 lg:pb-5">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Zimbabwe&apos;s vehicle showroom + trust layer</p>
-              <h1 className="mt-4 max-w-3xl text-5xl font-black leading-[0.9] tracking-[-0.055em] text-white sm:text-6xl lg:text-7xl">
-                Find the car.
-                <span className="mt-1 block text-orange-400">Know what stands behind it.</span>
+    <div className="min-h-screen bg-white text-[#09122A]" data-testid="marketplace-page">
+      <section className="bg-white" data-testid="marketplace-compact-header" aria-labelledby="marketplace-title">
+        <div className="section-padding mx-auto max-w-[1440px] pt-6 sm:pt-8 lg:pt-10">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between lg:gap-10">
+            <div className="min-w-0">
+              <p className={`${EYEBROW} text-[#C2410C]`}>CarUp Marketplace</p>
+              <h1
+                id="marketplace-title"
+                className="mt-2 text-[clamp(1.75rem,3.2vw,2.75rem)] font-bold leading-[1.05] tracking-[-0.03em] text-[#09122A]"
+              >
+                Find the car.{' '}
+                <span className="text-slate-500 sm:block">Know what stands behind it.</span>
               </h1>
-              <p className="mt-6 max-w-xl text-sm leading-6 text-slate-300 sm:text-base sm:leading-7">
-                Shop published vehicles with the commercial facts up front and CarUp&apos;s governed Trust,
-                evidence and lifecycle context close enough to act on — without turning seller claims into verified facts.
-              </p>
-              <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/10 pt-4 text-xs text-slate-400">
-                <span><strong className="text-white">Published</strong> inventory only</span>
-                <span><strong className="text-white">Canonical</strong> Trust states</span>
-                <span><strong className="text-white">4 cars</strong> max compare</span>
-              </div>
-            </div>
-
-            <div className="relative min-h-[300px] sm:min-h-[390px] lg:min-h-[470px]" data-testid="marketplace-showroom-spotlight">
-              <div className="absolute -right-8 top-0 h-[88%] w-[92%] border border-white/10 [clip-path:polygon(9%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]" />
-              {spotlightListing ? (
-                <Link
-                  to={`/marketplace/${encodeURIComponent(spotlightListing.vin)}${fixtureScope ? `?fixture_scope=${encodeURIComponent(fixtureScope)}` : ''}`}
-                  className="group absolute inset-x-0 top-3 block h-[82%] overflow-hidden bg-slate-900 shadow-[0_38px_100px_rgba(0,0,0,0.52)] [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]"
-                  aria-label={`Open ${[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ')}`}
-                >
-                  <ListingImage
-                    src={primaryImageForListing(spotlightListing)}
-                    alt={[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ') || 'Marketplace vehicle'}
-                    className="h-full w-full"
-                    imgClassName="transition duration-700 ease-out group-hover:scale-[1.035]"
-                    loading="eager"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/5 to-black/10" />
-                  <div className="absolute left-5 top-5 border border-white/25 bg-black/35 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-white backdrop-blur-sm">
-                    Live inventory
-                  </div>
-                  <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-5 p-5 sm:p-7">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-300">Showroom spotlight</p>
-                      <p className="mt-1 truncate text-2xl font-black tracking-[-0.035em] text-white sm:text-3xl">
-                        {[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ')}
-                      </p>
-                      <p className="mt-2 text-sm text-slate-300">
-                        {summaryLocationLine(spotlightListing.location, spotlightListing.location_state).label}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-2xl font-black text-white">{marketplacePriceLabel(spotlightListing.price, spotlightListing.currency)}</p>
-                      <span className="mt-2 inline-flex items-center gap-2 text-xs font-bold text-orange-300">
-                        Open vehicle <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
-                      </span>
-                    </div>
-                  </div>
-                </Link>
-              ) : (
-                <div className="absolute inset-x-0 top-3 flex h-[82%] items-center justify-center bg-slate-900 text-sm text-slate-500 [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]">
+              {/* TI-13: no count at all while the read has failed — a failure is not a measured zero. */}
+              {!loadError && (
+                <p className="mt-3 flex items-center gap-2 text-[13px] text-slate-500" data-testid="marketplace-results-count">
                   {loadingVehicles
-                    ? 'Loading live showroom…'
-                    : loadError
-                      ? 'The live showroom is unavailable right now'
-                      : 'No published vehicle to spotlight'}
-                </div>
+                    ? <><Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />Loading vehicles…</>
+                    : <>
+                        <span aria-hidden="true" className="h-2 w-2 rounded-full bg-emerald-500" />
+                        <span className="font-semibold tabular-nums text-[#09122A]">{visibleListings.length}</span> {publishedCountLabel}
+                      </>}
+                </p>
               )}
             </div>
+
+            <nav
+              aria-label="Marketplace categories"
+              className="carup-rail -mx-4 flex scroll-px-4 gap-2 overflow-x-auto px-4 py-1 sm:-mx-6 sm:scroll-px-6 sm:px-6 lg:mx-0 lg:scroll-px-0 lg:shrink-0 lg:px-0"
+            >
+              {CATEGORY_LINKS.map(link => (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  aria-current={link.current ? 'page' : undefined}
+                  className={`inline-flex h-11 shrink-0 items-center rounded-full px-4 text-[14px] font-medium transition-colors ${FOCUS_LIGHT} ${link.current
+                    ? 'bg-[#09122A] text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200/80 hover:text-[#09122A]'}`}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </nav>
           </div>
         </div>
       </section>
 
-      <div className="section-padding relative mx-auto max-w-[1440px] pb-12 pt-0 sm:pb-16">
-        <section className="relative z-20 -mt-12 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.18)] sm:-mt-14">
-          <div className="border-b border-slate-200 px-4 py-3 sm:px-6">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Search the showroom</p>
-                <p className="mt-0.5 text-xs text-slate-500">Make, model, year, location, seller or a vehicle identifier.</p>
-              </div>
-              {!loadingVehicles && !loadError && (
-                <p className="hidden text-xs font-semibold text-slate-500 sm:block">
-                  <span className="text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid lg:grid-cols-[minmax(0,1.7fr)_0.7fr_0.6fr_0.85fr_auto]">
-            <div className="relative border-b border-slate-200 lg:border-b-0 lg:border-r">
-              <Search className="absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-500" />
+      {/* The command bar follows the buyer down the showroom from tablet up (under the 64 px site header). */}
+      <div className="relative z-30 bg-white/90 backdrop-blur-md md:sticky md:top-16">
+        <div className="section-padding mx-auto max-w-[1440px] py-3 sm:py-4">
+          <div
+            role="search"
+            aria-label="Search the Marketplace"
+            className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 md:flex md:items-center md:gap-0 md:rounded-2xl md:border md:border-slate-200 md:bg-white md:p-1.5 md:shadow-[0_1px_2px_rgba(9,18,42,0.06),0_18px_40px_-24px_rgba(9,18,42,0.35)]"
+          >
+            <div className="relative col-span-2 min-w-0 md:flex-1">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#C2410C]" aria-hidden="true" />
               <Input
-                placeholder="Try “Hilux diesel”, “Harare”, a VIN, make or model…"
+                type="search"
+                aria-label="Search published vehicles"
+                placeholder="Search make, model, location or VIN"
                 value={searchQuery}
                 onChange={event => setSearchQuery(event.target.value)}
-                className="h-16 rounded-none border-0 bg-transparent pl-14 pr-4 text-base font-semibold shadow-none placeholder:font-normal placeholder:text-slate-400 focus-visible:ring-0 sm:h-[72px] sm:text-lg"
+                className="h-12 rounded-xl border-slate-200 bg-white pl-12 pr-4 text-base text-[#09122A] shadow-[0_1px_2px_rgba(9,18,42,0.05)] placeholder:text-slate-500 focus-visible:border-slate-300 focus-visible:ring-2 focus-visible:ring-[#C2410C]/30 md:border-transparent md:text-[16px] md:shadow-none xl:text-[17px]"
                 data-testid="marketplace-search-input"
               />
             </div>
 
-            <div className="hidden border-r border-slate-200 lg:block">
+            <div className="hidden shrink-0 items-center lg:flex">
+              <span aria-hidden="true" className="mx-1 h-8 w-px bg-slate-200" />
               <Select value={url.selectedMake} onValueChange={value => updateUrl({ selectedMake: value, selectedModel: ALL })}>
-                <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-make">
-                  <div className="text-left">
-                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Make</span>
+                <SelectTrigger className={commandSelectTrigger} data-testid="marketplace-command-make">
+                  <span className="min-w-0 truncate">
+                    <span className={commandLabel}>Make</span>
                     <SelectValue />
-                  </div>
+                  </span>
                 </SelectTrigger>
                 <SelectContent>{makes.map(make => <SelectItem key={make} value={make}>{make}</SelectItem>)}</SelectContent>
               </Select>
             </div>
 
-            <div className="hidden border-r border-slate-200 lg:block">
+            <div className="hidden shrink-0 items-center lg:flex">
+              <span aria-hidden="true" className="mx-1 h-8 w-px bg-slate-200" />
               <Select value={url.selectedYear} onValueChange={value => updateUrl({ selectedYear: value })}>
-                <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-year">
-                  <div className="text-left">
-                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Year</span>
+                <SelectTrigger className={commandSelectTrigger} data-testid="marketplace-command-year">
+                  <span className="min-w-0 truncate">
+                    <span className={commandLabel}>Year</span>
                     <SelectValue />
-                  </div>
+                  </span>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL}>Any year</SelectItem>
@@ -881,13 +929,14 @@ export default function Marketplace() {
               </Select>
             </div>
 
-            <div className="hidden border-r border-slate-200 lg:block">
+            <div className="hidden shrink-0 items-center lg:flex">
+              <span aria-hidden="true" className="mx-1 h-8 w-px bg-slate-200" />
               <Select value={url.selectedLocation} onValueChange={value => updateUrl({ selectedLocation: value })}>
-                <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-location">
-                  <div className="min-w-0 text-left">
-                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Location</span>
+                <SelectTrigger className={commandSelectTrigger} data-testid="marketplace-command-location">
+                  <span className="min-w-0 truncate">
+                    <span className={commandLabel}>Location</span>
                     <SelectValue />
-                  </div>
+                  </span>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="All">Anywhere</SelectItem>
@@ -898,158 +947,204 @@ export default function Marketplace() {
 
             <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
               <SheetTrigger asChild>
-                <Button
-                  className="h-16 rounded-none bg-orange-500 px-5 font-black text-white shadow-none hover:bg-orange-600 sm:h-[72px]"
+                <button
+                  type="button"
+                  className={`inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-[14px] font-semibold text-[#09122A] transition-colors hover:border-slate-300 ${FOCUS_LIGHT} md:order-last md:ml-1.5 md:h-12 md:rounded-xl md:border-transparent md:bg-[#09122A] md:px-5 md:text-white md:hover:bg-[#111D3D]`}
                   data-testid="marketplace-mobile-filter-button"
                 >
-                  <SlidersHorizontal className="mr-2 h-4 w-4" />
-                  All filters
-                  {activeFilterCount > 0 && <span className="ml-2 bg-white px-1.5 py-0.5 text-[10px] font-black text-orange-700">{activeFilterCount}</span>}
-                </Button>
+                  <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+                  Filters
+                  {activeFilterCount > 0 && (
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[linear-gradient(90deg,#FE7D18,#FD5B0D)] px-1.5 text-[11px] font-bold tabular-nums text-[#09122A]">
+                      {activeFilterCount}<span className="sr-only"> active</span>
+                    </span>
+                  )}
+                </button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[94%] max-w-md overflow-y-auto bg-[#f8fafc] p-0 sm:max-w-lg" data-testid="marketplace-mobile-filter-drawer">
-                <SheetHeader className="border-b border-slate-200 bg-[#08111f] px-5 py-5 text-left text-white">
-                  <SheetTitle className="text-white">Build your shortlist</SheetTitle>
-                  <p className="text-xs leading-5 text-slate-400">Refine the published inventory. Seller-stated and governed facts keep their original evidence states.</p>
+              <SheetContent
+                side={sheetSide}
+                className={sheetSide === 'bottom'
+                  ? 'max-h-[88svh] gap-0 overflow-hidden rounded-t-3xl border-0 bg-white p-0'
+                  : 'w-[92vw] max-w-md gap-0 border-0 bg-white p-0 sm:max-w-md'}
+                data-testid="marketplace-mobile-filter-drawer"
+              >
+                {sheetSide === 'bottom' && <div aria-hidden="true" className="mx-auto mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-slate-300" />}
+                <SheetHeader className="shrink-0 gap-1 border-b border-slate-200 px-5 pb-4 pt-4 pr-14 text-left">
+                  <SheetTitle className="text-lg font-semibold tracking-[-0.015em] text-[#09122A]">Build your shortlist</SheetTitle>
+                  <SheetDescription className="text-[13px] leading-5 text-slate-500">
+                    Refine the published inventory. Seller-stated and governed facts keep their original evidence states.
+                  </SheetDescription>
                 </SheetHeader>
-                <div className="space-y-7 px-5 py-6">
+                <div className="min-h-0 flex-1 space-y-7 overflow-y-auto overscroll-contain px-5 py-6">
                   {filterControls}
                   <div className="border-t border-slate-200 pt-6">{taxonomyControls}</div>
                 </div>
-                <SheetFooter className="sticky bottom-0 flex-row gap-2 border-t border-slate-200 bg-white p-4">
-                  <Button variant="ghost" className="flex-1 rounded-none" onClick={resetFilters}>Clear all</Button>
-                  <Button className="flex-1 rounded-none bg-orange-600 hover:bg-orange-700" onClick={() => setMobileFiltersOpen(false)} data-testid="marketplace-mobile-filter-close">
+                <SheetFooter className="mt-0 shrink-0 flex-row gap-2 border-t border-slate-200 bg-white px-5 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4">
+                  <button
+                    type="button"
+                    className={`h-12 flex-1 rounded-xl text-[15px] font-semibold text-[#09122A] transition-colors hover:bg-slate-100 ${FOCUS_LIGHT}`}
+                    onClick={resetFilters}
+                  >
+                    Clear all
+                  </button>
+                  <button
+                    type="button"
+                    className={`h-12 flex-[2] rounded-xl bg-[#09122A] px-4 text-[15px] font-semibold text-white transition-colors hover:bg-[#111D3D] ${FOCUS_LIGHT}`}
+                    onClick={() => setMobileFiltersOpen(false)}
+                    data-testid="marketplace-mobile-filter-close"
+                  >
                     {loadError
                       ? 'Close filters'
-                      : `Show ${visibleListings.length} published ${visibleListings.length === 1 ? 'listing' : 'listings'}`}
-                  </Button>
+                      : `Show ${visibleListings.length} ${publishedCountLabel}`}
+                  </button>
                 </SheetFooter>
               </SheetContent>
             </Sheet>
-          </div>
 
-          <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 items-center gap-2 overflow-x-auto" data-testid="marketplace-quick-filters">
-              <span className="flex shrink-0 items-center gap-1.5 pr-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-                <Sparkles className="h-3.5 w-3.5 text-orange-600" /> Discover
-              </span>
-              {TRUST_QUICK_FILTERS.map(filter => {
-                const category = isCategoryChip(filter.label)
-                const active = category ? url.selectedCategory === filter.label : url.selectedTags.includes(filter.label)
-                return (
-                  <button
-                    key={filter.label}
-                    type="button"
-                    data-testid={filter.testId}
-                    aria-pressed={active}
-                    onClick={() => (category ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
-                    className={`shrink-0 border-b-2 px-2.5 py-1.5 text-xs font-bold transition ${active
-                      ? 'border-orange-500 text-orange-700'
-                      : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-950'}`}
-                  >
-                    {filter.label}
-                  </button>
-                )
-              })}
+            <div className="flex min-w-0 items-center md:shrink-0">
+              <span aria-hidden="true" className="mx-1 hidden h-8 w-px bg-slate-200 md:block" />
+              <Select value={url.sortBy} onValueChange={value => updateUrl({ sortBy: value as MarketplaceSort })}>
+                <SelectTrigger
+                  className="w-full min-w-0 rounded-full border-slate-200 bg-white px-4 text-left text-[14px] font-medium text-[#09122A] shadow-none hover:border-slate-300 focus-visible:ring-2 focus-visible:ring-[#C2410C] data-[size=default]:h-11 md:w-[12rem] md:rounded-xl lg:w-[10.5rem] xl:w-[11rem] 2xl:w-[12rem] md:border-transparent md:text-[15px] md:font-normal md:hover:bg-slate-50 md:data-[size=default]:h-12"
+                  data-testid="marketplace-sort-select"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <ArrowUpDown className="h-4 w-4 shrink-0 text-slate-500 md:hidden" aria-hidden="true" />
+                    <span className="min-w-0 truncate">
+                      <span className={`sr-only md:not-sr-only ${commandLabel}`}>Sort</span>
+                      <SelectValue />
+                    </span>
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="newest">Newest first</SelectItem>
+                  <SelectItem value="price-low">Price: low to high</SelectItem>
+                  <SelectItem value="price-high">Price: high to low</SelectItem>
+                  <SelectItem value="trust">Highest canonical Trust</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-
-            <Select value={url.sortBy} onValueChange={value => updateUrl({ sortBy: value as MarketplaceSort })}>
-              <SelectTrigger className="h-9 w-full rounded-none border-0 border-b border-slate-300 bg-white px-0 text-xs shadow-none focus:ring-0 sm:w-[190px]" data-testid="marketplace-sort-select">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="newest">Newest first</SelectItem>
-                <SelectItem value="price-low">Price: low to high</SelectItem>
-                <SelectItem value="price-high">Price: high to low</SelectItem>
-                <SelectItem value="trust">Highest canonical Trust</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
-        </section>
+        </div>
+      </div>
+
+      <div className="section-padding mx-auto max-w-[1440px] pb-16 sm:pb-20">
+        <div
+          role="group"
+          aria-label="Quick filters"
+          className="carup-rail -mx-4 flex scroll-px-4 gap-2 overflow-x-auto px-4 py-1 sm:-mx-6 sm:scroll-px-6 sm:px-6 lg:mx-0 lg:scroll-px-0 lg:px-0"
+          data-testid="marketplace-quick-filters"
+        >
+          {TRUST_QUICK_FILTERS.map(filter => {
+            const category = isCategoryChip(filter.label)
+            const active = category ? url.selectedCategory === filter.label : url.selectedTags.includes(filter.label)
+            return (
+              <button
+                key={filter.label}
+                type="button"
+                data-testid={filter.testId}
+                aria-pressed={active}
+                onClick={() => (category ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
+                className={chipClass(active)}
+              >
+                {filter.label}
+              </button>
+            )
+          })}
+        </div>
 
         {activeChips.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="marketplace-active-filters">
-            <span className="text-xs font-medium text-slate-500">Active</span>
+          <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Active filters" data-testid="marketplace-active-filters">
             {activeChips.map(chip => (
               <button
                 key={`${chip.key}:${chip.value ?? chip.label}`}
                 type="button"
                 onClick={() => removeChip(chip.key, chip.value)}
+                aria-label={`Remove filter: ${chip.label}`}
                 data-testid="marketplace-active-filter-chip"
-                className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-800 transition hover:bg-orange-100"
+                className={`relative inline-flex h-9 items-center gap-1.5 rounded-full bg-[#F6F4F0] pl-3.5 pr-2.5 text-[13px] font-medium text-[#09122A] transition-colors after:absolute after:inset-x-0 after:-inset-y-1 after:content-[''] hover:bg-[#ECE8E1] ${FOCUS_LIGHT}`}
               >
-                {chip.label}<X className="h-3 w-3" />
+                {chip.label}
+                <X className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
               </button>
             ))}
-            <Button variant="ghost" size="sm" onClick={resetFilters} data-testid="marketplace-clear-filters" className="h-7 text-xs text-slate-600">
+            <button
+              type="button"
+              onClick={resetFilters}
+              data-testid="marketplace-clear-filters"
+              className={`relative h-9 rounded-full px-3 text-[13px] font-semibold text-[#C2410C] underline-offset-4 after:absolute after:inset-x-0 after:-inset-y-1 after:content-[''] hover:underline ${FOCUS_LIGHT}`}
+            >
               Clear all
-            </Button>
+            </button>
           </div>
         )}
 
-        <main className="mt-10 min-w-0">
+        <section className="mt-6 min-w-0 sm:mt-8" aria-labelledby="marketplace-results-heading">
+          <h2 id="marketplace-results-heading" className="sr-only">Published vehicles</h2>
+
           {!loadingVehicles && trustRanking?.requested === 'trust' && trustRanking.applied !== 'trust' && (
-            <div className="mb-6 border-y border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600" data-testid="marketplace-trust-ranking-notice">
-              {trustRanking.note || 'No listing on this page carries a canonical Trust evaluation, so these results are not ordered by Trust.'}
+            <div className="mb-6 flex gap-3 rounded-2xl bg-[#F6F4F0] px-4 py-3 text-[13px] leading-5 text-slate-600" data-testid="marketplace-trust-ranking-notice">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
+              <span>{trustRanking.note || 'No listing on this page carries a canonical Trust evaluation, so these results are not ordered by Trust.'}</span>
             </div>
           )}
 
-          <div className="mb-7 flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Available now</p>
-              <h2 className="mt-1 text-3xl font-black tracking-[-0.04em] text-slate-950 sm:text-4xl">Published vehicles</h2>
-              <p className="mt-2 text-sm text-slate-500" data-testid="marketplace-results-summary">{getResultSummary(filterState)}</p>
-              <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Published listings only · Trust and vehicle facts retain their governed states.</p>
-            </div>
-            <div className="flex items-end gap-5">
-              {/* TI-13: no count at all while the read has failed — a failure is not a measured zero. */}
-              {!loadError && (
-                <p className="text-sm text-slate-500" data-testid="marketplace-results-count">
-                  {loadingVehicles
-                    ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading vehicles…</span>
-                    : <><span className="text-2xl font-black text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}</>}
-                </p>
-              )}
-              <Button
-                variant="ghost"
-                className="hidden h-auto rounded-none border-b border-slate-300 px-0 pb-1 text-xs font-bold text-slate-600 hover:bg-transparent hover:text-orange-700 sm:inline-flex"
-                onClick={() => setMobileFiltersOpen(true)}
-              >
-                <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" /> Refine
-              </Button>
-            </div>
+          <div className="mb-6 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
+            <p className="text-[15px] font-semibold text-[#09122A]" data-testid="marketplace-results-summary">{getResultSummary(filterState)}</p>
+            <p className="text-[13px] text-slate-500">Published listings only · Trust and vehicle facts retain their governed states.</p>
           </div>
 
           {loadingVehicles ? (
-            <div className="grid gap-x-7 gap-y-12 md:grid-cols-2" data-testid="marketplace-loading-state">
-              {Array.from({ length: 6 }).map((_, index) => <SkeletonCard key={index} />)}
+            <div className="grid grid-cols-1 gap-x-6 gap-y-12 md:grid-cols-2 xl:grid-cols-3 xl:gap-x-8" data-testid="marketplace-loading-state">
+              {Array.from({ length: 6 }).map((_, index) => (index === 0
+                ? (
+                    <div key={index} data-testid="marketplace-showroom-spotlight">
+                      <span className="sr-only">Loading live showroom…</span>
+                      <SkeletonCard />
+                    </div>
+                  )
+                : <SkeletonCard key={index} />))}
             </div>
           ) : loadError ? (
-            <div
+            <ShowroomStageNotice
+              testId="marketplace-error-state"
               role="alert"
-              className="border-y border-amber-200 bg-amber-50 px-6 py-16 text-center"
-              data-testid="marketplace-error-state"
+              spotlight="The live showroom is unavailable right now"
+              spotlightTone="amber"
+              title="Vehicles could not be loaded"
+              action={(
+                <button
+                  type="button"
+                  className={`inline-flex h-11 items-center rounded-full bg-[#09122A] px-6 text-[15px] font-semibold text-white transition-colors hover:bg-[#111D3D] ${FOCUS_LIGHT}`}
+                  onClick={() => setListingsReadAttempt(attempt => attempt + 1)}
+                >
+                  Try again
+                </button>
+              )}
             >
-              <h3 className="text-xl font-black text-amber-950">Vehicles could not be loaded</h3>
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-amber-900">
-                Marketplace data is temporarily unavailable, so this is not an empty showroom. CarUp has not
-                substituted another public vehicle endpoint or fabricated production inventory.
-              </p>
-              <Button variant="outline" className="mt-5 rounded-none" onClick={() => setListingsReadAttempt(attempt => attempt + 1)}>
-                Try again
-              </Button>
-            </div>
+              Marketplace data is temporarily unavailable, so this is not an empty showroom. CarUp has not
+              substituted another public vehicle endpoint or fabricated production inventory.
+            </ShowroomStageNotice>
           ) : visibleListings.length === 0 ? (
-            <div className="border-y border-dashed border-slate-300 bg-white px-6 py-20 text-center" data-testid="marketplace-empty-state">
-              <Search className="mx-auto mb-4 h-10 w-10 text-slate-300" />
-              <h3 className="text-xl font-black text-slate-900">No matching vehicles</h3>
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-                Broaden the search or remove one of the active filters. CarUp will not fill an empty result with demo inventory.
-              </p>
-              <Button variant="outline" className="mt-5 rounded-none" onClick={resetFilters}>Clear all filters</Button>
-            </div>
+            <ShowroomStageNotice
+              testId="marketplace-empty-state"
+              spotlight="No published vehicle to spotlight"
+              spotlightTone="slate"
+              title="No matching vehicles"
+              action={(
+                <button
+                  type="button"
+                  className={`inline-flex h-11 items-center rounded-full border border-slate-300 bg-white px-6 text-[15px] font-semibold text-[#09122A] transition-colors hover:border-slate-400 ${FOCUS_LIGHT}`}
+                  onClick={resetFilters}
+                >
+                  Clear all filters
+                </button>
+              )}
+            >
+              Broaden the search or remove one of the active filters. CarUp will not fill an empty result with demo inventory.
+            </ShowroomStageNotice>
           ) : (
-            <div className="grid gap-x-7 gap-y-12 md:grid-cols-2" data-testid="marketplace-results-grid">
+            <div className="grid grid-cols-1 gap-x-6 gap-y-12 md:grid-cols-2 xl:grid-cols-3 xl:gap-x-8" data-testid="marketplace-results-grid">
               {visibleListings.map((listing, position) => {
                 const vin = listing.vin
                 const vehicleName = [listing.year, listing.make, listing.model].filter(value => value !== null && value !== undefined && value !== '').join(' ')
@@ -1075,10 +1170,12 @@ export default function Marketplace() {
                   trust: listing.trust || null,
                   carupGold: listing.carup_gold?.state === 'qualified',
                   syntheticDemo: Boolean(listing.primary_image_url?.includes('/marketplace-reference-synthetic/')),
+                  bodyStyle: typeof listing.body_style === 'string' && listing.body_style.trim() ? listing.body_style.trim() : null,
                 }
+                const isFeature = position === 0 && featureFirstResult
 
-                return (
-                  <MarketplaceImpression key={vin} vin={vin} position={position}>
+                const card = (
+                  <MarketplaceImpression vin={vin} position={position}>
                     <MarketplaceListingCard
                       vehicle={model}
                       href={href}
@@ -1091,75 +1188,91 @@ export default function Marketplace() {
                         event.stopPropagation()
                         shareListing(vin, model.name)
                       }}
+                      layout={isFeature ? 'feature' : 'standard'}
+                      edgeToEdgeOnPhones
                     />
                   </MarketplaceImpression>
                 )
+
+                // The first position is the showroom spotlight, whether or not it opens into a feature card.
+                return position === 0
+                  ? (
+                      <div key={vin} className={`min-w-0 ${isFeature ? 'lg:col-span-2 xl:col-span-3' : ''}`} data-testid="marketplace-showroom-spotlight">
+                        {card}
+                      </div>
+                    )
+                  : <div key={vin} className="min-w-0">{card}</div>
               })}
             </div>
           )}
-        </main>
+        </section>
       </div>
 
       {compareVins.length > 0 && !mobileFiltersOpen && (
         <div
-          className="fixed inset-x-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[60] mx-auto max-w-5xl border border-slate-700 bg-[#08111f]/[0.98] px-3 py-3 text-white shadow-[0_26px_80px_rgba(2,6,23,0.55)] backdrop-blur-xl lg:bottom-6"
+          className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-[60] mx-auto max-w-3xl rounded-2xl bg-[#09122A]/95 p-2 pl-3 text-white shadow-[0_24px_60px_-20px_rgba(9,18,42,0.7)] ring-1 ring-white/10 backdrop-blur-xl lg:bottom-6"
           data-testid="marketplace-compare-bar"
           aria-live="polite"
         >
           <div className="flex items-center gap-3">
-            <div className="hidden min-w-0 flex-1 items-center gap-2 overflow-hidden sm:flex">
-              {compareSelections.map(listing => (
-                <div key={listing.vin} className="flex min-w-0 max-w-[190px] flex-1 items-center gap-2 border-r border-white/10 pr-2 last:border-r-0">
-                  <ListingImage
-                    src={primaryImageForListing(listing)}
-                    alt={[listing.year, listing.make, listing.model].filter(Boolean).join(' ') || 'Selected vehicle'}
-                    className="h-11 w-16 shrink-0 overflow-hidden bg-slate-800"
-                    imgClassName="object-cover"
-                  />
-                  <div className="min-w-0">
-                    <p className="truncate text-[11px] font-black text-white">
-                      {[listing.year, listing.make, listing.model].filter(Boolean).join(' ')}
-                    </p>
-                    <p className="mt-0.5 truncate text-[10px] text-slate-400">
-                      {marketplacePriceLabel(listing.price, listing.currency)}
-                    </p>
+            <div className="hidden shrink-0 -space-x-3 sm:flex" aria-hidden="true">
+              {compareSelections.map(listing => {
+                const thumb = primaryImageForListing(listing)
+                return (
+                  <div key={listing.vin} className="h-10 w-14 overflow-hidden rounded-lg bg-[#111D3D] ring-2 ring-[#09122A]">
+                    {thumb
+                      ? (
+                          <ListingImage
+                            src={thumb}
+                            alt={listingName(listing) || 'Selected vehicle'}
+                            bodyStyle={listing.body_style ?? null}
+                            className="h-full w-full"
+                          />
+                        )
+                      : <div className="grid h-full w-full place-items-center text-slate-400"><CarFront className="h-4 w-4" /></div>}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
 
-            <div className="min-w-0 flex-1 sm:hidden">
-              <p className="truncate text-sm font-black text-white">{compareVins.length} selected to compare</p>
-              <p className="mt-0.5 text-[10px] text-slate-400">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[14px] font-semibold text-white">{compareVins.length} selected to compare</p>
+              <p className="mt-0.5 truncate text-[12px] text-slate-300">
                 {compareVins.length < 2 ? 'Select one more vehicle.' : 'Your side-by-side shortlist is ready.'}
+              </p>
+              <p className="sr-only">
+                {compareSelections.map(listing => `${listingName(listing)}, ${marketplacePriceLabel(listing.price, listing.currency)}`).join('; ')}
               </p>
             </div>
 
-            <div className="ml-auto flex shrink-0 items-center gap-1.5">
-              <Button variant="ghost" size="sm" className="hidden rounded-none text-slate-300 hover:bg-white/10 hover:text-white sm:inline-flex" onClick={() => setCompareVins([])}>
-                Clear
-              </Button>
-              <Button
-                size="sm"
-                className="min-w-[9.5rem] rounded-none bg-orange-500 font-black text-white hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-400"
-                disabled={compareVins.length < 2}
-                onClick={() => {
-                  trackActivity({
-                    event_type: 'marketplace_compare_viewed',
-                    source_surface: 'marketplace_list',
-                    compare_listing_ids: compareVins,
-                    metadata: { compare_set_size: compareVins.length },
-                  })
-                  navigate(`/marketplace/compare?vins=${compareVins.join(',')}`)
-                }}
-                data-testid="marketplace-compare-go"
-              >
-                <GitCompare className="mr-1 h-4 w-4" />
-                {compareVins.length < 2 ? 'Select one more' : `Compare ${compareVins.length} vehicles`}
-              </Button>
-            </div>
+            <button
+              type="button"
+              className="hidden h-11 shrink-0 rounded-xl px-3 text-[14px] font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FE7D18] sm:inline-flex sm:items-center"
+              onClick={() => setCompareVins([])}
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-xl bg-[linear-gradient(90deg,#FE7D18,#FD5B0D)] px-3.5 text-[14px] font-semibold text-[#09122A] transition-opacity hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#09122A] disabled:cursor-not-allowed disabled:bg-none disabled:bg-white/10 disabled:text-slate-300 sm:px-4"
+              disabled={compareVins.length < 2}
+              onClick={() => {
+                trackActivity({
+                  event_type: 'marketplace_compare_viewed',
+                  source_surface: 'marketplace_list',
+                  compare_listing_ids: compareVins,
+                  metadata: { compare_set_size: compareVins.length },
+                })
+                navigate(`/marketplace/compare?vins=${compareVins.join(',')}`)
+              }}
+              data-testid="marketplace-compare-go"
+            >
+              <GitCompare className="hidden h-4 w-4 sm:block" aria-hidden="true" />
+              {compareVins.length < 2 ? 'Select one more' : `Compare ${compareVins.length} vehicles`}
+            </button>
           </div>
         </div>
-      )}    </div>
+      )}
+    </div>
   )
 }

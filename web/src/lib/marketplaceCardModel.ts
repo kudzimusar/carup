@@ -42,5 +42,7 @@ export function marketplaceListingToCardModel(
     trust: listing.trust || null,
     carupGold: listing.carup_gold?.state === 'qualified',
     syntheticDemo: Boolean(listing.primary_image_url?.includes('/marketplace-reference-synthetic/')),
+    // Presentation only: picks the studio-plate silhouette when there is no photo to show.
+    bodyStyle: typeof listing.body_style === 'string' && listing.body_style.trim() ? listing.body_style.trim() : null,
   }
 }

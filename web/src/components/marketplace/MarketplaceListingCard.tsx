@@ -1,19 +1,16 @@
+import type { CSSProperties, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Badge } from '@/components/ui/badge'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
 import {
   ArrowUpRight,
   CheckCircle2,
-  Fuel,
-  Gauge,
+  Eye,
   GitCompare,
   Heart,
-  Eye,
   MapPin,
   Share2,
   ShieldCheck,
-  Settings2,
 } from 'lucide-react'
 
 export type MarketplaceTrustEvaluationState = 'evaluated' | 'stale' | 'not_evaluated' | 'unavailable'
@@ -47,6 +44,8 @@ export interface MarketplaceListingCardModel {
   trust?: MarketplaceCardTrust | null
   carupGold?: boolean
   syntheticDemo?: boolean
+  /** Listing body style, used ONLY to pick the studio-plate silhouette when there is no photo. */
+  bodyStyle?: string | null
 }
 
 interface MarketplaceListingCardProps {
@@ -67,6 +66,13 @@ interface MarketplaceListingCardProps {
   allowLocalDraftMedia?: boolean
   /** Removes dead navigation from an unpublished Seller preview while keeping the real card layout. */
   previewMode?: boolean
+  /**
+   * `feature` renders the same card horizontally (large media left, details right) from 1024 px.
+   * Below 1024 px it is identical to `standard`. Presentation only: no data or behaviour differs.
+   */
+  layout?: 'standard' | 'feature'
+  /** Lets the media run edge to edge below 640 px. Only for grids that sit in the page gutter. */
+  edgeToEdgeOnPhones?: boolean
 }
 
 function titleCase(value: string | null | undefined) {
@@ -83,36 +89,53 @@ function formatMarketplacePrice(price: number | null, currency: string | null) {
   return `${currency.toUpperCase()} ${price.toLocaleString()}`
 }
 
+const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] focus-visible:ring-offset-2'
+
+/** Quiet separator between facts on one line; decorative only. */
+function Dot() {
+  return <span aria-hidden="true" className="text-slate-300">·</span>
+}
+
+/**
+ * A wrapping row of facts separated by quiet dots. Each item draws its dot BEFORE itself and the row
+ * is pulled left by one dot width inside an overflow-hidden box, so the dot that would start any
+ * line is clipped: no line ever begins or ends with a stray separator, at any card width. The dots
+ * are CSS-generated, so they are not part of the text (or of any test's textContent).
+ */
+const SEPARATED_ROW = '-ml-3.5 flex min-w-0 flex-wrap items-center'
+const SEPARATED_ITEM = "min-w-0 before:inline-block before:w-3.5 before:text-center before:text-slate-300 before:content-['·']"
+
+/**
+ * The card's single Trust line. It renders ONLY what the canonical projection carries: a score,
+ * band and confidence when the state is `evaluated` with a finite score, otherwise the state's own
+ * sentence. The legacy cached `trust_score` is never read here, and the disclosure sentence stays in
+ * the accessible text of every non-evaluated state.
+ */
 function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
   const state = trust?.evaluation_state || null
   const score = trust?.score
   const hasCanonicalScore = state === 'evaluated' && typeof score === 'number' && Number.isFinite(score)
 
   if (hasCanonicalScore) {
+    const confidence = titleCase(trust?.confidence)
     return (
-      <div
-        className="relative overflow-hidden bg-[#0a1220] px-4 py-3 text-white"
+      <p
+        className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13px] leading-5 text-slate-600"
         data-testid="marketplace-card-trust"
       >
-        <div className="absolute inset-y-0 left-0 w-1 bg-orange-500" />
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-orange-300">
-              <ShieldCheck className="h-3.5 w-3.5" /> CarUp Trust lens
-            </div>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-lg font-black">{score}<span className="text-xs font-semibold text-slate-400">/100</span></span>
-              <span className="text-xs font-semibold text-slate-300">{titleCase(trust?.band) || 'Evaluated'}</span>
-            </div>
-          </div>
-          {trust?.confidence && (
-            <div className="border-l border-white/10 pl-4 text-right">
-              <div className="text-[9px] uppercase tracking-[0.14em] text-slate-500">Confidence</div>
-              <div className="mt-0.5 text-xs font-bold text-white">{titleCase(trust.confidence)}</div>
-            </div>
-          )}
-        </div>
-      </div>
+        <ShieldCheck className="h-4 w-4 shrink-0 text-[#C2410C]" aria-hidden="true" />
+        <span className="font-semibold text-[#09122A]">
+          CarUp Trust <span className="tabular-nums">{score}</span><span className="font-medium text-slate-500">/100</span>
+        </span>
+        <Dot />
+        <span>{titleCase(trust?.band) || 'Evaluated'}</span>
+        {confidence && (
+          <>
+            <Dot />
+            <span>{confidence} confidence</span>
+          </>
+        )}
+      </p>
     )
   }
 
@@ -123,22 +146,41 @@ function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
       : state === 'unavailable'
         ? 'Trust temporarily unavailable'
         : 'Trust details on Vehicle Passport'
+  const needsLabel = !/trust/i.test(copy)
 
   return (
-    <div
-      className="border-y border-slate-200 bg-slate-50 px-4 py-3"
+    <p
+      className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13px] leading-5 text-slate-600"
       data-testid="marketplace-card-trust"
     >
-      <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">
-        <ShieldCheck className="h-3.5 w-3.5" /> CarUp Trust lens
-      </div>
-      <div className="mt-1 flex items-end justify-between gap-3">
-        <p className="text-sm font-bold text-slate-900">{copy}</p>
-        <p className="text-[10px] text-slate-500">No legacy score is substituted</p>
-      </div>
-    </div>
+      <ShieldCheck className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+      {needsLabel && (
+        <>
+          <span className="font-semibold text-[#09122A]">CarUp Trust</span>
+          <Dot />
+        </>
+      )}
+      <span>{copy}</span>
+      {' '}
+      <span className="sr-only">No legacy score is substituted</span>
+    </p>
   )
 }
+
+function StatusPill({ children, testId, tone = 'light' }: { children: ReactNode; testId?: string; tone?: 'light' | 'gold' }) {
+  return (
+    <span
+      className={`inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 text-[11px] font-semibold leading-none shadow-[0_1px_2px_rgba(9,18,42,0.14)] ${tone === 'gold'
+        ? 'bg-amber-400 text-[#09122A]'
+        : 'bg-white/90 text-[#09122A] backdrop-blur-sm'}`}
+      data-testid={testId}
+    >
+      {children}
+    </span>
+  )
+}
+
+const ACTION_BUTTON = 'flex h-11 w-11 items-center justify-center rounded-full shadow-[0_1px_2px_rgba(9,18,42,0.12),0_8px_18px_-10px_rgba(9,18,42,0.45)] backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FE7D18] focus-visible:ring-offset-2'
 
 export function MarketplaceListingCard({
   vehicle,
@@ -156,6 +198,8 @@ export function MarketplaceListingCard({
   showMissingMileage = false,
   allowLocalDraftMedia = false,
   previewMode = false,
+  layout = 'standard',
+  edgeToEdgeOnPhones = false,
 }: MarketplaceListingCardProps) {
   // Seller preview is the ONLY exception to the public-media state machine, and even there it may
   // render only a browser-local data:/blob: locator. A remote URL still has to earn one of the
@@ -172,69 +216,97 @@ export function MarketplaceListingCard({
       : null
   )
 
+  const feature = layout === 'feature'
+  const actionCount = [onCompare, onShare, onFavorite].filter(Boolean).length
+  // Status pills share the top edge with the round actions; reserve the actions' width so the two
+  // never collide (44 px buttons, 8 px gaps, 12 px insets, 8 px breathing room).
+  const pillRowStyle: CSSProperties | undefined = actionCount > 0
+    ? { maxWidth: `calc(100% - ${actionCount * 44 + (actionCount - 1) * 8 + 32}px)` }
+    : { maxWidth: 'calc(100% - 24px)' }
+
+  const specs: ReactNode[] = []
+  if (typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage)) {
+    specs.push(<span key="mileage" className="tabular-nums" data-testid={mileageTestId}>{vehicle.mileage.toLocaleString()} km</span>)
+  } else if (showMissingMileage) {
+    specs.push(<span key="mileage" className="text-slate-500" data-testid={mileageTestId}>Mileage not recorded</span>)
+  }
+  if (vehicle.transmission) specs.push(<span key="transmission">{vehicle.transmission}</span>)
+  if (vehicle.fuel) specs.push(<span key="fuel">{vehicle.fuel}</span>)
+
+  const image = (
+    <ListingImage
+      src={renderablePrimaryImage}
+      alt={vehicle.name}
+      bodyStyle={vehicle.bodyStyle ?? null}
+      className="h-full w-full"
+      imgClassName="motion-safe:transition-transform motion-safe:duration-700 motion-safe:ease-out motion-safe:group-hover:scale-[1.035]"
+    />
+  )
+
+  const mediaShape = feature
+    ? 'aspect-[4/3] rounded-2xl lg:aspect-auto lg:h-full lg:min-h-[400px] lg:rounded-3xl xl:min-h-[460px]'
+    : 'aspect-[4/3] rounded-2xl'
+  const bleed = edgeToEdgeOnPhones ? 'max-sm:-mx-4 max-sm:rounded-none' : ''
+  const titleScale = feature ? 'lg:text-[1.75rem] lg:font-bold lg:leading-[1.1] lg:tracking-[-0.025em]' : ''
+
   return (
     <article
-      className={`group relative flex h-full flex-col bg-white transition duration-500 hover:-translate-y-1.5 ${isCompared ? 'ring-2 ring-orange-500 ring-offset-4' : ''}`}
+      className={`group relative flex h-full min-w-0 flex-col ${feature ? 'lg:grid lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-stretch lg:gap-10 xl:gap-14' : ''}`}
       data-testid={dataTestId}
+      data-card-layout={layout}
     >
-      <div className="relative aspect-[16/10] overflow-hidden bg-[linear-gradient(135deg,#e8edf3,#dce3eb)] shadow-[0_18px_44px_rgba(15,23,42,0.16)] transition-shadow duration-500 group-hover:shadow-[0_30px_70px_rgba(15,23,42,0.24)]">
+      <div
+        className={`relative isolate overflow-hidden bg-[#EEECE7] shadow-[0_1px_2px_rgba(9,18,42,0.06),0_18px_40px_-18px_rgba(9,18,42,0.28)] motion-safe:transition-shadow motion-safe:duration-500 group-hover:shadow-[0_1px_2px_rgba(9,18,42,0.06),0_26px_50px_-20px_rgba(9,18,42,0.38)] ${mediaShape} ${bleed} ${isCompared ? 'ring-2 ring-[#09122A] ring-offset-2 ring-offset-white' : ''}`}
+      >
         {previewMode ? (
           <div
             className="block h-full w-full"
             aria-label={`Draft buyer preview of ${vehicle.name}`}
             data-testid="marketplace-draft-preview-image"
           >
-            <ListingImage
-              src={renderablePrimaryImage}
-              alt={vehicle.name}
-              className="h-full w-full"
-              imgClassName="transition-transform duration-700 ease-out group-hover:scale-[1.04]"
-            />
+            {image}
           </div>
         ) : (
           <Link
             to={href}
-            className="block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-inset"
+            className="block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#FE7D18]"
             aria-label={`View ${vehicle.name}`}
             data-testid="marketplace-view-passport"
           >
-            <ListingImage
-              src={renderablePrimaryImage}
-              alt={vehicle.name}
-              className="h-full w-full"
-              imgClassName="transition-transform duration-700 ease-out group-hover:scale-[1.04]"
-            />
+            {image}
           </Link>
         )}
 
-        <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap gap-1.5">
+        <div className="pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-1.5" style={pillRowStyle}>
           {vehicle.carupGold && (
-            <Badge className="rounded-none border border-amber-300 bg-amber-400 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-950" data-testid="carup-gold-badge">
-              ★ CarUp Gold
-            </Badge>
+            <StatusPill testId="carup-gold-badge" tone="gold">★ CarUp Gold</StatusPill>
           )}
           {vehicle.syntheticDemo && (
-            <Badge className="rounded-none border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-800" data-testid="synthetic-demo-media-badge">
+            <StatusPill testId="synthetic-demo-media-badge">
+              <span className="h-1.5 w-1.5 rounded-full bg-sky-600" aria-hidden="true" />
               Demo media
-            </Badge>
+            </StatusPill>
           )}
           {vehicle.plateVerified && (
-            <Badge className="rounded-none border-0 bg-emerald-700 text-[10px] text-white" data-testid="marketplace-plate-confirmed-badge">
-              <CheckCircle2 className="mr-1 h-3 w-3" /> Plate confirmed
-            </Badge>
+            <StatusPill testId="marketplace-plate-confirmed-badge">
+              <CheckCircle2 className="h-3 w-3 text-emerald-700" aria-hidden="true" /> Plate confirmed
+            </StatusPill>
           )}
           {vehicle.reserved && (
-            <Badge className="rounded-none border-0 bg-amber-500 text-[10px] text-white">Reserved</Badge>
+            <StatusPill>
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+              Reserved
+            </StatusPill>
           )}
           {vehicle.partSentryChecked && (
-            <Badge className="rounded-none border-0 bg-slate-950 text-[10px] text-white" data-testid="marketplace-partsentry-badge">
-              PartSentry checked
-            </Badge>
+            <StatusPill testId="marketplace-partsentry-badge">
+              <ShieldCheck className="h-3 w-3 text-[#09122A]" aria-hidden="true" /> PartSentry checked
+            </StatusPill>
           )}
         </div>
 
-        {(onCompare || onShare || onFavorite) && (
-          <div className="absolute right-3 top-3 z-[60] flex translate-y-9 items-center gap-1.5 sm:translate-y-0">
+        {actionCount > 0 && (
+          <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
             {onCompare && (
               <button
                 type="button"
@@ -242,13 +314,11 @@ export function MarketplaceListingCard({
                 aria-pressed={isCompared}
                 onClick={onCompare}
                 data-testid="marketplace-compare-toggle"
-                className={`flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${
-                  isCompared
-                    ? 'border-orange-500 bg-orange-500 text-white'
-                    : 'border-white/80 bg-white/95 text-slate-700 hover:bg-white'
-                }`}
+                className={`${ACTION_BUTTON} ${isCompared
+                  ? 'bg-[#09122A] text-white hover:bg-[#111D3D]'
+                  : 'bg-white/90 text-[#09122A] hover:bg-white'}`}
               >
-                <GitCompare className="h-4 w-4" />
+                <GitCompare className="h-[18px] w-[18px]" aria-hidden="true" />
               </button>
             )}
             {onShare && (
@@ -257,9 +327,9 @@ export function MarketplaceListingCard({
                 aria-label="Share listing"
                 onClick={onShare}
                 data-testid="marketplace-share-button"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                className={`${ACTION_BUTTON} bg-white/90 text-[#09122A] hover:bg-white`}
               >
-                <Share2 className="h-4 w-4" />
+                <Share2 className="h-[18px] w-[18px]" aria-hidden="true" />
               </button>
             )}
             {onFavorite && (
@@ -269,92 +339,96 @@ export function MarketplaceListingCard({
                 aria-pressed={isFavorite}
                 onClick={onFavorite}
                 data-testid="marketplace-save-toggle"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                className={`${ACTION_BUTTON} bg-white/90 text-[#09122A] hover:bg-white`}
               >
-                <Heart className={`h-4 w-4 ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} />
+                <Heart className={`h-[18px] w-[18px] ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} aria-hidden="true" />
               </button>
             )}
           </div>
         )}
       </div>
 
-      <div className="relative flex flex-1 flex-col border-b border-slate-200 px-1 pb-5 pt-5">
+      <div className={`flex min-w-0 flex-1 flex-col pt-4 ${feature ? 'lg:justify-center lg:py-4' : ''}`}>
+        <div className="min-h-4 overflow-hidden text-[11px] font-semibold uppercase leading-4 tracking-[0.12em] text-slate-500">
+          <div className={`${SEPARATED_ROW} gap-y-0.5`}>
+            {vehicle.labels.slice(0, 3).map(label => (
+              <span key={label} className={SEPARATED_ITEM} data-testid="marketplace-condition-tag">
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+
         {previewMode ? (
-          <h3 className="line-clamp-2 min-h-[2.75rem] text-2xl font-black leading-[1.05] tracking-[-0.04em] text-slate-950">
+          <h3 className={`mt-1.5 line-clamp-2 text-balance text-lg font-semibold leading-6 tracking-[-0.015em] text-[#09122A] ${titleScale}`}>
             {vehicle.name}
           </h3>
         ) : (
           <Link
             to={href}
-            className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+            className={`mt-1.5 rounded-md ${FOCUS_RING}`}
             aria-label={`Open ${vehicle.name}`}
           >
-            <h3 className="line-clamp-2 min-h-[2.75rem] text-2xl font-black leading-[1.05] tracking-[-0.04em] text-slate-950 transition-colors group-hover:text-orange-700">
+            <h3 className={`line-clamp-2 text-balance text-lg font-semibold leading-6 tracking-[-0.015em] text-[#09122A] transition-colors group-hover:text-[#C2410C] ${titleScale}`}>
               {vehicle.name}
             </h3>
           </Link>
         )}
 
-        <p className="mt-3 text-2xl font-black tracking-[-0.045em] text-slate-950 sm:text-3xl" data-testid={priceTestId}>
+        {specs.length > 0 && (
+          <div className="mt-1 overflow-hidden text-[14px] leading-5 text-slate-600">
+            <p className={SEPARATED_ROW}>
+              {specs.map((spec, index) => (
+                <span key={index} className={SEPARATED_ITEM}>{spec}</span>
+              ))}
+            </p>
+          </div>
+        )}
+
+        <p
+          className={`mt-3 text-2xl font-bold leading-tight tabular-nums tracking-[-0.02em] text-[#09122A] ${feature ? 'lg:mt-5 lg:text-[2.5rem]' : ''}`}
+          data-testid={priceTestId}
+        >
           {formatMarketplacePrice(vehicle.price, vehicle.currency)}
         </p>
 
-        <div className="mt-4 grid grid-cols-3 border-y border-slate-200 text-xs text-slate-600">
-          {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) ? (
-            <span data-testid={mileageTestId} className="flex min-h-12 items-center gap-1.5 border-r border-slate-200 pr-2"><Gauge className="h-3.5 w-3.5 text-orange-500" />{vehicle.mileage.toLocaleString()} km</span>
-          ) : showMissingMileage ? (
-            <span data-testid={mileageTestId} className="flex min-h-12 items-center gap-1.5 border-r border-slate-200 pr-2 text-slate-400"><Gauge className="h-3.5 w-3.5 text-slate-300" />Mileage not recorded</span>
-          ) : null}
-          {vehicle.transmission && (
-            <span className="flex min-h-12 items-center gap-1.5 border-r border-slate-200 px-2"><Settings2 className="h-3.5 w-3.5 text-orange-500" />{vehicle.transmission}</span>
-          )}
-          {vehicle.fuel && (
-            <span className="flex min-h-12 items-center gap-1.5 pl-2"><Fuel className="h-3.5 w-3.5 text-orange-500" />{vehicle.fuel}</span>
-          )}
-        </div>
-
-        <div className="mt-3 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
-          {vehicle.labels.slice(0, 3).map((label, index) => (
-            <span key={label} className="inline-flex items-center gap-2" data-testid="marketplace-condition-tag">
-              {index > 0 && <span className="h-1 w-1 bg-orange-500" aria-hidden="true" />}
-              {label}
-            </span>
-          ))}
-        </div>
-
-        <div className="mt-4">
+        <div className={feature ? 'mt-3 lg:mt-5' : 'mt-3'}>
           <TrustPreview trust={vehicle.trust} />
         </div>
 
-        <div className="mt-4 grid gap-2 text-xs text-slate-500">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <MapPin className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate" data-testid={locationTestId}>{vehicle.locationLabel}</span>
-          </div>
-          <div className="flex min-w-0 items-center justify-between gap-3">
-            <span className="truncate">{vehicle.sellerLabel}</span>
-            <span className="shrink-0 font-medium text-slate-600" data-testid="marketplace-plate-status">{vehicle.plateStatus}</span>
-          </div>
-        </div>
-
-        <div className="mt-auto pt-5">
-          {previewMode ? (
-            <div
-              className="flex items-center justify-between border-t border-slate-950 pt-3 text-sm font-black text-slate-950"
-              data-testid="marketplace-draft-preview-cta"
-            >
-              <span>{ctaLabel}</span>
-              <Eye className="h-4 w-4 text-orange-600" />
+        <div className={`mt-auto pt-4 ${feature ? 'lg:mt-8 lg:max-w-md' : ''}`}>
+          <div className="border-t border-slate-200 pt-3">
+            <div className="overflow-hidden text-[13px] leading-5 text-slate-500">
+              <div className={`${SEPARATED_ROW} gap-y-1`}>
+                <span className={`${SEPARATED_ITEM} inline-flex max-w-full items-center`}>
+                  <MapPin className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate" data-testid={locationTestId}>{vehicle.locationLabel}</span>
+                </span>
+                <span className={`${SEPARATED_ITEM} max-w-full truncate`}>{vehicle.sellerLabel}</span>
+                <span className={`${SEPARATED_ITEM} shrink-0 font-medium text-slate-600`}>
+                  <span data-testid="marketplace-plate-status">{vehicle.plateStatus}</span>
+                </span>
+              </div>
             </div>
-          ) : (
-            <Link
-              to={href}
-              className="group/link flex items-center justify-between border-t border-slate-950 pt-3 text-sm font-black text-slate-950 transition-colors hover:text-orange-700"
-            >
-              <span>{ctaLabel}</span>
-              <ArrowUpRight className="h-4 w-4 transition-transform group-hover/link:-translate-y-0.5 group-hover/link:translate-x-0.5" />
-            </Link>
-          )}
+
+            {previewMode ? (
+              <div
+                className="mt-1 flex h-11 items-center justify-between text-[14px] font-semibold text-[#09122A]"
+                data-testid="marketplace-draft-preview-cta"
+              >
+                <span>{ctaLabel}</span>
+                <Eye className="h-4 w-4 text-[#C2410C]" aria-hidden="true" />
+              </div>
+            ) : (
+              <Link
+                to={href}
+                className={`group/cta mt-1 flex h-11 items-center justify-between rounded-md text-[14px] font-semibold text-[#09122A] transition-colors hover:text-[#C2410C] ${FOCUS_RING}`}
+              >
+                <span>{ctaLabel}</span>
+                <ArrowUpRight className="h-4 w-4 motion-safe:transition-transform motion-safe:group-hover/cta:-translate-y-0.5 motion-safe:group-hover/cta:translate-x-0.5" aria-hidden="true" />
+              </Link>
+            )}
+          </div>
         </div>
       </div>
     </article>
