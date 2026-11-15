@@ -10,8 +10,13 @@
  * These checks read the PARSED workflow YAML (not comment-stripped text), so secrets referenced through
  * `secrets.X`, `secrets['X']`, `toJSON(secrets)`, dynamic `secrets[...]` or `secrets: inherit` are all seen.
  * They pin the governed workflow's exact guard, step order and fail-closed behaviour, and they ratchet every
- * (workflow, secret) pair that an ungated event (pull requests, comments, reviews, pushes to branches other
- * than main, ...) can reach, so that the list can only shrink.
+ * (workflow, job, secret) triple that an ungated start can reach, so that the list can only shrink.
+ *
+ * Gated means a person starts the run: `workflow_dispatch`, or a push to the protected `main` branch. Everything
+ * else is ungated — pull requests, comments, reviews, pushes to other branches, and `schedule` (it runs on its
+ * own). A `workflow_call` workflow is not a gate either: it runs whenever a caller does, so it is reachable when
+ * any reachable workflow calls it (followed transitively, cycle-safe). A call that cannot be resolved to a file
+ * in this directory, or that hands secrets to a workflow outside this repository, fails the suite.
  *
  * Limits: this is a guard against accidental regression, not against a malicious pull request (which could
  * edit this test). Repository-scoped secrets stay readable by any same-repository workflow until the Owner moves
@@ -20,6 +25,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
@@ -34,8 +40,10 @@ const EXACT_GUARD = "github.event_name == 'workflow_dispatch' && github.ref == '
 const AUTH_RE = String.raw`auth_re='^https://github\.com/kudzimusar/carup/(issues|pull)/[0-9]+#(issuecomment|discussion_r)-?[0-9]+$'`;
 const SHA_RE = "sha_re='^[0-9a-f]{40}$'";
 
-/** Events that need a person (or the protected default branch) to start a run. Everything else is ungated. */
-const GATED_EVENTS = new Set(['workflow_dispatch', 'schedule', 'workflow_call']);
+/** The only event a person must start. Pushes to protected `main` are handled in startsUngated(). */
+const HUMAN_STARTED_EVENTS = new Set(['workflow_dispatch']);
+/** A local reusable-workflow call: `uses: ./.github/workflows/<file>.yml` (no ref, no expression). */
+const LOCAL_CALL = /^\.\/\.github\/workflows\/([A-Za-z0-9._-]+\.ya?ml)$/;
 
 /**
  * (workflow, job, secret) triples reachable from an ungated event on main at f269ec03, minus the D6 triple this
@@ -67,16 +75,28 @@ const LEGACY_UNGATED_SECRET_TRIPLES = new Set([
   'seller-s3-location-visibility-staging.yml::preflight-apply-verify::DIASPORA_STAGING_CA_CERT',
 ]);
 
-function load(name) {
-  const text = fs.readFileSync(path.join(WORKFLOWS_DIR, name), 'utf8');
+/**
+ * Scheduled triples on main at f269ec03, made visible (not added) when `schedule` stopped counting as a gate
+ * (PR #275 review 5910435110). Listed separately so the baseline is never widened silently. The job declares
+ * `environment: staging`, and on 2026-11-15 its scheduled runs were waiting for or cancelled at that environment's
+ * review; neither secret name exists at repository or `staging` environment scope (names-only readback). The test
+ * does not rely on either fact. Like the set above, this may only shrink.
+ */
+const LEGACY_SCHEDULED_SECRET_TRIPLES = new Set([
+  'diaspora-scheduler-dispatch.yml::dispatch::DIASPORA_API_BASE_URL',
+  'diaspora-scheduler-dispatch.yml::dispatch::DIASPORA_SCHEDULER_SECRET',
+]);
+
+function load(name, dir = WORKFLOWS_DIR) {
+  const text = fs.readFileSync(path.join(dir, name), 'utf8');
   return { name, text, doc: yaml.load(text) };
 }
 
-function allWorkflows() {
-  return fs.readdirSync(WORKFLOWS_DIR)
+function allWorkflows(dir = WORKFLOWS_DIR) {
+  return fs.readdirSync(dir)
     .filter((name) => /\.ya?ml$/.test(name))
     .sort()
-    .map(load);
+    .map((name) => load(name, dir));
 }
 
 /** The `on:` block as {event: config}, for every form (string, list or map). YAML 1.1 may read `on` as true. */
@@ -87,16 +107,71 @@ function onMap(doc) {
   return on ?? {};
 }
 
-function isUngated(doc) {
+/** True when some trigger other than a person or a push to protected main can start the workflow by itself. */
+function startsUngated(doc) {
   return Object.entries(onMap(doc)).some(([event, config]) => {
-    if (GATED_EVENTS.has(event)) return false;
+    if (HUMAN_STARTED_EVENTS.has(event)) return false;
+    if (event === 'workflow_call') return false; // reachable only through a caller: see reachableFromUngated()
     if (event === 'push') {
       const branches = config?.branches;
       const mainOnly = Array.isArray(branches) && branches.length > 0 && branches.every((branch) => branch === 'main');
-      return !mainOnly || Boolean(config?.tags);
+      return !mainOnly || Boolean(config?.tags) || Boolean(config?.['branches-ignore']);
     }
-    return true;
+    return true; // pull_request*, schedule, issue_comment, merge_group, ... and any event added later
   });
+}
+
+/** Every job-level reusable-workflow call: { workflow, job, uses, target } (target = local file name or null). */
+function callEdges(workflows) {
+  return workflows.flatMap(({ name, doc }) => Object.entries(doc.jobs ?? {})
+    .filter(([, job]) => job && job.uses !== undefined)
+    .map(([id, job]) => ({ workflow: name, job: id, uses: String(job.uses), target: LOCAL_CALL.exec(String(job.uses))?.[1] ?? null })));
+}
+
+/** Workflows an ungated start can run, directly or through any chain of local reusable-workflow calls. */
+function reachableFromUngated(workflows) {
+  const names = new Set(workflows.map(({ name }) => name));
+  const edges = callEdges(workflows);
+  const reached = new Set(workflows.filter(({ doc }) => startsUngated(doc)).map(({ name }) => name));
+  const queue = [...reached];
+  while (queue.length > 0) { // each workflow enters the queue at most once, so call cycles terminate
+    const from = queue.shift();
+    for (const { target } of edges.filter((edge) => edge.workflow === from)) {
+      if (target && names.has(target) && !reached.has(target)) {
+        reached.add(target);
+        queue.push(target);
+      }
+    }
+  }
+  return reached;
+}
+
+/**
+ * The secret-consumer ratchet for one workflow directory:
+ *  - added: (workflow, job, secret) triples reachable from an ungated start that no baseline lists;
+ *  - unresolved: calls that fail closed — a local call to a file that does not exist, or any call whose target is
+ *    not a local file (another repository, a ref or an expression) while the calling job hands it secrets.
+ */
+function secretReachability(dir = WORKFLOWS_DIR) {
+  const workflows = allWorkflows(dir);
+  const reached = reachableFromUngated(workflows);
+  const names = new Set(workflows.map(({ name }) => name));
+  const triples = workflows
+    .filter(({ name }) => reached.has(name))
+    .flatMap(({ name, doc }) => {
+      const { jobs, ...workflowLevel } = doc;
+      return [
+        ...[...secretRefs(workflowLevel)].map((secret) => `${name}::(workflow)::${secret}`),
+        ...Object.entries(jobs ?? {}).flatMap(([id, job]) => [...secretRefs(job)].map((secret) => `${name}::${id}::${secret}`)),
+      ];
+    });
+  const added = triples.filter((triple) => !LEGACY_UNGATED_SECRET_TRIPLES.has(triple) && !LEGACY_SCHEDULED_SECRET_TRIPLES.has(triple));
+  const jobsByWorkflow = new Map(workflows.map(({ name, doc }) => [name, doc.jobs ?? {}]));
+  const unresolved = callEdges(workflows)
+    .filter(({ workflow, job, uses, target }) => (target ? !names.has(target)
+      : uses.startsWith('./') || secretRefs(jobsByWorkflow.get(workflow)[job]).size > 0))
+    .map(({ workflow, job, uses }) => `${workflow}::${job} -> ${uses}`);
+  return { triples, added, unresolved };
 }
 
 /** Every secret a parsed workflow node can reach. Wildcards: *ALL* (toJSON), *DYNAMIC* (secrets[expr]), *INHERIT*. */
@@ -171,7 +246,7 @@ test('the governed workflow: dispatch only, exact main guard, staging environmen
   }
 
   const [guard, checkout, assertMain] = steps;
-  assert.match(String(guard.name), /^Refuse an unscoped authorization/, 'the authorization guard is the first step');
+  assert.match(String(guard.name), /^Refuse a malformed audit reference/, 'the input guard is the first step');
   assert.equal(guard.shell, 'bash');
   assert.equal(guard.env.AUTHORIZATION_REF, '${{ inputs.authorization_ref }}');
   assert.equal(guard.env.EXPECTED_SHA, '${{ inputs.expected_sha }}');
@@ -201,18 +276,11 @@ test('the governed workflow: dispatch only, exact main guard, staging environmen
 });
 
 test('no new ungated workflow or job can reach a secret (ratchet over (workflow, job, secret) triples)', () => {
-  const triples = allWorkflows()
-    .filter(({ doc }) => isUngated(doc))
-    .flatMap(({ name, doc }) => {
-      const { jobs, ...workflowLevel } = doc;
-      return [
-        ...[...secretRefs(workflowLevel)].map((secret) => `${name}::(workflow)::${secret}`),
-        ...Object.entries(jobs ?? {}).flatMap(([id, job]) => [...secretRefs(job)].map((secret) => `${name}::${id}::${secret}`)),
-      ];
-    });
+  const { triples, added, unresolved } = secretReachability();
   assert.ok(!triples.some((triple) => triple.startsWith(`${PR_WORKFLOW}::`)), 'the D6 pull-request workflow reaches no secret');
-  const added = triples.filter((triple) => !LEGACY_UNGATED_SECRET_TRIPLES.has(triple));
+  assert.ok(!triples.some((triple) => triple.startsWith(`${STAGING_WORKFLOW}::`)), 'the governed workflow is reachable only by dispatch');
   assert.deepEqual(added, [], 'an ungated workflow or job newly reaches a secret');
+  assert.deepEqual(unresolved, [], 'a reusable-workflow call cannot be resolved, or hands secrets outside this repository');
 });
 
 test('no workflow is started by pull_request_target or workflow_run', () => {
@@ -220,4 +288,104 @@ test('no workflow is started by pull_request_target or workflow_run', () => {
     .filter(({ doc }) => Object.keys(onMap(doc)).some((event) => event === 'pull_request_target' || event === 'workflow_run'))
     .map(({ name }) => name);
   assert.deepEqual(risky, []);
+});
+
+/**
+ * Mutation fixtures: copy the real workflow directory to a temporary directory, add one unsafe change and run the
+ * same ratchet. Each unsafe change must be reported; the unmodified copy must report nothing. No network, no
+ * credentials, no staging access.
+ */
+function withFixture(files, check) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'd6-ratchet-'));
+  try {
+    for (const name of fs.readdirSync(WORKFLOWS_DIR)) fs.copyFileSync(path.join(WORKFLOWS_DIR, name), path.join(dir, name));
+    for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), text);
+    return check(secretReachability(dir));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const PR_CALLER = (callee, secretsBlock) => `name: zz caller
+on:
+  pull_request:
+jobs:
+  call:
+    uses: ./.github/workflows/${callee}
+${secretsBlock}`;
+
+const REUSABLE = (body) => `name: zz reusable
+on:
+  workflow_call:
+${body}`;
+
+const READS_STAGING_DB = `    runs-on: ubuntu-24.04
+    steps:
+      - run: psql "$DB" -c 'select 1'
+        env:
+          DB: \${{ secrets.DIASPORA_STAGING_DATABASE_URL }}`;
+
+test('mutation fixtures: the unmodified copy and secret-free calls report nothing (positive controls)', () => {
+  withFixture({}, ({ added, unresolved }) => {
+    assert.deepEqual(added, []);
+    assert.deepEqual(unresolved, []);
+  });
+  withFixture({
+    'zz-caller.yml': PR_CALLER('zz-reusable.yml', ''),
+    'zz-reusable.yml': REUSABLE(`jobs:\n  build:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: npm test`),
+  }, ({ added, unresolved }) => {
+    assert.deepEqual(added, [], 'a pull-request workflow calling a secret-free reusable workflow is not reported');
+    assert.deepEqual(unresolved, []);
+  });
+});
+
+test('mutation 1: a new scheduled workflow that reads the staging database secret is rejected', () => {
+  withFixture({
+    'zz-nightly.yml': `name: zz nightly\non:\n  schedule:\n    - cron: '0 3 * * *'\njobs:\n  nightly:\n${READS_STAGING_DB}`,
+  }, ({ added }) => assert.deepEqual(added, ['zz-nightly.yml::nightly::DIASPORA_STAGING_DATABASE_URL']));
+});
+
+test('mutation 2: a pull-request caller handing `secrets: inherit` to a secret-reading reusable workflow is rejected', () => {
+  withFixture({
+    'zz-caller.yml': PR_CALLER('zz-reusable.yml', '    secrets: inherit'),
+    'zz-reusable.yml': REUSABLE(`jobs:\n  write:\n${READS_STAGING_DB}`),
+  }, ({ added }) => assert.deepEqual(added.sort(), [
+    'zz-caller.yml::call::*INHERIT*',
+    'zz-reusable.yml::write::DIASPORA_STAGING_DATABASE_URL',
+  ]));
+});
+
+test('mutation 3: a pull-request caller mapping a secret explicitly into a reusable workflow is rejected', () => {
+  withFixture({
+    'zz-caller.yml': PR_CALLER('zz-reusable.yml', '    secrets:\n      db: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}'),
+    'zz-reusable.yml': REUSABLE(`    secrets:\n      db:\n        required: true\njobs:\n  write:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: psql "$DB" -c 'select 1'\n        env:\n          DB: \${{ secrets.db }}`),
+  }, ({ added }) => assert.deepEqual(added.sort(), [
+    'zz-caller.yml::call::DIASPORA_STAGING_DATABASE_URL',
+    'zz-reusable.yml::write::db',
+  ]));
+});
+
+test('mutation 4: a transitive reusable chain that reaches a secret is rejected, and a call cycle terminates', () => {
+  withFixture({
+    'zz-caller.yml': PR_CALLER('zz-a.yml', '    secrets: inherit'),
+    'zz-a.yml': REUSABLE(`jobs:\n  hop:\n    uses: ./.github/workflows/zz-b.yml\n    secrets: inherit`),
+    'zz-b.yml': REUSABLE(`jobs:\n  back:\n    uses: ./.github/workflows/zz-a.yml\n  write:\n${READS_STAGING_DB}`),
+  }, ({ added }) => assert.ok(added.includes('zz-b.yml::write::DIASPORA_STAGING_DATABASE_URL'),
+    `the secret two calls away is reported (got ${JSON.stringify(added)})`));
+});
+
+test('mutation 5: a new secret-bearing job inside an already-listed workflow is rejected', () => {
+  const name = 'seller-phase-e-staging.yml';
+  const doc = yaml.load(fs.readFileSync(path.join(WORKFLOWS_DIR, name), 'utf8'));
+  doc.jobs['zz-extra'] = { 'runs-on': 'ubuntu-24.04', steps: [{ run: 'true', env: { DB: '${{ secrets.DIASPORA_STAGING_DATABASE_URL }}' } }] };
+  withFixture({ [name]: yaml.dump(doc) }, ({ added }) => assert.deepEqual(added, [`${name}::zz-extra::DIASPORA_STAGING_DATABASE_URL`]));
+});
+
+test('fail closed: an unresolvable local call, or secrets handed to a workflow outside this repository', () => {
+  withFixture({ 'zz-caller.yml': PR_CALLER('zz-missing.yml', '') }, ({ unresolved }) => {
+    assert.deepEqual(unresolved, ['zz-caller.yml::call -> ./.github/workflows/zz-missing.yml']);
+  });
+  withFixture({
+    'zz-dispatch.yml': `name: zz remote\non:\n  workflow_dispatch:\njobs:\n  call:\n    uses: some-org/some-repo/.github/workflows/x.yml@v1\n    secrets: inherit`,
+  }, ({ unresolved }) => assert.deepEqual(unresolved, ['zz-dispatch.yml::call -> some-org/some-repo/.github/workflows/x.yml@v1']));
 });

@@ -7,15 +7,18 @@ name: Diaspora staging integration (governed, main only)
 #   • workflow_dispatch only — no pull request, push or schedule can start it;
 #   • the job runs only when dispatched on refs/heads/main (protected by the "Protect main" ruleset), and tests
 #     exactly that commit: expected_sha must equal the dispatched main head;
-#   • environment: staging — its required reviewers approve every run before the job starts;
-#   • authorization_ref — the Owner's written authorization for THIS run, recorded in the run summary.
+#   • environment: staging — its required reviewers approve every run before the job starts. That review is the
+#     authorization boundary; the Owner configures it (required reviewers, no self-review, no admin bypass,
+#     deployment branch main) — this workflow cannot verify those settings;
+#   • authorization_ref — an AUDIT POINTER only: the URL of the Owner's written authorization comment. It is
+#     format-checked and recorded in the run summary; it is not fetched and does not authenticate anyone.
 # backend/tests/ci-shared-staging-isolation.test.js fails if any of these controls is removed.
 
 on:
   workflow_dispatch:
     inputs:
       authorization_ref:
-        description: "URL of the Owner's written authorization comment for this exact staging run"
+        description: "Audit pointer only (format-checked, not verified): URL of the Owner's written authorization comment for this run"
         required: true
         type: string
       expected_sha:
@@ -37,7 +40,7 @@ jobs:
     environment: staging
     timeout-minutes: 20
     steps:
-      - name: Refuse an unscoped authorization or a candidate other than the dispatched main head
+      - name: Refuse a malformed audit reference or a candidate other than the dispatched main head
         shell: bash
         env:
           AUTHORIZATION_REF: ${{ inputs.authorization_ref }}
@@ -49,7 +52,7 @@ jobs:
           auth_re='^https://github\.com/kudzimusar/carup/(issues|pull)/[0-9]+#(issuecomment|discussion_r)-?[0-9]+$'
           sha_re='^[0-9a-f]{40}$'
           if [[ ! "$AUTHORIZATION_REF" =~ $auth_re ]]; then
-            echo "::error::authorization_ref must be the URL of the Owner's authorization comment on a kudzimusar/carup issue or pull request"
+            echo "::error::authorization_ref must be a kudzimusar/carup issue or pull-request comment URL (audit pointer; format check only)"
             exit 1
           fi
           if [[ ! "$EXPECTED_SHA" =~ $sha_re ]]; then
@@ -82,7 +85,7 @@ jobs:
             exit 1
           fi
 
-      - name: Record the Owner-scoped authorization
+      - name: Record the audit reference
         env:
           AUTHORIZATION_REF: ${{ inputs.authorization_ref }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
@@ -92,8 +95,9 @@ jobs:
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           {
-            echo '### Shared-staging write — authorization record'
-            echo "- authorization: $AUTHORIZATION_REF"
+            echo '### Shared-staging write — audit record'
+            echo "- audit reference (format-checked only, not verified by this workflow): $AUTHORIZATION_REF"
+            echo "- approval: the staging environment's required-reviewer decision for this run"
             echo "- main commit: $EXPECTED_SHA"
             echo "- dispatched by: $ACTOR (triggering actor $TRIGGERING_ACTOR)"
             echo "- run: $RUN_URL attempt $RUN_ATTEMPT"
