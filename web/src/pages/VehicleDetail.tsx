@@ -51,6 +51,21 @@ import { MarketplaceShareSheet } from '@/components/marketplace/MarketplaceShare
 import { VehicleIntelligenceStory } from '@/components/marketplace/VehicleIntelligenceStory'
 import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
 import { governedLocationLine, summaryLocationLine, type LocationClaim } from '@/lib/governedLocation'
+import {
+  classifyReadError,
+  classifyVehicleDetailFailure,
+  listingReadIsPartial,
+  VEHICLE_DETAIL_SLOW_NOTICE_MS,
+  VEHICLE_DETAIL_TIMEOUT_MS,
+  type ReadLedger,
+  type ReadOutcome,
+  type ReadSource,
+} from '@/lib/vehicleDetailReadOutcome'
+import {
+  VehicleDetailFailureStage,
+  VehicleDetailLoadingStage,
+  VehicleDetailPartialNotice,
+} from '@/components/marketplace/VehicleDetailReadState'
 
 /** Minimal Vehicle hydrated from the governed marketplace detail (fallback when passport lookup misses). */
 function vehicleFromMarketplaceDetail(d: MarketplaceListingDetail): Vehicle {
@@ -1167,9 +1182,16 @@ export default function VehicleDetail() {
   const [detailLoading, setDetailLoading] = useState(true)
   const [loading, setLoading]   = useState(true)
   const [sellerPreviewAuthorization, setSellerPreviewAuthorization] = useState<'idle' | 'checking' | 'allowed' | 'denied' | 'error'>('idle')
-  // A plate / temporary-identifier lookup is refused for signed-out visitors by design. That is a
-  // statement about the caller, not about the vehicle, so it must not render as "Vehicle Not Found".
-  const [lookupNeedsSignIn, setLookupNeedsSignIn] = useState(false)
+  // TI-27 — every read's outcome is kept, so the page can say what actually happened when no vehicle
+  // renders. The guest plate / temporary-identifier refusal is one of these outcomes: a statement
+  // about the caller, never about the vehicle, and never the explanation for an outage.
+  const [readLedger, setReadLedger] = useState<ReadLedger>({})
+  const [readsCheckedAt, setReadsCheckedAt] = useState<Date | null>(null)
+  // Bumped by "Try again" — re-runs both read effects in place, on the same URL.
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  // The API client has no request timeout, so the page keeps its own budget: 'slow' shows a notice,
+  // 'stalled' stops pretending to load. Reset at the start of every read.
+  const [readWatch, setReadWatch] = useState<'slow' | 'stalled' | null>(null)
 
   const [currentImageIdx, setCurrentImageIdx] = useState(0)
   // A syntactically publishable media address can still fail at delivery time. Keep that
@@ -1355,14 +1377,25 @@ export default function VehicleDetail() {
   useEffect(() => {
     if (!id) return
     let mounted = true
+    const record = (source: ReadSource, outcome: ReadOutcome) => {
+      if (mounted) setReadLedger((prev) => ({ ...prev, [source]: outcome }))
+    }
+    const settledOutcome = (result: PromiseSettledResult<unknown>): ReadOutcome =>
+      result.status === 'fulfilled'
+        ? (result.value ? { kind: 'ok' } : { kind: 'not-found' })
+        : classifyReadError(result.reason)
 
     const load = async () => {
+      // This effect owns the lookup/vehicle/passport outcomes; the listing effect owns `listing`.
+      setReadLedger((prev) => (prev.listing ? { listing: prev.listing } : {}))
+      setReadWatch(null)
       try {
         setLoading(true)
         // 1. Try looking up the passport using the new lookup endpoint
         const passportData = await lookupVehiclePassport(id)
         if (!mounted) return
 
+        record('lookup', passportData ? { kind: 'ok' } : { kind: 'not-found' })
         if (passportData) {
           setPassport(passportData)
           const d = passportData.vehicle
@@ -1389,12 +1422,12 @@ export default function VehicleDetail() {
           })
 
           setLoading(false)
+          setReadsCheckedAt(new Date())
           return
         }
       } catch (err) {
-        if ((err as { code?: string })?.code === 'LOOKUP_REQUIRES_AUTHENTICATION') {
-          setLookupNeedsSignIn(true)
-        }
+        // A guest plate/temporary-ID refusal is recorded as `sign-in-required`: policy, not an answer.
+        record('lookup', classifyReadError(err))
         console.warn('lookupVehiclePassport failed, trying fallback details fetch:', err)
       }
 
@@ -1406,6 +1439,8 @@ export default function VehicleDetail() {
         ])
 
         if (!mounted) return
+        record('vehicle', settledOutcome(vehicleData))
+        record('passport', settledOutcome(passportData))
 
         if (vehicleData.status === 'fulfilled' && vehicleData.value) {
           const d = vehicleData.value
@@ -1434,13 +1469,16 @@ export default function VehicleDetail() {
       } catch (err) {
         console.error('VehicleDetail load fallback error:', err)
       } finally {
-        if (mounted) setLoading(false)
+        if (mounted) {
+          setLoading(false)
+          setReadsCheckedAt(new Date())
+        }
       }
     }
 
     load()
     return () => { mounted = false }
-  }, [id, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport])
+  }, [id, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, loadAttempt])
 
   // Backend-governed marketplace detail (trust/verification/pricing summaries). Best-effort: if the
   // listing is not a public marketplace listing this stays null and the page renders the passport view.
@@ -1449,16 +1487,27 @@ export default function VehicleDetail() {
     let mounted = true
     captureReferralFromUrl()
     const attr = getStoredAttribution()
-    setDetailLoading(true)
-    fetchMarketplaceListingDetail(id, {
-      ref: attr.referral_code,
-      campaign: attr.campaign_code,
-      source: attr.source,
-      fixture_scope: searchParams.get('fixture_scope') || undefined,
-      presentation_mode: isSellerPreview ? 'seller_preview' : undefined,
-    })
+    const run = async () => {
+      // This effect owns the `listing` outcome only.
+      setReadLedger((prev) => {
+        const next = { ...prev }
+        delete next.listing
+        return next
+      })
+      setReadWatch(null)
+      setDetailLoading(true)
+      return fetchMarketplaceListingDetail(id, {
+        ref: attr.referral_code,
+        campaign: attr.campaign_code,
+        source: attr.source,
+        fixture_scope: searchParams.get('fixture_scope') || undefined,
+        presentation_mode: isSellerPreview ? 'seller_preview' : undefined,
+      })
+    }
+    run()
       .then((d) => {
         if (!mounted) return
+        setReadLedger((prev) => ({ ...prev, listing: { kind: 'ok' } }))
         setDetail(d)
         // Fallback: a real public marketplace listing must always open a real detail page. If the
         // passport lookup didn't resolve a vehicle, hydrate from the marketplace detail so the page
@@ -1472,10 +1521,20 @@ export default function VehicleDetail() {
 
         setLoading(false)
       })
-      .catch(() => { if (mounted) setDetail(null) })
-      .finally(() => { if (mounted) setDetailLoading(false) })
+      .catch((err) => {
+        if (!mounted) return
+        setDetail(null)
+        // A 404 here is the listing service's non-enumerable "no public listing"; anything else is a
+        // non-answer that must never be promoted to absence (see vehicleDetailReadOutcome.ts).
+        setReadLedger((prev) => ({ ...prev, listing: classifyReadError(err) }))
+      })
+      .finally(() => {
+        if (!mounted) return
+        setDetailLoading(false)
+        setReadsCheckedAt(new Date())
+      })
     return () => { mounted = false }
-  }, [id, isSellerPreview, searchParams, fetchMarketplaceListingDetail])
+  }, [id, isSellerPreview, searchParams, fetchMarketplaceListingDetail, loadAttempt])
 
   // Saved state is SERVER-backed + account-scoped for authenticated users (existing /marketplace/saved
   // API), so it survives refresh and never leaks across accounts. Guests keep the browser-local list.
@@ -1540,16 +1599,53 @@ export default function VehicleDetail() {
     : '/marketplace/compare'
 
 
-  // ── Loading / 404 states ─────────────────────────────────────────────────
-  if (
-    loading
+  // ── Read states (TI-27) ──────────────────────────────────────────────────
+  const isReading = loading
     || (isSellerPreview && (authLoading || sellerPreviewAuthorization === 'idle' || sellerPreviewAuthorization === 'checking'))
     || (!isSellerPreview && detailLoading)
-  ) {
+
+  // Page watchdog. Timers only ever move the state forward; each read resets it when it starts.
+  useEffect(() => {
+    if (!isReading) return
+    const slow = window.setTimeout(() => setReadWatch((w) => w ?? 'slow'), VEHICLE_DETAIL_SLOW_NOTICE_MS)
+    const stall = window.setTimeout(() => setReadWatch('stalled'), VEHICLE_DETAIL_TIMEOUT_MS)
+    return () => {
+      window.clearTimeout(slow)
+      window.clearTimeout(stall)
+    }
+  }, [isReading, id, loadAttempt])
+
+  const retryReads = useCallback(() => {
+    setReadWatch(null)
+    setLoading(true)
+    setDetailLoading(true)
+    setLoadAttempt((n) => n + 1)
+  }, [])
+
+  const lookupAnother = useCallback((identifier: string) => {
+    navigate(`/marketplace/${encodeURIComponent(identifier)}`)
+  }, [navigate])
+
+  const readsStalled = readWatch === 'stalled'
+  const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false
+
+  if (isReading && !readsStalled) {
+    return <VehicleDetailLoadingStage identifier={id ?? ''} slow={readWatch === 'slow'} />
+  }
+
+  // Stalled with nothing to show: say it is taking too long — never that the car is missing. (A
+  // vehicle that already resolved falls through and renders with the partial-listing notice.)
+  if (isReading && readsStalled && !vehicle) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-orange-700" />
-      </div>
+      <VehicleDetailFailureStage
+        identifier={id ?? ''}
+        failure={classifyVehicleDetailFailure(readLedger, { stalled: true, offline: isOffline })}
+        ledger={readLedger}
+        checkedAt={readsCheckedAt}
+        isAuthenticated={isAuthenticated}
+        onRetry={retryReads}
+        onLookup={lookupAnother}
+      />
     )
   }
 
@@ -1570,43 +1666,26 @@ export default function VehicleDetail() {
     )
   }
 
-  if (!vehicle && lookupNeedsSignIn) {
+  // No vehicle could be rendered. What the page may say depends on WHICH reads answered and how —
+  // an unanswered read is never "doesn't exist", and the guest plate-search refusal is never the
+  // explanation for an outage (TI-27, vehicleDetailReadOutcome.ts).
+  if (!vehicle) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center max-w-md px-4" data-testid="lookup-requires-signin">
-          <Lock className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2">Sign in to look up by plate</h1>
-          <p className="text-gray-500 mb-6">
-            Searching by number plate or temporary identifier needs a CarUp account. Looking up an exact
-            VIN is open to everyone.
-          </p>
-          <div className="flex gap-3 justify-center">
-            <Button className="bg-orange-700 hover:bg-orange-800" asChild>
-              <Link to="/login">Sign in</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link to="/marketplace">Back to Marketplace</Link>
-            </Button>
-          </div>
-        </div>
-      </div>
+      <VehicleDetailFailureStage
+        identifier={id ?? ''}
+        failure={classifyVehicleDetailFailure(readLedger, { offline: isOffline })}
+        ledger={readLedger}
+        checkedAt={readsCheckedAt}
+        isAuthenticated={isAuthenticated}
+        onRetry={retryReads}
+        onLookup={lookupAnother}
+      />
     )
   }
 
-  if (!vehicle) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center max-w-md px-4">
-          <Car className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2">Vehicle Not Found</h1>
-          <p className="text-gray-500 mb-6">The vehicle you're looking for doesn't exist or has been removed.</p>
-          <Button className="bg-orange-700 hover:bg-orange-800" asChild>
-            <Link to="/marketplace">Back to Marketplace</Link>
-          </Button>
-        </div>
-      </div>
-    )
-  }
+  // The vehicle rendered but the public listing read never answered: price, seller and buying
+  // actions may be missing for a reason that is ours, not the seller's.
+  const listingPartial = !isSellerPreview && (listingReadIsPartial(readLedger) || (readsStalled && detailLoading))
 
   // ── Derived values ────────────────────────────────────────────────────────
   /**
@@ -1802,6 +1881,7 @@ export default function VehicleDetail() {
       </div>
 
       <div className="section-padding mx-auto max-w-[1440px] py-7 sm:py-9">
+        {listingPartial && <VehicleDetailPartialNotice onRetry={retryReads} />}
         {isSellerPreview && (
           <div className="mb-6 flex flex-col gap-4 border-l-4 border-orange-500 bg-orange-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" data-testid="seller-preview-banner">
             <div>
