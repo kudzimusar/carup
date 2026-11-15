@@ -38,14 +38,22 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Refuse an unscoped authorization or a candidate other than the dispatched main head
+        shell: bash
         env:
           AUTHORIZATION_REF: ${{ inputs.authorization_ref }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
           DISPATCHED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if ! printf '%s' "$AUTHORIZATION_REF" | grep -Eq '^https://github\.com/kudzimusar/carup/(issues|pull)/[0-9]+#(issuecomment|discussion_r)-?[0-9]+$'; then
+          # Whole-string matches: a multi-line input cannot smuggle a valid line past these checks.
+          auth_re='^https://github\.com/kudzimusar/carup/(issues|pull)/[0-9]+#(issuecomment|discussion_r)-?[0-9]+$'
+          sha_re='^[0-9a-f]{40}$'
+          if [[ ! "$AUTHORIZATION_REF" =~ $auth_re ]]; then
             echo "::error::authorization_ref must be the URL of the Owner's authorization comment on a kudzimusar/carup issue or pull request"
+            exit 1
+          fi
+          if [[ ! "$EXPECTED_SHA" =~ $sha_re ]]; then
+            echo "::error::expected_sha must be a full 40-character lowercase commit SHA"
             exit 1
           fi
           if [ "$EXPECTED_SHA" != "$DISPATCHED_SHA" ]; then
@@ -57,10 +65,22 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Assert the exact main commit
+      - name: Assert the exact main commit, and that main has not moved since approval
+        shell: bash
         env:
           EXPECTED_SHA: ${{ inputs.expected_sha }}
-        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]; then
+            echo "::error::checked-out commit is not expected_sha"
+            exit 1
+          fi
+          current_main="$(git ls-remote "https://github.com/$REPOSITORY.git" refs/heads/main | cut -f1)"
+          if [ "$current_main" != "$EXPECTED_SHA" ]; then
+            echo "::error::main moved to $current_main after this run was requested; dispatch again for the new head"
+            exit 1
+          fi
 
       - name: Record the Owner-scoped authorization
         env:
