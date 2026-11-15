@@ -1,3 +1,5 @@
+import { BrandIdentity } from '@/components/brand/BrandIdentity'
+import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
@@ -275,12 +277,18 @@ export default function Register() {
       <div className="w-full max-w-xl">
         {!focusedEmbed && (
         <div className="text-center mb-7">
-          <Link to="/" className="inline-flex items-center gap-2 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
-              <Car className="w-6 h-6 text-white" />
-            </div>
-            <span className="text-2xl font-bold text-white">Car<span className="text-orange-500">Up</span></span>
-          </Link>
+          {isShowroomChromeEnabled() ? (
+            <Link to="/" className="mb-6 inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FE7D18]" aria-label="CarUp home" data-testid="brand-home-link">
+              <BrandIdentity role="stacked" surface="dark" height={64} decorative priority />
+            </Link>
+          ) : (
+            <Link to="/" className="inline-flex items-center gap-2 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
+                <Car className="w-6 h-6 text-white" />
+              </div>
+              <span className="text-2xl font-bold text-white">Car<span className="text-orange-500">Up</span></span>
+            </Link>
+          )}
           <h1 className="text-2xl font-bold text-white mb-2">Create your CarUp profile</h1>
           <p className="text-sm text-gray-400">
             Tell us who you are in the automotive journey. Verification happens only where it is actually needed.
