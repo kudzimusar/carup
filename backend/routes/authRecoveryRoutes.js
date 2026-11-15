@@ -12,6 +12,7 @@ import { AUTH_ROUTES, buildAuthActionUrl } from '../services/communication/authE
 import { createAuthEmailService } from '../services/auth/authEmailService.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import { EMAIL_VERIFIED_EVENT } from '../services/communication/producers/leadershipWelcomeProducer.js';
+import { authSessionRouter } from './authSessionRoutes.js';
 
 /**
  * SA1D — password recovery and email verification for CarUp's own auth.
@@ -260,8 +261,8 @@ export function authRecoveryRouter({
 
       // R1 — the Leadership Welcome, as DURABLE WORK rather than a best-effort side effect.
       //
-      // The trigger is VERIFICATION, not registration. An unverified address may not belong to the
-      // person who typed it, and a welcome is the wrong first thing to send somewhere nobody has
+      // The trigger is VERIFICATION, not registration. An unverified address may not belong to
+      // the person who typed it, and a welcome is the wrong first thing to send somewhere nobody has
       // proven they can receive mail.
       //
       // This used to call the producer inline and swallow its failure. The verification token is
@@ -293,6 +294,14 @@ export function authRecoveryRouter({
       return res.status(200).json({ success: true, message: 'Your email address has been verified.' });
     },
   );
+
+  // TI-10 — presenting-session revocation on sign-out. The session router is its own module and
+  // is mounted here, inside the already-mounted auth batch, rather than by editing server.js:
+  // server.js is a 4,089-line certified surface whose full-content transcription would add
+  // enormous review risk for a two-line change. This router is mounted in server.js Batch 2,
+  // AFTER the global CSRF middleware, so the logout route inherits CSRF protection, and target
+  // selection is server-owned inside the route (no client-supplied session id is honored).
+  router.use(authSessionRouter());
 
   return router;
 }

@@ -45,7 +45,7 @@ export default function DashboardLayout({ role }: { role: string }) {
   const [ownerSearch, setOwnerSearch] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
-  const { user, switchRole, loading } = useAuth()
+  const { user, switchRole, loading, logout } = useAuth()
 
   const handleRoleChange = async (newRole: string) => {
     try {
@@ -236,9 +236,14 @@ export default function DashboardLayout({ role }: { role: string }) {
           </Link>
           <Link
             to="/"
-            onClick={() => {
-              localStorage.clear()
-              window.location.href = '/'
+            onClick={async (event) => {
+              // TI-10 / TI-24: this used to be `localStorage.clear()` + a hard navigation — no server
+              // revocation at all (the token stayed valid), and every continuity key (the guest Sell
+              // draft's durable copy, saved cars, referral attribution) was destroyed. Sign out
+              // through the one session mechanism and await revocation before leaving.
+              event.preventDefault()
+              await logout()
+              navigate('/')
             }}
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50"
             data-testid="logout-button"
