@@ -27,7 +27,9 @@
     "gate:contrast-ratchet": "node scripts/contrast-ratchet-gate.mjs",
     "gate:ci04": "npm run gate:style-ratchet && npm run gate:contrast-ratchet",
     "scan:contrast": "node scripts/ci04-contrast-scan.mjs",
-    "test:ci04": "node --test scripts/tests/ci04-gate.test.mjs"
+    "test:ci04": "node --test scripts/tests/ci04-gate.test.mjs",
+    "scan:demo-identity": "node scripts/scan-bundle-demo-identity.mjs",
+    "test:demo-identity-scan": "node --test scripts/tests/scan-bundle-demo-identity.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
