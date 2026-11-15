@@ -135,7 +135,7 @@ describe('ShowroomListingCard — status pills come only from the data', () => {
 })
 
 describe('ShowroomListingCard — actions and navigation', () => {
-  it('labels every round action, exposes pressed state and keeps them out of the links', () => {
+  it('labels every action, exposes pressed state and keeps them out of the links', () => {
     const onCompare = vi.fn()
     const onShare = vi.fn()
     const onFavorite = vi.fn()
@@ -149,11 +149,14 @@ describe('ShowroomListingCard — actions and navigation', () => {
     expect(save).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByTestId('marketplace-share-button')).toHaveAttribute('aria-label', 'Share listing')
 
+    // 44 px targets everywhere; Compare carries a visible label (contained in its accessible name).
     for (const button of [compare, save, screen.getByTestId('marketplace-share-button')]) {
       expect(button.className).toContain('h-11')
-      expect(button.className).toContain('w-11')
       expect(button.closest('a')).toBeNull()
     }
+    expect(save.className).toContain('w-11')
+    expect(screen.getByTestId('marketplace-share-button').className).toContain('w-11')
+    expect(compare).toHaveTextContent('Compare')
     // The card itself is not one giant link: image, title and CTA are three separate links.
     const card = screen.getByTestId('marketplace-vehicle-card')
     expect(card.tagName).toBe('ARTICLE')
@@ -166,7 +169,15 @@ describe('ShowroomListingCard — actions and navigation', () => {
     }
     expect(screen.getByTestId('marketplace-view-passport')).toHaveAttribute('aria-label', 'View 2021 Toyota Land Cruiser Prado')
     expect(screen.getByRole('link', { name: 'Open 2021 Toyota Land Cruiser Prado' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Explore vehicle & Passport/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View Passport for 2021 Toyota Land Cruiser Prado' })).toHaveTextContent('View Passport')
+  })
+
+  it('R3: the photo carries one action (Save); Compare and Share sit in the card footer', () => {
+    renderCard({ vehicle: model({ primaryImage: 'https://media.example.test/a.jpg', primaryImageState: 'first_published' }), onCompare: () => {}, onShare: () => {}, onFavorite: () => {} })
+    const media = screen.getByTestId('marketplace-view-passport').parentElement as HTMLElement
+    expect(within(media).getAllByRole('button').map(b => b.getAttribute('data-testid'))).toEqual(['marketplace-save-toggle'])
+    const footerRow = screen.getByRole('link', { name: /View Passport for/ }).parentElement as HTMLElement
+    expect(within(footerRow).getAllByRole('button').map(b => b.getAttribute('data-testid'))).toEqual(['marketplace-compare-toggle', 'marketplace-share-button'])
   })
 
   it('renders no action buttons when no handlers are passed', () => {
@@ -212,6 +223,10 @@ describe('ShowroomListingCard — listings without a usable photo (R3)', () => {
     for (const id of ['marketplace-compare-toggle', 'marketplace-share-button', 'marketplace-save-toggle']) {
       expect(screen.getAllByTestId(id)).toHaveLength(1)
     }
+    // R3 (Owner FIX): a short strip at every width, never a 4:3 empty stage.
+    const media = screen.getByTestId('marketplace-view-passport').parentElement as HTMLElement
+    expect(media.className).toContain('h-[7.5rem]')
+    expect(media.className).not.toMatch(/aspect-/)
   })
 
   it('a card with a real photo keeps the 4:3 photo and no plate', () => {

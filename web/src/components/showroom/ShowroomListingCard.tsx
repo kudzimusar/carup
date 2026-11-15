@@ -8,8 +8,9 @@ import {
   ArrowUpRight,
   CheckCircle2,
   Eye,
-  GitCompare,
+  Check,
   Heart,
+  Plus,
   MapPin,
   Share2,
   ShieldCheck,
@@ -195,7 +196,7 @@ export function ShowroomListingCard({
   onCompare,
   onShare,
   dataTestId = 'marketplace-vehicle-card',
-  ctaLabel = 'Explore vehicle & Passport',
+  ctaLabel = 'View Passport',
   priceTestId = 'marketplace-card-price',
   mileageTestId,
   locationTestId = 'listing-location',
@@ -225,11 +226,11 @@ export function ShowroomListingCard({
   // plate is a short strip so the name, price and facts arrive at a normal scroll depth.
   const noPhoto = !renderablePrimaryImage
   const feature = layout === 'feature' && !noPhoto
-  const actionCount = [onCompare, onShare, onFavorite].filter(Boolean).length
-  // Status pills share the top edge with the round actions; reserve the actions' width so the two
-  // never collide (44 px buttons, 8 px gaps, 12 px insets, 8 px breathing room).
-  const pillRowStyle: CSSProperties | undefined = actionCount > 0
-    ? { maxWidth: `calc(100% - ${actionCount * 44 + (actionCount - 1) * 8 + 32}px)` }
+  // R3 (Owner FIX): one action on the photo — Save — instead of a cluster of round buttons. Compare
+  // and Share live in the card footer as labelled controls. Status pills reserve the Save button's
+  // width (44 px button, 12 px insets, 8 px breathing room).
+  const pillRowStyle: CSSProperties | undefined = onFavorite
+    ? { maxWidth: 'calc(100% - 76px)' }
     : { maxWidth: 'calc(100% - 24px)' }
 
   const specs: ReactNode[] = []
@@ -257,7 +258,7 @@ export function ShowroomListingCard({
   const mediaShape = feature
     ? 'aspect-[4/3] rounded-2xl lg:aspect-auto lg:h-full lg:min-h-[400px] lg:rounded-3xl xl:min-h-[460px]'
     : noPhoto
-      ? 'max-sm:h-[7.5rem] sm:aspect-[4/3] rounded-2xl'
+      ? 'h-[7.5rem] rounded-2xl'
       : 'aspect-[4/3] rounded-2xl'
   const bleed = edgeToEdgeOnPhones ? 'max-sm:-mx-4 max-sm:rounded-none' : ''
   const titleScale = feature ? 'lg:text-[1.75rem] lg:font-bold lg:leading-[1.1] lg:tracking-[-0.025em]' : ''
@@ -319,46 +320,17 @@ export function ShowroomListingCard({
           )}
         </div>
 
-        {actionCount > 0 && (
-          <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
-            {onCompare && (
-              <button
-                type="button"
-                aria-label={isCompared ? 'Remove from compare' : 'Add to compare'}
-                aria-pressed={isCompared}
-                onClick={onCompare}
-                data-testid="marketplace-compare-toggle"
-                className={`${ACTION_BUTTON} ${isCompared
-                  ? 'bg-[#09122A] text-white hover:bg-[#111D3D]'
-                  : 'bg-white/90 text-[#09122A] hover:bg-white'}`}
-              >
-                <GitCompare className="h-[18px] w-[18px]" aria-hidden="true" />
-              </button>
-            )}
-            {onShare && (
-              <button
-                type="button"
-                aria-label="Share listing"
-                onClick={onShare}
-                data-testid="marketplace-share-button"
-                className={`${ACTION_BUTTON} bg-white/90 text-[#09122A] hover:bg-white`}
-              >
-                <Share2 className="h-[18px] w-[18px]" aria-hidden="true" />
-              </button>
-            )}
-            {onFavorite && (
-              <button
-                type="button"
-                aria-label={isFavorite ? 'Remove saved listing' : 'Save listing'}
-                aria-pressed={isFavorite}
-                onClick={onFavorite}
-                data-testid="marketplace-save-toggle"
-                className={`${ACTION_BUTTON} bg-white/90 text-[#09122A] hover:bg-white`}
-              >
-                <Heart className={`h-[18px] w-[18px] ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} aria-hidden="true" />
-              </button>
-            )}
-          </div>
+        {onFavorite && (
+          <button
+            type="button"
+            aria-label={isFavorite ? 'Remove saved listing' : 'Save listing'}
+            aria-pressed={isFavorite}
+            onClick={onFavorite}
+            data-testid="marketplace-save-toggle"
+            className={`${ACTION_BUTTON} absolute right-3 top-3 z-10 bg-white/90 text-[#09122A] hover:bg-white`}
+          >
+            <Heart className={`h-[18px] w-[18px] ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} aria-hidden="true" />
+          </button>
         )}
       </div>
 
@@ -410,21 +382,21 @@ export function ShowroomListingCard({
           <TrustPreview trust={vehicle.trust} />
         </div>
 
-        <div className={`mt-auto pt-4 ${feature ? 'lg:mt-8 lg:max-w-md' : ''}`}>
-          <div className="border-t border-slate-200 pt-3">
-            <div className="overflow-hidden text-[13px] leading-5 text-slate-500">
-              <div className={`${SEPARATED_ROW} gap-y-1`}>
-                <span className={`${SEPARATED_ITEM} inline-flex max-w-full items-center`}>
-                  <MapPin className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  <span className="truncate" data-testid={locationTestId}>{vehicle.locationLabel}</span>
-                </span>
-                <span className={`${SEPARATED_ITEM} max-w-full truncate`}>{vehicle.sellerLabel}</span>
-                <span className={`${SEPARATED_ITEM} shrink-0 font-medium text-slate-600`}>
-                  <span data-testid="marketplace-plate-status">{vehicle.plateStatus}</span>
-                </span>
-              </div>
-            </div>
+        <div className={`mt-2 overflow-hidden text-[13px] leading-5 text-slate-500 ${feature ? 'lg:mt-3' : ''}`}>
+          <div className={`${SEPARATED_ROW} gap-y-1`}>
+            <span className={`${SEPARATED_ITEM} inline-flex max-w-full items-center`}>
+              <MapPin className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate" data-testid={locationTestId}>{vehicle.locationLabel}</span>
+            </span>
+            <span className={`${SEPARATED_ITEM} max-w-full truncate`}>{vehicle.sellerLabel}</span>
+            <span className={`${SEPARATED_ITEM} shrink-0 font-medium text-slate-600`}>
+              <span data-testid="marketplace-plate-status">{vehicle.plateStatus}</span>
+            </span>
+          </div>
+        </div>
 
+        <div className={`mt-auto pt-4 ${feature ? 'lg:mt-8 lg:max-w-md' : ''}`}>
+          <div className="border-t border-slate-200 pt-1">
             {previewMode ? (
               <div
                 className="mt-1 flex h-11 items-center justify-between text-[14px] font-semibold text-[#09122A]"
@@ -434,13 +406,44 @@ export function ShowroomListingCard({
                 <Eye className="h-4 w-4 text-[#C2410C]" aria-hidden="true" />
               </div>
             ) : (
-              <Link
-                to={href}
-                className={`group/cta mt-1 flex h-11 items-center justify-between rounded-md text-[14px] font-semibold text-[#09122A] transition-colors hover:text-[#C2410C] ${FOCUS_RING}`}
-              >
-                <span>{ctaLabel}</span>
-                <ArrowUpRight className="h-4 w-4 motion-safe:transition-transform motion-safe:group-hover/cta:-translate-y-0.5 motion-safe:group-hover/cta:translate-x-0.5" aria-hidden="true" />
-              </Link>
+              <div className="mt-1 flex items-center gap-1">
+                <Link
+                  to={href}
+                  aria-label={`${ctaLabel} for ${vehicle.name}`}
+                  className={`group/cta mr-auto inline-flex h-11 min-w-0 items-center gap-1.5 rounded-md text-[14px] font-semibold text-[#09122A] transition-colors hover:text-[#C2410C] ${FOCUS_RING}`}
+                >
+                  <span className="truncate">{ctaLabel}</span>
+                  <ArrowUpRight className="h-4 w-4 shrink-0 motion-safe:transition-transform motion-safe:group-hover/cta:-translate-y-0.5 motion-safe:group-hover/cta:translate-x-0.5" aria-hidden="true" />
+                </Link>
+                {onCompare && (
+                  <button
+                    type="button"
+                    aria-label={isCompared ? 'Remove from compare' : 'Add to compare'}
+                    aria-pressed={isCompared}
+                    onClick={onCompare}
+                    data-testid="marketplace-compare-toggle"
+                    className={`inline-flex h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold transition-colors ${FOCUS_RING} ${isCompared
+                      ? 'bg-[#09122A] text-white hover:bg-[#111D3D]'
+                      : 'text-[#09122A] ring-1 ring-inset ring-slate-300 hover:bg-[#F6F4F0]'}`}
+                  >
+                    {isCompared
+                      ? <Check className="h-4 w-4" aria-hidden="true" />
+                      : <Plus className="h-4 w-4" aria-hidden="true" />}
+                    Compare
+                  </button>
+                )}
+                {onShare && (
+                  <button
+                    type="button"
+                    aria-label="Share listing"
+                    onClick={onShare}
+                    data-testid="marketplace-share-button"
+                    className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-[#F6F4F0] hover:text-[#09122A] ${FOCUS_RING}`}
+                  >
+                    <Share2 className="h-[18px] w-[18px]" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

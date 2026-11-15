@@ -170,6 +170,10 @@ describe('RX03-P1A-R2 — one decision rail', () => {
     const panels = screen.getByTestId('marketplace-detail-panels')
     expect(document.getElementById('vd-trust')?.contains(panels)).toBe(true)
     expect(within(panels).queryAllByTestId('marketplace-inquiry-open')).toHaveLength(0)
+    // R3 (Owner FIX): recomposed as open dossier sections by the page-scoped stylesheet — the shared
+    // panel components themselves are untouched (the accepted page renders them unchanged).
+    expect(panels).toHaveClass('vd-panels')
+    expect(panels.className).not.toContain('[&_')
   })
 
   it('points every dossier pill at a section that exists', async () => {

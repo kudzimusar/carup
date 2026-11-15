@@ -62,3 +62,38 @@
   }
   .carup-reel-progress { width: 0% !important; }
 }
+
+/* Vehicle Detail: the backend-governed marketplace panels (shared with the accepted page, unchanged
+   there) recomposed as open dossier sections — one hairline above each, no card chrome, titles in
+   the dossier's own heading voice. Safety guidance stays a callout. Scoped to the showroom page. */
+.vd-panels > div > :is(
+  [data-testid='marketplace-trust-summary'],
+  [data-testid='trust-decision-panel'],
+  [data-testid='trust-decision-loading'],
+  [data-testid='source-coverage-panel'],
+  [data-testid='source-coverage-loading'],
+  [data-testid='marketplace-allin-price']
+) {
+  border: 0;
+  border-top: 1px solid rgb(226 232 240);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 1.5rem 0 0;
+  gap: 1rem;
+}
+.vd-panels :is([data-slot='card-header'], [data-slot='card-content']) { padding-inline: 0; }
+.vd-panels [data-slot='card-header'] { padding-bottom: 0; }
+.vd-panels > div > [data-testid] :is(h3, [data-slot='card-title']) {
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: #09122a;
+}
+.vd-panels [data-testid='marketplace-safety-warnings'] {
+  border-radius: 1rem;
+  border-color: rgb(245 217 168);
+  background: #fff8ec;
+  padding: 1.25rem;
+}

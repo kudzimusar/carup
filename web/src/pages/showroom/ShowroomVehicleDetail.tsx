@@ -2677,15 +2677,15 @@ export default function ShowroomVehicleDetail() {
                       gone: every buyer action now lives once, in the decision rail. */}
                   {detail && (
                     <div
-                      className="grid gap-5 2xl:grid-cols-2 [&_.card-shadow]:shadow-none [&_.shadow-sm]:shadow-none [&_.rounded-xl]:rounded-2xl [&_[data-slot=card]]:rounded-2xl [&_[data-slot=card]]:border [&_[data-slot=card]]:border-slate-200"
+                      className="vd-panels grid gap-x-12 gap-y-8 2xl:grid-cols-2"
                       data-testid="marketplace-detail-panels"
                     >
-                      <div className="min-w-0 space-y-5">
+                      <div className="min-w-0 space-y-8">
                         <TrustSummaryPanel trust={detail.trust_summary} verification={detail.verification_summary} />
                         {(vehicle?.vin || id) && <TrustDecisionPanel vin={(vehicle?.vin || id) as string} />}
                         {(vehicle?.vin || id) && <SourceCoveragePanel vin={(vehicle?.vin || id) as string} />}
                       </div>
-                      <div className="min-w-0 space-y-5">
+                      <div className="min-w-0 space-y-8">
                         <AllInPricePanel pricing={detail.pricing_summary} />
                         <SafetyWarnings warnings={detail.safety_warnings} />
                         {isSellerPreview && (
