@@ -3,6 +3,11 @@ import { Router } from 'express';
 import { supabase } from '../db/supabase.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { logAuditEvent } from '../services/auditLogger.js';
+import { logger } from '../utils/logger.js';
+
+/** Fixed client-facing text for an unexpected failure: no internal detail ever reaches the caller. */
+export const LOGOUT_UNEXPECTED_FAILURE_MESSAGE =
+  'Sign-out could not be completed. Your session may remain valid until it expires.';
 
 /**
  * TI-10 — server-side revocation of the PRESENTING session on sign-out.
@@ -21,6 +26,9 @@ import { logAuditEvent } from '../services/auditLogger.js';
  *    (logAuditEvent redacts sensitive keys and we never put the token in the event).
  *  - Revocation or audit failure is reported honestly (500) and never as success; on
  *    revocation failure the session remains valid server-side, which the message says.
+ *  - Every client-facing error is a fixed string. An unexpected exception is logged
+ *    server-side (structured logger) and answered with a generic 500 — its text never
+ *    reaches the client.
  *  - The route sits behind the global CSRF middleware mounted in server.js before all
  *    routers (asserted by the test suite).
  */
@@ -81,9 +89,13 @@ export function authSessionRouter() {
 
         return res.json({ success: true });
       } catch (error) {
-        return res.status(500).json({
-          error: `Sign-out failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+        // The detail (driver/network text, hosts, relation names) is for operators only: it goes to
+        // the structured server log and never into the response. The client gets a fixed message.
+        logger.error('AUTH_LOGOUT', 'Sign-out failed unexpectedly; presenting-session state unknown', {
+          error: error instanceof Error ? error : new Error(String(error)),
+          route: '/api/auth/logout',
         });
+        return res.status(500).json({ error: LOGOUT_UNEXPECTED_FAILURE_MESSAGE });
       }
     },
   );

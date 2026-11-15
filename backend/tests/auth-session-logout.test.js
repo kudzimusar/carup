@@ -11,8 +11,13 @@
  *   4. the audit row records session ids but never token material;
  *   5. a session-store failure leaves the session valid and reports 500 (no false success);
  *   6. an audit-store failure after revocation still reports 500 (unaudited ≠ success);
- *   7. the composed production mount — authRecoveryRouter(), which hosts this router — really
- *      exposes /api/auth/logout, and the global CSRF middleware is mounted before that batch.
+ *   7. an unexpected exception answers a generic 500: its text is logged server-side, never sent;
+ *   8. (static) server.js mounts the global CSRF middleware before the auth batch;
+ *   9. the composed production mount — authRecoveryRouter(), which hosts this router — really
+ *      exposes /api/auth/logout.
+ *
+ * CSRF enforcement and server-side token replay through the REAL server.js stack are proven in
+ * auth-session-logout-composed.test.js.
  *
  * No credential material is printed: tokens below are fictional test strings and the
  * assertion suite proves none of them reach the audit payload.
@@ -34,7 +39,10 @@ const { authRecoveryRouter } = await import('../routes/authRecoveryRoutes.js');
 
 const FUTURE = '2027-12-31T00:00:00.000Z';
 let db;
-const faults = { sessionUpdate: false, auditInsert: false };
+const faults = { sessionUpdate: false, auditInsert: false, sessionUpdateThrows: false };
+
+// An internal failure whose text must never reach the client (fictional host, table, pool detail).
+const INTERNAL_FAILURE_DETAIL = 'connect ECONNREFUSED 10.20.30.40:6543 (relation "user_sessions", pool ti10-internal-pool exhausted)';
 
 function resetDb() {
   db = {
@@ -79,6 +87,9 @@ function builder(table) {
     }
 
     if (state.op === 'update') {
+      if (table === 'user_sessions' && faults.sessionUpdateThrows) {
+        throw new Error(INTERNAL_FAILURE_DETAIL);
+      }
       if (table === 'user_sessions' && faults.sessionUpdate) {
         return { data: null, error: { code: 'XX000', message: 'session store unavailable' } };
       }
@@ -124,6 +135,7 @@ beforeEach(() => {
   resetDb();
   faults.sessionUpdate = false;
   faults.auditInsert = false;
+  faults.sessionUpdateThrows = false;
 });
 
 function call(method, path, { token, userId, body } = {}) {
@@ -229,9 +241,34 @@ test('an audit-store failure after revocation is still reported as failure (unau
   assert.match(res.body.error, /audit/i);
 });
 
+test('an unexpected failure answers 500 with a generic message; the internal detail is logged server-side only', async (t) => {
+  faults.sessionUpdateThrows = true;
+  const serverLog = t.mock.method(console, 'error', () => {});
+
+  const res = await call('POST', '/api/auth/logout', { token: 'token-a-1' });
+
+  assert.equal(res.status, 500, 'status semantics unchanged: an unexpected failure is a server error');
+  assert.deepEqual(Object.keys(res.body), ['error'], 'no extra fields (no stack, no details)');
+  const clientText = JSON.stringify(res.body);
+  for (const internal of ['ECONNREFUSED', '10.20.30.40', 'user_sessions', 'ti10-internal-pool', 'relation']) {
+    assert.ok(!clientText.includes(internal), `the client response must not carry internal detail: ${internal}`);
+  }
+  assert.match(res.body.error, /could not be completed/i);
+  assert.match(res.body.error, /may remain valid until it expires/i, 'the user is told the session may still be live');
+
+  const logged = serverLog.mock.calls.map((c) => c.arguments.map(String).join(' ')).join('\n');
+  assert.ok(logged.includes('ECONNREFUSED'), 'the internal detail is kept in the server log for operators');
+  assert.ok(!/token-a-1|token-a-2|token-b-1/.test(logged), 'the server log carries no credential material');
+  assert.equal(session('session-a-1').is_valid, true, 'nothing was revoked');
+});
+
 test('the normal server CSRF guard is mounted before the auth-session router', () => {
-  const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
-  const recoverySource = readFileSync(new URL('../routes/authRecoveryRoutes.js', import.meta.url), 'utf8');
+  // A cheap static guard only. The behavioural proof — the REAL server.js stack refusing a logout
+  // without a valid CSRF token — is auth-session-logout-composed.test.js. Comments are stripped
+  // first: a commented-out `// app.use(csrfMiddleware)` used to satisfy this check.
+  const code = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const serverSource = code(readFileSync(new URL('../server.js', import.meta.url), 'utf8'));
+  const recoverySource = code(readFileSync(new URL('../routes/authRecoveryRoutes.js', import.meta.url), 'utf8'));
 
   // server.js mounts the global CSRF middleware...
   const csrf = serverSource.indexOf('app.use(csrfMiddleware)');
