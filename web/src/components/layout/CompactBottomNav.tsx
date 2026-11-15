@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { CarFront, CircleUserRound, Home, Search, Tag } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useHonourBottomBarClaim } from '@/lib/bottomBarClaim'
+import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
 
 const ROLE_HOME: Record<string, string> = {
   owner: '/dashboard',
@@ -16,8 +17,10 @@ const ROLE_HOME: Record<string, string> = {
 export default function CompactBottomNav() {
   const location = useLocation()
   const { user, isAuthenticated } = useAuth()
-  // RX03-P1b: one bottom bar at a time — a page's own action bar (Vehicle Detail contact) takes the slot.
-  const yielded = useHonourBottomBarClaim()
+  // RX03-P1b (behind the independent chrome presentation): one bottom bar at a time — a page's own
+  // action bar (Vehicle Detail contact) takes the slot. With the presentation off the bar is unchanged.
+  const showroomChrome = isShowroomChromeEnabled()
+  const yielded = useHonourBottomBarClaim(showroomChrome)
 
   const sellHref = !isAuthenticated
     ? '/sell'
@@ -50,7 +53,9 @@ export default function CompactBottomNav() {
           <Link
             key={label}
             to={href}
-            className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-medium transition ${active ? 'font-semibold text-[#C2410C]' : 'text-slate-600 hover:bg-slate-50 hover:text-[#09122A]'}`}
+            className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-medium transition ${showroomChrome
+              ? (active ? 'font-semibold text-[#C2410C]' : 'text-slate-600 hover:bg-slate-50 hover:text-[#09122A]')
+              : (active ? 'text-orange-600' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900')}`}
             aria-current={active ? 'page' : undefined}
           >
             <Icon className={`h-5 w-5 ${active ? 'stroke-[2.4]' : ''}`} />
