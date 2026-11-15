@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useSearchParams, Link } from 'react-router-dom'
+import { useParams, useSearchParams, useLocation, Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +25,8 @@ import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { statedMileage, statedPrice, statedDate } from './ownerStatedValues'
 import { evidenceClassificationLabel, satisfiesOwnershipRegistration } from '@/lib/evidenceClassification'
+import { classifyReadError, type ReadOutcome } from '@/lib/vehicleDetailReadOutcome'
+import { buildLoginRedirect } from '@/lib/returnTo'
 
 // ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
 /**
@@ -102,12 +104,80 @@ const TRUST_CONFIDENCE_LABELS: Record<string, string> = {
   not_evaluated: 'Confidence not assessed',
 }
 
+/**
+ * FR-4 — copy for a passport read that ANSWERED (as opposed to one that did not answer).
+ *
+ * Returns null for every non-answer (`server`, `network`, `timeout`, `rate-limited`, `unknown`), which
+ * keeps the honest "Vehicle Passport unavailable" + "Retry Passport" state. Everything returned here
+ * is a definitive outcome that a retry cannot change, so it carries a link instead of a retry.
+ * Copy is non-enumerable, like the public page: "no Passport for this identifier", never "this
+ * vehicle does not exist".
+ */
+function passportReadAnswerCopy(outcome: ReadOutcome | null): {
+  title: string
+  body: string
+  action: 'garage' | 'sign-in'
+  actionLabel: string
+} | null {
+  switch (outcome?.kind) {
+    case 'not-found':
+      return {
+        title: 'No Vehicle Passport found',
+        body: 'CarUp has no Vehicle Passport for this identifier. That is an answer, not an outage, so '
+          + 'retrying will not change it. The link may be mistyped — open the vehicle from My Garage instead.',
+        action: 'garage',
+        actionLabel: 'Back to My Garage',
+      }
+    case 'ambiguous':
+      return {
+        title: 'More than one vehicle matches',
+        body: 'This identifier matches more than one vehicle, so CarUp won’t guess which Passport you meant. '
+          + 'Open the vehicle from My Garage instead.',
+        action: 'garage',
+        actionLabel: 'Back to My Garage',
+      }
+    case 'forbidden':
+      return {
+        title: 'This Passport isn’t open to your account',
+        body: 'CarUp refused this read for the account you are signed in with. That is a statement about '
+          + 'access, not about the vehicle.',
+        action: 'garage',
+        actionLabel: 'Back to My Garage',
+      }
+    case 'session-expired':
+      return {
+        title: 'Your session ended',
+        body: 'CarUp signed you out on this device because the session was no longer valid. Sign in again '
+          + 'to open this Passport — this address is kept.',
+        action: 'sign-in',
+        actionLabel: 'Sign in again',
+      }
+    case 'sign-in-required':
+      return {
+        title: 'Sign in to open this Passport',
+        body: 'Looking a vehicle up by plate or temporary ID needs a signed-in account. This says nothing '
+          + 'about whether the vehicle has records.',
+        action: 'sign-in',
+        actionLabel: 'Sign in',
+      }
+    default:
+      // ok, server, network, timeout, rate-limited, unknown: not an answer about this Passport.
+      return null
+  }
+}
+
 export default function VehicleProfile() {
   const { id } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const { fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
   const [passportData, setPassportData] = useState<VehiclePassport | null>(null)
   const [passportLoadState, setPassportLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  // FR-4: WHY the passport read failed. A 404 is an answer ("no Passport for this identifier"), not
+  // an outage — only a non-answer (server error, unreachable, timed out, rate-limited, or an error the
+  // page cannot interpret) may be presented as "unavailable" with a retry. Same classifier as the
+  // public Vehicle Detail page (TI-27), so the two surfaces cannot disagree about a failed read.
+  const [passportReadOutcome, setPassportReadOutcome] = useState<ReadOutcome | null>(null)
+  const location = useLocation()
   const [evidenceList, setEvidenceList] = useState<VehicleEvidence[]>([])
   const [evidenceLoadState, setEvidenceLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(() => searchParams.get('upload') === '1')
@@ -143,6 +213,7 @@ export default function VehicleProfile() {
       .catch(err => {
         console.error('Error fetching passport details:', err)
         setPassportData(null)
+        setPassportReadOutcome(classifyReadError(err))
         setPassportLoadState('error')
       })
   }, [fetchVehiclePassport, id])
@@ -165,8 +236,37 @@ export default function VehicleProfile() {
 
 
   if (!passportData && passportLoadState === 'error') {
+    const answer = passportReadAnswerCopy(passportReadOutcome)
+    if (answer) {
+      // A definitive answer (absent, ambiguous, refused, or signed out). Retrying would only repeat
+      // it, so no retry is offered — the way forward is a link that can actually change the outcome.
+      const actionHref = answer.action === 'garage'
+        ? '/dashboard/garage'
+        : buildLoginRedirect(`${location.pathname}${location.search}`)
+      return (
+        <main
+          className="mx-auto max-w-3xl p-4 sm:p-8"
+          aria-labelledby="passport-error-title"
+          data-passport-read={passportReadOutcome?.kind}
+        >
+          <Card className="border-amber-200 bg-amber-50">
+            <CardContent className="p-6 text-center" role="alert">
+              <h1 id="passport-error-title" className="text-lg font-semibold text-gray-900">{answer.title}</h1>
+              <p className="mt-2 text-sm text-gray-700">{answer.body}</p>
+              <Button className="mt-4 min-h-11" variant="outline" asChild>
+                <Link to={actionHref}>{answer.actionLabel}</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </main>
+      )
+    }
     return (
-      <main className="mx-auto max-w-3xl p-4 sm:p-8" aria-labelledby="passport-error-title">
+      <main
+        className="mx-auto max-w-3xl p-4 sm:p-8"
+        aria-labelledby="passport-error-title"
+        data-passport-read="unavailable"
+      >
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="p-6 text-center" role="alert">
             <h1 id="passport-error-title" className="text-lg font-semibold text-gray-900">Vehicle Passport unavailable</h1>
