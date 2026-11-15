@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import CompactBottomNav from './CompactBottomNav'
 import Footer from './Footer'
+import MobileNavDrawer from './MobileNavDrawer'
 import { BrandMark } from '@/components/shell/BrandMark'
 import { useClaimBottomBar } from '@/lib/bottomBarClaim'
 
-vi.mock('@/context/AuthContext', () => ({ useAuth: () => ({ user: null, isAuthenticated: false }) }))
+const auth = vi.hoisted(() => ({ user: null as null | { id: string; name: string; role: string } }))
+vi.mock('@/context/AuthContext', () => ({
+  useAuth: () => ({ user: auth.user, isAuthenticated: Boolean(auth.user), switchRole: vi.fn(), logout: vi.fn() }),
+}))
 
 function ContactBar({ active }: { active: boolean }) {
   const { honoured } = useClaimBottomBar(active)
@@ -18,6 +22,7 @@ beforeEach(() => {
   delete (globalThis as Record<string, unknown>).__CARUP_SHOWROOM_CHROME__
   delete (globalThis as Record<string, unknown>).__CARUP_SHOWROOM_PAGES__
   window.sessionStorage.clear()
+  auth.user = null
 })
 afterEach(() => {
   cleanup()
@@ -134,5 +139,45 @@ describe('RX03 R3 — mobile-web navigation follows the binding native IA (13 Oc
   it('accepted chrome (switch off) is unchanged', () => {
     render(<MemoryRouter initialEntries={['/']}><CompactBottomNav /></MemoryRouter>)
     expect(labels().map(([label]) => label)).toEqual(['Home', 'Market', 'Verify', 'Sell', 'Account'])
+  })
+})
+
+describe('RX03 R3 — the header Profile control opens an account-first sheet (showroom chrome)', () => {
+  const open = () => {
+    render(<MemoryRouter initialEntries={['/']}><MobileNavDrawer showroom /></MemoryRouter>)
+    const trigger = screen.getByTestId('mobile-menu-button')
+    expect(trigger).toHaveAttribute('aria-label', 'Profile and menu')
+    fireEvent.click(trigger)
+    return screen.getByTestId('mobile-nav-drawer')
+  }
+  const sections = (drawer: HTMLElement) => Array.from(drawer.querySelectorAll('nav > section')).map(el => el.getAttribute('aria-label'))
+  const hrefs = (drawer: HTMLElement) => within(drawer).queryAllByRole('link').map(a => a.getAttribute('href'))
+
+  beforeEach(chromeOn)
+
+  it('signed out: sign in and create account come first; tab destinations are not repeated', () => {
+    const drawer = open()
+    expect(sections(drawer)[0]).toBe('Account')
+    expect(within(drawer).getByTestId('mobile-signin')).toHaveAttribute('href', '/login')
+    for (const tab of ['/', '/marketplace', '/search', '/sell', '/diaspora']) expect(hrefs(drawer)).not.toContain(tab)
+    // The guest Sell entry (→ /register) is the Sell pillar too: offered by the tab bar, not repeated here.
+    expect(within(drawer).queryByTestId('mobile-navitem-mobile.sell')).toBeNull()
+  })
+
+  it('signed in: the dashboard (with Communications, the Inbox) comes first; sign out stays last', () => {
+    auth.user = { id: 'u1', name: 'Rudo Moyo', role: 'owner' }
+    const drawer = open()
+    expect(sections(drawer)[0]).toBe('Your dashboard')
+    expect(hrefs(drawer)).toContain('/dashboard/communications')
+    const buttons = within(drawer).getAllByRole('button').filter(b => b.getAttribute('data-testid'))
+    expect(buttons.at(-1)).toHaveAttribute('data-testid', 'mobile-signout')
+    for (const tab of ['/marketplace', '/search', '/dashboard/sell-vehicle', '/diaspora']) expect(hrefs(drawer)).not.toContain(tab)
+  })
+
+  it('accepted drawer (switch off) still opens with Browse', () => {
+    delete (globalThis as Record<string, unknown>).__CARUP_SHOWROOM_CHROME__
+    render(<MemoryRouter initialEntries={['/']}><MobileNavDrawer /></MemoryRouter>)
+    fireEvent.click(screen.getByTestId('mobile-menu-button'))
+    expect(sections(screen.getByTestId('mobile-nav-drawer'))[0]).toBe('Browse')
   })
 })
