@@ -1,0 +1,33 @@
+{
+  "identity": "CarUp Option 5 - Sleek & Premium (Owner-selected 2026-11-12)",
+  "ledger_version": "rx03-p1a-r2-1",
+  "status": "OWNER_APPROVED_FOR_RX03_LOCAL_IMPLEMENTATION; vector fidelity REVIEW_PENDING; commercial rights UNVERIFIED",
+  "source_packages": [
+    {
+      "name": "CarUp_Option5_Official_Identity_Production_Review_v1.zip (R1)",
+      "sha256": "c6e5e774775aa8a4ea727368574f6f436cacde83ebd1edcb331b566da1f87112",
+      "custody": "R2V3 reviewer transfer package, SHA256SUMS.txt entry matches"
+    },
+    {
+      "name": "CarUp_Media_Wing_R2_Deliverables_REVIEW_PENDING.zip (R2)",
+      "sha256": "cbddb1eaf223023da1e3d486bd34267afcade14305e2a328eb3d262a40676f04",
+      "custody": "R2V3 reviewer transfer package, SHA256SUMS.txt entry matches"
+    }
+  ],
+  "notes": [
+    "Bytes are copied unchanged; only the file names are sanitized. No Drive identifiers or URLs are embedded.",
+    "The R1 'logo', 'icon', 'mark' and 'wordmark' masters with the same tone are byte-identical stacked logos; this ledger uses the R2 role-separated mark and wordmark instead.",
+    "R2 mark-light and mark-dark are byte-identical (orange roofline on any background); one file serves both tones.",
+    "The SVGs are contour derivatives traced from the approved raster boards, not a native designer master (R1 README). Owner geometry PASS against these hashes is still required before release."
+  ],
+  "assets": [
+    { "file": "carup-logo-horizontal-on-light.svg", "role": "logo-horizontal", "tone": "on-light", "viewBox": [0, 0, 762, 199], "bytes": 6344, "sha256": "160bb51477cac8b36ad7b3c5709b41624ed1b21bb7802de45912dc758917f3f0", "source": "R1 01_Editable_Vector_Masters/CarUp_Option5_horizontal_full-light_VECTOR_REVIEW_PENDING.svg (= 02_Website_Web public-header)" },
+    { "file": "carup-logo-horizontal-on-dark.svg", "role": "logo-horizontal", "tone": "on-dark", "viewBox": [0, 0, 762, 199], "bytes": 6344, "sha256": "639b8b6fdb0cf1c35614cc4136762e23d0f9183b3df96ae44537d75ffb5dbe8b", "source": "R1 01_Editable_Vector_Masters/CarUp_Option5_horizontal_full-dark_VECTOR_REVIEW_PENDING.svg" },
+    { "file": "carup-logo-stacked-on-light.svg", "role": "logo-stacked", "tone": "on-light", "viewBox": [0, 0, 585, 289], "bytes": 6241, "sha256": "c8dddd2eaa3bb65c2c56d114b8c447187cd5f76772aff72ad84ec95348f8165f", "source": "R1 01_Editable_Vector_Masters/CarUp_Option5_logo_full-light_VECTOR_REVIEW_PENDING.svg" },
+    { "file": "carup-logo-stacked-on-dark.svg", "role": "logo-stacked", "tone": "on-dark", "viewBox": [0, 0, 585, 289], "bytes": 6240, "sha256": "59f6fbf34fddef3b211f128d4a6eb1c5572d72aa91da13333e4aea801f883bce", "source": "R1 01_Editable_Vector_Masters/CarUp_Option5_logo_full-dark_VECTOR_REVIEW_PENDING.svg" },
+    { "file": "carup-wordmark-on-light.svg", "role": "wordmark", "tone": "on-light", "viewBox": [22, 107, 553, 177], "bytes": 4391, "sha256": "29a74b27518e366e435d021cb10864471e9ec93f45e9bd5500b1643c3705cef2", "source": "R2 M0_Logo_Fidelity/carup-option5-wordmark-light-R2_REVIEW_PENDING.svg" },
+    { "file": "carup-wordmark-on-dark.svg", "role": "wordmark", "tone": "on-dark", "viewBox": [22, 107, 553, 177], "bytes": 4391, "sha256": "7460d6cf3d662fa114e4582014484d2f5e3054788e05b20488ce225a0c0e108e", "source": "R2 M0_Logo_Fidelity/carup-option5-wordmark-dark-R2_REVIEW_PENDING.svg" },
+    { "file": "carup-mark-roofline.svg", "role": "mark", "tone": "any", "viewBox": [0, 0, 582, 138], "bytes": 2283, "sha256": "d3b7bb01be4aa91449faddf62d9fa7258dce89aca389958064a290307485764d", "source": "R2 M0_Logo_Fidelity/carup-option5-mark-light-R2_REVIEW_PENDING.svg (identical bytes to mark-dark)" },
+    { "file": "carup-app-icon-orange.svg", "role": "app-icon", "tone": "any", "viewBox": [0, 0, 512, 512], "bytes": 947, "sha256": "e706ab0b9ced3cc9000a9739a26622b3ac9f96fc6699eaaf3b479035fb8fee13", "source": "R1 01_Editable_Vector_Masters/CarUp_Option5_app_orange_white_VECTOR_REVIEW_PENDING.svg (identical to the Drive Option5 folder copy)" }
+  ]
+}
