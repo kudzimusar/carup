@@ -15,7 +15,9 @@ import { isShowroomPagesEnabled } from '@/lib/presentationFlags'
 
 function ShowroomRouteLoading() {
   return (
-    <div className="flex min-h-[60vh] items-center justify-center" role="status" aria-live="polite" data-testid="showroom-route-loading">
+    // Full-height on purpose: while the showroom chunk arrives, the footer stays below the fold, so
+    // the page does not shift visible content when it renders (CLS).
+    <div className="flex min-h-[100svh] items-start justify-center pt-[30vh]" role="status" aria-live="polite" data-testid="showroom-route-loading">
       <span className="text-sm text-slate-500">Loading…</span>
     </div>
   )
