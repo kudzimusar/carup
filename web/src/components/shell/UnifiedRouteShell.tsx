@@ -206,9 +206,10 @@ function WorkspacePersonalUnifiedShell() {
       overviewHref="/dashboard"
       // C2 — sign-out uses the EXISTING safe session mechanism (AuthContext
       // logout, which clears client auth state + stored session only); no new
-      // backend API, no storage nuking of unrelated user data.
-      onSignOut={() => {
-        logout()
+      // backend API, no storage nuking of unrelated user data. TI-10: await the
+      // server revocation of the presenting session before navigating away.
+      onSignOut={async () => {
+        await logout()
         navigate('/')
       }}
     >
@@ -264,9 +265,10 @@ function WorkspaceDealerUnifiedShell() {
     roleTitle: 'Dealer OS',
     tenantLabel: dealerName,
   }
-  // C2 — dealer sign-out uses the same existing safe session mechanism.
-  const onSignOut = () => {
-    logout()
+  // C2 — dealer sign-out uses the same existing safe session mechanism, and
+  // (TI-10) awaits server revocation before navigating away.
+  const onSignOut = async () => {
+    await logout()
     navigate('/')
   }
   const object: ShellObjectIdentity = {

@@ -70,9 +70,10 @@ export default function MobileNavDrawer() {
     }
   }
 
-  const handleLogout = () => {
-    logout()
+  const handleLogout = async () => {
+    // TI-10: dismiss the drawer at once, but leave only after server revocation was awaited.
     close()
+    await logout()
     navigate('/')
   }
 

@@ -18,7 +18,7 @@
  *  R2-5  safeReturnTarget bounds exit destinations to safe internal paths.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route, Outlet, useSearchParams } from 'react-router-dom'
 import type { EffectiveFeatureState } from '@/config/featureRegistry'
@@ -568,10 +568,19 @@ describe('R3-C4 — navigation truth from the real session role', () => {
 
 /* ── R3 C2: safe sign-out via the existing session mechanism ─────────────── */
 
+/** A sign-out whose server revocation is still in flight until the test resolves it. */
+function deferredSignOut() {
+  let resolve!: (outcome: 'revoked' | 'no-session' | 'failed') => void
+  const promise = new Promise<'revoked' | 'no-session' | 'failed'>((res) => { resolve = res })
+  return { promise, resolve }
+}
+
 describe('R3-C2 — sign-out uses the existing AuthContext logout', () => {
   it('personal workspace Sign Out invokes the session logout (no new backend, no storage nuking)', async () => {
     window.sessionStorage.setItem(KEY, '1')
-    const logout = vi.fn()
+    // TI-10 — the revocation is pending until the "server" answers: the shell must not leave first.
+    const revocation = deferredSignOut()
+    const logout = vi.fn(() => revocation.promise)
     vi.doMock('@/context/AuthContext', () => ({
       useAuth: () => ({
         user: { id: 'u1', name: 'Tendai Moyo', email: 't@example.co.zw', role: 'owner', phone: '' },
@@ -587,17 +596,22 @@ describe('R3-C2 — sign-out uses the existing AuthContext logout', () => {
           <Route element={<UnifiedRouteShell family="workspace-personal" legacy={<div>legacy</div>} />}>
             <Route path="/dashboard" element={<div>owner dashboard body</div>} />
           </Route>
+          <Route path="/" element={<div>public home after sign-out</div>} />
         </Routes>
       </MemoryRouter>,
     )
     await user.click(screen.getByTestId('shell-ws-account'))
     await user.click(screen.getByTestId('shell-ws-sign-out'))
     expect(logout).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('public home after sign-out'), 'must not navigate before revocation settles').toBeNull()
+    await act(async () => { revocation.resolve('revoked'); await revocation.promise })
+    expect(await screen.findByText('public home after sign-out')).toBeInTheDocument()
   })
 
   it('dealer workspace Sign Out invokes the same session logout', async () => {
     window.sessionStorage.setItem(KEY, '1')
-    const logout = vi.fn()
+    const revocation = deferredSignOut()
+    const logout = vi.fn(() => revocation.promise)
     vi.doMock('@/context/AuthContext', () => ({
       useAuth: () => ({
         user: { id: 'u1', name: 'Tendai Moyo', email: 't@example.co.zw', role: 'member', phone: '' },
@@ -614,6 +628,7 @@ describe('R3-C2 — sign-out uses the existing AuthContext logout', () => {
           <Route element={<UnifiedRouteShell family="workspace-dealer" legacy={<div>legacy</div>} />}>
             <Route path="/dealer/dashboard" element={<div>dealer dashboard body</div>} />
           </Route>
+          <Route path="/" element={<div>public home after sign-out</div>} />
         </Routes>
       </MemoryRouter>,
     )
@@ -621,6 +636,9 @@ describe('R3-C2 — sign-out uses the existing AuthContext logout', () => {
     await user.click(screen.getByTestId('shell-ws-account'))
     await user.click(screen.getByTestId('shell-ws-sign-out'))
     expect(logout).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('public home after sign-out'), 'must not navigate before revocation settles').toBeNull()
+    await act(async () => { revocation.resolve('revoked'); await revocation.promise })
+    expect(await screen.findByText('public home after sign-out')).toBeInTheDocument()
   })
 })
 

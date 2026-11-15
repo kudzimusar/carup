@@ -1,4 +1,4 @@
-import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ShieldCheck, LogOut, Store } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { AuthBootstrapLoading } from '@/components/routing/RegistryRouteBoundary'
@@ -31,6 +31,12 @@ const reviewLinks = [
 export default function DealerReviewerLayout() {
   const {user,token,loading,logout}=useAuth()
   const location=useLocation()
+  const navigate=useNavigate()
+  // TI-10: await server revocation of the presenting session, then leave in-app.
+  const signOut=async()=>{
+    await logout()
+    navigate('/')
+  }
   if(loading)return <AuthBootstrapLoading />
   if(!user||!token)return <Navigate to={loginWithReturnTo(location.pathname)} replace />
   if(!REVIEW_ROLES.has(String(user.role)))return <Navigate to="/" replace />
@@ -48,7 +54,7 @@ export default function DealerReviewerLayout() {
               <ShieldCheck className="w-4 h-4" aria-hidden="true"/>
               {String(user.role).replaceAll('_',' ')} session
             </span>
-            <button type="button" onClick={logout}
+            <button type="button" onClick={signOut}
               className="inline-flex items-center gap-1 rounded-md border px-3 py-2 hover:bg-slate-50">
               <LogOut className="w-4 h-4" aria-hidden="true"/> Sign out
             </button>

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest'
-import {cleanup,render,screen} from '@testing-library/react'
+import {act,cleanup,render,screen} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import {MemoryRouter,Routes,Route} from 'react-router-dom'
 import DealerReviewerLayout from './DealerReviewerLayout'
 
@@ -9,7 +10,7 @@ const session=vi.hoisted(()=>({
     user:null as null|{role:string},
     token:null as string|null,
     loading:false,
-    logout:()=>{},
+    logout:(()=>{}) as ()=>unknown,
   }
 }))
 vi.mock('@/context/AuthContext',()=>({useAuth:()=>session.current}))
@@ -55,6 +56,21 @@ describe('D6 independently authorized dealership reviewer shell',()=>{
     loading:false,logout:()=>{}}
   openReview()
   expect(screen.getByText('ACCESS_DENIED_HOME')).toBeTruthy()
+  expect(screen.queryByText('CANONICAL_REVIEW_WORKBENCH')).toBeNull()
+ })
+ it('TI-10: Sign out awaits server revocation, then leaves in-app (never fire-and-forget)',async()=>{
+  let finish!:(outcome:string)=>void
+  const revocation=new Promise<string>(resolve=>{finish=resolve})
+  const logout=vi.fn(()=>revocation)
+  session.current={user:{role:'reviewer'},token:'fictional-db-backed-token',loading:false,logout}
+  openReview()
+  await userEvent.setup().click(screen.getByRole('button',{name:/sign out/i}))
+  expect(logout).toHaveBeenCalledTimes(1)
+  // Still inside the workbench while the revocation request is in flight.
+  expect(screen.getByText('CANONICAL_REVIEW_WORKBENCH')).toBeTruthy()
+  await act(async()=>{finish('revoked');await revocation})
+  // Then an in-app navigation to the public home (this fixture renders "/" as ACCESS_DENIED_HOME).
+  expect(await screen.findByText('ACCESS_DENIED_HOME',{},{timeout:1500})).toBeTruthy()
   expect(screen.queryByText('CANONICAL_REVIEW_WORKBENCH')).toBeNull()
  })
 })
