@@ -8,6 +8,7 @@
  *  PRODUCTION-MODE BUILDS (`vite build`; production, staging and every preview):
  *    only a BUILD-TIME setting can turn a presentation on —
  *      VITE_CARUP_SHOWROOM_PAGES=on   (P1a: Home, Marketplace, Vehicle Detail page bodies)
+ *      VITE_CARUP_SHOWROOM_CHROME=on  (P1b: Option 5 logo in header/footer, one phone bottom bar)
  *      VITE_CARUP_LAUNCH_PREVIEW=on   (launch-capability previews: designed experiences whose
  *                                      underlying capability is not yet functional/certified, e.g.
  *                                      Scan to Start. Internal preview only; never a public default.)
@@ -18,13 +19,13 @@
  *
  *  NON-PRODUCTION BUILDS (dev server, vitest):
  *    the build-time setting, or an isolated opt-in for review —
- *      sessionStorage 'carup-showroom-pages' = '1'
- *      globalThis.__CARUP_SHOWROOM_PAGES__ === true          (test harnesses)
- *      ?carup-showroom=pages,preview on any URL (remembered for the tab via sessionStorage)
+ *      sessionStorage 'carup-showroom-pages' / 'carup-showroom-chrome' = '1'
+ *      globalThis.__CARUP_SHOWROOM_PAGES__ / __CARUP_SHOWROOM_CHROME__ === true  (test harnesses)
+ *      ?carup-showroom=pages,chrome,preview on any URL (remembered for the tab via sessionStorage)
  *
  * Anything else is OFF. The default everywhere is the accepted composition.
  */
-export type PresentationKey = 'pages' | 'preview'
+export type PresentationKey = 'pages' | 'chrome' | 'preview'
 
 interface PresentationDefinition {
   envName: string
@@ -39,6 +40,12 @@ export const PRESENTATIONS: Record<PresentationKey, PresentationDefinition> = {
     storageKey: 'carup-showroom-pages',
     globalName: '__CARUP_SHOWROOM_PAGES__',
     queryToken: 'pages',
+  },
+  chrome: {
+    envName: 'VITE_CARUP_SHOWROOM_CHROME',
+    storageKey: 'carup-showroom-chrome',
+    globalName: '__CARUP_SHOWROOM_CHROME__',
+    queryToken: 'chrome',
   },
   preview: {
     envName: 'VITE_CARUP_LAUNCH_PREVIEW',
@@ -81,7 +88,9 @@ function gatherSources(key: PresentationKey): PresentationSources {
   // with literals at build time (and vitest's stubEnv reaches exactly these accesses).
   const envValue = key === 'pages'
     ? (import.meta.env.VITE_CARUP_SHOWROOM_PAGES as string | undefined)
-    : (import.meta.env.VITE_CARUP_LAUNCH_PREVIEW as string | undefined)
+    : key === 'chrome'
+      ? (import.meta.env.VITE_CARUP_SHOWROOM_CHROME as string | undefined)
+      : (import.meta.env.VITE_CARUP_LAUNCH_PREVIEW as string | undefined)
   let storageValue: string | null = null
   try {
     if (typeof window !== 'undefined' && window.sessionStorage) storageValue = window.sessionStorage.getItem(def.storageKey)
@@ -126,6 +135,11 @@ export function isPresentationEnabled(key: PresentationKey): boolean {
 /** P1a: the redesigned Home, Marketplace and Vehicle Detail page bodies. */
 export function isShowroomPagesEnabled(): boolean {
   return isPresentationEnabled('pages')
+}
+
+/** P1b: the Option 5 public chrome (legacy header/footer logo, one phone bottom bar). Independent of P1a. */
+export function isShowroomChromeEnabled(): boolean {
+  return isPresentationEnabled('chrome')
 }
 
 /**

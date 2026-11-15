@@ -49,15 +49,20 @@ export function useClaimBottomBar(active: boolean): Snapshot {
   return useBottomBarClaimState()
 }
 
-/** Called by a shell navigation bar that steps aside for a claim. Returns whether it should hide. */
-export function useHonourBottomBarClaim(): boolean {
+/**
+ * Called by a shell navigation bar that steps aside for a claim. Returns whether it should hide.
+ * `active=false` keeps the bar exactly as it was (it neither honours nor hides).
+ */
+export function useHonourBottomBarClaim(active = true): boolean {
   useEffect(() => {
+    if (!active) return
     honourers += 1
     publish()
     return () => {
       honourers -= 1
       publish()
     }
-  }, [])
-  return useBottomBarClaimState().claimed
+  }, [active])
+  const { claimed } = useBottomBarClaimState()
+  return active && claimed
 }

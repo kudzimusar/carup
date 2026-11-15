@@ -1,6 +1,7 @@
 import { BrandIdentity } from '@/components/brand/BrandIdentity'
+import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
 import { Link } from 'react-router-dom'
-import { Mail, Phone, MapPin, Facebook, Twitter, Instagram, Linkedin } from 'lucide-react'
+import { Car, Mail, Phone, MapPin, Facebook, Twitter, Instagram, Linkedin } from 'lucide-react'
 import { resolveFeatureIcon } from '@/config/featureIcons'
 import {
   getFooterNavigation,
@@ -68,9 +69,20 @@ export default function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8">
           {/* Brand */}
           <div className="col-span-2 md:col-span-3 lg:col-span-2">
-            <Link to="/" className="mb-5 inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FE7D18]" aria-label="CarUp home" data-testid="footer-brand">
-              <BrandIdentity role="logo" surface="dark" height={36} decorative />
-            </Link>
+            {isShowroomChromeEnabled() ? (
+              <Link to="/" className="mb-5 inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FE7D18]" aria-label="CarUp home" data-testid="footer-brand">
+                <BrandIdentity role="logo" surface="dark" height={36} decorative />
+              </Link>
+            ) : (
+              <Link to="/" className="flex items-center gap-2 mb-4" aria-label="CarUp home">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
+                  <Car className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-xl font-bold text-white tracking-tight">
+                  Car<span className="text-orange-700">Up</span>
+                </span>
+              </Link>
+            )}
             <p className="text-sm text-gray-400 mb-4 max-w-xs">
               Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
             </p>
