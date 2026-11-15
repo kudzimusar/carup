@@ -50,6 +50,7 @@ import {
 import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
 import { isAdversePlateStatus, plateStatusLabel, primaryImageForListing } from '@/lib/marketplacePresentation'
 import { track as trackActivity } from '@/lib/intelligenceActivity'
+import { displayCurrencyCode } from '@/lib/currencyDisplay'
 import { BODY_STYLES, FUEL_TYPES, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, VEHICLE_TAXONOMY, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 
 const MAX_COMPARE = 4
@@ -139,7 +140,7 @@ function marketplacePriceLabel(price: number | null | undefined, currency: strin
   if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded'
   const amount = price.toLocaleString()
   if (!currency?.trim()) return `${amount} · currency not recorded`
-  return currency.toUpperCase() === 'USD' ? `$${amount}` : `${currency.toUpperCase()} ${amount}`
+  return currency.toUpperCase() === 'USD' ? `$${amount}` : `${displayCurrencyCode(currency)} ${amount}`
 }
 
 /** Real listings when present; mock only when explicitly allowed; otherwise an honest empty list. */

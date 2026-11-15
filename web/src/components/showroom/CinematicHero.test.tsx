@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { CinematicHero, resolveHeroMode, type ReelFrame } from './CinematicHero'
+import { CinematicHero } from './CinematicHero'
+import { resolveHeroMode, type ReelFrame } from './heroMode'
 import type { CinematicFilm } from '@/content/media/homeFilm'
 
 const frames: ReelFrame[] = [

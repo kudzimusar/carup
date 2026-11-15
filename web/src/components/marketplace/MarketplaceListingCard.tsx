@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import { displayCurrencyCode } from '@/lib/currencyDisplay'
 import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
 import {
   ArrowUpRight,
@@ -86,7 +87,7 @@ function formatMarketplacePrice(price: number | null, currency: string | null) {
   if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded'
   if (!currency) return `${price.toLocaleString()} · currency not recorded`
   if (currency.toUpperCase() === 'USD') return `$${price.toLocaleString()}`
-  return `${currency.toUpperCase()} ${price.toLocaleString()}`
+  return `${displayCurrencyCode(currency)} ${price.toLocaleString()}`
 }
 
 const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] focus-visible:ring-offset-2'

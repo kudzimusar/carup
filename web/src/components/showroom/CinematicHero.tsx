@@ -17,30 +17,8 @@ import { Link } from 'react-router-dom'
 import { ArrowUpRight, ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react'
 import { BrandIdentity } from '@/components/brand/BrandIdentity'
 import type { CinematicFilm, CinematicRendition } from '@/content/media/homeFilm'
+import { resolveHeroMode, type ReelFrame } from './heroMode'
 import { useMotionBudget } from './useMotionBudget'
-
-export interface ReelFrame {
-  id: string
-  src: string
-  title: string
-  subtitle?: string
-  /** Honesty marker shown in the caption, e.g. "Demo media" for synthetic reference photos. */
-  badge?: string
-  href: string
-}
-
-export type HeroMode = 'film' | 'reel' | 'plate'
-
-export function resolveHeroMode(input: {
-  film: CinematicFilm | null
-  frames: ReelFrame[]
-  saveData: boolean
-  filmFailed: boolean
-}): HeroMode {
-  if (input.film && !input.saveData && !input.filmFailed) return 'film'
-  if (input.frames.length > 0) return 'reel'
-  return 'plate'
-}
 
 const REEL_INTERVAL_MS = 6500
 
@@ -131,17 +109,11 @@ function FilmLayer({
 }
 
 function ReelLayer({ frames, active, playing }: { frames: ReelFrame[]; active: number; playing: boolean }) {
-  // Load the frame on screen and the next one; later frames are fetched only as the reel reaches them.
-  const [reached, setReached] = useState<Set<number>>(() => new Set([0, 1]))
-  useEffect(() => {
-    setReached(previous => {
-      if (previous.has(active) && previous.has((active + 1) % frames.length)) return previous
-      const next = new Set(previous)
-      next.add(active)
-      next.add((active + 1) % frames.length)
-      return next
-    })
-  }, [active, frames.length])
+  // Load the frame on screen and the next one; later frames are fetched only as the reel reaches
+  // them. "Furthest frame needed so far" only grows, so it is adjusted during render, not in an effect.
+  const [loadedUpTo, setLoadedUpTo] = useState(1)
+  if (active + 1 > loadedUpTo) setLoadedUpTo(active + 1)
+  const shouldLoad = (index: number) => index <= loadedUpTo || index === active
 
   return (
     <>
@@ -152,7 +124,7 @@ function ReelLayer({ frames, active, playing }: { frames: ReelFrame[]; active: n
           data-testid="home-hero-reel-frame"
           data-active={index === active ? 'true' : 'false'}
         >
-          {reached.has(index) && (
+          {shouldLoad(index) && (
             <img
               src={frame.src}
               alt=""
@@ -198,13 +170,12 @@ export function CinematicHero({ film, frames, framesState, children }: Cinematic
   const [userPaused, setUserPaused] = useState(false)
   const [hoverHold, setHoverHold] = useState(false)
   const [filmFailed, setFilmFailed] = useState(false)
-  const [active, setActive] = useState(0)
+  const [activeRaw, setActive] = useState(0)
 
   const mode = resolveHeroMode({ film, frames, saveData, filmFailed })
   const playing = !reducedMotion && !userPaused && !hoverHold && stageVisible
   const reel = useMemo(() => frames.slice(0, 5), [frames])
-
-  useEffect(() => { setActive(0) }, [reel.length])
+  const active = reel.length ? activeRaw % reel.length : 0
 
   useEffect(() => {
     if (mode !== 'reel' || !playing || reel.length < 2) return

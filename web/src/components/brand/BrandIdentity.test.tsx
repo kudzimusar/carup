@@ -3,7 +3,8 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { BRAND_ASSETS, BrandIdentity, type BrandRole, type BrandSurface } from './BrandIdentity'
+import { BrandIdentity } from './BrandIdentity'
+import { BRAND_ASSETS, type BrandRole, type BrandSurface } from './brandAssets'
 import ledger from '@/assets/brand/option5/ASSET_LEDGER.json'
 
 const ASSET_DIR = join(__dirname, '../../assets/brand/option5')

@@ -14,11 +14,10 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceListingCard'
 import { marketplaceListingToCardModel } from '@/lib/marketplaceCardModel'
 import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
-import { CinematicHero, type ReelFrame } from '@/components/showroom/CinematicHero'
+import { CinematicHero } from '@/components/showroom/CinematicHero'
+import { reelFramesFrom } from '@/lib/homeReel'
 import { VehicleSilhouette } from '@/components/showroom/VehicleSilhouette'
 import { HOME_FILM } from '@/content/media/homeFilm'
-import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
-import { summaryLocationLine } from '@/lib/governedLocation'
 import type { MarketplaceListingSummary } from '@/types'
 import { canonicalMake, canonicalModel, makeTaxon, modelsForMake, resolveFuelType, resolveTransmission } from '@/data/vehicleTaxonomy'
 
@@ -106,36 +105,6 @@ const ecosystem = [
   { eyebrow: 'Parts', title: 'Match parts to the vehicle', copy: 'Normalized fitment and PartSentry context, without invented availability.', href: '/marketplace/parts' },
   { eyebrow: 'Dealers', title: 'Meet the dealers', copy: 'Dealer profiles and the stock they publish on CarUp.', href: '/dealers' },
 ]
-
-function vehicleTitle(vehicle: MarketplaceListingSummary) {
-  return [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Marketplace vehicle'
-}
-
-/** Live photos for the reel: renderable seller media only, one per body style first for variety. */
-export function reelFramesFrom(listings: MarketplaceListingSummary[]): ReelFrame[] {
-  const withMedia = listings.filter(listing =>
-    canRenderMarketplacePrimaryImage(listing.primary_image_state, listing.primary_image_url))
-  const seen = new Set<string>()
-  const varied: MarketplaceListingSummary[] = []
-  const rest: MarketplaceListingSummary[] = []
-  for (const listing of withMedia) {
-    const key = (listing.body_style || listing.make || '').toLowerCase()
-    if (key && !seen.has(key)) {
-      seen.add(key)
-      varied.push(listing)
-    } else {
-      rest.push(listing)
-    }
-  }
-  return [...varied, ...rest].slice(0, 5).map(listing => ({
-    id: listing.vin,
-    src: (listing.primary_image_url as string).trim(),
-    title: vehicleTitle(listing),
-    subtitle: summaryLocationLine(listing.location, listing.location_state).label,
-    badge: listing.primary_image_url?.includes('/marketplace-reference-synthetic/') ? 'Demo media' : undefined,
-    href: `/marketplace/${encodeURIComponent(listing.vin)}`,
-  }))
-}
 
 function SectionHeading({ eyebrow, title, action }: { eyebrow: string; title: string; action?: React.ReactNode }) {
   return (

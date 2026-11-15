@@ -76,7 +76,7 @@ const ALIASES: Record<string, keyof typeof PROFILES> = {
   convertible: 'coupe',
 }
 
-export function silhouetteKey(bodyStyle: string | null | undefined): keyof typeof PROFILES {
+function silhouetteKey(bodyStyle: string | null | undefined): keyof typeof PROFILES {
   const key = (bodyStyle || '').trim().toLowerCase()
   return ALIASES[key] ?? 'sedan'
 }

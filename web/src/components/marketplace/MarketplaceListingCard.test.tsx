@@ -80,7 +80,8 @@ describe('MarketplaceListingCard — canonical Trust line', () => {
 describe('MarketplaceListingCard — price and facts', () => {
   it.each([
     [{ price: 61500, currency: 'USD' }, '$61,500'],
-    [{ price: 21500, currency: 'zig' }, 'ZIG 21,500'],
+    [{ price: 21500, currency: 'zig' }, 'ZiG 21,500'],
+    [{ price: 9900, currency: 'zar' }, 'ZAR 9,900'],
     [{ price: 26900, currency: null }, '26,900 · currency not recorded'],
     [{ price: null, currency: 'USD' }, 'Price not recorded'],
   ])('formats %o as "%s"', (overrides, expected) => {

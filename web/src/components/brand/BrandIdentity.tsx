@@ -12,51 +12,9 @@
  *  - the roofline mark is never stretched into a square icon;
  *  - no Drive identifiers or URLs reach the bundle — Vite serves the local hashed files.
  */
-import horizontalOnLight from '@/assets/brand/option5/carup-logo-horizontal-on-light.svg'
-import horizontalOnDark from '@/assets/brand/option5/carup-logo-horizontal-on-dark.svg'
-import stackedOnLight from '@/assets/brand/option5/carup-logo-stacked-on-light.svg'
-import stackedOnDark from '@/assets/brand/option5/carup-logo-stacked-on-dark.svg'
-import wordmarkOnLight from '@/assets/brand/option5/carup-wordmark-on-light.svg'
-import wordmarkOnDark from '@/assets/brand/option5/carup-wordmark-on-dark.svg'
-import roofline from '@/assets/brand/option5/carup-mark-roofline.svg'
-import appIcon from '@/assets/brand/option5/carup-app-icon-orange.svg'
+import { BRAND_ASSETS, type BrandRole, type BrandSurface } from './brandAssets'
 
-export type BrandRole = 'logo' | 'stacked' | 'wordmark' | 'mark' | 'app-icon'
-/** The background the identity sits on — not the colour of the logo. */
-export type BrandSurface = 'light' | 'dark'
-
-interface BrandAsset {
-  src: string
-  /** Intrinsic viewBox width / height, from the source file. */
-  ratio: number
-  file: string
-}
-
-const ratio = (w: number, h: number) => w / h
-
-export const BRAND_ASSETS: Record<BrandRole, Record<BrandSurface, BrandAsset>> = {
-  logo: {
-    light: { src: horizontalOnLight, ratio: ratio(762, 199), file: 'carup-logo-horizontal-on-light.svg' },
-    dark: { src: horizontalOnDark, ratio: ratio(762, 199), file: 'carup-logo-horizontal-on-dark.svg' },
-  },
-  stacked: {
-    light: { src: stackedOnLight, ratio: ratio(585, 289), file: 'carup-logo-stacked-on-light.svg' },
-    dark: { src: stackedOnDark, ratio: ratio(585, 289), file: 'carup-logo-stacked-on-dark.svg' },
-  },
-  wordmark: {
-    light: { src: wordmarkOnLight, ratio: ratio(553, 177), file: 'carup-wordmark-on-light.svg' },
-    dark: { src: wordmarkOnDark, ratio: ratio(553, 177), file: 'carup-wordmark-on-dark.svg' },
-  },
-  // The orange roofline reads on both backgrounds; the source ships one byte-identical file for both.
-  mark: {
-    light: { src: roofline, ratio: ratio(582, 138), file: 'carup-mark-roofline.svg' },
-    dark: { src: roofline, ratio: ratio(582, 138), file: 'carup-mark-roofline.svg' },
-  },
-  'app-icon': {
-    light: { src: appIcon, ratio: 1, file: 'carup-app-icon-orange.svg' },
-    dark: { src: appIcon, ratio: 1, file: 'carup-app-icon-orange.svg' },
-  },
-}
+export type { BrandRole, BrandSurface } from './brandAssets'
 
 export interface BrandIdentityProps {
   role?: BrandRole
