@@ -3,6 +3,22 @@ import type { UserRole, AuthUser } from '@shared/types'
 import { apiRequest, resolveApiBaseUrl, setUnauthorizedHandler, SessionExpiredError, type AuthHeaders } from '@/lib/apiClient'
 import { readStoredAuth, storeAuth, clearStoredAuth, validateStoredSession } from '@/lib/authSession'
 import { setNavAnalyticsAuthProvider } from '@/lib/navigationAnalytics'
+import { toast } from 'sonner'
+
+/**
+ * TI-10 — what sign-out achieved on the SERVER. The local session is always cleared first.
+ *  - 'revoked'    the presenting session was revoked server-side;
+ *  - 'no-session' there was no local credential, so nothing existed to revoke;
+ *  - 'failed'     revocation could not be confirmed (network, server, timeout) — the session
+ *                 may remain valid until it expires, and the user is told so.
+ */
+export type SignOutOutcome = 'revoked' | 'no-session' | 'failed'
+
+/** Revocation budget: sign-out must not hang on an unresponsive backend. */
+export const SIGN_OUT_REVOCATION_TIMEOUT_MS = 5_000
+
+export const SIGN_OUT_UNCONFIRMED_MESSAGE =
+  'You are signed out on this device, but CarUp could not confirm your session ended on its servers. It will stay valid until it expires.'
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -15,7 +31,12 @@ interface AuthContextType {
   isAuthenticated: boolean
   loading: boolean
   login: (userData: AuthUser, token: string) => void
-  logout: () => void
+  /**
+   * Ends the local session immediately, then AWAITS server revocation of the presenting session.
+   * Callers that leave the page must await this first: a full-page navigation started before the
+   * request is sent aborts it, and the token would stay valid (TI-10, observed in a real browser).
+   */
+  logout: () => Promise<SignOutOutcome>
   switchRole: (role: UserRole, tenantId?: string) => Promise<void>
 }
 
@@ -25,7 +46,7 @@ const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   loading: true,
   login: () => {},
-  logout: () => {},
+  logout: async () => 'no-session',
   switchRole: async () => {},
 })
 
@@ -106,25 +127,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     storeAuth(localStorage, userData, sessionToken)
   }, [])
 
-  const logout = useCallback(() => {
-    // TI-10 — end the LOCAL session immediately and securely (auth keys only; the guest
-    // Sell draft lives in IndexedDB and is untouched), then attempt SERVER-side revocation
-    // of the presenting session. A revocation failure is surfaced honestly on the console
-    // and is never claimed as success; the local credential is gone either way.
+  const logout = useCallback(async (): Promise<SignOutOutcome> => {
+    // TI-10 — end the LOCAL session immediately and securely (auth keys only: the guest Sell
+    // draft's durable localStorage copy, its IndexedDB media and other continuity keys are
+    // untouched — TI-24), then AWAIT server-side revocation of the presenting session. A failure
+    // is surfaced honestly to the user and never claimed as success; the local credential is gone
+    // either way.
     const presentingToken = token
     clearAuth()
-    if (!presentingToken) return
-    void apiRequest<{ success: boolean }>({
-      baseUrl: API_BASE,
-      path: '/auth/logout',
-      options: { method: 'POST' },
-      authHeaders: { 'x-session-token': presentingToken },
-    }).catch((e: unknown) => {
+    if (!presentingToken) return 'no-session'
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const revocation = apiRequest<{ success: boolean }>({
+        baseUrl: API_BASE,
+        path: '/auth/logout',
+        // keepalive lets the POST finish even if the page is torn down after it was sent.
+        options: { method: 'POST', keepalive: true },
+        authHeaders: { 'x-session-token': presentingToken },
+      })
+      // Attach a handler to the request immediately, so a rejection after the timeout wins the
+      // race is never reported as unhandled.
+      revocation.catch(() => {})
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Sign-out revocation timed out')), SIGN_OUT_REVOCATION_TIMEOUT_MS)
+      })
+      const result = await Promise.race([revocation, timeout])
+      if (!result?.success) throw new Error('Sign-out revocation was not confirmed by the server')
+      return 'revoked'
+    } catch (e: unknown) {
       console.error(
         'Server session revocation failed — the local session was cleared, but the server session may remain valid until it expires.',
         e,
       )
-    })
+      toast.warning(SIGN_OUT_UNCONFIRMED_MESSAGE)
+      return 'failed'
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
   }, [token, clearAuth])
 
   const switchRole = useCallback(async (role: UserRole, tenantId?: string) => {

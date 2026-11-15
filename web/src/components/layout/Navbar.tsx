@@ -349,9 +349,11 @@ export default function Navbar() {
                     );
                   })}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="text-red-600 cursor-pointer" onClick={() => {
-                    logout()
-                    window.location.href = '/'
+                  <DropdownMenuItem className="text-red-600 cursor-pointer" onClick={async () => {
+                    // TI-10: await server revocation BEFORE leaving. The former hard navigation
+                    // (window.location.href) aborted the in-flight request, so the token stayed valid.
+                    await logout()
+                    navigate('/')
                   }} data-testid="logout-button">
                     <LogOut className="w-4 h-4 mr-2" /> Sign Out
                   </DropdownMenuItem>
