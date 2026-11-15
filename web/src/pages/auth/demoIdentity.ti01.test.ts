@@ -1,7 +1,7 @@
 /**
- * TI-01 (issue #261) — source scan for the removed login demo-access affordance.
+ * TI-01 (issue 261) — source scan for the removed login demo-access affordance.
  *
- * Scope, stated exactly: PR #272 removes the login page's demo sign-in (the demo-access controls,
+ * Scope, stated exactly: PR 272 removes the login page's demo sign-in (the demo-access controls,
  * the hardcoded demo-account identities and the shared demo credential). It does NOT claim that
  * every fictional identity in the product is gone. This test therefore checks two things:
  *
