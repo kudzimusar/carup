@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { ResponsivePhoto } from '@/components/showroom/ResponsivePhoto'
+import { PHOTO_SIZES } from '@/lib/mediaDelivery'
 import { VehicleSilhouette } from '@/components/showroom/VehicleSilhouette'
 
 /**
@@ -28,6 +30,8 @@ export function ShowroomListingImage({
   representative = false,
   loading = 'lazy',
   bodyStyle = null,
+  sizes = PHOTO_SIZES.card,
+  plate = 'stacked',
 }: {
   src?: string | null
   alt: string
@@ -37,6 +41,14 @@ export function ShowroomListingImage({
   loading?: 'lazy' | 'eager'
   /** Body style of the listing, used only to choose the studio-plate silhouette. */
   bodyStyle?: string | null
+  /** Layout widths for the responsive renditions (see lib/mediaDelivery PHOTO_SIZES). */
+  sizes?: string
+  /**
+   * 'stacked' = centred silhouette and label (fills the media box). 'compact' = on phones the
+   * silhouette and label sit in one row along the bottom of a short box, clear of the status pills
+   * and actions on the top edge; from 640 px up it is the stacked plate.
+   */
+  plate?: 'stacked' | 'compact'
 }) {
   // Remember WHICH src failed, not merely THAT one did. A new src is then a fresh attempt by
   // construction — no reset effect, so switching gallery photos after one failure cannot suppress
@@ -47,12 +59,13 @@ export function ShowroomListingImage({
   if (src && !failed) {
     return (
       <div className={`relative ${className}`} data-testid="listing-image">
-        <img
+        <ResponsivePhoto
           src={src}
           alt={alt}
+          sizes={sizes}
+          priority={loading === 'eager'}
           className={`h-full w-full object-cover ${imgClassName}`}
-          loading={loading}
-          onError={() => setFailedSrc(src)}
+          onUnavailable={() => setFailedSrc(src)}
         />
         {representative && (
           <span
@@ -66,17 +79,27 @@ export function ShowroomListingImage({
     )
   }
 
+  const compact = plate === 'compact'
   return (
     <div
-      className={`relative flex flex-col items-center justify-center overflow-hidden bg-[linear-gradient(180deg,#F7F6F3_0%,#EEECE7_62%,#E3E0D9_100%)] text-slate-500 ${className}`}
+      className={`relative flex overflow-hidden bg-[linear-gradient(180deg,#F7F6F3_0%,#EEECE7_62%,#E3E0D9_100%)] text-slate-500 ${compact
+        ? 'max-sm:flex-row max-sm:items-end max-sm:justify-start max-sm:gap-3 max-sm:px-4 max-sm:pb-3 sm:flex-col sm:items-center sm:justify-center'
+        : 'flex-col items-center justify-center'} ${className}`}
       data-testid="listing-image-placeholder"
       data-studio-plate={bodyStyle ? bodyStyle.toLowerCase() : 'generic'}
+      data-plate-layout={plate}
       role="img"
       aria-label={`${alt} — image unavailable (studio placeholder, not a photo of this vehicle)`}
     >
-      <div className="absolute inset-x-[8%] bottom-[22%] h-px bg-slate-300/70" aria-hidden="true" />
-      <VehicleSilhouette bodyStyle={bodyStyle} tone="muted" accent={false} className="w-[62%] max-w-[260px] opacity-80" strokeWidth={1.75} />
-      <span className="mt-1 rounded-full border border-slate-300/80 bg-white/70 px-2.5 py-0.5 text-[11px] font-medium text-slate-600">Image unavailable</span>
+      <div className={`absolute inset-x-[8%] bottom-[22%] h-px bg-slate-300/70 ${compact ? 'max-sm:hidden' : ''}`} aria-hidden="true" />
+      <VehicleSilhouette
+        bodyStyle={bodyStyle}
+        tone="muted"
+        accent={false}
+        className={`opacity-80 ${compact ? 'max-sm:w-[7.5rem] max-sm:shrink-0 sm:w-[62%] sm:max-w-[260px]' : 'w-[62%] max-w-[260px]'}`}
+        strokeWidth={1.75}
+      />
+      <span className={`rounded-full border border-slate-300/80 bg-white/70 px-2.5 py-0.5 text-[11px] font-medium text-slate-600 ${compact ? 'max-sm:mb-1 sm:mt-1' : 'mt-1'}`}>Image unavailable</span>
     </div>
   )
 }

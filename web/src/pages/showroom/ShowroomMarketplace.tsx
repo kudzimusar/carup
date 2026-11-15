@@ -29,6 +29,7 @@ import type { MarketplaceListingSummary } from '@/types'
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
 import { summaryLocationLine } from '@/lib/governedLocation'
 import { ShowroomListingImage } from '@/components/showroom/ShowroomListingImage'
+import { PHOTO_SIZES } from '@/lib/mediaDelivery'
 import { VehicleSilhouette } from '@/components/showroom/VehicleSilhouette'
 import {
   ShowroomListingCard,
@@ -1180,7 +1181,8 @@ export default function ShowroomMarketplace() {
                   syntheticDemo: Boolean(listing.primary_image_url?.includes('/marketplace-reference-synthetic/')),
                   bodyStyle: typeof listing.body_style === 'string' && listing.body_style.trim() ? listing.body_style.trim() : null,
                 }
-                const isFeature = position === 0 && featureFirstResult
+                // The wide feature card needs a real photo; a no-photo first result stays a standard card.
+                const isFeature = position === 0 && featureFirstResult && primaryImageForListing(listing) !== null
 
                 const card = (
                   <MarketplaceImpression vin={vin} position={position}>
@@ -1197,6 +1199,7 @@ export default function ShowroomMarketplace() {
                         shareListing(vin, model.name)
                       }}
                       layout={isFeature ? 'feature' : 'standard'}
+                      imagePriority={position === 0}
                       edgeToEdgeOnPhones
                     />
                   </MarketplaceImpression>
@@ -1234,6 +1237,7 @@ export default function ShowroomMarketplace() {
                             src={thumb}
                             alt={listingName(listing) || 'Selected vehicle'}
                             bodyStyle={listing.body_style ?? null}
+                            sizes={PHOTO_SIZES.compareThumb}
                             className="h-full w-full"
                           />
                         )

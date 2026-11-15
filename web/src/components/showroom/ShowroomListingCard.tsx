@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ShowroomListingImage } from '@/components/showroom/ShowroomListingImage'
+import { PHOTO_SIZES } from '@/lib/mediaDelivery'
 import { displayCurrencyCode } from '@/lib/currencyDisplay'
 import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
 import {
@@ -74,6 +75,8 @@ interface ShowroomListingCardProps {
   layout?: 'standard' | 'feature'
   /** Lets the media run edge to edge below 640 px. Only for grids that sit in the page gutter. */
   edgeToEdgeOnPhones?: boolean
+  /** Eager, high-priority photo: only for the card most likely to be the page's largest paint. */
+  imagePriority?: boolean
 }
 
 function titleCase(value: string | null | undefined) {
@@ -201,6 +204,7 @@ export function ShowroomListingCard({
   previewMode = false,
   layout = 'standard',
   edgeToEdgeOnPhones = false,
+  imagePriority = false,
 }: ShowroomListingCardProps) {
   // Seller preview is the ONLY exception to the public-media state machine, and even there it may
   // render only a browser-local data:/blob: locator. A remote URL still has to earn one of the
@@ -217,7 +221,10 @@ export function ShowroomListingCard({
       : null
   )
 
-  const feature = layout === 'feature'
+  // A card without a usable photo never takes the wide feature layout, and on phones its studio
+  // plate is a short strip so the name, price and facts arrive at a normal scroll depth.
+  const noPhoto = !renderablePrimaryImage
+  const feature = layout === 'feature' && !noPhoto
   const actionCount = [onCompare, onShare, onFavorite].filter(Boolean).length
   // Status pills share the top edge with the round actions; reserve the actions' width so the two
   // never collide (44 px buttons, 8 px gaps, 12 px insets, 8 px breathing room).
@@ -239,6 +246,9 @@ export function ShowroomListingCard({
       src={renderablePrimaryImage}
       alt={vehicle.name}
       bodyStyle={vehicle.bodyStyle ?? null}
+      sizes={feature ? PHOTO_SIZES.featureCard : PHOTO_SIZES.card}
+      loading={imagePriority ? 'eager' : 'lazy'}
+      plate={noPhoto ? 'compact' : 'stacked'}
       className="h-full w-full"
       imgClassName="motion-safe:transition-transform motion-safe:duration-700 motion-safe:ease-out motion-safe:group-hover:scale-[1.035]"
     />
@@ -246,7 +256,9 @@ export function ShowroomListingCard({
 
   const mediaShape = feature
     ? 'aspect-[4/3] rounded-2xl lg:aspect-auto lg:h-full lg:min-h-[400px] lg:rounded-3xl xl:min-h-[460px]'
-    : 'aspect-[4/3] rounded-2xl'
+    : noPhoto
+      ? 'max-sm:h-[7.5rem] sm:aspect-[4/3] rounded-2xl'
+      : 'aspect-[4/3] rounded-2xl'
   const bleed = edgeToEdgeOnPhones ? 'max-sm:-mx-4 max-sm:rounded-none' : ''
   const titleScale = feature ? 'lg:text-[1.75rem] lg:font-bold lg:leading-[1.1] lg:tracking-[-0.025em]' : ''
 
@@ -254,7 +266,8 @@ export function ShowroomListingCard({
     <article
       className={`group relative flex h-full min-w-0 flex-col ${feature ? 'lg:grid lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-stretch lg:gap-10 xl:gap-14' : ''}`}
       data-testid={dataTestId}
-      data-card-layout={layout}
+      data-card-layout={feature ? 'feature' : 'standard'}
+      data-card-photo={noPhoto ? 'none' : 'published'}
     >
       <div
         className={`relative isolate overflow-hidden bg-[#EEECE7] shadow-[0_1px_2px_rgba(9,18,42,0.06),0_18px_40px_-18px_rgba(9,18,42,0.28)] motion-safe:transition-shadow motion-safe:duration-500 group-hover:shadow-[0_1px_2px_rgba(9,18,42,0.06),0_26px_50px_-20px_rgba(9,18,42,0.38)] ${mediaShape} ${bleed} ${isCompared ? 'ring-2 ring-[#09122A] ring-offset-2 ring-offset-white' : ''}`}

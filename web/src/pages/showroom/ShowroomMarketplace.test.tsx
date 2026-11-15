@@ -73,8 +73,21 @@ beforeEach(() => {
 })
 
 describe('Marketplace showroom — spotlight and feature card', () => {
-  it('the spotlight is the first real result and opens into a feature card with three or more results', async () => {
+  it('a first result without a usable photo stays a standard card (no giant placeholder)', async () => {
     fetchMarketplaceListings.mockResolvedValue({ listings: THREE })
+    renderMarketplace()
+    const results = await grid()
+    const layouts = within(results).getAllByTestId('marketplace-vehicle-card').map(card => card.getAttribute('data-card-layout'))
+    expect(layouts).toEqual(['standard', 'standard', 'standard'])
+    const spotlight = within(results).getByTestId('marketplace-showroom-spotlight')
+    expect(spotlight.className).not.toContain('col-span')
+    expect(within(spotlight).getByTestId('listing-image-placeholder')).toHaveAttribute('data-plate-layout', 'compact')
+  })
+
+  it('the spotlight is the first real result and opens into a feature card with three or more results', async () => {
+    const [first, ...rest] = THREE
+    const withPhoto = { ...first, primary_image_url: 'https://media.example.test/prado.jpg', primary_image_state: 'first_published' } as MarketplaceListingSummary
+    fetchMarketplaceListings.mockResolvedValue({ listings: [withPhoto, ...rest] })
     renderMarketplace()
     const results = await grid()
 
@@ -85,8 +98,10 @@ describe('Marketplace showroom — spotlight and feature card', () => {
     // Only the first card is featured; the rest of the grid stays uniform.
     const layouts = within(results).getAllByTestId('marketplace-vehicle-card').map(card => card.getAttribute('data-card-layout'))
     expect(layouts).toEqual(['feature', 'standard', 'standard'])
-    // The studio plate draws the listing's own body style.
-    expect(within(spotlight).getByTestId('listing-image-placeholder')).toHaveAttribute('data-studio-plate', 'suv')
+    // The feature card shows the real photo, eagerly: it is the likely largest paint.
+    const photo = within(spotlight).getByRole('img', { name: '2019 Toyota Prado' })
+    expect(photo).toHaveAttribute('loading', 'eager')
+    expect(photo).toHaveAttribute('fetchpriority', 'high')
   })
 
   it('with fewer than three results the spotlight stays a standard card', async () => {

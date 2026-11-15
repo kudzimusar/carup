@@ -186,12 +186,38 @@ describe('ShowroomListingCard — actions and navigation', () => {
   })
 
   it('the feature layout is presentation only: same facts, same links, same ids', () => {
-    renderCard({ layout: 'feature', vehicle: model({ trust: { evaluation_state: 'evaluated', score: 50, band: 'moderate', confidence: 'low' } }) })
+    renderCard({ layout: 'feature', vehicle: model({ primaryImage: 'https://media.example.test/a.jpg', primaryImageState: 'first_published', trust: { evaluation_state: 'evaluated', score: 50, band: 'moderate', confidence: 'low' } }) })
     const card = screen.getByTestId('marketplace-vehicle-card')
     expect(card).toHaveAttribute('data-card-layout', 'feature')
     expect(screen.getByTestId('marketplace-card-price').textContent).toBe('$61,500')
     expect(screen.getByTestId('marketplace-card-trust').textContent).toContain('50/100')
     expect(within(card).getAllByRole('link')).toHaveLength(3)
+  })
+})
+
+describe('ShowroomListingCard — listings without a usable photo (R3)', () => {
+  it('never takes the wide feature layout without a real photo', () => {
+    renderCard({ layout: 'feature', vehicle: model() })
+    const card = screen.getByTestId('marketplace-vehicle-card')
+    expect(card).toHaveAttribute('data-card-layout', 'standard')
+    expect(card).toHaveAttribute('data-card-photo', 'none')
+  })
+
+  it('uses the compact plate: honest label, accessible name, no duplicated actions', () => {
+    renderCard({ vehicle: model({ bodyStyle: 'SUV' }), onCompare: () => {}, onShare: () => {}, onFavorite: () => {} })
+    const plate = screen.getByTestId('listing-image-placeholder')
+    expect(plate).toHaveAttribute('data-plate-layout', 'compact')
+    expect(plate).toHaveTextContent('Image unavailable')
+    expect(plate).toHaveAccessibleName(/image unavailable \(studio placeholder, not a photo of this vehicle\)/)
+    for (const id of ['marketplace-compare-toggle', 'marketplace-share-button', 'marketplace-save-toggle']) {
+      expect(screen.getAllByTestId(id)).toHaveLength(1)
+    }
+  })
+
+  it('a card with a real photo keeps the 4:3 photo and no plate', () => {
+    renderCard({ vehicle: model({ primaryImage: 'https://media.example.test/a.jpg', primaryImageState: 'first_published' }) })
+    expect(screen.queryByTestId('listing-image-placeholder')).toBeNull()
+    expect(screen.getByTestId('marketplace-vehicle-card')).toHaveAttribute('data-card-photo', 'published')
   })
 })
 

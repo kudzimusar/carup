@@ -25,6 +25,8 @@ import { DossierSection } from '@/components/vehicle-detail/DossierSection'
 import { MobileContactBar } from '@/components/vehicle-detail/MobileContactBar'
 import { ScoreRing } from '@/components/vehicle-detail/ScoreRing'
 import { useClaimBottomBar } from '@/lib/bottomBarClaim'
+import { ResponsivePhoto } from '@/components/showroom/ResponsivePhoto'
+import { PHOTO_SIZES } from '@/lib/mediaDelivery'
 import { formatPrice } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
@@ -2077,15 +2079,17 @@ export default function ShowroomVehicleDetail() {
                         can name THIS picture rather than whichever one is currently in slot 2. The
                         attribute is absent entirely when the transport carried no identity; it is
                         never a fabricated value. */}
-                    <img
+                    <ResponsivePhoto
                       src={activeImage.url}
                       alt={`${vehicle.make} ${vehicle.model}`}
+                      sizes={PHOTO_SIZES.galleryStage}
+                      priority
                       className="aspect-[4/3] w-full object-cover md:aspect-[16/10]"
                       draggable={false}
                       data-testid="vehicle-image"
                       data-url-form={activeImage.url_form}
                       data-media-id={activeImage.media_id ?? undefined}
-                      onError={() => markListingMediaFailed(activeImage.url)}
+                      onUnavailable={() => markListingMediaFailed(activeImage.url)}
                     />
                     {/* Rule 6: shown only where a row claims it. No primary is elected when the
                         seller named none — that choice is theirs to make or leave unmade. */}
@@ -2234,7 +2238,7 @@ export default function ShowroomVehicleDetail() {
                       aria-label={item.photo_label ? `Show photo ${galleryIndex + 1}: ${item.photo_label}` : `Show photo ${galleryIndex + 1}`}
                       aria-current={galleryIndex === activeImageIdx ? 'true' : undefined}
                       className={`h-[68px] w-[102px] flex-shrink-0 overflow-hidden rounded-xl transition-opacity lg:h-[76px] lg:w-[114px] ${focusRing} ${galleryIndex === activeImageIdx ? 'opacity-100 ring-2 ring-[#09122A] ring-offset-2' : 'opacity-60 hover:opacity-100'}`}>
-                      <img src={item.url} alt="" className="h-full w-full object-cover" draggable={false} onError={() => markListingMediaFailed(item.url)} />
+                      <ResponsivePhoto src={item.url} alt="" sizes={PHOTO_SIZES.galleryThumb} className="h-full w-full object-cover" draggable={false} onUnavailable={() => markListingMediaFailed(item.url)} />
                     </button>
                   ))}
                 </div>

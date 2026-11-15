@@ -20,6 +20,8 @@ import { BrandIdentity } from '@/components/brand/BrandIdentity'
 import type { CinematicFilm, CinematicRendition } from '@/content/media/homeFilm'
 import { resolveHeroMode, type ReelFrame } from './heroMode'
 import { useMotionBudget } from './useMotionBudget'
+import { ResponsivePhoto } from './ResponsivePhoto'
+import { PHOTO_SIZES } from '@/lib/mediaDelivery'
 
 const REEL_INTERVAL_MS = 6500
 
@@ -130,17 +132,16 @@ function ReelLayer({ frames, active, playing }: { frames: ReelFrame[]; active: n
           data-active={index === active ? 'true' : 'false'}
         >
           {shouldLoad(index) && (
-            <img
+            <ResponsivePhoto
               src={frame.src}
               alt=""
+              sizes={PHOTO_SIZES.heroReel}
+              priority={index === 0}
               className="carup-kenburns h-full w-full object-cover"
               style={{
                 animationPlayState: playing && index === active ? 'running' : 'paused',
                 animationName: index === active ? undefined : 'none',
               }}
-              loading={index === 0 ? 'eager' : 'lazy'}
-              fetchPriority={index === 0 ? 'high' : 'low'}
-              decoding="async"
               onLoad={() => prefetchNext(index)}
             />
           )}
