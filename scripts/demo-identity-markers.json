@@ -1,0 +1,57 @@
+{
+  "schema": "carup.ti01.demo-identity-markers/v1",
+  "purpose": "TI-01 (issue #261). Strings that identify the removed login demo-access affordance and the demo accounts it signed in as. Read by scripts/scan-bundle-demo-identity.mjs (built web/dist) and by web/src/pages/auth/demoIdentity.ti01.test.ts (web/src sources). The values are already public in the repository history; they are listed here so the scans are inspectable.",
+  "classes": {
+    "credential": "The shared demo credential. Forbidden everywhere in client code and the bundle.",
+    "login-affordance": "Labels and identifiers of the removed demo-access controls. Forbidden everywhere in client code and the bundle.",
+    "demo-login-identity": "Name, email or phone of an account the removed demo controls signed in as. Forbidden unless listed in narrowedResidue.",
+    "seed-identity": "Email of a backend seed account (backend/db/database.js) that the demo controls targeted. Forbidden in client code and the bundle.",
+    "tracked-fabricated-identity": "Fabricated personal identity data shown with the demo persona, owned by another TI item. Reported; allowed only as narrowedResidue."
+  },
+  "markers": [
+    { "id": "shared-demo-credential", "class": "credential", "value": "password123", "caseInsensitive": false },
+    { "id": "demo-block-heading", "class": "login-affordance", "value": "Quick Demo Access", "caseInsensitive": true },
+    { "id": "demo-buyer-button", "class": "login-affordance", "value": "Browse as Buyer", "caseInsensitive": true },
+    { "id": "demo-dealer-button", "class": "login-affordance", "value": "Demo: Dealer", "caseInsensitive": true },
+    { "id": "demo-mechanic-button", "class": "login-affordance", "value": "Demo: Mechanic", "caseInsensitive": true },
+    { "id": "demo-users-identifier", "class": "login-affordance", "value": "DEMO_USERS", "caseInsensitive": false },
+    { "id": "demo-login-handler", "class": "login-affordance", "value": "handleDemoLogin", "caseInsensitive": false },
+    { "id": "demo-login-env-gate", "class": "login-affordance", "value": "VITE_ALLOW_DEMO_LOGINS", "caseInsensitive": false },
+    { "id": "u1-name", "class": "demo-login-identity", "value": "Tendai Moyo", "caseInsensitive": true },
+    { "id": "u1-email", "class": "demo-login-identity", "value": "tendai@email.co.zw", "caseInsensitive": true },
+    { "id": "u1-phone", "class": "demo-login-identity", "value": "773 345 678", "caseInsensitive": false },
+    { "id": "u1-phone-compact", "class": "demo-login-identity", "value": "773345678", "caseInsensitive": false },
+    { "id": "u3-name", "class": "demo-login-identity", "value": "Croco Motors", "caseInsensitive": true },
+    { "id": "u3-demo-email", "class": "demo-login-identity", "value": "dealer@crocomoto.co.zw", "caseInsensitive": true },
+    { "id": "u3-demo-phone", "class": "demo-login-identity", "value": "772 100 200", "caseInsensitive": false },
+    { "id": "u2-demo-name", "class": "demo-login-identity", "value": "Simba Mechanic", "caseInsensitive": true },
+    { "id": "u2-demo-email", "class": "demo-login-identity", "value": "simba@garage.co.zw", "caseInsensitive": true },
+    { "id": "u2-demo-phone", "class": "demo-login-identity", "value": "775 200 300", "caseInsensitive": false },
+    { "id": "u2-seed-email", "class": "seed-identity", "value": "contact@simbisa.co.zw", "caseInsensitive": true },
+    { "id": "u3-seed-email", "class": "seed-identity", "value": "sales@crocomotors.co.zw", "caseInsensitive": true },
+    { "id": "kyc-prefill-national-id", "class": "tracked-fabricated-identity", "value": "63-1234567A89", "caseInsensitive": true }
+  ],
+  "narrowedResidue": [
+    {
+      "markerId": "u1-phone",
+      "sourceFiles": ["web/src/pages/PrivacyPolicy.tsx"],
+      "bundleMaxHits": 1,
+      "lane": "Owner / legal review",
+      "reason": "The seeded u1 phone is printed on the Privacy Policy telephone card. The public identity remediation packet (docs/communications/CARUP_PUBLIC_IDENTITY_SAFE_REMEDIATION_PACKET.md, row B15) classes this LEGAL_REVIEW_REQUIRED, so TI-01 does not edit a statutory contact on its own authority."
+    },
+    {
+      "markerId": "kyc-prefill-national-id",
+      "sourceFiles": ["web/src/pages/auth/KYCVerification.tsx"],
+      "bundleMaxHits": 2,
+      "lane": "TI-07 (identity owner, KYC)",
+      "reason": "KYCVerification pre-fills the u1 first and last name with a fabricated national ID, date of birth and address. Clearing that initial state changes the KYC form's behaviour, which TI-07 owns."
+    },
+    {
+      "markerId": "u1-name",
+      "sourceFiles": ["web/src/pages/About.tsx"],
+      "bundleMaxHits": 0,
+      "lane": "none (source comment)",
+      "reason": "A source comment explains why the fictional leadership section was deleted. Comments are not emitted into the bundle, so the bundle allowance is 0."
+    }
+  ]
+}

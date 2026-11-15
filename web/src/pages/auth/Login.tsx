@@ -12,9 +12,12 @@ import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { LoginErrorAlert } from './LoginErrorAlert'
 import { classifyLoginStatus, loginError, type LoginErrorState } from './loginError'
 
-// TI-01 — demo-login identities, the shared demo credential, and the "Quick Demo Access"
-// controls were removed from every client build (dispatch RX02-RS-R3). Sign-in is the real
-// credential form only; no hardcoded identity or password exists in this module.
+// TI-01 (scope: the login demo-access affordance only). This page no longer offers demo sign-in:
+// the demo-access controls, the hardcoded demo-account identities and the shared demo credential
+// were removed from THIS module, so sign-in is the real credential form only. That is the whole
+// claim. It does not mean every fictional or seeded identity is gone from the product: the
+// remaining occurrences in other pages are inventoried and tracked under TI-04 / TI-07 / the
+// public-identity legal review, and the backend seed accounts are an Ops item (OV-01).
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,

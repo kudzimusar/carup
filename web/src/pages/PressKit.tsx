@@ -843,7 +843,7 @@ export default function PressKit() {
                           <Input 
                             value={formData.name}
                             onChange={(e) => setFormData({...formData, name: e.target.value})}
-                            placeholder="Tendai Moyo" 
+                            placeholder="Your full name"
                             className="bg-slate-950/80 border-slate-800 text-slate-200 focus-visible:border-orange-500/50 focus-visible:ring-orange-500/10 placeholder:text-slate-600 rounded-lg text-sm"
                             required
                           />

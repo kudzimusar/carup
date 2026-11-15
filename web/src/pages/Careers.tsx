@@ -696,7 +696,7 @@ export default function Careers() {
                   <Input
                     id="fullname"
                     required
-                    placeholder="e.g. Tendai Moyo"
+                    placeholder="Your full name"
                     value={applicantName}
                     onChange={(e) => setApplicantName(e.target.value)}
                     className="bg-slate-900 border-slate-800 text-slate-200 placeholder:text-slate-600 focus:border-amber-500/50 focus:ring-amber-500/10 focus:ring-2 h-11"

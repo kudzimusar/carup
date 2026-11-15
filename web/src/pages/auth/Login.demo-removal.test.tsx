@@ -42,11 +42,20 @@ describe('TI-01 — login page carries no demo access surface', () => {
   })
 
   it('exposes exactly one submit path — the real credential form', () => {
-    renderLogin()
+    const { container } = renderLogin()
     expect(screen.getByTestId('email-input')).toBeTruthy()
     expect(screen.getByTestId('password-input')).toBeTruthy()
     expect(screen.getByTestId('login-button')).toBeTruthy()
     expect(screen.getByText("Don't have an account?")).toBeTruthy()
     expect(screen.getByText('Get Started')).toBeTruthy()
+    // R5: "exactly one" is asserted, not implied. The only submit control is the credential
+    // form's Sign In button, and the only other button on the page is the password visibility toggle.
+    const submits = container.querySelectorAll('button[type="submit"], input[type="submit"]')
+    expect(submits).toHaveLength(1)
+    expect(submits[0]).toBe(screen.getByTestId('login-button'))
+    expect(screen.getAllByRole('button').map(b => b.getAttribute('aria-label') ?? b.textContent?.trim())).toEqual([
+      'Show password',
+      'Sign In',
+    ])
   })
 })

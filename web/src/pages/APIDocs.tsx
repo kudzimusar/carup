@@ -1025,7 +1025,7 @@ export default function APIDocs() {
                     </label>
                     <Input
                       type="text"
-                      placeholder="e.g. Croco Motors CRM Sync"
+                      placeholder="e.g. Dealership CRM sync"
                       value={appName}
                       onChange={(e) => setAppName(e.target.value)}
                       required

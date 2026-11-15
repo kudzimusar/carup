@@ -11,7 +11,8 @@ const values = [
 
 /*
  * The "Leadership Team" that stood here was demo data presented as real people.
- * "Tendai Moyo" is the seeded demo buyer persona used on the login screen;
+ * "Tendai Moyo" is the seeded demo buyer persona (seed user u1) that the login
+ * screen's demo access used until TI-01 removed that affordance;
  * "Sarah Chikomo" and "James Ncube" are mock sellers from the marketplace
  * fixtures; the fourth name appears nowhere else at all. Each was shown with a
  * generic persona avatar under a named executive role.

@@ -519,7 +519,7 @@ export default function TrustSafety() {
                         <div className="space-y-2">
                           <label className="text-xs font-semibold text-gray-300">Your Full Name *</label>
                           <Input
-                            placeholder="Tendai Moyo"
+                            placeholder="Your full name"
                             className="bg-[hsl(222,47%,12%)] border-[hsl(222,47%,18%)] text-white focus-visible:border-orange-500/50"
                             value={reporterName}
                             onChange={(e) => setReporterName(e.target.value)}
@@ -541,7 +541,7 @@ export default function TrustSafety() {
                       <div className="space-y-2">
                         <label className="text-xs font-semibold text-gray-300 font-light">Your Phone Number (Optional)</label>
                         <Input
-                          placeholder="+263 773 345 678"
+                          placeholder="+263 7XX XXX XXX"
                           className="bg-[hsl(222,47%,12%)] border-[hsl(222,47%,18%)] text-white focus-visible:border-orange-500/50"
                           value={reporterPhone}
                           onChange={(e) => setReporterPhone(e.target.value)}

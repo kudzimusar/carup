@@ -248,7 +248,7 @@ export default function MechanicDashboard() {
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Customer Name *</label>
-              <Input value={workOrderForm.customerName} onChange={e => setWorkOrderForm(f => ({ ...f, customerName: e.target.value }))} placeholder="e.g. Tendai Moyo" data-testid="customer-name-input" />
+              <Input value={workOrderForm.customerName} onChange={e => setWorkOrderForm(f => ({ ...f, customerName: e.target.value }))} placeholder="Customer full name" data-testid="customer-name-input" />
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Issue Description</label>
