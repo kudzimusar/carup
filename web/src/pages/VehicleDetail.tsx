@@ -2378,7 +2378,9 @@ export default function VehicleDetail() {
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h1 className="text-2xl font-bold">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''}</h1>
+                    {/* FR-9: a section heading, not a second page title. The showroom hero above owns
+                        the page's single <h1>; this card's <h3> sections now nest under this <h2>. */}
+                    <h2 className="text-2xl font-bold">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''}</h2>
 
                     {/* Plate, VIN and Registration Status identity block */}
                     <div className="flex flex-wrap items-center gap-2 mt-2">
