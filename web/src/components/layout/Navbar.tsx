@@ -24,6 +24,7 @@ import {
   MoreHorizontal
 } from 'lucide-react'
 import MobileNavDrawer from '@/components/layout/MobileNavDrawer'
+import { BrandIdentity } from '@/components/brand/BrandIdentity'
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -199,13 +200,10 @@ export default function Navbar() {
       <div className="section-padding mx-auto max-w-[1440px]">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 mr-4">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
-              <Car className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-xl font-bold tracking-tight">
-              Car<span className="text-orange-700">Up</span>
-            </span>
+          {/* RX03-P1b: the official Option 5 identity (wordmark only on phones, per the brand contract). */}
+          <Link to="/" className="mr-4 flex min-h-11 items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C]" aria-label="CarUp home" data-testid="navbar-brand">
+            <BrandIdentity role="wordmark" surface="light" height={22} decorative priority className="sm:hidden" />
+            <BrandIdentity role="logo" surface="light" height={32} decorative priority className="hidden sm:block" />
           </Link>
 
           {/* Desktop Nav */}

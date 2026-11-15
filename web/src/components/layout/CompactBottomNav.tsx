@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import { CarFront, CircleUserRound, Home, Search, Tag } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
+import { useHonourBottomBarClaim } from '@/lib/bottomBarClaim'
 
 const ROLE_HOME: Record<string, string> = {
   owner: '/dashboard',
@@ -15,6 +16,8 @@ const ROLE_HOME: Record<string, string> = {
 export default function CompactBottomNav() {
   const location = useLocation()
   const { user, isAuthenticated } = useAuth()
+  // RX03-P1b: one bottom bar at a time — a page's own action bar (Vehicle Detail contact) takes the slot.
+  const yielded = useHonourBottomBarClaim()
 
   const sellHref = !isAuthenticated
     ? '/sell'
@@ -34,6 +37,8 @@ export default function CompactBottomNav() {
     { label: 'Account', href: accountHref, icon: CircleUserRound, active: location.pathname.startsWith('/login') || location.pathname.startsWith('/register') || (isAuthenticated && location.pathname === accountHref) },
   ]
 
+  if (yielded) return null
+
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-1.5 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl lg:hidden"
@@ -45,7 +50,7 @@ export default function CompactBottomNav() {
           <Link
             key={label}
             to={href}
-            className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-medium transition ${active ? 'text-orange-600' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
+            className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-medium transition ${active ? 'font-semibold text-[#C2410C]' : 'text-slate-600 hover:bg-slate-50 hover:text-[#09122A]'}`}
             aria-current={active ? 'page' : undefined}
           >
             <Icon className={`h-5 w-5 ${active ? 'stroke-[2.4]' : ''}`} />
