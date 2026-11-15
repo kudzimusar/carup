@@ -2,14 +2,14 @@
  * RX03-P1a — the Option 5 asset map behind BrandIdentity (kept in its own module so the
  * component file exports only components). Files and hashes: assets/brand/option5/ASSET_LEDGER.json.
  */
-import horizontalOnLight from '@/assets/brand/option5/carup-logo-horizontal-on-light.svg'
-import horizontalOnDark from '@/assets/brand/option5/carup-logo-horizontal-on-dark.svg'
-import stackedOnLight from '@/assets/brand/option5/carup-logo-stacked-on-light.svg'
-import stackedOnDark from '@/assets/brand/option5/carup-logo-stacked-on-dark.svg'
-import wordmarkOnLight from '@/assets/brand/option5/carup-wordmark-on-light.svg'
-import wordmarkOnDark from '@/assets/brand/option5/carup-wordmark-on-dark.svg'
-import roofline from '@/assets/brand/option5/carup-mark-roofline.svg'
-import appIcon from '@/assets/brand/option5/carup-app-icon-orange.svg'
+import horizontalOnLight from '@/assets/brand/option5/carup-logo-horizontal-on-light.svg?no-inline'
+import horizontalOnDark from '@/assets/brand/option5/carup-logo-horizontal-on-dark.svg?no-inline'
+import stackedOnLight from '@/assets/brand/option5/carup-logo-stacked-on-light.svg?no-inline'
+import stackedOnDark from '@/assets/brand/option5/carup-logo-stacked-on-dark.svg?no-inline'
+import wordmarkOnLight from '@/assets/brand/option5/carup-wordmark-on-light.svg?no-inline'
+import wordmarkOnDark from '@/assets/brand/option5/carup-wordmark-on-dark.svg?no-inline'
+import roofline from '@/assets/brand/option5/carup-mark-roofline.svg?no-inline'
+import appIcon from '@/assets/brand/option5/carup-app-icon-orange.svg?no-inline'
 
 export type BrandRole = 'logo' | 'stacked' | 'wordmark' | 'mark' | 'app-icon'
 /** The background the identity sits on — not the colour of the logo. */

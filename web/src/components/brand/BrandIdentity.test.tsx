@@ -38,6 +38,20 @@ describe('Option 5 asset custody', () => {
       expect(text, asset.file).not.toMatch(/drive\.google|googleusercontent|<image|<script|href="https?:/i)
     }
   })
+
+  it('every Option 5 import ships the file verbatim (?no-inline): Vite re-encodes inlined SVG data URIs', () => {
+    // Small SVGs (< 4 KB) would otherwise be inlined as rewritten data URIs — same geometry, different
+    // bytes — and the served identity could no longer be hash-checked against the official package.
+    const sources = ['brandAssets.ts', 'brandFavicon.ts']
+      .map(name => join(__dirname, name))
+      .filter(path => { try { readFileSync(path); return true } catch { return false } })
+    expect(sources.length).toBeGreaterThan(0)
+    for (const path of sources) {
+      const imports = readFileSync(path, 'utf8').match(/from '@\/assets\/brand\/option5\/[^']+'/g) ?? []
+      expect(imports.length, path).toBeGreaterThan(0)
+      for (const line of imports) expect(line, path).toMatch(/\?no-inline'$/)
+    }
+  })
 })
 
 describe('BrandIdentity', () => {
