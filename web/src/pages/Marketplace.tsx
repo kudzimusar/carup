@@ -835,7 +835,7 @@ export default function Marketplace() {
   return (
     <div className="min-h-screen bg-white text-[#09122A]" data-testid="marketplace-page">
       <section className="bg-white" data-testid="marketplace-compact-header" aria-labelledby="marketplace-title">
-        <div className="section-padding mx-auto max-w-[1440px] pt-6 sm:pt-8 lg:pt-10">
+        <div className="section-padding mx-auto max-w-[1440px] pt-4 sm:pt-8 lg:pt-10">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between lg:gap-10">
             <div className="min-w-0">
               <p className={`${EYEBROW} text-[#C2410C]`}>CarUp Marketplace</p>
@@ -861,7 +861,7 @@ export default function Marketplace() {
 
             <nav
               aria-label="Marketplace categories"
-              className="carup-rail -mx-4 flex scroll-px-4 gap-2 overflow-x-auto px-4 py-1 sm:-mx-6 sm:scroll-px-6 sm:px-6 lg:mx-0 lg:scroll-px-0 lg:shrink-0 lg:px-0"
+              className="carup-rail -mx-4 hidden scroll-px-4 gap-2 overflow-x-auto px-4 py-1 sm:-mx-6 sm:flex sm:scroll-px-6 sm:px-6 lg:mx-0 lg:scroll-px-0 lg:shrink-0 lg:px-0"
             >
               {CATEGORY_LINKS.map(link => (
                 <Link
@@ -1090,9 +1090,9 @@ export default function Marketplace() {
             </div>
           )}
 
-          <div className="mb-6 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
+          <div className="mb-4 flex flex-col gap-0.5 sm:mb-6 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
             <p className="text-[15px] font-semibold text-[#09122A]" data-testid="marketplace-results-summary">{getResultSummary(filterState)}</p>
-            <p className="text-[13px] text-slate-500">Published listings only · Trust and vehicle facts retain their governed states.</p>
+            <p className="text-[12px] leading-4 text-slate-500 sm:text-[13px]">Published listings only · Trust and vehicle facts retain their governed states.</p>
           </div>
 
           {loadingVehicles ? (
