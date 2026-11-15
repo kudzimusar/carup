@@ -8,6 +8,7 @@
    ────────────────────────────────────────────────────────────────────────── */
 @import './styles/fonts.css';
 @import './styles/tokens.css';
+@import './styles/showroom.css';
 
 @tailwind base;
 @tailwind components;

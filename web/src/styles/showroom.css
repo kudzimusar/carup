@@ -1,0 +1,64 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   RX03-P1a — showroom motion primitives (Home, Marketplace, Vehicle Detail).
+   Option 5 palette lives here as named values so pages do not re-type hexes:
+     navy #09122A · signal orange #FE7D18 → #FD5B0D · orange ink #C2410C (AA text on white).
+   Every animation stops for prefers-reduced-motion.
+   ────────────────────────────────────────────────────────────────────────── */
+:root {
+  --o5-navy: #09122a;
+  --o5-navy-2: #111d3d;
+  --o5-orange: #fe7d18;
+  --o5-orange-deep: #fd5b0d;
+  --o5-orange-ink: #c2410c;
+  --o5-paper: #f6f4f0;
+}
+
+/* Slow push-in for the live-listing reel. */
+@keyframes carup-kenburns {
+  from { transform: scale(1.02) translate3d(0, 0, 0); }
+  to { transform: scale(1.12) translate3d(-1.5%, -1%, 0); }
+}
+.carup-kenburns {
+  animation: carup-kenburns 9s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  transform-origin: 60% 50%;
+  will-change: transform;
+}
+
+@keyframes carup-reel-progress {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+.carup-reel-progress {
+  animation-name: carup-reel-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+/* Content entering the stage once, on first paint. */
+@keyframes carup-rise {
+  from { opacity: 0; transform: translate3d(0, 14px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.carup-rise { animation: carup-rise 700ms cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.carup-rise-2 { animation: carup-rise 700ms 120ms cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.carup-rise-3 { animation: carup-rise 700ms 240ms cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+
+/* Horizontal snap rails (body styles, live inventory on phones). */
+.carup-rail {
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.carup-rail::-webkit-scrollbar { display: none; }
+.carup-rail > * { scroll-snap-align: start; }
+
+@media (prefers-reduced-motion: reduce) {
+  .carup-kenburns,
+  .carup-reel-progress,
+  .carup-rise,
+  .carup-rise-2,
+  .carup-rise-3 {
+    animation: none !important;
+  }
+  .carup-reel-progress { width: 0% !important; }
+}
