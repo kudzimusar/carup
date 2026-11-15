@@ -55,21 +55,26 @@ function parseArgs(argv) {
 
 class UsageError extends Error {}
 
-function git(args) {
+function git(args, cwd, { keepLeadingSpace = false } = {}) {
   try {
-    return execFileSync('git', args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    const out = execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    // Porcelain status lines start with a significant space (" M path"); only trim the end there.
+    return keepLeadingSpace ? out.trimEnd() : out.trim()
   } catch {
     return null
   }
 }
 
-function gitInfo() {
-  const sha = git(['rev-parse', 'HEAD'])
-  const parents = (git(['rev-list', '--parents', '-n', '1', 'HEAD']) ?? '').split(' ').slice(1).filter(Boolean)
-  const porcelain = git(['status', '--porcelain', '--untracked-files=no'])
+// Git facts for the tree that CONTAINS the scanned dist (null when the dist is not inside a work tree,
+// e.g. a copied artifact), so a report never borrows the scanner's own SHA for someone else's bundle.
+function gitInfo(cwd) {
+  const sha = git(['rev-parse', 'HEAD'], cwd)
+  const parents = (git(['rev-list', '--parents', '-n', '1', 'HEAD'], cwd) ?? '').split(' ').slice(1).filter(Boolean)
+  const porcelain = sha ? git(['status', '--porcelain', '--untracked-files=no'], cwd, { keepLeadingSpace: true }) : null
   return {
     sha,
-    branch: git(['rev-parse', '--abbrev-ref', 'HEAD']),
+    workTree: sha ? git(['rev-parse', '--show-toplevel'], cwd) : null,
+    branch: sha ? git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd) : null,
     parents,
     // A CI pull_request checkout is the merge ref; its second parent is the PR head.
     isMergeCommit: parents.length > 1,
@@ -203,7 +208,11 @@ function main() {
     generatedAt: new Date().toISOString(),
     mode: opts.strict ? 'strict' : 'standard',
     scope: 'TI-01: the removed login demo-access affordance (credential, controls, demo-account identities) in the built web bundle. Residue entries are other lanes\' occurrences of the same identity and are listed, not hidden.',
-    git: gitInfo(),
+    git: gitInfo(opts.dist),
+    scanner: {
+      gitSha: git(['rev-parse', 'HEAD'], REPO),
+      sha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
+    },
     build,
     markersFile: relative(REPO, opts.markers).split(sep).join('/'),
     markersSha256: sha256(readFileSync(opts.markers)),
@@ -228,7 +237,7 @@ function main() {
   const residueHits = result.hits.filter(h => h.withinNarrowedResidue).length
   console.log(
     `scan-bundle-demo-identity: ${pass ? 'PASS' : 'FAIL'} (${report.mode}) — ${result.fileRows.length} files, ` +
-      `${result.hits.length} hit(s), ${residueHits} within narrowed residue; sha ${report.git.sha ?? 'unknown'}; ` +
+      `${result.hits.length} hit(s), ${residueHits} within narrowed residue; dist tree sha ${report.git.sha ?? 'none (dist is not inside a git work tree)'}; ` +
       `dist digest ${result.digest.slice(0, 16)}…; report ${relative(process.cwd(), opts.out) || opts.out}`,
   )
   for (const f of result.failures) console.log(`  FAIL ${f}`)

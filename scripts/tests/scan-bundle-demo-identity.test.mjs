@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -50,17 +50,45 @@ const CLEAN = {
   'assets/index-abc.css': '.a{color:red}',
 }
 
-test('a clean bundle passes and the report binds SHA, digest and file list', () => {
+test('a clean bundle passes and the report binds digest and file list (no borrowed SHA outside a repo)', () => {
   const { root, dist } = makeDist(CLEAN)
   try {
     const r = runScan(dist, root)
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.equal(r.report.verdict.pass, true)
-    assert.match(r.report.git.sha, /^[0-9a-f]{40}$/)
+    // The throwaway dist is not inside a git work tree, so the report must not claim a source SHA;
+    // the scanner's own SHA is reported separately.
+    assert.equal(r.report.git.sha, null)
+    assert.match(r.report.scanner.gitSha, /^[0-9a-f]{40}$/)
     assert.equal(r.report.dist.fileCount, 3)
     assert.deepEqual(r.report.filesScanned.map(f => f.path), ['assets/index-abc.css', 'assets/index-abc.js', 'index.html'])
     assert.match(r.report.dist.digest.value, /^[0-9a-f]{64}$/)
     assert.equal(r.report.hits.length, 0)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a dist inside a git work tree is bound to THAT tree\'s HEAD and dirty state', () => {
+  const { root, dist } = makeDist(CLEAN)
+  const g = (...args) =>
+    execFileSync('git', ['-c', 'user.name=scan-test', '-c', 'user.email=scan-test@example.invalid', ...args], {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim()
+  try {
+    g('init', '-q')
+    writeFileSync(join(root, 'source.txt'), 'v1\n')
+    g('add', 'source.txt')
+    g('commit', '-q', '-m', 'fixture')
+    const head = g('rev-parse', 'HEAD')
+    const clean = runScan(dist, root)
+    assert.equal(clean.report.git.sha, head)
+    assert.equal(clean.report.git.trackedFilesDirty, false)
+    writeFileSync(join(root, 'source.txt'), 'v2\n')
+    const dirty = runScan(dist, root)
+    assert.equal(dirty.report.git.trackedFilesDirty, true)
+    assert.deepEqual(dirty.report.git.dirtyPaths, ['source.txt'])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
