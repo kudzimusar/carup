@@ -30,11 +30,11 @@
  *
  * Rollback is presentation-only: flag off ⇒ legacy layout, zero data effect.
  */
-import type { ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import { matchPath, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundary'
-import { getFeatureByRoute, getRoleMetadata } from '@/config/featureRegistry'
+import { getRoleMetadata } from '@/config/featureRegistry'
 import { loginWithReturnTo } from '@/lib/routeAccess'
 import { AuthBootstrapLoading } from '@/components/routing/RegistryRouteBoundary'
 import { useDealerOperationalWorkspace } from '@/components/dealer/useDealerOperationalWorkspace'
@@ -46,7 +46,10 @@ import { FocusedShell } from './FocusedShell'
 import { safeReturnTarget } from './safeReturn'
 import { FocusedEmbedContext } from './FocusedEmbedContext'
 import { isUnifiedUiEnabled } from './unifiedFlag'
-import { DEALER_UNIFIED_SLICE, projectDealerOperationsRail, projectTradeRail } from './navProjection'
+import { DEALER_UNIFIED_SLICE, projectDealerOperationsGroups, projectTradeOrderTabs, projectTradeRail } from './navProjection'
+import { pickActiveHref } from './activeNav'
+import { apiRequest, resolveApiBaseUrl, type AuthHeaders } from '@/lib/apiClient'
+import type { DiasporaImportOrder } from '@/types'
 import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
 import { focusedTaskFor } from './focusedTitles'
 import type { ShellIdentity, ShellObjectIdentity } from './contracts'
@@ -200,6 +203,14 @@ function FocusedUnifiedShell({ legacy }: { legacy: ReactElement }) {
   )
 }
 
+/** RX03-P2-R4 — the owner's four most frequent places, one tap away on phones. */
+const PERSONAL_TASKS: ReadonlyArray<{ label: string; href: string }> = [
+  { label: 'My CarUp', href: '/dashboard' },
+  { label: 'Garage', href: '/dashboard/garage' },
+  { label: 'Saved', href: '/dashboard/saved' },
+  { label: 'Gutu AI', href: '/dashboard/ai' },
+]
+
 /**
  * Personal workspace chrome (My CarUp). P0-B: the WHOLE shell sits behind the
  * SAME centralized `RegistryRouteBoundary` guard the legacy DashboardLayout
@@ -213,13 +224,7 @@ function WorkspacePersonalUnifiedShell() {
   const { logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const feature = getFeatureByRoute(location.pathname)
-  const object: ShellObjectIdentity = {
-    title: feature?.label ?? 'My CarUp',
-    reference: feature?.id ?? 'personal',
-    statusLabel: 'Signed in',
-    statusTone: 'neutral',
-  }
+  const bottomActive = pickActiveHref(location.pathname, PERSONAL_TASKS.map(t => t.href))
   const shellIdentity: ShellIdentity = {
     displayName: identity.displayName,
     // C4 — the role title is the REAL session role's registry metadata, never
@@ -231,8 +236,9 @@ function WorkspacePersonalUnifiedShell() {
       family="personal"
       identity={shellIdentity}
       currentPath={location.pathname}
-      object={object}
       overviewHref="/dashboard"
+      // RX03-P2-R4 — pages own their heading (no second title); phones get a task bar.
+      bottomNav={PERSONAL_TASKS.map(t => ({ ...t, active: t.href === bottomActive }))}
       // C2 — sign-out uses the EXISTING safe session mechanism (AuthContext
       // logout, which clears client auth state + stored session only); no new
       // backend API, no storage nuking of unrelated user data.
@@ -287,35 +293,39 @@ function WorkspaceDealerUnifiedShell({ lifecycleBoundary = false }: { lifecycleB
   // legacy destinations as active unified actions. Destinations outside the
   // approved unified slice render truthfully as non-navigating "Soon" entries
   // (they remain reachable in the legacy chrome they actually live in).
-  const rail = projectDealerOperationsRail({ effectiveStates })
+  const rail = projectDealerOperationsGroups({ effectiveStates })
+  // RX03-P2-R4 — one identity hierarchy: CarUp (brand, masthead) → Dealer OS (product) → the
+  // dealership as context text. The dealership's own profile card on the page is its single large
+  // identity, so the shell adds no second title row and no raw organisation UUIDs.
   const identity: ShellIdentity = {
     displayName: user?.name ?? dealerName,
     roleTitle: 'Dealer OS',
-    tenantLabel: dealerName,
+    tenantLabel: `${dealerName} · Operating`,
   }
   // C2 — dealer sign-out uses the same existing safe session mechanism.
   const onSignOut = () => {
     logout()
     navigate('/')
   }
-  const object: ShellObjectIdentity = {
-    title: dealerName,
-    reference: `tenant ${workspace.tenant_id}`,
-    statusLabel: 'Operating',
-    statusTone: 'success',
-    meta: [`org ${workspace.organization_id}`],
-  }
+  const live = rail.flatMap(s => s.items).filter(i => !i.planned)
+  const dealerTasks = ['/dealer/dashboard', '/dealers/stock', '/dealers/inquiries']
+    .map(href => live.find(i => i.href === href))
+    .filter((i): i is NonNullable<typeof i> => !!i)
+  const dealerTaskActive = pickActiveHref(location.pathname, dealerTasks.map(t => t.href))
   return (
     <WorkspaceShell
       family="dealer"
       identity={identity}
       currentPath={location.pathname}
-      object={object}
       // R4-2 — no primary action is rendered: the only candidate ("review
       // inquiries") navigates outside the approved slice, and the shell never
       // ships an action that leaves the unified experience.
       railSections={rail}
+      navStyle="tabs"
       overviewHref="/dealer/dashboard"
+      homeLabel="Dashboard"
+      accountLinks={[{ label: 'Dealer OS home', href: '/dealer/dashboard' }]}
+      bottomNav={dealerTasks.map(t => ({ label: t.label === 'Buyer inquiries' ? 'Inquiries' : t.label, href: t.href, active: t.href === dealerTaskActive }))}
       onSignOut={onSignOut}
     >
       {lifecycleBoundary ? (
@@ -338,25 +348,76 @@ function WorkspaceDealerUnifiedShell({ lifecycleBoundary = false }: { lifecycleB
  * (import-order participant/role checks). Guests keep the exact legacy
  * composition, so signed-out behaviour is unchanged.
  */
+function tradeLabel(value?: string | null): string {
+  if (!value) return 'Not set'
+  return value.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function orderTitle(order: DiasporaImportOrder): string {
+  if (order.order_type !== 'vehicle') return `${tradeLabel(order.order_type)} import`
+  const name = [order.requested_make, order.requested_model].filter(Boolean).join(' ')
+  return name || 'Vehicle import'
+}
+
+type ConfirmedOrder = { id: string; state: 'loading' | 'ready' | 'refused'; order: DiasporaImportOrder | null }
+
 function WorkspaceTradeUnifiedShell({ legacy, orderId }: { legacy: ReactElement; orderId: string | null }) {
   const identity = useIdentity()
-  const { logout } = useAuth()
+  const { user, token, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const effectiveStates = useFeatureEffectiveStates()
+  const [confirmed, setConfirmed] = useState<ConfirmedOrder | null>(null)
+  const userId = user?.id
+  const userRole = user?.role
+  const tenantId = (user as { active_tenant_id?: string | null } | null)?.active_tenant_id ?? null
+  // RX03-P2-R4 — the order header and its section tabs come ONLY from the order the server returns
+  // to this session (the same participant-checked read the order pages use). A URL id alone never
+  // produces order navigation, so a refused or unknown order shows no actionable order links.
+  useEffect(() => {
+    if (!orderId || !identity.isAuthenticated) return
+    let active = true
+    setConfirmed(current => (current && current.id === orderId && current.state === 'ready' ? current : { id: orderId, state: 'loading', order: null }))
+    // Same identity headers and endpoint as useCarUpApi().fetchDiasporaImportOrder.
+    const authHeaders: AuthHeaders = {}
+    if (token) authHeaders['x-session-token'] = token
+    if (userId) authHeaders['x-user-id'] = userId
+    if (userRole) authHeaders['x-stakeholder-role'] = userRole
+    if (tenantId) authHeaders['x-tenant-id'] = tenantId
+    Promise.resolve()
+      .then(() => apiRequest<DiasporaImportOrder>({
+        baseUrl: resolveApiBaseUrl(import.meta.env.VITE_API_URL, typeof window === 'undefined' ? undefined : window.location.hostname),
+        path: `/diaspora/import-orders/${encodeURIComponent(orderId)}`,
+        authHeaders,
+      }))
+      .then(order => {
+        if (!active) return
+        setConfirmed(order && order.id === orderId ? { id: orderId, state: 'ready', order } : { id: orderId, state: 'refused', order: null })
+      })
+      .catch(() => { if (active) setConfirmed({ id: orderId, state: 'refused', order: null }) })
+    return () => { active = false }
+  }, [orderId, identity.isAuthenticated, token, userId, userRole, tenantId, location.pathname])
+
   if (identity.bootstrapping) return <AuthBootstrapLoading />
   if (!identity.isAuthenticated) return legacy
-  const feature = getFeatureByRoute(location.pathname)
-  const object: ShellObjectIdentity = orderId
-    ? {
-        title: feature?.label ?? 'Import order',
-        // The order's own server-issued id, shortened for the header; the page
-        // below renders the order record itself.
-        reference: `Order ${orderId.slice(0, 8)}`,
-        statusLabel: 'Signed in',
-        statusTone: 'neutral',
-      }
-    : { title: feature?.label ?? 'Import orders', reference: feature?.id ?? 'trade', statusLabel: 'Signed in', statusTone: 'neutral' }
+  const role = identity.role ?? undefined
+  const familySections = projectTradeRail({ role, effectiveStates })
+  const current = orderId && confirmed?.id === orderId ? confirmed : null
+  const order = current?.state === 'ready' ? current.order : null
+  const object: ShellObjectIdentity | undefined = !orderId
+    ? undefined
+    : order
+      ? {
+          title: orderTitle(order),
+          reference: `Order ${order.id.slice(0, 8)}`,
+          statusLabel: tradeLabel(order.status),
+          statusTone: 'info',
+          meta: [[order.origin_country, order.destination_country].filter(Boolean).join(' → ')].filter(Boolean),
+        }
+      : current?.state === 'refused'
+        ? { title: 'Import order unavailable', reference: '', statusLabel: 'Not available to this account', statusTone: 'warning' }
+        : { title: 'Import order', reference: '', statusLabel: 'Checking access…', statusTone: 'neutral' }
+  const objectTabs = order ? projectTradeOrderTabs({ role, effectiveStates, orderId: order.id }) : undefined
   return (
     <WorkspaceShell
       family="trade"
@@ -366,8 +427,11 @@ function WorkspaceTradeUnifiedShell({ legacy, orderId }: { legacy: ReactElement;
       }}
       currentPath={location.pathname}
       object={object}
-      railSections={projectTradeRail({ role: identity.role ?? undefined, effectiveStates, orderId })}
+      objectTabs={objectTabs}
+      railSections={familySections}
+      navStyle="tabs"
       overviewHref="/diaspora/imports"
+      homeLabel="Import orders"
       onSignOut={() => {
         logout()
         navigate('/')

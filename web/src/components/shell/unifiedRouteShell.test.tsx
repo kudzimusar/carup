@@ -27,6 +27,10 @@ import { safeReturnTarget } from './safeReturn'
 
 const KEY = 'carup-unified-ui'
 
+/** RX03-P2-R4 — the family navigation: a desktop rail (many destinations) or a grouped tab bar. */
+const workspaceNav = () =>
+  (document.getElementById('shell-ws-rail') ?? document.querySelector('[data-testid="shell-ws-tabs"]')) as HTMLElement
+
 // NOTE: vi.resetModules() gives the component under test a FRESH module graph,
 // so the governance context must come from the SAME graph or Provider
 // overrides would be invisible to RegistryRouteBoundary.
@@ -233,8 +237,17 @@ describe('P0-B — personal workspace guard equals legacy DashboardLayout', () =
     )
     expect(screen.getByText('real owner overview')).toBeInTheDocument()
     expect(container.querySelector('[data-testid="shell-ws-rail"]')).toBeInTheDocument()
-    // Object context is projected from the canonical registry, not invented.
-    expect(screen.getByTestId('shell-ws-object-title')).toBeInTheDocument()
+    // RX03-P2-R4: the page owns its heading — the shell adds no second title row —
+    // and phones get the owner's task bar with exactly one current destination.
+    expect(screen.queryByTestId('shell-ws-object-title')).toBeNull()
+    const tasks = screen.getByTestId('shell-ws-bottom-nav')
+    expect(tasks.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
+    expect(tasks.querySelector('[aria-current="page"]')).toHaveAttribute('href', '/dashboard')
+    // One brand owner: the masthead logo only (no rail logo).
+    expect(container.querySelectorAll('[data-brand-slot]')).toHaveLength(1)
+    // One home: the rail never adds a second link to the page it already lists.
+    const homeLinks = Array.from(workspaceNav().querySelectorAll('a[href="/dashboard"]'))
+    expect(homeLinks).toHaveLength(1)
     // No inert primary button.
     expect(container.querySelector('[data-testid="shell-ws-primary-action"]')).toBeNull()
   })
@@ -295,13 +308,18 @@ describe('R2-1 — dealer workspace uses the shared server-enforced guard', () =
     expect(await screen.findByText('dealer dashboard body')).toBeInTheDocument()
     // Verified tenant context from the server (never client-invented); it is
     // projected in both the rail tenant label and the object title.
-    expect(screen.getAllByText('Fixture Motors').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByTestId('shell-ws-tenant')).toHaveTextContent('Fixture Motors')
-    expect(screen.getByText('Operating')).toBeInTheDocument()
-    expect(screen.getByText('tenant tenant-fx1')).toBeInTheDocument()
-    // Exactly ONE chrome: the legacy canonical header must not also render.
+    // RX03-P2-R4: the dealership is named ONCE in the chrome (context text with its operating
+    // state); the page's own profile card is its single large identity. No raw UUIDs.
+    expect(screen.getByTestId('shell-ws-tenant')).toHaveTextContent('Fixture Motors · Operating')
+    expect(screen.queryByTestId('shell-ws-object-title')).toBeNull()
+    expect(container.textContent).not.toContain('tenant-fx1')
+    expect(container.textContent).not.toContain('org-fx1')
+    // Exactly ONE chrome: the legacy canonical header must not also render, one brand mark,
+    // and the dealer destinations are one grouped tab bar (no rail).
     expect(screen.queryByText('CarUp Dealer Workspace')).toBeNull()
-    expect(container.querySelectorAll('[data-testid="shell-ws-rail"]')).toHaveLength(1)
+    expect(container.querySelectorAll('[data-brand-slot]')).toHaveLength(1)
+    expect(container.querySelectorAll('[data-testid="shell-ws-tabs"]')).toHaveLength(1)
+    expect(container.querySelectorAll('[data-testid="shell-ws-rail"]')).toHaveLength(0)
   })
 
   it('ineligible workspace renders the explicit unavailable state and implies no permission', async () => {
@@ -535,7 +553,7 @@ describe('R3-C4 — navigation truth from the real session role', () => {
     // The planned feature must not appear as an active navigable link. The
     // shared visibility resolver treats 'planned' as not visible, so the
     // registry projection omits it from the rail entirely (never an action).
-    const rail = document.getElementById('shell-ws-rail')!
+    const rail = workspaceNav()
     const activeLink = Array.from(rail.querySelectorAll('a[href]'))
       .find(a => a.getAttribute('href') === target!.route)
     expect(activeLink).toBeUndefined()
@@ -561,7 +579,7 @@ describe('R3-C4 — navigation truth from the real session role', () => {
         </MemoryRouter>
       </FeatureGovernanceContext.Provider>,
     )
-    const rail = document.getElementById('shell-ws-rail')!
+    const rail = workspaceNav()
     expect(rail.textContent).not.toContain(target!.label)
   })
 })
@@ -694,7 +712,7 @@ describe('R4-2 — dealer rail is governed by the canonical resolver, not forced
       </MemoryRouter>,
     )
     expect(await screen.findByText('dealer dashboard body')).toBeInTheDocument()
-    const rail = document.getElementById('shell-ws-rail')!
+    const rail = workspaceNav()
     // Continuity: no live link may point at a destination outside the unified
     // shell (those routes live in legacy MainLayout and would drop the chrome).
     // RX03-P2: the slice now holds the five canonical /dealers/* operations pages
@@ -747,7 +765,7 @@ describe('R4-2 — dealer rail is governed by the canonical resolver, not forced
       </FeatureGovernanceContext.Provider>,
     )
     expect(await screen.findByText('dealer dashboard body')).toBeInTheDocument()
-    const rail = document.getElementById('shell-ws-rail')!
+    const rail = workspaceNav()
     expect(rail.textContent).not.toContain('Registry inventory')
   })
 
@@ -777,7 +795,7 @@ describe('R4-2 — dealer rail is governed by the canonical resolver, not forced
       </MemoryRouter>,
     )
     expect(await screen.findByText('dealer dashboard body')).toBeInTheDocument()
-    const rail = document.getElementById('shell-ws-rail')!
+    const rail = workspaceNav()
     // Present (the feature is registry-active) but NOT a navigable link.
     expect(rail.textContent).toContain('Registry inventory')
     const link = Array.from(rail.querySelectorAll('a[href]'))
@@ -834,10 +852,10 @@ describe('RX03-P2 — connected pilot slices', () => {
     )
     expect(await screen.findByText('tenant inventory page')).toBeInTheDocument()
     expect(container.querySelector('[data-testid="legacy-layout"]')).toBeNull()
-    const rail = document.getElementById('shell-ws-rail')!
+    const rail = workspaceNav()
     const hrefs = Array.from(rail.querySelectorAll('a[href]')).map(a => a.getAttribute('href'))
     expect(hrefs).toEqual(expect.arrayContaining(['/dealers/stock', '/dealers/inquiries', '/dealer/dashboard']))
-    expect(screen.getAllByText('Fixture Motors').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Fixture Motors/).length).toBeGreaterThan(0)
   })
 
   it('/dealers/inquiries without an operational workspace shows the explicit unavailable state, never the page', async () => {
@@ -881,9 +899,19 @@ describe('RX03-P2 — connected pilot slices', () => {
     expect(screen.queryByText('tenant inventory page')).toBeNull()
   })
 
-  it('an import order renders in the Trade workspace with the order as the anchor and its real sub-routes', async () => {
+  it('an import order renders in the Trade workspace with the SERVER-RETURNED order as the anchor and its real sections', async () => {
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner', 'Rudo Chikore'))
+    const reads: string[] = []
+    vi.doMock('@/lib/apiClient', () => ({
+      apiRequest: async ({ path }: { path: string }) => {
+        reads.push(path)
+        return { id: ORDER, order_type: 'vehicle', requested_make: 'Toyota', requested_model: 'Aqua', status: 'DOCUMENTS_PENDING', origin_country: 'Japan', destination_country: 'Zimbabwe' }
+      },
+      resolveApiBaseUrl: () => '/api',
+      setUnauthorizedHandler: () => {},
+      SessionExpiredError: class extends Error {},
+    }))
     const { UnifiedRouteShell } = await loadSwitch()
     const { container } = render(
       <MemoryRouter initialEntries={[`/diaspora/imports/${ORDER}`]}>
@@ -896,17 +924,48 @@ describe('RX03-P2 — connected pilot slices', () => {
     )
     expect(screen.getByText('import order detail page')).toBeInTheDocument()
     expect(container.querySelector('[data-testid="legacy-layout"]')).toBeNull()
-    expect(screen.getByText(`Order ${ORDER.slice(0, 8)}`)).toBeInTheDocument()
-    const rail = document.getElementById('shell-ws-rail')!
-    const hrefs = Array.from(rail.querySelectorAll('a[href]')).map(a => a.getAttribute('href'))
-    expect(hrefs).toEqual(expect.arrayContaining([
-      '/diaspora/imports',
+    // The order identity comes from the participant-checked server read, not from the URL.
+    expect(await screen.findByText(`Order ${ORDER.slice(0, 8)}`)).toBeInTheDocument()
+    expect(screen.getByTestId('shell-ws-object-title')).toHaveTextContent('Toyota Aqua')
+    expect(reads).toContain(`/diaspora/import-orders/${encodeURIComponent(ORDER)}`)
+    const family = Array.from(workspaceNav().querySelectorAll('a[href]')).map(a => a.getAttribute('href'))
+    expect(family).toEqual(expect.arrayContaining(['/diaspora/imports']))
+    const tabs = Array.from(screen.getByTestId('shell-ws-object-tabs').querySelectorAll('a[href]')).map(a => a.getAttribute('href'))
+    expect(tabs).toEqual(expect.arrayContaining([
       `/diaspora/imports/${ORDER}`,
       `/diaspora/imports/${ORDER}/documents`,
       `/diaspora/imports/${ORDER}/shipment`,
     ]))
+    // Exactly one current page: the order tab; the family destination is the current section.
+    expect(container.querySelectorAll('[aria-current="page"]:not([data-testid="shell-ws-bottom-nav"] *)')).toHaveLength(1)
     // No primary action is invented by the chrome.
     expect(container.querySelector('[data-testid="shell-ws-primary-action"]')).toBeNull()
+  })
+
+  it('a REFUSED import order gets no order navigation: the URL id alone never produces actionable order links', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner', 'Someone Else'))
+    vi.doMock('@/lib/apiClient', () => ({
+      apiRequest: async () => { throw Object.assign(new Error('Forbidden'), { status: 403 }) },
+      resolveApiBaseUrl: () => '/api',
+      setUnauthorizedHandler: () => {},
+      SessionExpiredError: class extends Error {},
+    }))
+    const { UnifiedRouteShell } = await loadSwitch()
+    const { container } = render(
+      <MemoryRouter initialEntries={[`/diaspora/imports/${ORDER}/documents`]}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
+            <Route path="/diaspora/imports/:id/documents" element={<div>order documents page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('Import order unavailable')).toBeInTheDocument()
+    expect(screen.queryByTestId('shell-ws-object-tabs')).toBeNull()
+    const hrefs = Array.from(container.querySelectorAll('a[href]')).map(a => a.getAttribute('href') ?? '')
+    expect(hrefs.some(h => h.includes(ORDER))).toBe(false)
+    expect(screen.queryByText(`Order ${ORDER.slice(0, 8)}`)).toBeNull()
   })
 
   it('a signed-out visitor on an import route keeps the exact legacy composition', async () => {

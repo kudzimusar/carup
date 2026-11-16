@@ -5,7 +5,8 @@ import { AuthBootstrapLoading } from '@/components/routing/RegistryRouteBoundary
 import { loginWithReturnTo } from '@/lib/routeAccess'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import { WorkspaceShell } from '@/components/shell/WorkspaceShell'
-import { REVIEW_WORKBENCH_LINKS, projectReviewRail } from '@/components/shell/navProjection'
+import { REVIEW_WORKBENCH_LINKS, projectReviewGroups } from '@/components/shell/navProjection'
+import { ReviewWorkbenchContext } from './reviewWorkbenchContext'
 
 const INDEPENDENCE_NOTICE =
   'Independent, authenticated review only. Viewing a source, claim or application ' +
@@ -20,28 +21,30 @@ const INDEPENDENCE_NOTICE =
  */
 function ReviewWorkbenchChrome({ name, role, onSignOut }: { name: string; role: string; onSignOut: () => void }) {
   const location = useLocation()
-  const current = REVIEW_WORKBENCH_LINKS.find(l => l.href === location.pathname)
+  // RX03-P2-R4 — the workbench is the task, not the menu: the eight workbenches sit in one compact,
+  // grouped bar (a drawer on phones); the page below owns the queue → case → evidence → decision
+  // composition. No object header (the page names its own case), no My CarUp/admin links.
   return (
     <WorkspaceShell
       family="review"
       identity={{ displayName: name, roleTitle: `${role.replaceAll('_', ' ')} session` }}
       currentPath={location.pathname}
-      object={{
-        title: current?.label ?? 'Dealership review',
-        reference: 'Independent dealership review',
-        statusLabel: 'Step-up for decisions',
-        statusTone: 'info',
-      }}
-      railSections={projectReviewRail()}
+      railSections={projectReviewGroups()}
+      navStyle="tabs"
       overviewHref="/admin/dealer-claims"
+      homeLabel="Claims"
+      accountLinks={[]}
       onSignOut={onSignOut}
     >
-      <div id="dealer-independent-review-workspace" data-testid="review-workbench">
-        <p className="mb-4 max-w-4xl text-xs text-carup-text-2" data-testid="review-workbench-independence">
-          {INDEPENDENCE_NOTICE}
-        </p>
-        <Outlet />
-      </div>
+      <ReviewWorkbenchContext.Provider value={true}>
+        <div id="dealer-independent-review-workspace" data-testid="review-workbench">
+          <p className="mb-4 flex max-w-5xl items-start gap-2 rounded-xl bg-carup-bg-surface px-3 py-2 text-xs leading-5 text-carup-text-2" data-testid="review-workbench-independence">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-carup-text-3" aria-hidden="true" />
+            <span>{INDEPENDENCE_NOTICE}</span>
+          </p>
+          <Outlet />
+        </div>
+      </ReviewWorkbenchContext.Provider>
     </WorkspaceShell>
   )
 }

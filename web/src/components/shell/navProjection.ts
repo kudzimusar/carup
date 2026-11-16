@@ -233,3 +233,49 @@ export function projectDealerOperationsRail(ctx: NavigationContext = {}): ShellN
   }
   return [{ title: 'Operations', items }]
 }
+
+/* ── RX03-P2-R4 — purpose-grouped presentations of the SAME governed projections ──────────── */
+
+/** Split one projected section into named groups by item id (order kept; unknown ids go last). */
+function regroup(section: ShellNavSection | undefined, groups: ReadonlyArray<{ title: string; ids: ReadonlyArray<string> }>): ShellNavSection[] {
+  if (!section) return []
+  const used = new Set<string>()
+  const out: ShellNavSection[] = []
+  for (const group of groups) {
+    const items = section.items.filter(item => group.ids.includes(item.id))
+    items.forEach(item => used.add(item.id))
+    if (items.length) out.push({ title: group.title, items })
+  }
+  const rest = section.items.filter(item => !used.has(item.id))
+  if (rest.length) out.push({ title: 'More', items: rest })
+  return out
+}
+
+/**
+ * Dealer OS destinations grouped by job: day-to-day operating work first, organisation set-up
+ * second. Same governed items as `projectDealerOperationsRail` (visibility, Soon states).
+ */
+export function projectDealerOperationsGroups(ctx: NavigationContext = {}): ShellNavSection[] {
+  return regroup(projectDealerOperationsRail(ctx)[0], [
+    { title: 'Operate', ids: ['dashboard', 'stock', 'inquiries'] },
+    { title: 'Organisation', ids: ['operating-details', 'staff', 'billing'] },
+  ])
+}
+
+/** The eight reviewer workbenches grouped by the dealer's lifecycle stage. */
+export function projectReviewGroups(): ShellNavSection[] {
+  return regroup(projectReviewRail()[0], [
+    { title: 'Onboarding', ids: ['claims', 'sources', 'applications', 'legal'] },
+    { title: 'Operating dealers', ids: ['storefront', 'feedback', 'vehicle-documents', 'lifecycle'] },
+  ])
+}
+
+/**
+ * Sections of ONE import order, for the order header tabs. Call it only with an order id the
+ * server has just returned to this session (never with an id taken from the URL alone).
+ */
+export function projectTradeOrderTabs(ctx: NavigationContext & { orderId: string }): ShellNavItem[] {
+  const [, orderSection] = projectTradeRail(ctx)
+  if (!orderSection) return []
+  return orderSection.items.map(item => (item.id === 'order' ? { ...item, label: 'Overview' } : item))
+}

@@ -127,7 +127,7 @@ describe('C2 — truthful workspace actions and safe sign-out', () => {
     const search = screen.getByTestId('shell-ws-search')
     expect(search.tagName).toBe('A')
     expect(search).toHaveAttribute('href', '/search')
-    expect(search).toHaveAccessibleName('Search workspace')
+    expect(search).toHaveAccessibleName('Search CarUp')
   })
 
   it('Notifications is honestly disabled with an accessible explanation (not an inert enabled button)', () => {

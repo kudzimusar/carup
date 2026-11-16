@@ -5,10 +5,14 @@
  * another role's menu.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, useSearchParams } from 'react-router-dom'
 
 const KEY = 'carup-unified-ui'
+/** RX03-P2-R4 — the family navigation: a desktop rail (many destinations) or a grouped tab bar. */
+const workspaceNav = () =>
+  (document.getElementById('shell-ws-rail') ?? document.querySelector('[data-testid="shell-ws-tabs"]')) as HTMLElement
 function auth(role: string | null) {
   return {
     useAuth: () => role
@@ -50,7 +54,7 @@ describe('DealerReviewerLayout — ReviewWorkbench (opted in)', () => {
     const { container } = renderAt(Layout)
     expect(screen.getByText('claim review workbench')).toBeInTheDocument()
     expect(screen.getByTestId('review-workbench-independence')).toHaveTextContent('never grants legal status')
-    const rail = document.getElementById('shell-ws-rail')!
+    const rail = workspaceNav()
     const hrefs = Array.from(rail.querySelectorAll('a[href]')).map(a => a.getAttribute('href'))
       .filter(h => h !== '/admin/dealer-claims' || true)
     expect(new Set(hrefs)).toEqual(new Set([
