@@ -57,7 +57,11 @@ describe('R4-2 — dealer operations rail governance', () => {
       }
     }
     const live = section.items.filter(i => !i.planned)
-    expect(live.map(i => i.href)).toEqual(['/dealer/dashboard'])
+    // RX03-P2: the five canonical /dealers/* operations pages (register R017–R021) joined the slice.
+    expect(live.map(i => i.href)).toEqual([
+      '/dealer/dashboard', '/dealers/operating-details', '/dealers/staff',
+      '/dealers/stock', '/dealers/inquiries', '/dealers/billing',
+    ])
   })
 
   it('a registry-backed destination hidden by governance is omitted entirely', () => {
@@ -86,5 +90,36 @@ describe('R4-2 — dealer operations rail governance', () => {
       })
       expect(vis.visible).toBe(true)
     }
+  })
+})
+
+describe('RX03-P2 — Trade and review rails', () => {
+  it('Trade rail lists the import-order routes and, for an open order, its real sub-routes', async () => {
+    const { projectTradeRail } = await import('./navProjection')
+    const sections = projectTradeRail({ role: 'owner', orderId: 'abc 1' })
+    const hrefs = sections.flatMap(s => s.items.map(i => i.href))
+    expect(hrefs).toEqual([
+      '/diaspora/imports', '/diaspora/imports/new',
+      '/diaspora/imports/abc%201', '/diaspora/imports/abc%201/documents',
+      '/diaspora/imports/abc%201/shipment', '/diaspora/imports/abc%201/passport',
+    ])
+  })
+
+  it('Trade rail omits a governance-disabled import feature instead of advertising it', async () => {
+    const { projectTradeRail } = await import('./navProjection')
+    const sections = projectTradeRail({
+      role: 'owner',
+      effectiveStates: { 'owner.import-orders': {
+        featureId: 'owner.import-orders', state: 'disabled', enabled: false, visible: true, accessible: false, beta: false,
+      } },
+    })
+    expect(sections.flatMap(s => s.items.map(i => i.href))).not.toContain('/diaspora/imports')
+  })
+
+  it('review rail is exactly the eight reviewer workbenches, all /admin/dealer-*', async () => {
+    const { projectReviewRail } = await import('./navProjection')
+    const items = projectReviewRail()[0].items
+    expect(items).toHaveLength(8)
+    for (const i of items) expect(i.href.startsWith('/admin/dealer-')).toBe(true)
   })
 })

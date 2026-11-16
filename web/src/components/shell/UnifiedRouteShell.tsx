@@ -46,7 +46,8 @@ import { FocusedShell } from './FocusedShell'
 import { safeReturnTarget } from './safeReturn'
 import { FocusedEmbedContext } from './FocusedEmbedContext'
 import { isUnifiedUiEnabled } from './unifiedFlag'
-import { projectDealerOperationsRail } from './navProjection'
+import { DEALER_UNIFIED_SLICE, projectDealerOperationsRail, projectTradeRail } from './navProjection'
+import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
 import type { ShellIdentity, ShellObjectIdentity } from './contracts'
 import type { UserRole } from '@shared/types'
 
@@ -122,12 +123,51 @@ function isPersonalSlicePath(pathname: string): boolean {
   return PERSONAL_SLICE_PATTERNS.some(pattern => matchPath(pattern, pathname))
 }
 
+/**
+ * RX03-P2 — routes registered under MainLayout whose authority-register shell is
+ * a WORKSPACE (or the focused import flow). When opted in, the public family
+ * hands them to that workspace instead of the public chrome. URLs, route
+ * elements and every server-side check are unchanged.
+ */
+function isDealerOpsSlicePath(pathname: string): boolean {
+  // R017–R021 → WorkspaceShell(dealer); /dealer/dashboard has its own family.
+  return pathname !== '/dealer/dashboard' && DEALER_UNIFIED_SLICE.has(pathname)
+}
+
+const TRADE_WORKSPACE_PATTERNS: ReadonlyArray<string> = [
+  '/diaspora/imports', // R038
+  '/diaspora/imports/:id', // R040
+  '/diaspora/imports/:id/documents', // R041
+  '/diaspora/imports/:id/shipment', // R042
+  '/diaspora/imports/:id/passport', // R043
+]
+
+/** The import order id of a Trade workspace path, '' for the list, null when off-slice. */
+function tradeWorkspaceOrderId(pathname: string): string | null {
+  if (matchPath('/diaspora/imports/new', pathname)) return null // R039 is the focused flow
+  for (const pattern of TRADE_WORKSPACE_PATTERNS) {
+    const m = matchPath(pattern, pathname)
+    if (m) return m.params.id ?? ''
+  }
+  return null
+}
+
 /** Public showroom chrome over the first-slice public pages. */
 function PublicUnifiedShell({ legacy }: { legacy: ReactElement }) {
   const identity = useIdentity()
   const location = useLocation()
+  const pathname = location.pathname
+  // RX03-P2 — workspace-registered routes that are routed under MainLayout.
+  if (isDealerOpsSlicePath(pathname)) return <WorkspaceDealerUnifiedShell lifecycleBoundary />
+  if (matchPath('/diaspora/imports/new', pathname)) return <FocusedImportFlowShell legacy={legacy} />
+  const orderId = tradeWorkspaceOrderId(pathname)
+  if (orderId !== null) return <WorkspaceTradeUnifiedShell legacy={legacy} orderId={orderId || null} />
   // R2-3: off-slice public paths keep the preserved legacy composition.
-  if (!isPublicSlicePath(location.pathname)) return legacy
+  if (!isPublicSlicePath(pathname)) return legacy
+  // RX03-P2 — the Owner-accepted RX-03 showroom chrome (P1b navigation) IS the
+  // public grammar whenever its own presentation switch is on; the RX-02
+  // PublicShell prototype chrome must not replace it in a connected session.
+  if (isShowroomChromeEnabled()) return legacy
   const publicIdentity: PublicIdentity = {
     displayName: identity.displayName,
     isAuthenticated: identity.isAuthenticated,
@@ -225,7 +265,7 @@ function WorkspacePersonalUnifiedShell() {
  * server-verified workspace (never client-invented). Unauthorized/loading
  * states render explicitly and imply no permission.
  */
-function WorkspaceDealerUnifiedShell() {
+function WorkspaceDealerUnifiedShell({ lifecycleBoundary = false }: { lifecycleBoundary?: boolean } = {}) {
   const { user, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
@@ -289,8 +329,88 @@ function WorkspaceDealerUnifiedShell() {
       overviewHref="/dealer/dashboard"
       onSignOut={onSignOut}
     >
-      <Outlet />
+      {lifecycleBoundary ? (
+        // RX03-P2 — the /dealers/* operations pages keep the SAME lifecycle-only
+        // boundary their legacy MainLayout parent applied (planned/disabled/beta).
+        <RegistryRouteBoundary enforceAuth={false}>
+          <Outlet />
+        </RegistryRouteBoundary>
+      ) : (
+        <Outlet />
+      )}
     </WorkspaceShell>
+  )
+}
+
+/**
+ * RX03-P2 — Trade workspace (register R038, R040–R043: WorkspaceShell(trade)).
+ * The import-order pages keep the SAME lifecycle-only boundary their legacy
+ * MainLayout parent applied; every order read/write stays server-authorized
+ * (import-order participant/role checks). Guests keep the exact legacy
+ * composition, so signed-out behaviour is unchanged.
+ */
+function WorkspaceTradeUnifiedShell({ legacy, orderId }: { legacy: ReactElement; orderId: string | null }) {
+  const identity = useIdentity()
+  const { logout } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const effectiveStates = useFeatureEffectiveStates()
+  if (identity.bootstrapping) return <AuthBootstrapLoading />
+  if (!identity.isAuthenticated) return legacy
+  const feature = getFeatureByRoute(location.pathname)
+  const object: ShellObjectIdentity = orderId
+    ? {
+        title: feature?.label ?? 'Import order',
+        // The order's own server-issued id, shortened for the header; the page
+        // below renders the order record itself.
+        reference: `Order ${orderId.slice(0, 8)}`,
+        statusLabel: 'Signed in',
+        statusTone: 'neutral',
+      }
+    : { title: feature?.label ?? 'Import orders', reference: feature?.id ?? 'trade', statusLabel: 'Signed in', statusTone: 'neutral' }
+  return (
+    <WorkspaceShell
+      family="trade"
+      identity={{
+        displayName: identity.displayName,
+        roleTitle: identity.role ? getRoleMetadata(identity.role).title : 'Trade',
+      }}
+      currentPath={location.pathname}
+      object={object}
+      railSections={projectTradeRail({ role: identity.role ?? undefined, effectiveStates, orderId })}
+      overviewHref="/diaspora/imports"
+      onSignOut={() => {
+        logout()
+        navigate('/')
+      }}
+    >
+      <RegistryRouteBoundary enforceAuth={false}>
+        <Outlet />
+      </RegistryRouteBoundary>
+    </WorkspaceShell>
+  )
+}
+
+/**
+ * RX03-P2 — the import request as a Focused flow (register R039:
+ * FocusedShell, mode "flow": one goal per view, save-and-exit). Same
+ * lifecycle-only boundary as legacy; guests keep the legacy composition.
+ */
+function FocusedImportFlowShell({ legacy }: { legacy: ReactElement }) {
+  const identity = useIdentity()
+  const navigate = useNavigate()
+  if (identity.bootstrapping) return <AuthBootstrapLoading />
+  if (!identity.isAuthenticated) return legacy
+  return (
+    <FocusedShell
+      identity={{ displayName: identity.displayName, roleTitle: 'Signed in' }}
+      title="Start an import order"
+      onExit={() => navigate('/diaspora/imports')}
+    >
+      <RegistryRouteBoundary enforceAuth={false}>
+        <Outlet />
+      </RegistryRouteBoundary>
+    </FocusedShell>
   )
 }
 

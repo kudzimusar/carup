@@ -679,7 +679,7 @@ describe('R4-1 — the seller claim flow never enters the unified personal shell
 /* ── R4-2: dealer navigation governance ───────────────────────────────────── */
 
 describe('R4-2 — dealer rail is governed by the canonical resolver, not forced active', () => {
-  it('route continuity: only the approved /dealer/dashboard slice is a live rail link; legacy destinations are non-navigating Soon entries; no out-of-slice primary action', async () => {
+  it('route continuity: only unified-slice dealer destinations are live rail links; nothing outside the slice navigates; no out-of-slice primary action', async () => {
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => authenticatedAuth('dealer', 'Croco Motors'))
     mockApiClient(eligibleWorkspace)
@@ -697,15 +697,16 @@ describe('R4-2 — dealer rail is governed by the canonical resolver, not forced
     const rail = document.getElementById('shell-ws-rail')!
     // Continuity: no live link may point at a destination outside the unified
     // shell (those routes live in legacy MainLayout and would drop the chrome).
+    // RX03-P2: the slice now holds the five canonical /dealers/* operations pages
+    // (register R017–R021), rendered inside this same server-verified workspace.
+    const { DEALER_UNIFIED_SLICE } = await import('./navProjection')
     const liveHrefs = Array.from(rail.querySelectorAll('a[href]')).map(a => a.getAttribute('href'))
     for (const href of liveHrefs) {
-      expect(href === '/dealer/dashboard' || href === null || !href.startsWith('/dealers/')).toBe(true)
+      expect(href === null || DEALER_UNIFIED_SLICE.has(href) || !href.startsWith('/dealer')).toBe(true)
     }
-    // The not-yet-migrated destinations stay VISIBLE but honest: non-navigating
-    // "Soon" entries (aria-disabled spans), never active actions.
-    const soonEntries = rail.querySelectorAll('span[aria-disabled="true"]')
-    expect(soonEntries.length).toBeGreaterThanOrEqual(4)
-    for (const entry of Array.from(soonEntries)) {
+    expect(liveHrefs).toEqual(expect.arrayContaining(['/dealer/dashboard', '/dealers/stock', '/dealers/inquiries']))
+    // Any "Soon" entry stays honest: a non-navigating span, never a link.
+    for (const entry of Array.from(rail.querySelectorAll('span[aria-disabled="true"]'))) {
       expect(entry.querySelector('a')).toBeNull()
     }
     // Governance: the forced "Review buyer inquiries" primary action is gone.
@@ -782,5 +783,207 @@ describe('R4-2 — dealer rail is governed by the canonical resolver, not forced
     const link = Array.from(rail.querySelectorAll('a[href]'))
       .find(a => a.getAttribute('href') === '/dealer/inventory')
     expect(link).toBeUndefined()
+  })
+})
+
+/* ── RX03-P2 — connected pilot slices (register R017–R021, R038–R043) ───── */
+
+describe('RX03-P2 — connected pilot slices', () => {
+  // The R4-2 block above leaves a doMock of the workspace hook bound to ITS module
+  // graph (stale auth/api mocks). These tests must exercise the real hook.
+  beforeEach(() => vi.doUnmock('@/components/dealer/useDealerOperationalWorkspace'))
+  const legacyMain = (
+    <div data-testid="legacy-layout">
+      legacy
+      <Outlet />
+    </div>
+  )
+  const ORDER = '7f3c1a2b-0000-4000-8000-00000000abcd'
+
+  it('with the accepted showroom chrome ON, public pages keep that chrome (RX-02 PublicShell does not replace it)', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    window.sessionStorage.setItem('carup-showroom-chrome', '1')
+    const { UnifiedRouteShell } = await loadSwitch()
+    const { container } = render(
+      <MemoryRouter initialEntries={['/marketplace']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
+            <Route path="/marketplace" element={<div>real marketplace page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('legacy-layout')).toBeInTheDocument()
+    expect(screen.getByText('real marketplace page')).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="shell-public-header"]')).toBeNull()
+  })
+
+  it('/dealers/stock renders inside the SAME server-verified dealer workspace (one chrome, live inventory + enquiries)', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('member', 'Fixture Owner'))
+    mockApiClient(eligibleWorkspace)
+    const { UnifiedRouteShell } = await loadSwitch()
+    const { container } = render(
+      <MemoryRouter initialEntries={['/dealers/stock']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
+            <Route path="/dealers/stock" element={<div>tenant inventory page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('tenant inventory page')).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="legacy-layout"]')).toBeNull()
+    const rail = document.getElementById('shell-ws-rail')!
+    const hrefs = Array.from(rail.querySelectorAll('a[href]')).map(a => a.getAttribute('href'))
+    expect(hrefs).toEqual(expect.arrayContaining(['/dealers/stock', '/dealers/inquiries', '/dealer/dashboard']))
+    expect(screen.getAllByText('Fixture Motors').length).toBeGreaterThan(0)
+  })
+
+  it('/dealers/inquiries without an operational workspace shows the explicit unavailable state, never the page', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('dealer', 'Legacy Dealer'))
+    mockApiClient(null)
+    const { UnifiedRouteShell } = await loadSwitch()
+    render(
+      <MemoryRouter initialEntries={['/dealers/inquiries']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
+            <Route path="/dealers/inquiries" element={<div>tenant enquiries page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByTestId('dealer-workspace-unavailable')).toBeInTheDocument()
+    expect(screen.queryByText('tenant enquiries page')).toBeNull()
+  })
+
+  it('guest on /dealers/stock is sent to login with returnTo (canonical dealer workspace behaviour)', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => unauthenticatedAuth)
+    mockApiClient(null)
+    const { UnifiedRouteShell } = await loadSwitch()
+    function LoginProbe() {
+      const [params] = useSearchParams()
+      return <div>login returnTo={params.get('returnTo')}</div>
+    }
+    render(
+      <MemoryRouter initialEntries={['/dealers/stock']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
+            <Route path="/dealers/stock" element={<div>tenant inventory page</div>} />
+          </Route>
+          <Route path="/login" element={<LoginProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('login returnTo=/dealers/stock')).toBeInTheDocument()
+    expect(screen.queryByText('tenant inventory page')).toBeNull()
+  })
+
+  it('an import order renders in the Trade workspace with the order as the anchor and its real sub-routes', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner', 'Rudo Chikore'))
+    const { UnifiedRouteShell } = await loadSwitch()
+    const { container } = render(
+      <MemoryRouter initialEntries={[`/diaspora/imports/${ORDER}`]}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
+            <Route path="/diaspora/imports/:id" element={<div>import order detail page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('import order detail page')).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="legacy-layout"]')).toBeNull()
+    expect(screen.getByText(`Order ${ORDER.slice(0, 8)}`)).toBeInTheDocument()
+    const rail = document.getElementById('shell-ws-rail')!
+    const hrefs = Array.from(rail.querySelectorAll('a[href]')).map(a => a.getAttribute('href'))
+    expect(hrefs).toEqual(expect.arrayContaining([
+      '/diaspora/imports',
+      `/diaspora/imports/${ORDER}`,
+      `/diaspora/imports/${ORDER}/documents`,
+      `/diaspora/imports/${ORDER}/shipment`,
+    ]))
+    // No primary action is invented by the chrome.
+    expect(container.querySelector('[data-testid="shell-ws-primary-action"]')).toBeNull()
+  })
+
+  it('a signed-out visitor on an import route keeps the exact legacy composition', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => unauthenticatedAuth)
+    const { UnifiedRouteShell } = await loadSwitch()
+    const { container } = render(
+      <MemoryRouter initialEntries={['/diaspora/imports']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
+            <Route path="/diaspora/imports" element={<div>import list page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('legacy-layout')).toBeInTheDocument()
+    expect(container.querySelector('#shell-ws-rail')).toBeNull()
+  })
+
+  it('/diaspora/imports/new is a Focused flow (one goal, exit back to the order list), not a workspace', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner', 'Rudo Chikore'))
+    const { UnifiedRouteShell } = await loadSwitch()
+    const { container } = render(
+      <MemoryRouter initialEntries={['/diaspora/imports/new']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
+            <Route path="/diaspora/imports/new" element={<div>new import form</div>} />
+            <Route path="/diaspora/imports" element={<div>import list page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('new import form')).toBeInTheDocument()
+    expect(screen.getByText('Start an import order')).toBeInTheDocument()
+    expect(container.querySelector('#shell-ws-rail')).toBeNull()
+    await userEvent.click(screen.getByTestId('shell-focused-exit'))
+    expect(await screen.findByText('import list page')).toBeInTheDocument()
+  })
+
+  it('a signed-out visitor on /diaspora/imports/new keeps the exact legacy composition (no focused chrome)', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => unauthenticatedAuth)
+    const { UnifiedRouteShell } = await loadSwitch()
+    render(
+      <MemoryRouter initialEntries={['/diaspora/imports/new']}>
+        <Routes>
+          <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
+            <Route path="/diaspora/imports/new" element={<div>new import form</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('legacy-layout')).toBeInTheDocument()
+    expect(screen.queryByText('Start an import order')).toBeNull()
+    expect(screen.queryByTestId('shell-focused-exit')).toBeNull()
+  })
+
+  it('the lifecycle boundary still applies inside the Trade workspace (disabled feature blocks the page)', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner', 'Rudo Chikore'))
+    const { UnifiedRouteShell, FeatureGovernanceContext } = await loadSwitch()
+    const disabled: EffectiveFeatureState = {
+      featureId: 'owner.import-orders', state: 'disabled',
+      enabled: false, visible: true, accessible: false, beta: false,
+    }
+    render(
+      <FeatureGovernanceContext.Provider value={{ 'owner.import-orders': disabled }}>
+        <MemoryRouter initialEntries={['/diaspora/imports']}>
+          <Routes>
+            <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
+              <Route path="/diaspora/imports" element={<div>import list page</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </FeatureGovernanceContext.Provider>,
+    )
+    expect(screen.queryByText('import list page')).toBeNull()
   })
 })

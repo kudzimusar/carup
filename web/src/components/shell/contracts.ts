@@ -20,6 +20,9 @@ export type WorkspaceFamily =
   | 'trade'
   | 'institutional'
   | 'admin'
+  /** RX03-P2 — the ReviewWorkbench composition (register R131–R138): reviewer-
+   * isolated, never a dealer or admin action. Its rail is always explicit. */
+  | 'review'
 
 /** Focused-shell presentation modes from the authority register's focused_mode column. */
 export type FocusedMode = 'auth' | 'identity' | 'seller-claim' | 'flow' | 'review-decision'

@@ -1,8 +1,50 @@
-import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ShieldCheck, LogOut, Store } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { AuthBootstrapLoading } from '@/components/routing/RegistryRouteBoundary'
 import { loginWithReturnTo } from '@/lib/routeAccess'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { WorkspaceShell } from '@/components/shell/WorkspaceShell'
+import { REVIEW_WORKBENCH_LINKS, projectReviewRail } from '@/components/shell/navProjection'
+
+const INDEPENDENCE_NOTICE =
+  'Independent, authenticated review only. Viewing a source, claim or application ' +
+  'never grants legal status, merchant privileges, public publication or tenant membership. ' +
+  'Reviewer password step-up is required for consequential decisions and private originals.'
+
+/**
+ * RX03-P2 — ReviewWorkbench presentation (register R131–R138) for an opted-in
+ * NONPRODUCTION session. Rendered only AFTER this layout's own guard has
+ * passed; it changes chrome, never access. Rail = exactly the eight reviewer
+ * workbenches; no dealer, owner or admin menu is inherited.
+ */
+function ReviewWorkbenchChrome({ name, role, onSignOut }: { name: string; role: string; onSignOut: () => void }) {
+  const location = useLocation()
+  const current = REVIEW_WORKBENCH_LINKS.find(l => l.href === location.pathname)
+  return (
+    <WorkspaceShell
+      family="review"
+      identity={{ displayName: name, roleTitle: `${role.replaceAll('_', ' ')} session` }}
+      currentPath={location.pathname}
+      object={{
+        title: current?.label ?? 'Dealership review',
+        reference: 'Independent dealership review',
+        statusLabel: 'Step-up for decisions',
+        statusTone: 'info',
+      }}
+      railSections={projectReviewRail()}
+      overviewHref="/admin/dealer-claims"
+      onSignOut={onSignOut}
+    >
+      <div id="dealer-independent-review-workspace" data-testid="review-workbench">
+        <p className="mb-4 max-w-4xl text-xs text-carup-text-2" data-testid="review-workbench-independence">
+          {INDEPENDENCE_NOTICE}
+        </p>
+        <Outlet />
+      </div>
+    </WorkspaceShell>
+  )
+}
 
 /**
  * CARUP-DEALER-ONB-001 D6-D8.
@@ -17,23 +59,21 @@ import { loginWithReturnTo } from '@/lib/routeAccess'
  * independently verified role and password step-up where applicable.
  */
 const REVIEW_ROLES = new Set(['reviewer','admin','platform_admin','super_admin'])
-const reviewLinks = [
-  ['/admin/dealer-claims','Claims'],
-  ['/admin/dealer-research-review','Source reviews'],
-  ['/admin/dealer-compliance-submissions','Application evidence'],
-  ['/admin/dealer-legal-activation','Legal activation'],
-  ['/admin/dealer-full-storefront-review','Public storefront decisions'],
-  ['/admin/dealer-buyer-feedback','Buyer complaints'],
-  ['/admin/dealer-vehicle-evidence','Vehicle documents'],
-  ['/admin/dealer-operating-lifecycle','Operating lifecycle'],
-] as const
+// Single source with the unified ReviewWorkbench rail (same eight workbenches, same order).
+const reviewLinks = REVIEW_WORKBENCH_LINKS.map(l => [l.href, l.label] as const)
 
 export default function DealerReviewerLayout() {
   const {user,token,loading,logout}=useAuth()
   const location=useLocation()
+  const navigate=useNavigate()
   if(loading)return <AuthBootstrapLoading />
   if(!user||!token)return <Navigate to={loginWithReturnTo(location.pathname)} replace />
   if(!REVIEW_ROLES.has(String(user.role)))return <Navigate to="/" replace />
+  // RX03-P2: presentation only, AFTER the unchanged guard above.
+  if(isUnifiedUiEnabled())return (
+    <ReviewWorkbenchChrome name={user.name ?? 'Reviewer'} role={String(user.role)}
+      onSignOut={()=>{logout();navigate('/')}} />
+  )
 
   return (
     <div className="min-h-screen bg-slate-50">

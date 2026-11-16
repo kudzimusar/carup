@@ -48,6 +48,7 @@ const FAMILY_LABELS: Record<string, string> = {
   trade: 'Trade',
   institutional: 'Institutional',
   admin: 'Administration',
+  review: 'Independent review',
 }
 
 function RailContent({
@@ -198,7 +199,9 @@ export function WorkspaceShell({
     : family === 'institutional' ? 'bank'
     : family === 'admin' ? 'admin'
     : 'dealer'
-  const navSections = railSections ?? projectWorkspaceRail(familyRole, { effectiveStates })
+  // A review workbench never inherits a role projection: its rail is explicit
+  // (the eight reviewer workbenches) or empty — never another role's menu.
+  const navSections = railSections ?? (family === 'review' ? [] : projectWorkspaceRail(familyRole, { effectiveStates }))
 
   const statusToneClasses: Record<ShellObjectIdentity['statusTone'], string> = {
     success: 'border-status-success bg-status-success-soft text-status-success',

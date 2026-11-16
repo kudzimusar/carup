@@ -113,13 +113,94 @@ export function projectWorkspaceRail(
 }
 
 /**
- * R4-2 — The ONLY dealer destination that lives inside the approved unified
- * shell slice (App.tsx wraps exactly `/dealer/dashboard` for this family).
- * Every other dealer destination remains under the legacy MainLayout /
- * canonical layout chrome and must never be advertised as an active unified
- * action.
+ * R4-2 / RX03-P2 — Dealer destinations inside the unified dealer workspace slice.
+ * `/dealer/dashboard` is wrapped by its own route family; the five canonical
+ * `/dealers/*` operations pages (route-authority register R017–R021, all
+ * WorkspaceShell(dealer)) are routed under MainLayout, and the public-family
+ * switch renders them inside the SAME server-verified dealer workspace guard
+ * when opted in (see UnifiedRouteShell). Anything not listed here stays a
+ * non-navigating "Soon" entry in the unified rail.
  */
-export const DEALER_UNIFIED_SLICE: ReadonlySet<string> = new Set(['/dealer/dashboard'])
+export const DEALER_UNIFIED_SLICE: ReadonlySet<string> = new Set([
+  '/dealer/dashboard',
+  '/dealers/operating-details',
+  '/dealers/staff',
+  '/dealers/stock',
+  '/dealers/inquiries',
+  '/dealers/billing',
+])
+
+/** Governed rail item: omitted when the registry hides it; "Soon" unless active/beta. */
+function governedItem(
+  id: string,
+  label: string,
+  href: string,
+  ctx: NavigationContext,
+  registryRoute: string = href,
+): ShellNavItem | null {
+  const feature = getFeatureByRoute(registryRoute)
+  const vis = feature ? resolveFeatureVisibility(feature, ctx) : null
+  if (vis && !vis.visible) return null
+  return {
+    id,
+    label,
+    href,
+    icon: feature?.icon ?? null,
+    planned: !!vis && !(vis.state === 'active' || vis.state === 'beta'),
+  }
+}
+
+/**
+ * RX03-P2 — Trade workspace rail (register R038–R043). Projected from the
+ * registry entries for the import-order routes; an open order adds its own
+ * real sub-routes. Presentation only: every page keeps its own server checks.
+ */
+export function projectTradeRail(
+  ctx: NavigationContext & { orderId?: string | null },
+): ShellNavSection[] {
+  const sessionCtx: NavigationContext = { isAuthenticated: true, ...ctx }
+  const imports = [
+    governedItem('imports', 'Import orders', '/diaspora/imports', sessionCtx),
+    governedItem('imports-new', 'Start an import', '/diaspora/imports/new', sessionCtx),
+  ].filter((x): x is ShellNavItem => x !== null)
+  const sections: ShellNavSection[] = [{ title: 'Imports', items: imports }]
+  const id = ctx.orderId
+  if (id) {
+    const base = `/diaspora/imports/${encodeURIComponent(id)}`
+    const order = [
+      governedItem('order', 'Order overview', base, sessionCtx, '/diaspora/imports/:id'),
+      governedItem('order-documents', 'Documents', `${base}/documents`, sessionCtx, '/diaspora/imports/:id/documents'),
+      governedItem('order-shipment', 'Shipment', `${base}/shipment`, sessionCtx, '/diaspora/imports/:id/shipment'),
+      governedItem('order-passport', 'Order passport', `${base}/passport`, sessionCtx, '/diaspora/imports/:id/passport'),
+    ].filter((x): x is ShellNavItem => x !== null)
+    if (order.length) sections.push({ title: 'This order', items: order })
+  }
+  return sections
+}
+
+/**
+ * RX03-P2 — Independent review workbench rail (register R131–R138,
+ * ReviewWorkbench). Exactly the eight existing reviewer workbenches; the
+ * reviewer layout's own guard decides access and every action keeps its
+ * server-side reviewer session + step-up checks.
+ */
+export const REVIEW_WORKBENCH_LINKS: ReadonlyArray<{ id: string; label: string; href: string }> = [
+  { id: 'claims', label: 'Claims', href: '/admin/dealer-claims' },
+  { id: 'sources', label: 'Source reviews', href: '/admin/dealer-research-review' },
+  { id: 'applications', label: 'Application evidence', href: '/admin/dealer-compliance-submissions' },
+  { id: 'legal', label: 'Legal activation', href: '/admin/dealer-legal-activation' },
+  { id: 'storefront', label: 'Public storefront decisions', href: '/admin/dealer-full-storefront-review' },
+  { id: 'feedback', label: 'Buyer complaints', href: '/admin/dealer-buyer-feedback' },
+  { id: 'vehicle-documents', label: 'Vehicle documents', href: '/admin/dealer-vehicle-evidence' },
+  { id: 'lifecycle', label: 'Operating lifecycle', href: '/admin/dealer-operating-lifecycle' },
+]
+
+export function projectReviewRail(): ShellNavSection[] {
+  return [{
+    title: 'Dealership review',
+    items: REVIEW_WORKBENCH_LINKS.map(l => ({ id: l.id, label: l.label, href: l.href, icon: null, planned: false })),
+  }]
+}
 
 /**
  * R4-2 — Dealer operations rail projected through the CANONICAL feature
