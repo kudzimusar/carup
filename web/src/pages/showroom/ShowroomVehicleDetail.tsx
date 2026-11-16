@@ -2138,11 +2138,11 @@ export default function ShowroomVehicleDetail() {
                   </>
                 ) : (
                   <div
-                    className="flex min-h-[18rem] w-full flex-col items-center justify-center gap-3 px-6 pb-8 pt-16 text-center md:aspect-[16/10] md:min-h-0"
+                    className="flex min-h-[14rem] w-full flex-col items-center justify-center gap-2 px-6 pb-6 pt-14 text-center md:aspect-[16/10] md:min-h-0 md:gap-3 md:pb-8 md:pt-16"
                     data-testid="no-images-placeholder"
                     data-media-state={allListingMediaFailed ? 'published_unavailable' : listingMedia.state}
                   >
-                    <div className="w-[min(62%,300px)]">
+                    <div className="w-[min(46%,220px)] md:w-[min(62%,300px)]">
                       <VehicleSilhouette bodyStyle={vehicle.body_style} tone="muted" accent={false} className="w-full" strokeWidth={1.75} />
                     </div>
                     {allListingMediaFailed ? (
@@ -2248,11 +2248,13 @@ export default function ShowroomVehicleDetail() {
               )}
 
               <div className="mt-3 space-y-2">
-                <p className="max-w-[72ch] text-[13px] leading-5 text-slate-500" data-testid="listing-media-caption">
+                {/* RX03-P2-R4: the seller-photo caption describes photos — with none published it
+                    contradicted the empty state directly above it, so it only renders with photos. */}
+                {listingMedia.items.length > 0 && <p className="max-w-[72ch] text-[13px] leading-5 text-slate-500" data-testid="listing-media-caption">
                   {listingMedia.items.some((item) => item.synthetic_demo)
                     ? 'Synthetic reference media for this staging demonstration. These images are not verified evidence and do not affect CarUp Trust.'
                     : 'Photos supplied by the seller to advertise this vehicle. CarUp does not review them and makes no claim about what they show.'}
-                </p>
+                </p>}
                 {/* Rule 5: counted, never silently dropped. A short gallery that hides what it could
                     not render is passing our defect off as the seller's omission.
 

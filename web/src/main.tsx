@@ -5,6 +5,10 @@ import './index.css'
 import App from './App.tsx'
 import { AuthProvider } from './context/AuthContext.tsx'
 import PreviewProvenanceBanner from './components/PreviewProvenanceBanner.tsx'
+import { applyShowroomFavicon } from './components/brand/showroomFavicon'
+
+// RX03-P2-R4: Option 5 browser icon only with the showroom presentation on (no-op when OFF).
+applyShowroomFavicon()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
