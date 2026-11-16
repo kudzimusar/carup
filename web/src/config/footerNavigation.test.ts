@@ -30,19 +30,22 @@ describe('Footer navigation (Milestone 3)', () => {
     expect(resources).not.toContain('resources.terms')
   })
 
-  it('Stakeholders exclude platform admin and map to each role dashboard root', () => {
+  it('Stakeholders are public entry points — never a role dashboard (PC01-J-R1)', () => {
+    // This column used to link /dashboard, /dealer, /mechanic, /insurance-dash, /government and /bank:
+    // public-looking footer links that sent a guest to Sign In and a signed-in person of any other
+    // role back to their own dashboard. Every stakeholder link must now be a page a guest can open.
     const stake = getFooterNavigation('stakeholders')
-    const ids = stake.map(s => s.id)
-    expect(ids).not.toContain('stakeholder.admin')
-    expect(ids).toEqual([
-      'stakeholder.owner', 'stakeholder.dealer', 'stakeholder.mechanic',
-      'stakeholder.insurance', 'stakeholder.government', 'stakeholder.bank',
+    expect(stake.map(s => [s.id, s.href])).toEqual([
+      ['stakeholder.owners', '/sell'],
+      ['stakeholder.dealers', '/dealers'],
+      ['stakeholder.garages', '/garages'],
+      ['stakeholder.diaspora', '/diaspora'],
     ])
-    const byId = Object.fromEntries(stake.map(s => [s.id, s]))
-    expect(byId['stakeholder.owner'].href).toBe('/dashboard')
-    expect(byId['stakeholder.bank'].href).toBe('/bank')
-    expect(byId['stakeholder.bank'].label).toBe('Bankers')
-    expect(byId['stakeholder.government'].label).toBe('Government')
+    for (const s of stake) {
+      expect(isPublicRoute(s.href), `${s.id} → ${s.href} must be public`).toBe(true)
+      expect(s.href).not.toMatch(/^\/(dashboard|dealer|mechanic|insurance-dash|government|bank|admin)(\/|$)/)
+      expect(s.active).toBe(true)
+    }
   })
 
   it('hidden/disabled/planned features are excluded from footer columns (runtime override)', () => {

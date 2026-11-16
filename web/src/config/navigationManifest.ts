@@ -29,8 +29,6 @@ import {
   getStaticLifecycle,
   getDashboardRoute,
   getFeaturesByPlacement,
-  getAllRoles,
-  getRoleMetadata,
   resolveFeatureVisibility,
   getDashboardItems,
 } from './featureRegistry'
@@ -485,34 +483,42 @@ export type FooterColumn = 'product' | 'company' | 'resources' | 'legal' | 'stak
 /** Footer features whose intent is legal (split into their own column). */
 const LEGAL_FEATURE_IDS = new Set(['resources.privacy', 'resources.terms'])
 
-function stakeholderLabel(title: string): string {
-  switch (title) {
-    case 'Car Owner': return 'Car Owners'
-    case 'Dealer': return 'Dealers'
-    case 'Mechanic': return 'Mechanics'
-    case 'Insurance': return 'Insurance'
-    case 'Government': return 'Government'
-    case 'Banker': return 'Bankers'
-    default: return `${title}s`
-  }
-}
+/**
+ * PC01-J-R1 (PR #222, 0cfdfcdc — footer hunk only) — the Stakeholders column used to link every role's
+ * DASHBOARD (`/dashboard`, `/dealer`, `/mechanic`, `/insurance-dash`, `/government`, `/bank`):
+ * public-looking links that sent a guest to Sign In, and sent a signed-in person of any other role back
+ * to their own dashboard. It now lists the public entry point each stakeholder actually has. Insurers,
+ * government and banks have no public product yet, so they have no link — not a link to a private
+ * workspace. RX03 footer: each entry point is also governed by its registry feature, so a destination
+ * hidden, disabled or planned by governance drops out instead of advertising itself.
+ */
+const STAKEHOLDER_ENTRY_POINTS: ReadonlyArray<{ id: string; label: string; href: string }> = [
+  { id: 'stakeholder.owners', label: 'Car owners & sellers', href: '/sell' },
+  { id: 'stakeholder.dealers', label: 'Dealers', href: '/dealers' },
+  { id: 'stakeholder.garages', label: 'Garages & mechanics', href: '/garages' },
+  { id: 'stakeholder.diaspora', label: 'Diaspora buyers', href: '/diaspora' },
+]
 
 /**
  * Resolve a governed footer column for a context. Feature-backed columns apply
  * lifecycle/visibility (hidden/disabled/planned excluded). Stakeholder links
- * exclude platform admin from public promotion and route to each role's
- * dashboard root (the route boundary safely sends unauthenticated users to
- * login). Order is explicit (registry order for features, role order for
- * stakeholders).
+ * are the public entry point each stakeholder has (STAKEHOLDER_ENTRY_POINTS) —
+ * never a role dashboard. Order is explicit (registry order for features,
+ * entry-point order for stakeholders).
  */
 export function getFooterNavigation(column: FooterColumn, ctx: NavigationContext = {}): ResolvedNavItem[] {
   if (column === 'stakeholders') {
-    return getAllRoles()
-      .filter(role => role !== 'admin')
-      .map(role => ({
-        id: `stakeholder.${role}`,
-        label: stakeholderLabel(getRoleMetadata(role).title),
-        href: getDashboardRoute(role),
+    return STAKEHOLDER_ENTRY_POINTS
+      .filter(entry => {
+        const feature = getFeatureByRoute(entry.href)
+        if (!feature) return true
+        const vis = resolveFeatureVisibility(feature, ctx)
+        return vis.visible && (vis.state === 'active' || vis.state === 'beta')
+      })
+      .map(entry => ({
+        id: entry.id,
+        label: entry.label,
+        href: entry.href,
         external: false,
         state: 'active' as FeatureLifecycleState,
         active: true,
