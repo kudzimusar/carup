@@ -63,36 +63,10 @@ function provenanceManifest() {
   }
 }
 
-/**
- * RX03-P2-R4 — phone Home LCP is the cinematic hero's poster, which React can only request after
- * the whole entry bundle has downloaded and run. For builds that ship the showroom pages
- * (VITE_CARUP_SHOWROOM_PAGES=on at build time), start that one image download during HTML parse —
- * only on `/` and only for the portrait-phone rendition the hero will actually use (same media
- * query as CinematicHero). Default builds (flags OFF, production today) get no change at all.
- */
-function showroomHeroPosterPreload() {
-  const on = process.env.VITE_CARUP_SHOWROOM_PAGES === 'on'
-  return {
-    name: 'carup-showroom-hero-poster-preload',
-    apply: 'build' as const,
-    transformIndexHtml() {
-      if (!on) return []
-      const poster = '/media/home-film/home-portrait-poster.jpg'
-      const query = '(max-width: 767px) and (orientation: portrait)'
-      return [{
-        tag: 'script',
-        attrs: { 'data-carup': 'hero-poster-preload' },
-        children: `if(location.pathname==='/'&&window.matchMedia&&matchMedia(${JSON.stringify(query)}).matches){var l=document.createElement('link');l.rel='preload';l.as='image';l.href=${JSON.stringify(poster)};l.setAttribute('fetchpriority','high');document.head.appendChild(l)}`,
-        injectTo: 'head-prepend' as const,
-      }]
-    },
-  }
-}
-
 // https://vite.dev/config/
 export default defineConfig({
   base: '/',
-  plugins: [react(), provenanceManifest(), showroomHeroPosterPreload()],
+  plugins: [react(), provenanceManifest()],
   server: {
     port: 5173,
   },
