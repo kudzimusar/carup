@@ -1,6 +1,7 @@
 import '@/styles/showroom.css'
 import { SiWhatsapp } from 'react-icons/si'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { announceGuestSave } from '@/lib/guestSave'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { PremiumEvidenceGallery } from '@/components/PremiumEvidenceGallery'
 import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
@@ -1595,10 +1596,11 @@ export default function ShowroomVehicleDetail() {
     } else {
       updated = [...current, vehicle.id || '']
       setIsFav(true)
-      toast.success(`${vehicle.make ?? ''} ${vehicle.model ?? ''} saved!`)
+      // RX03-P2-R4: a guest save lives in this browser only — say so (and offer sign-in).
+      announceGuestSave(`${vehicle.make ?? ''} ${vehicle.model ?? ''}`, navigate)
     }
     localStorage.setItem('carup_favorites', JSON.stringify(updated))
-  }, [vehicle, id, isAuthenticated, isFav, saveMarketplaceListing, unsaveMarketplaceListing])
+  }, [vehicle, id, isAuthenticated, isFav, saveMarketplaceListing, unsaveMarketplaceListing, navigate])
 
   const [shareOpen, setShareOpen] = useState(false)
 

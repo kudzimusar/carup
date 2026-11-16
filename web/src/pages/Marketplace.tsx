@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { announceGuestSave } from '@/lib/guestSave'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -564,8 +565,10 @@ export default function Marketplace() {
 
     setFavorites(optimistic)
     setFavoritesState(optimistic)
-    toast[isSaved ? 'info' : 'success'](isSaved ? 'Removed from saved cars' : `${vehicleName} saved!`)
-  }, [favorites, isAuthenticated, saveMarketplaceListing, unsaveMarketplaceListing])
+    // RX03-P2-R4: a guest save lives in this browser only — say so (and offer sign-in).
+    if (isSaved) toast.info('Removed from saved cars')
+    else announceGuestSave(vehicleName, navigate)
+  }, [favorites, isAuthenticated, saveMarketplaceListing, unsaveMarketplaceListing, navigate])
 
   // Draft search/price filtering keeps the UI responsive during debounce. All structural facets are
   // already applied by the backend over the full eligible population before its result limit.
