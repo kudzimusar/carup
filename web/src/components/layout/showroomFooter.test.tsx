@@ -126,6 +126,10 @@ describe('phones: purpose-built compact footer', () => {
       const link = within(compact).getByTestId(`footer-essential-${id}`)
       expect(link.className).toMatch(/min-h-11/)
     }
+    // The contacts inside the disclosure are 44px targets too.
+    for (const id of ['footer-mail-info', 'footer-mail-support', 'footer-website']) {
+      expect(within(compact).getByTestId(id).className).toMatch(/min-h-11/)
+    }
     const more = within(compact).getByTestId('footer-more')
     expect(more.tagName).toBe('DETAILS')
     expect(more.hasAttribute('open')).toBe(false)

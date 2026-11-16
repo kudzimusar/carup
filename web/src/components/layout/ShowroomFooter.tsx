@@ -46,19 +46,21 @@ function useFooterModel() {
 }
 
 function ContactBlock({ compact = false }: { compact?: boolean }) {
+  // On phones every contact is a real 44px tap target, not an inline text link.
+  const tap = compact ? 'inline-flex min-h-11 items-center' : ''
   return (
     <dl className={`grid gap-1.5 text-sm text-white/75 ${compact ? '' : 'mt-6'}`} data-testid="footer-identity-contacts">
       <div className="flex flex-wrap gap-x-2">
         <dt className="text-white/55">General</dt>
-        <dd><a href={`mailto:${PUBLIC_CONTACTS.info}`} className={`${FOCUS} underline-offset-4 hover:text-white hover:underline`} data-testid="footer-mail-info">{PUBLIC_CONTACTS.info}</a></dd>
+        <dd><a href={`mailto:${PUBLIC_CONTACTS.info}`} className={`${FOCUS} ${tap} underline-offset-4 hover:text-white hover:underline`} data-testid="footer-mail-info">{PUBLIC_CONTACTS.info}</a></dd>
       </div>
       <div className="flex flex-wrap gap-x-2">
         <dt className="text-white/55">Support</dt>
-        <dd><a href={`mailto:${PUBLIC_CONTACTS.support}`} className={`${FOCUS} underline-offset-4 hover:text-white hover:underline`} data-testid="footer-mail-support">{PUBLIC_CONTACTS.support}</a></dd>
+        <dd><a href={`mailto:${PUBLIC_CONTACTS.support}`} className={`${FOCUS} ${tap} underline-offset-4 hover:text-white hover:underline`} data-testid="footer-mail-support">{PUBLIC_CONTACTS.support}</a></dd>
       </div>
       <div className="flex flex-wrap gap-x-2">
         <dt className="text-white/55">Website</dt>
-        <dd><a href={`https://${PUBLIC_IDENTITY.canonicalDomain}`} className={`${FOCUS} underline-offset-4 hover:text-white hover:underline`} data-testid="footer-website">{PUBLIC_IDENTITY.canonicalDomain}</a></dd>
+        <dd><a href={`https://${PUBLIC_IDENTITY.canonicalDomain}`} className={`${FOCUS} ${tap} underline-offset-4 hover:text-white hover:underline`} data-testid="footer-website">{PUBLIC_IDENTITY.canonicalDomain}</a></dd>
       </div>
       <div>
         <dt className="sr-only">Locations</dt>
