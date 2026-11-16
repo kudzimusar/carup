@@ -79,7 +79,7 @@ export function ScanToStart({ film }: { film: CinematicFilm | null }) {
           <div className="mt-7 rounded-[1.6rem] bg-[#F6F4F0] p-4 sm:p-6" data-testid="scan-demo">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="flex items-center gap-2 text-sm font-semibold text-[#09122A]">
-                <FileText className="h-4 w-4 text-[#C2410C]" aria-hidden="true" /> Registration book <span className="font-normal text-slate-500">(sample — not a real vehicle)</span>
+                <FileText className="h-4 w-4 text-[#C2410C]" aria-hidden="true" /> Registration book <span className="font-normal text-slate-600">(sample — not a real vehicle)</span>
               </p>
               {!reading ? (
                 <button
@@ -146,7 +146,7 @@ export function ScanToStart({ film }: { film: CinematicFilm | null }) {
             </ul>
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="max-w-sm text-[12px] leading-5 text-slate-500">
+              <p className="max-w-sm text-[12px] leading-5 text-slate-600">
                 Readings are suggestions until you confirm them. Nothing is published, verified or added to a Passport from a scan alone.
               </p>
               <Link to="/sell" className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full bg-[linear-gradient(90deg,#FE7D18,#FD5B0D)] px-5 text-sm font-semibold text-[#09122A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#09122A] focus-visible:ring-offset-2" data-testid="scan-continue">
