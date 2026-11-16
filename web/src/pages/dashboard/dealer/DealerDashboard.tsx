@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useState,type ReactNode} from 'react'
 import { dealerDate, dealerDateTime } from '@/lib/dealerDates'
 import {Link} from 'react-router-dom'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
 import {Badge} from '@/components/ui/badge'
@@ -401,6 +402,7 @@ export default function DealerDashboard(){
   ]:[]
   const pendingNote='Awaiting independent review — only you can see this'
 
+  const unifiedWorkspace=isUnifiedUiEnabled()
   return <div className="space-y-6" data-testid="real-dealer-dashboard">
     <header className="flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
@@ -446,7 +448,9 @@ export default function DealerDashboard(){
       {/* ── Hero: identity images, names, live status and quick actions ── */}
       <section aria-labelledby="dealer-dashboard-name"
         className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <DealerProfileCover src={ownerMedia.cover?.url} alt={ownerMedia.cover?.alt} className="h-32 sm:h-44 lg:h-52">
+        {/* RX03-P2-R4: inside the unified Dealer OS workspace the profile card is the ONE identity row,
+            so its cover becomes a slim band and the operating work below starts higher up. */}
+        <DealerProfileCover src={ownerMedia.cover?.url} alt={ownerMedia.cover?.alt} className={unifiedWorkspace?'h-20 sm:h-24':'h-32 sm:h-44 lg:h-52'}>
           {ownerMedia.cover?.reviewStatus===PENDING_REVIEW&&<span
             className="absolute left-3 top-3 inline-flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-900 shadow-md">
             <Clock className="h-3.5 w-3.5 shrink-0 text-amber-700" aria-hidden="true"/>{pendingNote}

@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { buildLoginRedirect } from '@/lib/returnTo'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
 import TradeIntelligence from '@/components/intelligence/TradeIntelligence'
 import { VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
@@ -21,6 +22,30 @@ const requiredDocuments = [
   'Bill of lading',
   'ZIMRA duty assessment',
 ]
+
+/**
+ * RX03-P2-R4 — which uploaded document types satisfy each required row. The checklist used to
+ * compare a prettified type ("Bill Of Lading") with the row name ("Bill of lading"), so no row
+ * could ever show as uploaded. Presentation mapping only; RX-06 owns the governed requirement set.
+ */
+const REQUIRED_DOCUMENT_TYPES: Record<string, string[]> = {
+  'Buyer identity document': ['passport', 'national_id', 'residence_card'],
+  'Invoice or auction sheet': ['commercial_invoice', 'auction_sheet'],
+  'Export certificate': ['export_certificate'],
+  'Bill of lading': ['bill_of_lading'],
+  'ZIMRA duty assessment': ['customs_declaration', 'duty_receipt'],
+}
+
+/** The state of one required row from the order's real documents (never assumed). */
+function requiredDocumentState(name: string, documents: DiasporaTradeDocument[]): 'Pending' | 'Uploaded' | 'Verified' | 'Rejected' {
+  const types = REQUIRED_DOCUMENT_TYPES[name] ?? []
+  const matches = documents.filter(d => types.includes(String(d.document_type || '').toLowerCase()))
+  if (matches.length === 0) return 'Pending'
+  const statuses = matches.map(d => String(d.verification_status || 'UPLOADED').toUpperCase())
+  if (statuses.includes('VERIFIED')) return 'Verified'
+  if (statuses.every(st => st === 'REJECTED')) return 'Rejected'
+  return 'Uploaded'
+}
 
 const documentTypeOptions = [
   { value: 'passport', label: 'Passport' },
@@ -109,7 +134,6 @@ function StatusBadge({ status }: { status?: string }) {
 }
 
 function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocument[] }) {
-  const uploadedTypes = new Set(documents.map(document => labelize(document.document_type)))
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white" data-testid="diaspora-document-checklist">
@@ -118,7 +142,7 @@ function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocume
       </div>
       <div className="divide-y divide-gray-100">
         {requiredDocuments.map((documentName, index) => {
-          const uploaded = uploadedTypes.has(documentName)
+          const state = requiredDocumentState(documentName, documents)
           return (
             <div key={documentName} className="flex items-center justify-between gap-3 px-4 py-3" data-testid="diaspora-document-row">
               <div className="flex items-center gap-3">
@@ -127,8 +151,12 @@ function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocume
                   {documentName}
                 </span>
               </div>
-              <Badge variant="outline" data-testid={`diaspora-document-status-${index}`}>
-                {uploaded ? 'Uploaded' : 'Pending'}
+              <Badge
+                variant="outline"
+                data-testid={`diaspora-document-status-${index}`}
+                className={state === 'Verified' ? 'border-green-200 text-green-800' : state === 'Rejected' ? 'border-red-200 text-red-800' : state === 'Uploaded' ? 'border-amber-200 text-amber-900' : ''}
+              >
+                {state}
               </Badge>
             </div>
           )
@@ -580,14 +608,16 @@ function OrderSummary({ order }: { order: DiasporaImportOrder }) {
 }
 
 function StatusTimeline({ currentStatus }: { currentStatus?: string }) {
-  const activeIndex = Math.max(0, timelineSteps.indexOf(currentStatus || 'IMPORT_REQUESTED'))
+  // RX03-P2-R4: a milestone is reached when the order's real lifecycle position is at or past it.
+  // (Statuses between milestones, e.g. QUOTE_ISSUED or DUTY_PAID, used to collapse to step one.)
+  const rank = orderRank(currentStatus || 'IMPORT_REQUESTED')
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-status-timeline">
       <h2 className="text-base font-semibold text-gray-900">Status timeline</h2>
       <div className="mt-4 grid gap-3">
         {timelineSteps.map((step, index) => {
-          const active = index <= activeIndex
+          const active = rank < 0 ? index === 0 : orderRank(step) <= rank
           return (
             <div key={step} className="flex items-center gap-3" data-testid="diaspora-timeline-item">
               <span className={`flex h-7 w-7 items-center justify-center rounded-full ${active ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
@@ -598,6 +628,160 @@ function StatusTimeline({ currentStatus }: { currentStatus?: string }) {
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/* ── RX03-P2-R4 — order-first Trade reference (unified presentation only) ─────────────────── */
+
+type NextStep = { title: string; detail: string; cta?: { label: string; to: string } }
+
+/** The one next step for this order, derived only from its real status and documents. */
+function nextStepFor(order: DiasporaImportOrder): NextStep {
+  const documents = order.diaspora_trade_documents || []
+  const missing = requiredDocuments.filter(name => requiredDocumentState(name, documents) === 'Pending')
+  const awaitingReview = requiredDocuments.filter(name => requiredDocumentState(name, documents) === 'Uploaded')
+  const rank = orderRank(order.status)
+  const base = `/diaspora/imports/${order.id}`
+  if (rank >= orderRank('CONTAINER_BOOKED')) {
+    return { title: 'Follow your shipment', detail: `${labelize(order.status)}. Shipment milestones are recorded by CarUp as logistics confirm them.`, cta: { label: 'Open shipment', to: `${base}/shipment` } }
+  }
+  if (missing.length > 0) {
+    return {
+      title: 'Add your trade documents',
+      detail: `${missing.length} of ${requiredDocuments.length} required documents are not uploaded yet: ${missing.join(', ').toLowerCase()}.`,
+      cta: { label: 'Add documents', to: `${base}/documents` },
+    }
+  }
+  if (awaitingReview.length > 0) {
+    return { title: 'Your documents are with CarUp for review', detail: 'Nothing is verified until a reviewer has checked each original. You will see each result here.', cta: { label: 'View documents', to: `${base}/documents` } }
+  }
+  return { title: 'Waiting for a container booking', detail: 'Required documents are verified. CarUp books a container slot next; nothing is scheduled until a booking is recorded.', cta: { label: 'View shipment', to: `${base}/shipment` } }
+}
+
+function ImportOrderOverview({ order, reload }: { order: DiasporaImportOrder; reload: () => Promise<void> }) {
+  const step = nextStepFor(order)
+  const documents = order.diaspora_trade_documents || []
+  const booked = orderRank(order.status) >= orderRank('CONTAINER_BOOKED')
+  const fact = (label: string, value: string, testId: string) => (
+    <div className="min-w-0" data-testid={testId}>
+      <dt className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">{label}</dt>
+      <dd className="mt-0.5 truncate font-semibold text-gray-950">{value}</dd>
+    </div>
+  )
+  return (
+    <div className="space-y-5" data-testid="trade-order-workbench">
+      <section className="rounded-2xl bg-[#0B1526] p-5 text-white sm:p-6" aria-labelledby="trade-next-step" data-testid="trade-next-step">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/65">Next step</p>
+        <h1 id="trade-next-step" className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">{step.title}</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80">{step.detail}</p>
+        {step.cta && (
+          <Link to={step.cta.to} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full bg-[#F97316] px-5 text-sm font-semibold text-[#0B1526] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B1526]" data-testid="trade-next-step-action">
+            {step.cta.label} <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        )}
+      </section>
+
+      <dl className="grid gap-4 rounded-2xl border border-gray-200 bg-white p-5 sm:grid-cols-2 lg:grid-cols-4" data-testid="diaspora-order-summary">
+        {fact('Cargo', labelize(order.order_type), 'diaspora-order-type')}
+        {fact('Origin', [order.origin_city, order.origin_country].filter(Boolean).join(', ') || 'Not set', 'diaspora-order-origin')}
+        {fact('Destination', [order.destination_city, order.destination_country].filter(Boolean).join(', ') || 'Not set', 'diaspora-order-destination')}
+        {fact('Budget', formatMoney(order.budget_amount, order.budget_currency || 'USD'), 'diaspora-order-budget')}
+      </dl>
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        <DocumentChecklist documents={documents} />
+        <div className="space-y-5">
+          <section className="rounded-lg border border-gray-200 bg-white p-5" aria-labelledby="trade-shipment-state" data-testid="trade-shipment-state">
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="trade-shipment-state" className="text-base font-semibold text-gray-900">Shipment</h2>
+              <Badge variant="outline" className={booked ? 'border-green-200 text-green-800' : ''}>{booked ? 'Scheduled' : 'Not scheduled'}</Badge>
+            </div>
+            <p className="mt-2 text-sm text-gray-600">
+              {booked
+                ? `This order is at “${labelize(order.status)}”. The shipment page shows each recorded milestone.`
+                : 'No container is booked for this order yet. A booking is only shown once CarUp records it.'}
+            </p>
+            <Link to={`/diaspora/imports/${order.id}/shipment`} className="mt-3 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-orange-700 hover:underline" data-testid="diaspora-open-shipment-button">
+              Shipment details <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </section>
+          <StatusTimeline currentStatus={order.status} />
+        </div>
+      </div>
+      <Link to={`/diaspora/imports/${order.id}/documents`} className="sr-only" data-testid="diaspora-open-documents-button">Documents</Link>
+      <PaymentMilestonesCard
+        orderId={order.id}
+        milestones={order.diaspora_payment_milestones || []}
+        quotes={order.diaspora_import_quotes || []}
+        budgetAmount={order.budget_amount}
+        budgetCurrency={order.budget_currency}
+        onRefresh={reload}
+      />
+      <ReviewerActionsCard orderId={order.id} onRefresh={reload} />
+    </div>
+  )
+}
+
+function ImportOrderListUnified({ orders, loading, error }: { orders: DiasporaImportOrder[]; loading: boolean; error: string }) {
+  return (
+    <div className="space-y-5" data-testid="diaspora-import-list-route">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight text-gray-950">Import orders</h1>
+          <p className="mt-1 text-sm text-gray-600">Each order keeps its documents, payments and shipment together.</p>
+        </div>
+        <Button asChild className="min-h-11 bg-orange-700 hover:bg-orange-800" data-testid="diaspora-new-import-button">
+          <Link to="/diaspora/imports/new"><Plus className="mr-2 h-4 w-4" />Start an import</Link>
+        </Button>
+      </header>
+      {loading && <div className="text-orange-700" data-testid="diaspora-import-list-loading">Loading import orders...</div>}
+      {error && <Alert className="border-red-200" data-testid="diaspora-import-list-error"><AlertCircle className="h-4 w-4" /><AlertTitle>Unable to load</AlertTitle><AlertDescription>{error} This is not an empty list.</AlertDescription></Alert>}
+      {!loading && !error && orders.length === 0 && (
+        <section className="rounded-2xl border border-gray-200 bg-white p-6" data-testid="diaspora-import-list-empty">
+          <h2 className="text-lg font-semibold text-gray-950">No import orders yet</h2>
+          <p className="mt-1 max-w-xl text-sm text-gray-600">An import order is where CarUp coordinates one vehicle or parts shipment for you. It moves through three stages:</p>
+          <ol className="mt-4 grid gap-3 sm:grid-cols-3">
+            {[['Request', 'Say what you want imported, from where, and your budget.'], ['Documents', 'Upload the trade documents each order needs; reviewers check every original.'], ['Shipment', 'Container booking and border milestones appear as they are recorded.']].map(([title, body], i) => (
+              <li key={title} className="rounded-xl bg-gray-50 p-4">
+                <p className="text-xs font-semibold text-orange-700">Step {i + 1}</p>
+                <p className="mt-1 font-semibold text-gray-950">{title}</p>
+                <p className="mt-1 text-sm text-gray-600">{body}</p>
+              </li>
+            ))}
+          </ol>
+          <Button asChild className="mt-5 min-h-11 bg-orange-700 hover:bg-orange-800">
+            <Link to="/diaspora/imports/new">Start your first import</Link>
+          </Button>
+        </section>
+      )}
+      {!loading && !error && orders.length > 0 && (
+        <ul className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3" data-testid="diaspora-import-list">
+          {orders.map(order => {
+            const docs = order.diaspora_trade_documents
+            const pending = docs ? requiredDocuments.filter(name => requiredDocumentState(name, docs) === 'Pending').length : null
+            return (
+              <li key={order.id}>
+                <Link to={`/diaspora/imports/${order.id}`} className="flex h-full flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 transition hover:border-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600" data-testid="diaspora-import-row">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-base font-semibold text-gray-950">{order.requested_make || 'Import'} {order.requested_model || ''}</p>
+                      <p className="mt-0.5 font-mono text-xs text-gray-500">Order {order.id.slice(0, 8)}</p>
+                    </div>
+                    <StatusBadge status={order.status} />
+                  </div>
+                  <p className="text-sm text-gray-700">{labelize(order.order_type)} · {[order.origin_country, order.destination_country].filter(Boolean).join(' → ')}</p>
+                  {pending !== null && <p className="text-xs text-gray-600">{pending === 0 ? 'All required documents uploaded' : `${pending} required document${pending === 1 ? '' : 's'} still to upload`}</p>}
+                  <span className="mt-auto inline-flex items-center gap-1 text-sm font-semibold text-orange-700">Open order <ArrowRight className="h-4 w-4" aria-hidden="true" /></span>
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <section aria-label="Trade insights" className="pt-2">
+        <TradeIntelligence windowDays={30} />
+      </section>
     </div>
   )
 }
@@ -691,6 +875,14 @@ export function DiasporaImportList() {
       .catch(err => setError(err instanceof Error ? err.message : 'Unable to load import orders'))
       .finally(() => setLoading(false))
   }, [fetchDiasporaImportOrders])
+
+  if (isUnifiedUiEnabled()) {
+    return (
+      <RequireDiasporaAuth>
+        <ImportOrderListUnified orders={orders} loading={loading} error={error} />
+      </RequireDiasporaAuth>
+    )
+  }
 
   return (
     <RequireDiasporaAuth>
@@ -1055,6 +1247,18 @@ function ReviewerActionsCard({ orderId, onRefresh }: { orderId: string; onRefres
 export function DiasporaImportDetail() {
   const { id } = useParams()
   const { order, loading, error, reload } = useDiasporaOrder(id)
+
+  if (isUnifiedUiEnabled()) {
+    return (
+      <RequireDiasporaAuth>
+        <div data-testid="diaspora-import-detail-route">
+          {loading && <div className="text-orange-700" data-testid="diaspora-import-detail-loading">Loading import order...</div>}
+          {error && <Alert className="border-red-200" data-testid="diaspora-import-detail-error"><AlertCircle className="h-4 w-4" /><AlertTitle>This import order is not available</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+          {order && <ImportOrderOverview order={order} reload={reload} />}
+        </div>
+      </RequireDiasporaAuth>
+    )
+  }
 
   return (
     <RequireDiasporaAuth>

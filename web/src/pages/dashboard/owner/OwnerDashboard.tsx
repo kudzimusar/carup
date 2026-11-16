@@ -27,6 +27,8 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { Vehicle, Escrow } from '@/types'
 import { readOwnerTrustClaim, statedMileage } from './ownerStatedValues'
+import { MyCarUpHome } from './MyCarUpHome'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 
 // ── The canonical trust claim on the owner's list surfaces (Issue #164, Phases 3 & 4) ───────
 /**
@@ -160,6 +162,27 @@ export default function OwnerDashboard() {
       detail: 'Recent activity on your vehicles and conversations.',
       to: '/dashboard/communications', cta: 'Open communications',
     })
+  }
+
+  // RX03-P2-R4 — the unified My CarUp presentation leads with the owner's vehicles. Same reads,
+  // same truth rules; flags OFF render the legacy composition below unchanged.
+  if (isUnifiedUiEnabled()) {
+    return (
+      <MyCarUpHome
+        userName={user?.name}
+        vehicles={vehicles}
+        vehiclesState={vehiclesState}
+        escrow={escrow}
+        notificationsState={notificationsState}
+        recentNotifications={recentNotifications}
+        attentionItems={attentionItems}
+        lowBandwidth={lowBandwidth}
+        onToggleLowBandwidth={() => {
+          setLowBandwidth(!lowBandwidth)
+          toast.success(lowBandwidth ? 'Images restored.' : 'Low-bandwidth mode enabled. Images are not loaded.')
+        }}
+      />
+    )
   }
 
   return (
