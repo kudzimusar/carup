@@ -25,7 +25,10 @@ import {
 } from 'lucide-react'
 import MobileNavDrawer from '@/components/layout/MobileNavDrawer'
 import { BrandIdentity } from '@/components/brand/BrandIdentity'
-import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
+import { isLaunchPreviewEnabled, isShowroomChromeEnabled } from '@/lib/presentationFlags'
+import { resolveShowroomNavigation } from '@/config/showroomNavigation'
+import { ShowroomMegaNav } from '@/components/layout/ShowroomMegaNav'
+import { ShowroomHeaderSearch } from '@/components/layout/ShowroomHeaderSearch'
 import { applyOption5BrowserIcons } from '@/components/brand/brandFavicon'
 
 // RX03-P1b R3: Option 5 favicon and touch icon only when the showroom chrome is on.
@@ -33,7 +36,7 @@ if (typeof document !== 'undefined' && isShowroomChromeEnabled()) applyOption5Br
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { getDashboardRoute, getRoleMetadata, getAllRoles, getVisiblePublicNavigationItems } from '@/config/featureRegistry'
+import { canRoleAccessRoute, getDashboardRoute, getRoleMetadata, getAllRoles, getVisiblePublicNavigationItems } from '@/config/featureRegistry'
 import type { NavigationContext, MarketplaceCoverageResponse } from '@/config/featureRegistry'
 import { getDesktopMegaMenu, type ResolvedNavSection } from '@/config/navigationManifest'
 import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
@@ -178,7 +181,8 @@ export default function Navbar() {
   const unreadCount = user && notificationsState === 'ready' ? liveNotifications.filter(n => !n.read).length : 0
 
   const activeDashboardPath = getDashboardRoute((user?.role || 'owner') as UserRole)
-  const sellerPath = user ? '/dashboard/sell-vehicle' : '/register'
+  // Showroom chrome: guests start selling at /sell (the guest sell entry), like the Sell menu and tab.
+  const sellerPath = user ? '/dashboard/sell-vehicle' : (showroom ? '/sell' : '/register')
 
   // Registry-driven mega-menus. Coverage gating, lifecycle visibility and
   // auth/role-aware destinations are resolved by the navigation manifest — no
@@ -196,6 +200,11 @@ export default function Navbar() {
   const verifyMenu = getDesktopMegaMenu('navbar-mega-verify', navContext)
   const partsMenu = getDesktopMegaMenu('navbar-mega-parts', navContext)
   const moreMenu = getDesktopMegaMenu('navbar-more', navContext)
+  // Showroom chrome: purpose-grouped taxonomy (config/showroomNavigation), same feature governance.
+  const launchPreview = showroom && isLaunchPreviewEnabled()
+  const showroomNav = showroom
+    ? resolveShowroomNavigation({ isAuthenticated: !!user, role: (user?.role as UserRole) ?? null, effectiveStates, launchPreview })
+    : []
 
   const handleRoleChange = async (newRole: string) => {
     try {
@@ -210,7 +219,7 @@ export default function Navbar() {
   return (
     <header
       className={showroom
-        ? 'sticky top-0 z-50 w-full border-b border-slate-200/70 bg-white/90 backdrop-blur-xl supports-[backdrop-filter]:bg-white/80'
+        ? 'sticky top-0 z-50 w-full border-b border-slate-200/80 bg-white'
         : 'sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60'}
       data-chrome={showroom ? 'showroom' : 'accepted'}
     >
@@ -237,6 +246,7 @@ export default function Navbar() {
           )}
 
           {/* Desktop Nav */}
+          {showroom ? <ShowroomMegaNav groups={showroomNav} launchPreview={launchPreview} /> : (
           <nav className="hidden lg:flex items-center gap-1" data-testid="public-primary-nav">
             <CommerceMenu label="Buy" icon={ShoppingCart} sections={buyMenu} testId="nav-buy" menuTestId="nav-buy-menu" showroom={showroom} />
             <CommerceMenu label="Sell" icon={Car} sections={sellMenu} testId="nav-sell" menuTestId="nav-sell-menu" showroom={showroom} />
@@ -272,9 +282,11 @@ export default function Navbar() {
             })}
             <CommerceMenu label="More" icon={MoreHorizontal} sections={moreMenu} testId="nav-more" menuTestId="nav-more-menu" showroom={showroom} />
           </nav>
+          )}
 
           {/* Right Actions */}
-          <div className="flex items-center gap-2">
+          <div className={showroom ? 'flex min-w-0 flex-1 items-center justify-end gap-1.5 lg:flex-none lg:gap-2' : 'flex items-center gap-2'}>
+            {showroom && <ShowroomHeaderSearch />}
             {/* Currency Selector */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -335,7 +347,11 @@ export default function Navbar() {
                 ))}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link to="/dashboard" className="text-center text-orange-600 text-sm cursor-pointer">
+                  <Link
+                    to={showroom && user && canRoleAccessRoute(user.role as UserRole, '/dashboard/communications') ? '/dashboard/communications' : '/dashboard'}
+                    className={showroom ? 'cursor-pointer justify-center text-sm font-semibold text-[#09122A]' : 'text-center text-orange-600 text-sm cursor-pointer'}
+                    data-testid="notifications-view-all"
+                  >
                     View All Notifications
                   </Link>
                 </DropdownMenuItem>
@@ -362,32 +378,51 @@ export default function Navbar() {
                       <LayoutDashboard className="w-4 h-4 mr-2" /> Dashboard
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to="/dashboard/garage" className="cursor-pointer">
-                      <Car className="w-4 h-4 mr-2" /> My Garage
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to="/dashboard/ai" className="cursor-pointer">
-                      <MessageSquare className="w-4 h-4 mr-2" /> Gutu AI
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to={activeDashboardPath} className="cursor-pointer">
-                      <Settings className="w-4 h-4 mr-2" /> Settings
-                    </Link>
-                  </DropdownMenuItem>
+                  {/* Showroom chrome (audit A1): owner-only items only for roles that may open them, no
+                      misrouted Settings, and no role-elevation list (the server authorises none of it). */}
+                  {(!showroom || canRoleAccessRoute(user.role as UserRole, '/dashboard/garage')) && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/dashboard/garage" className="cursor-pointer" data-testid="account-menu-garage">
+                        <Car className="w-4 h-4 mr-2" /> My Garage
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  {(!showroom || canRoleAccessRoute(user.role as UserRole, '/dashboard/ai')) && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/dashboard/ai" className="cursor-pointer" data-testid="account-menu-ai">
+                        <MessageSquare className="w-4 h-4 mr-2" /> Gutu AI
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  {showroom && canRoleAccessRoute(user.role as UserRole, '/dashboard/communications') && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/dashboard/communications" className="cursor-pointer" data-testid="account-menu-messages">
+                        <MessageSquare className="w-4 h-4 mr-2" /> Messages
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  {!showroom && (
+                    <DropdownMenuItem asChild>
+                      <Link to={activeDashboardPath} className="cursor-pointer">
+                        <Settings className="w-4 h-4 mr-2" /> Settings
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
-                  <div className="px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider">Switch Portal Role</div>
-                  {getAllRoles().map((r) => {
-                    if (r === user.role) return null;
-                    return (
-                      <DropdownMenuItem key={r} onClick={() => handleRoleChange(r)} className="cursor-pointer text-xs">
-                        Change to {getRoleMetadata(r).title}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                  <DropdownMenuSeparator />
+                  {!showroom && (
+                    <>
+                      <div className="px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider">Switch Portal Role</div>
+                      {getAllRoles().map((r) => {
+                        if (r === user.role) return null;
+                        return (
+                          <DropdownMenuItem key={r} onClick={() => handleRoleChange(r)} className="cursor-pointer text-xs">
+                            Change to {getRoleMetadata(r).title}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
                   <DropdownMenuItem className="text-red-600 cursor-pointer" onClick={() => {
                     logout()
                     window.location.href = '/'
