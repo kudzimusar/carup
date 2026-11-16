@@ -79,7 +79,7 @@ function FilmLayer({
     if (playing) {
       // Autoplay can still be refused (Low Power Mode, browser policy). The poster stays; the
       // visitor can press Play, which is a user gesture and normally succeeds.
-      video.play().catch(() => { /* poster remains */ })
+      Promise.resolve(video.play()).catch(() => { /* poster remains */ })
     } else {
       video.pause()
     }
@@ -237,7 +237,14 @@ export function CinematicHero({ film: filmProp, frames, framesState, children }:
           data-testid="home-hero-media-controls"
         >
           <div className="min-w-0 flex-1 text-[11px] leading-4 text-white/80">
-            {mode === 'film' && film && <span data-testid="home-hero-disclosure">{film.disclosure}</span>}
+            {mode === 'film' && film && (
+              <span data-testid="home-hero-disclosure" className="inline-flex items-center gap-1.5">
+                {film.disclosure}
+                {(film.review ?? 'approved') === 'owner-review' && (
+                  <span className="rounded-full bg-[#FE7D18] px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-[#09122A]" data-testid="home-hero-review-cut">Owner review cut</span>
+                )}
+              </span>
+            )}
             {mode === 'reel' && current && (
               <Link
                 to={current.href}

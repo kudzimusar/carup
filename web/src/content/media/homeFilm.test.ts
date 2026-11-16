@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { HOME_FILM, HOME_FILM_STATUS, playableFilm, validateFilm, type CinematicFilm } from './homeFilm'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { HOME_FILM, HOME_FILM_STATUS, SCAN_FILM, SOURCING_FILM, playableFilm, validateFilm, type CinematicFilm } from './homeFilm'
 
 const HASH = 'b'.repeat(64)
 const valid: CinematicFilm = {
@@ -67,10 +67,11 @@ describe('the committed manifest', () => {
     }
   })
 
-  it('every file it lists exists under web/public with the recorded hash and size', () => {
-    if (!HOME_FILM) return
+  it('every file each film lists exists under web/public with the recorded hash and size', () => {
     const publicDir = join(__dirname, '../../../public')
-    const files = [HOME_FILM.landscape, HOME_FILM.portrait].filter(Boolean).flatMap(r => [...r!.sources, r!.poster])
+    const films = [HOME_FILM, SOURCING_FILM, SCAN_FILM].filter(Boolean) as CinematicFilm[]
+    for (const film of films) expect(validateFilm(film), film.id).toEqual({ ok: true })
+    const files = films.flatMap(film => [film.landscape, film.portrait].filter(Boolean).flatMap(r => [...r!.sources, r!.poster]))
     for (const file of files) {
       const path = join(publicDir, file.src)
       expect(existsSync(path), file.src).toBe(true)
@@ -78,6 +79,36 @@ describe('the committed manifest', () => {
       expect(bytes.length, file.src).toBe(file.bytes)
       expect(createHash('sha256').update(bytes).digest('hex'), file.src).toBe(file.sha256)
     }
-    expect(validateFilm(HOME_FILM)).toEqual({ ok: true })
+  })
+})
+
+describe('owner-review cuts (RX03 Addendum 05)', () => {
+  afterEach(() => vi.unstubAllEnvs())
+  const review: CinematicFilm = { ...valid, review: 'owner-review', provenance: { ...valid.provenance, approvedBy: '', approvedAt: '' } }
+
+  it('a review cut needs its credit-authorization reference but not an approval yet', () => {
+    expect(validateFilm(review)).toEqual({ ok: true })
+    expect(validateFilm({ ...review, provenance: { ...review.provenance, approvalRef: '' } }).ok).toBe(false)
+  })
+
+  it('never plays in a production build unless that build opts in; an approved cut always may', () => {
+    vi.stubEnv('PROD', true)
+    expect(playableFilm(review)).toBeNull()
+    expect(playableFilm(valid)).toBe(valid)
+    vi.stubEnv('VITE_CARUP_FILM_REVIEW', 'on')
+    expect(playableFilm(review)).toBe(review)
+  })
+
+  it('plays in non-production review builds and when explicitly allowed', () => {
+    vi.stubEnv('PROD', false)
+    expect(playableFilm(review)).toBe(review)
+    expect(playableFilm(review, { allowOwnerReview: false })).toBeNull()
+  })
+
+  it('the ingested films are labelled as AI-generated editorial media, never inventory or records', () => {
+    expect(HOME_FILM?.disclosure).toMatch(/AI-generated, not inventory/)
+    expect(SOURCING_FILM?.disclosure).toMatch(/not a shipment record/)
+    expect(SCAN_FILM?.disclosure).toMatch(/not a real document/)
+    expect(HOME_FILM_STATUS.state).not.toBe('approved')
   })
 })
