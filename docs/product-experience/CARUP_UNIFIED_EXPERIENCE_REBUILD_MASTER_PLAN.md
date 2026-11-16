@@ -2,7 +2,9 @@
 
 **Programme:** `CARUP-UX-REBUILD-01`  
 **Document ID:** `CARUP-UX-REBUILD-01-MP01`  
-**Version:** `0.9.3 — BRAND & MEDIA SOURCE-CUSTODY ADDENDUM (DRAFT; all v0.9.2 decisions and engineering gates preserved)`  
+**Version:** `0.9.4 — VISUAL-AUTHORITY CORRECTION (DRAFT; v0.9.3 addendum corrected per Owner FIX 2026-11-16 and RX03-R3-ADDENDUM-03; all v0.9.2 decisions and engineering gates preserved)`  
+>
+> **Draft correction 0.9.4 (2026-11-16):** see §10.5. It corrects the references that conflict with the Owner's visual FIX and with the binding native IA. It does not reorder the RX phases.  
 **Issued:** 2026-11-10 (Asia/Tokyo)  
 **Repository:** [`kudzimusar/carup`](https://github.com/kudzimusar/carup)  
 **Repository target:** `docs/product-experience/CARUP_UNIFIED_EXPERIENCE_REBUILD_MASTER_PLAN.md`  
@@ -665,6 +667,19 @@ Opus reports that the **required** main ruleset checks omit web unit, Playwright
 | **CI-09 Security, data and release** | Secrets scan, client credential scan, permission/tenant refusal, step-up, provider/feature flags, migration/deploy isolation | Existing required checks green; negative auth and truth guards green; no release inferred from CI |
 
 **Technical implementation details:** Compiled Tailwind CSS must be inspected for unsupported v4 shorthand under v3 before style migration. Neutral skeleton/background tones must not inherit CarUp orange action color. A route-level React error boundary should prevent one malformed API response from blanking an entire app. Route-level `lazy()` must not trigger duplicate fetch/session boot, remount errors or extra unscoped API calls. Verify request-storm reproduction at source and network layers.
+
+### 10.5 Correction 0.9.4 — visual authority, mobile IA and phase custody (2026-11-16)
+
+These corrections govern where they conflict with OD-02, OD-06, OD-18, the RX-03 row and §10.4. Semantic tokens, accessibility, Truth components and product authority are unchanged.
+
+1. **Design target (OD-02).** The target is the running RX-03 Open/Pocket Showroom (P1a pages, P1b chrome), shown in the running app and not in concept boards. "Marketplace Visual DNA" stays authoritative for semantic tokens, Truth vocabulary and status semantics only. The old Home/Marketplace compositions, the older generic white/card-heavy templates and superseded native navigation are not targets.
+2. **Mobile IA (OD-06).** Binding, per the Owner amendment of 13 Oct 2026 (`docs/one-carup/native/OC_NATIVE_LR1_R5_VISUAL_SYSTEM.md` @88bffa50):
+   - Tabs are **Home | Buy | Verify | Sell | Trade**. The header is **Notifications | Profile**.
+   - Account is reached through Profile. Inbox stays discoverable. Trade is the governed Trade OS / Diaspora gateway.
+   - Mobile web converges on this IA behind the P1b chrome switch.
+   - Native convergence is the Native Specialist's work in RX-07. The native header is currently Inbox | Profile and has no Notifications surface.
+3. **Brand (OD-18, §10.4).** The Option 5 source is ledgered; see BA01 §0. The stacked lockup is used at every width. The favicon and apple-touch icon move to RX-03 behind the chrome switch. The PWA icon set, the native icon and the splash stay in RX-07.
+4. **Phase custody (RX-03 row).** The RX-03 Trade scope is limited to the existing governed gateway reached from navigation. No new Trade function is built in RX-03. Trade deepening is RX-06, Garage and services are RX-06, and consumer/owner/seller depth is RX-04. Each primary tab is tracked in a five-pillar maturity register (FOUNDATION / PARTIAL / FUNCTIONAL / CERTIFIED / BLOCKED). A tab, a few cards or a read-only gateway is not completion. Missing function never justifies fabricated workflows or statuses.
 
 ### 11.1 Performance and network budgets (proposed, not proven rollout results)
 

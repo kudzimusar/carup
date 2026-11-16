@@ -7,6 +7,20 @@
 **Parent authority:** CARUP_UNIFIED_EXPERIENCE_REBUILD_MASTER_PLAN.md §10.4 (MP01 v0.9.3 draft), DESIGN.md and Marketplace Visual DNA
 **Evidence classification:** Drive folder metadata/read (not asset-byte inspection) and GitHub source at main 8bc00bd75f5285997065872514d10db8fbecd24f
 
+## 0. Correction R3 (2026-11-16) — supersedes the rows and gates named below
+
+Reason: Owner visual FIX of 2026-11-16 ("We are still seeing too much of the previous UI") and Moderator addendum RX03-R3-ADDENDUM-03 §8. Where this section conflicts with §1–§6, this section governs. Semantic tokens, accessibility rules, truth contracts and the differentiation rules in §4 are unchanged.
+
+| Item | Was | Now |
+|---|---|---|
+| Source (§1, BA-G0) | "Zero directly accessible files"; BA-G0 open | **Satisfied for Option 5.** The R1/R2 packages are ledgered by SHA-256 in `web/src/assets/brand/option5/ASSET_LEDGER.json` (RX03-P1a). The Drive copies are byte-identical to R1. The Owner's visual PASS of the lockup in context remains the BA-G2 decision. |
+| BA-02 phone masthead / drawer | "Compact approved mark in mobile masthead/drawer" | **The stacked Option 5 lockup (orange roofline above the wordmark) at every width,** including the phone header and the Profile sheet. The wordmark-only export and the horizontal lockup both read as the old text logo at header size (Owner, 2026-11-16). A compact mark is used only where a square icon is required (favicon, app icon). |
+| BA-03 / BA-04 / BA-05 | Approved lockup, unspecified variant | The stacked lockup: reversed on the navy footer and on auth pages, light in the masthead, the dashboard sidebar and the unified-shell BrandMark slots. |
+| BA-06 favicon | Earliest wave RX-07 | **Browser favicon (app-icon SVG) and the 180 px apple-touch icon ship in RX-03**, behind the P1b chrome release switch and byte-verified in the running build. The PWA manifest icon set, the native app icon and the splash stay in RX-07 (BA-07). |
+| Delivery | Not specified | Every Option 5 file is shipped verbatim (`?no-inline`). Inlined SVG data URIs are re-encoded by the bundler, so the served bytes would no longer hash to the package. |
+| Target design | Not stated | The design target is the **running RX-03 Open/Pocket Showroom** (P1a pages + P1b chrome). The old Home/Marketplace compositions, the older white/card-heavy templates and superseded native navigation are **not** targets. |
+| Custody line (§6) | "his current S1-3 PR #264" | Stale: S1-3 is superseded. Kimi's current RX-03 work is local P1a/P1b, held unpushed until D6 (#275) makes ordinary PR checks safe. |
+
 ## 1. What is actually available — do not mistake folders for finished artwork
 
 Connected Google Drive contains a CarUp / CarUp Media Files library, with a deliberate taxonomy:
