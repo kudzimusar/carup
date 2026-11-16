@@ -54,6 +54,7 @@ export function EditorialFilm({
   className = '',
   testId = 'editorial-film',
   disclosureTone = 'dark',
+  controlsAt = 'bottom',
 }: {
   film: CinematicFilm | null
   /** What the pause control controls, e.g. "the sourcing film". */
@@ -62,6 +63,8 @@ export function EditorialFilm({
   className?: string
   testId?: string
   disclosureTone?: 'dark' | 'light'
+  /** Where the disclosure and Pause sit; 'top' when the section's own text overlaps the film's bottom. */
+  controlsAt?: 'bottom' | 'top'
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -120,7 +123,7 @@ export function EditorialFilm({
           ))}
         </video>
       )}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 sm:p-4">
+      <div className={`pointer-events-none absolute inset-x-0 z-10 flex justify-between gap-3 p-3 sm:p-4 ${controlsAt === 'top' ? 'top-0 items-start' : 'bottom-0 items-end'}`}>
         <span className={`pointer-events-auto inline-flex min-h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold ring-1 backdrop-blur ${chip}`} data-testid={`${testId}-disclosure`}>
           {film.disclosure}
           {reviewCut && <span className="rounded-full bg-[#FE7D18] px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-[#09122A]">Owner review cut</span>}

@@ -24,6 +24,7 @@ export function SourcingJourney({ film }: { film: CinematicFilm | null }) {
         film={film}
         label="the sourcing film"
         testId="sourcing-film"
+        controlsAt="top"
         className="h-[52vh] min-h-[320px] w-full sm:h-[62vh] lg:h-[70vh]"
         fallback={<div className="h-24 w-full" />}
       />
