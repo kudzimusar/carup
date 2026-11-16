@@ -167,3 +167,16 @@ describe('App wiring', () => {
     expect(flag).toContain('if (s.prod) return false')
   })
 })
+
+describe('RX03 Addendum 05 — launch-capability previews are fail-closed', () => {
+  const base = { prod: true, envValue: undefined, storageValue: '1', globalValue: true, search: '?carup-showroom=pages,chrome,preview' }
+  it('a production build ignores every visitor opt-in for previews', () => {
+    expect(readPresentation('preview', base)).toBe(false)
+  })
+  it('only the build-time setting turns previews on in production', () => {
+    expect(readPresentation('preview', { ...base, envValue: 'on' })).toBe(true)
+  })
+  it('review opt-ins work outside production', () => {
+    expect(readPresentation('preview', { ...base, prod: false, storageValue: null, globalValue: undefined })).toBe(true)
+  })
+})

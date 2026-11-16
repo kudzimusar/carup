@@ -1,4 +1,5 @@
 import '@/styles/showroom.css'
+import { SiWhatsapp } from 'react-icons/si'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { PremiumEvidenceGallery } from '@/components/PremiumEvidenceGallery'
@@ -13,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import {
   Car, CheckCircle, Shield, ShieldCheck, Gauge, Fuel, Settings2, MapPin, Calendar,
-  Phone, MessageSquare, Heart, Share2, AlertTriangle, Search,
+  Phone, Heart, Share2, AlertTriangle, Search,
   FileCheck, Loader2, Lock, ChevronLeft, ChevronRight,
   XCircle, HelpCircle, Wrench, UserCheck, TrendingDown, ClipboardCheck,
   Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy, GitCompare, X, UserRound, Fingerprint,
@@ -2373,7 +2374,7 @@ export default function ShowroomVehicleDetail() {
                         </Button>
                         <Button asChild variant="outline" className={`h-12 flex-1 rounded-full border-slate-300 bg-white font-semibold text-[#09122A] hover:bg-slate-50 hover:text-[#09122A] ${focusRing}`}>
                           <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer">
-                            <MessageSquare className="h-4 w-4" aria-hidden="true" /> WhatsApp
+                            <SiWhatsapp className="h-4 w-4" color="#25D366" aria-hidden="true" /> WhatsApp
                           </a>
                         </Button>
                       </div>
@@ -3359,7 +3360,7 @@ export default function ShowroomVehicleDetail() {
             <>
               <Button asChild variant="outline" className={`h-12 w-12 rounded-full border-slate-300 bg-white p-0 text-[#09122A] hover:bg-slate-50 ${focusRing}`}>
                 <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp the seller">
-                  <MessageSquare className="h-5 w-5" aria-hidden="true" />
+                  <SiWhatsapp className="h-5 w-5" color="#25D366" aria-hidden="true" />
                 </a>
               </Button>
               <Button asChild className={`h-12 rounded-full bg-[#09122A] px-6 text-[15px] font-semibold text-white hover:bg-[#111D3D] ${focusRing}`}>

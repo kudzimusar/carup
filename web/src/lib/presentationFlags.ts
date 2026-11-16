@@ -8,6 +8,9 @@
  *  PRODUCTION-MODE BUILDS (`vite build`; production, staging and every preview):
  *    only a BUILD-TIME setting can turn a presentation on —
  *      VITE_CARUP_SHOWROOM_PAGES=on   (P1a: Home, Marketplace, Vehicle Detail page bodies)
+ *      VITE_CARUP_LAUNCH_PREVIEW=on   (launch-capability previews: designed experiences whose
+ *                                      underlying capability is not yet functional/certified, e.g.
+ *                                      Scan to Start. Internal preview only; never a public default.)
  *    Nothing a visitor controls is read: no query string, no storage, no global. Setting that
  *    variable on a deployed project is a release decision for the Owner; removing it and rebuilding
  *    (or promoting the previous build) is the rollback. No data, API, permission or route changes
@@ -17,11 +20,11 @@
  *    the build-time setting, or an isolated opt-in for review —
  *      sessionStorage 'carup-showroom-pages' = '1'
  *      globalThis.__CARUP_SHOWROOM_PAGES__ === true          (test harnesses)
- *      ?carup-showroom=pages on any URL (remembered for the tab via sessionStorage)
+ *      ?carup-showroom=pages,preview on any URL (remembered for the tab via sessionStorage)
  *
  * Anything else is OFF. The default everywhere is the accepted composition.
  */
-export type PresentationKey = 'pages'
+export type PresentationKey = 'pages' | 'preview'
 
 interface PresentationDefinition {
   envName: string
@@ -36,6 +39,12 @@ export const PRESENTATIONS: Record<PresentationKey, PresentationDefinition> = {
     storageKey: 'carup-showroom-pages',
     globalName: '__CARUP_SHOWROOM_PAGES__',
     queryToken: 'pages',
+  },
+  preview: {
+    envName: 'VITE_CARUP_LAUNCH_PREVIEW',
+    storageKey: 'carup-launch-preview',
+    globalName: '__CARUP_LAUNCH_PREVIEW__',
+    queryToken: 'preview',
   },
 }
 
@@ -72,7 +81,7 @@ function gatherSources(key: PresentationKey): PresentationSources {
   // with literals at build time (and vitest's stubEnv reaches exactly these accesses).
   const envValue = key === 'pages'
     ? (import.meta.env.VITE_CARUP_SHOWROOM_PAGES as string | undefined)
-    : undefined
+    : (import.meta.env.VITE_CARUP_LAUNCH_PREVIEW as string | undefined)
   let storageValue: string | null = null
   try {
     if (typeof window !== 'undefined' && window.sessionStorage) storageValue = window.sessionStorage.getItem(def.storageKey)
@@ -117,4 +126,13 @@ export function isPresentationEnabled(key: PresentationKey): boolean {
 /** P1a: the redesigned Home, Marketplace and Vehicle Detail page bodies. */
 export function isShowroomPagesEnabled(): boolean {
   return isPresentationEnabled('pages')
+}
+
+/**
+ * Launch-capability previews: designed launch experiences whose capability is not yet functional or
+ * independently accepted (Scan to Start before governed OCR is live). Never on in a production build
+ * unless the build sets VITE_CARUP_LAUNCH_PREVIEW=on for an internal preview deployment.
+ */
+export function isLaunchPreviewEnabled(): boolean {
+  return isPresentationEnabled('preview')
 }

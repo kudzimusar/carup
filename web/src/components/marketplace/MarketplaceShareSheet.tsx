@@ -1,3 +1,5 @@
+import { SiWhatsapp } from 'react-icons/si'
+import { isShowroomPagesEnabled } from '@/lib/presentationFlags'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Check, Copy, Mail, MessageCircle, MoreHorizontal, Send, Share2 } from 'lucide-react'
@@ -13,6 +15,10 @@ interface MarketplaceShareSheetProps {
 
 function popup(url: string) {
   window.open(url, '_blank', 'noopener,noreferrer,width=720,height=640')
+}
+
+function WhatsAppBrandIcon({ className }: { className?: string }) {
+  return <SiWhatsapp className={className} color="#25D366" aria-hidden="true" />
 }
 
 export function MarketplaceShareSheet({ open, onOpenChange, title, url }: MarketplaceShareSheetProps) {
@@ -37,7 +43,9 @@ export function MarketplaceShareSheet({ open, onOpenChange, title, url }: Market
   }
 
   const actions = [
-    { label: 'WhatsApp', icon: MessageCircle, action: () => popup(`https://wa.me/?text=${encodedText}%20${encodedUrl}`) },
+    // RX03 Addendum 05: the official WhatsApp glyph (Simple Icons, CC0) on the genuine WhatsApp action in
+    // the showroom pages; the accepted presentation keeps its icon.
+    { label: 'WhatsApp', icon: isShowroomPagesEnabled() ? WhatsAppBrandIcon : MessageCircle, action: () => popup(`https://wa.me/?text=${encodedText}%20${encodedUrl}`) },
     { label: 'Facebook', icon: Share2, action: () => popup(`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`) },
     { label: 'X', icon: Send, action: () => popup(`https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`) },
     { label: 'Email', icon: Mail, action: () => { window.location.href = `mailto:?subject=${encodeURIComponent(title)}&body=${encodedText}%0A%0A${encodedUrl}` } },

@@ -1,12 +1,11 @@
 import '@/styles/showroom.css'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   ArrowRight,
   ArrowUpRight,
-  BookOpen,
   ChevronDown,
-  Headphones,
+  Globe2,
   Search,
   ShieldCheck,
 } from 'lucide-react'
@@ -14,11 +13,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { ShowroomListingCard } from '@/components/showroom/ShowroomListingCard'
 import { marketplaceListingToCardModel } from '@/lib/marketplaceCardModel'
-import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
 import { CinematicHero } from '@/components/showroom/CinematicHero'
 import { reelFramesFrom } from '@/lib/homeReel'
 import { VehicleSilhouette } from '@/components/showroom/VehicleSilhouette'
-import { playableFilm } from '@/content/media/homeFilm'
+import { SCAN_FILM, SOURCING_FILM, playableFilm } from '@/content/media/homeFilm'
+import { isLaunchPreviewEnabled } from '@/lib/presentationFlags'
+import { AskCarUp } from '@/components/showroom/launch/AskCarUp'
+import { AskCarUpMark } from '@/components/showroom/launch/AskCarUpMark'
+import { ScanToStart } from '@/components/showroom/launch/ScanToStart'
+import { SourcingJourney } from '@/components/showroom/launch/SourcingJourney'
+import { VehicleStory } from '@/components/showroom/launch/VehicleStory'
+import { ConversationsBand } from '@/components/showroom/launch/ConversationsBand'
 import type { MarketplaceListingSummary } from '@/types'
 import { canonicalMake, canonicalModel, makeTaxon, modelsForMake, resolveFuelType, resolveTransmission } from '@/data/vehicleTaxonomy'
 
@@ -99,7 +104,6 @@ const trustSignals = [
 ]
 
 const ecosystem = [
-  { eyebrow: 'Imports', title: 'Source and move a vehicle', copy: 'Import orders, documents and shipment context on the same vehicle record.', href: '/diaspora' },
   { eyebrow: 'Finance', title: 'Explore how to fund the deal', copy: 'The finance routes CarUp can actually support, and nothing it cannot.', href: '/pricing' },
   { eyebrow: 'Protect', title: 'Connect insurance to the vehicle', copy: 'Keep cover beside the same vehicle identity and buying context.', href: '/insurance' },
   { eyebrow: 'Maintain', title: 'Find garages and service context', copy: 'Mechanics and service work that stay with the car’s lifecycle record.', href: '/garages' },
@@ -121,7 +125,21 @@ function SectionHeading({ eyebrow, title, action }: { eyebrow: string; title: st
 
 export default function ShowroomLanding() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { fetchMarketplaceListings } = useCarUpApi()
+
+  // Links such as /#ask-carup from the masthead or Marketplace land on the section they name.
+  useEffect(() => {
+    if (!location.hash) return
+    const id = decodeURIComponent(location.hash.slice(1))
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(id)
+      if (!target) return
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      target.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [location.hash, location.key])
   const [buyQuery, setBuyQuery] = useState('')
   const [verifyQuery, setVerifyQuery] = useState('')
   const [intent, setIntent] = useState('buy')
@@ -146,6 +164,12 @@ export default function ShowroomLanding() {
 
   const reelFrames = useMemo(() => reelFramesFrom(listings), [listings])
   const justListed = listings.slice(0, 6)
+  const launchPreview = isLaunchPreviewEnabled()
+  // Vehicle Story: the newest published car that has a usable photo (never a placeholder story).
+  const storyVehicle = useMemo(() => {
+    const models = listings.map(marketplaceListingToCardModel)
+    return models.find(model => model.primaryImage && model.primaryImageState !== 'none') ?? null
+  }, [listings])
 
   const submitBuy = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -168,7 +192,7 @@ export default function ShowroomLanding() {
           <p className="carup-rise text-[11px] font-semibold uppercase tracking-[0.2em] text-[#FFB27A]">
             Zimbabwe’s car marketplace
           </p>
-          <h1 className="carup-rise-2 mt-4 max-w-[13ch] text-[clamp(2.6rem,6.6vw,6rem)] font-bold leading-[0.94] tracking-[-0.04em] text-white">
+          <h1 className="carup-rise-2 mt-4 max-w-[13ch] text-[clamp(2.15rem,6.6vw,6rem)] font-bold leading-[0.94] tracking-[-0.04em] text-white">
             Find the car.{' '}
             <span className="block bg-[linear-gradient(90deg,#FE7D18,#FFB27A)] bg-clip-text text-transparent">Know its story.</span>
           </h1>
@@ -186,6 +210,7 @@ export default function ShowroomLanding() {
                 <TabsTrigger value="buy" className={tabClass} data-testid="home-intent-buy">Buy</TabsTrigger>
                 <TabsTrigger value="sell" className={tabClass} data-testid="home-intent-sell">Sell</TabsTrigger>
                 <TabsTrigger value="verify" className={tabClass} data-testid="home-intent-verify">Verify</TabsTrigger>
+                <TabsTrigger value="import" className={tabClass} data-testid="home-intent-import">Import</TabsTrigger>
               </TabsList>
 
               <TabsContent value="buy" className="px-1 pb-1 pt-2">
@@ -211,6 +236,9 @@ export default function ShowroomLanding() {
                     Find a car <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </button>
                 </form>
+                <a href="#ask-carup" className="mt-1 inline-flex min-h-11 items-center gap-2 px-3 text-[13px] font-semibold text-[#09122A] hover:text-[#C2410C]" data-testid="home-ask-carup-link">
+                  <AskCarUpMark size={20} /> Not sure what to search? Describe it to Ask CarUp
+                </a>
               </TabsContent>
 
               <TabsContent value="sell" className="px-3 pb-2 pt-3">
@@ -252,6 +280,26 @@ export default function ShowroomLanding() {
                   Plate, chassis or temporary ID? Use protected lookup <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </Link>
               </TabsContent>
+
+              <TabsContent value="import" className="px-3 pb-2 pt-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="max-w-sm text-sm leading-6 text-slate-600">
+                    Source a car abroad with its request, documents and shipment on one order.
+                  </p>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Link
+                      to="/diaspora/imports/new"
+                      className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#09122A] px-5 text-sm font-semibold text-white transition hover:bg-[#111D3D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] focus-visible:ring-offset-2"
+                      data-testid="home-import-start"
+                    >
+                      <Globe2 className="h-4 w-4" aria-hidden="true" /> Start an import
+                    </Link>
+                    <Link to="/diaspora" className="inline-flex h-12 items-center rounded-2xl px-4 text-sm font-semibold text-[#09122A] ring-1 ring-slate-300 hover:bg-[#F6F4F0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C]">
+                      How it works
+                    </Link>
+                  </div>
+                </div>
+              </TabsContent>
             </Tabs>
           </div>
 
@@ -265,6 +313,9 @@ export default function ShowroomLanding() {
           </div>
         </div>
       </CinematicHero>
+
+      {/* Ask CarUp: say what the car is for; see what CarUp understood; real cars + advice. */}
+      <AskCarUp />
 
       {/* Body styles: the fastest honest shortcut into real inventory. */}
       <section className="bg-[#F6F4F0] py-14 sm:py-20" data-testid="home-body-rail" aria-labelledby="home-body-rail-title">
@@ -345,7 +396,8 @@ export default function ShowroomLanding() {
         data-testid="home-trust-strip"
         aria-labelledby="home-trust-title"
       >
-        <div className="section-padding mx-auto grid max-w-[1440px] gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-20">
+        <div className={`section-padding mx-auto grid max-w-[1440px] gap-10 lg:gap-16 ${storyVehicle ? 'lg:grid-cols-[1.05fr_0.95fr] lg:items-start' : ''}`}>
+          {storyVehicle && <VehicleStory vehicle={storyVehicle} />}
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#FFB27A]">How CarUp reads a car</p>
             <h2 id="home-trust-title" className="mt-3 max-w-lg text-[clamp(2rem,3.6vw,3.25rem)] font-bold leading-[1.02] tracking-[-0.035em]">
@@ -360,8 +412,7 @@ export default function ShowroomLanding() {
             >
               <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Verify a car
             </Link>
-          </div>
-          <ul className="divide-y divide-white/10 border-y border-white/10">
+          <ul className={`divide-y divide-white/10 border-y border-white/10 ${storyVehicle ? 'mt-10' : ''}`}>
             {trustSignals.map(signal => (
               <li key={signal.label} data-testid={signal.testId}>
                 <details className="group">
@@ -377,50 +428,60 @@ export default function ShowroomLanding() {
               </li>
             ))}
           </ul>
+          </div>
         </div>
       </section>
 
-      {/* Sell + Verify: the two other front doors, each one decision away. */}
-      <section className="bg-white py-14 sm:py-20" data-testid="home-conversion-studio">
-        <div className="section-padding mx-auto grid max-w-[1440px] gap-4 md:grid-cols-2 md:gap-6">
-          <Link
-            to="/sell"
-            className="group relative flex min-h-[300px] flex-col justify-between overflow-hidden rounded-3xl bg-[#F6F4F0] p-7 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] sm:p-10"
-          >
-            <div className="relative">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C2410C]">Sell</p>
-              <h2 className="mt-3 max-w-sm text-[clamp(1.75rem,3vw,2.5rem)] font-bold leading-[1.05] tracking-[-0.03em]">
-                Sell with a record buyers can read.
-              </h2>
-              <p className="mt-3 max-w-sm text-[15px] leading-6 text-slate-600">
-                Build the listing and photos first. CarUp connects the sale to the vehicle’s record instead of a throwaway advert.
-              </p>
-            </div>
-            <span className="relative mt-8 inline-flex items-center gap-2 text-sm font-semibold">
-              Start selling <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" aria-hidden="true" />
-            </span>
-            <VehicleSilhouette bodyStyle="SUV" accent className="pointer-events-none absolute -bottom-2 -right-6 w-[46%] max-w-[380px] opacity-90 sm:-bottom-3 sm:-right-8 sm:w-[58%]" />
-          </Link>
-          <Link
-            to="/search"
-            className="group relative flex min-h-[300px] flex-col justify-between overflow-hidden rounded-3xl bg-[#09122A] p-7 text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] sm:p-10"
-          >
-            <div className="relative">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#FFB27A]">Verify</p>
-              <h2 className="mt-3 max-w-sm text-[clamp(1.75rem,3vw,2.5rem)] font-bold leading-[1.05] tracking-[-0.03em]">
-                Found the car somewhere else?
-              </h2>
-              <p className="mt-3 max-w-sm text-[15px] leading-6 text-white/75">
-                Exact VIN lookup is public. Protected identifiers need an account — and an empty result is never treated as proof.
-              </p>
-            </div>
-            <span className="relative mt-8 inline-flex items-center gap-2 text-sm font-semibold text-[#FFB27A]">
-              Open Verify <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" aria-hidden="true" />
-            </span>
-            <VehicleSilhouette bodyStyle="Sedan" tone="paper" accent className="pointer-events-none absolute -bottom-2 -right-6 w-[46%] max-w-[380px] opacity-60 sm:-bottom-3 sm:-right-8 sm:w-[58%]" />
-          </Link>
-        </div>
-      </section>
+      {/* Sell: the Scan to Start launch design (internal launch preview only, until governed OCR is
+          live and accepted); otherwise the Sell + Verify front doors. */}
+      {launchPreview ? <ScanToStart film={playableFilm(SCAN_FILM)} /> : (
+        <>
+        {/* Sell + Verify: the two other front doors, each one decision away. */}
+        <section className="bg-white py-14 sm:py-20" data-testid="home-conversion-studio">
+          <div className="section-padding mx-auto grid max-w-[1440px] gap-4 md:grid-cols-2 md:gap-6">
+            <Link
+              to="/sell"
+              className="group relative flex min-h-[300px] flex-col justify-between overflow-hidden rounded-3xl bg-[#F6F4F0] p-7 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] sm:p-10"
+            >
+              <div className="relative">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C2410C]">Sell</p>
+                <h2 className="mt-3 max-w-sm text-[clamp(1.75rem,3vw,2.5rem)] font-bold leading-[1.05] tracking-[-0.03em]">
+                  Sell with a record buyers can read.
+                </h2>
+                <p className="mt-3 max-w-sm text-[15px] leading-6 text-slate-600">
+                  Build the listing and photos first. CarUp connects the sale to the vehicle’s record instead of a throwaway advert.
+                </p>
+              </div>
+              <span className="relative mt-8 inline-flex items-center gap-2 text-sm font-semibold">
+                Start selling <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" aria-hidden="true" />
+              </span>
+              <VehicleSilhouette bodyStyle="SUV" accent className="pointer-events-none absolute -bottom-2 -right-6 w-[46%] max-w-[380px] opacity-90 sm:-bottom-3 sm:-right-8 sm:w-[58%]" />
+            </Link>
+            <Link
+              to="/search"
+              className="group relative flex min-h-[300px] flex-col justify-between overflow-hidden rounded-3xl bg-[#09122A] p-7 text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] sm:p-10"
+            >
+              <div className="relative">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#FFB27A]">Verify</p>
+                <h2 className="mt-3 max-w-sm text-[clamp(1.75rem,3vw,2.5rem)] font-bold leading-[1.05] tracking-[-0.03em]">
+                  Found the car somewhere else?
+                </h2>
+                <p className="mt-3 max-w-sm text-[15px] leading-6 text-white/75">
+                  Exact VIN lookup is public. Protected identifiers need an account — and an empty result is never treated as proof.
+                </p>
+              </div>
+              <span className="relative mt-8 inline-flex items-center gap-2 text-sm font-semibold text-[#FFB27A]">
+                Open Verify <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" aria-hidden="true" />
+              </span>
+              <VehicleSilhouette bodyStyle="Sedan" tone="paper" accent className="pointer-events-none absolute -bottom-2 -right-6 w-[46%] max-w-[380px] opacity-60 sm:-bottom-3 sm:-right-8 sm:w-[58%]" />
+            </Link>
+          </div>
+        </section>
+        </>
+      )}
+
+      {/* Import / international sourcing: a primary proposition, with its editorial film. */}
+      <SourcingJourney film={playableFilm(SOURCING_FILM)} />
 
       {/* The rest of CarUp, as an index rather than eight look-alike cards. */}
       <section className="border-t border-slate-200 bg-white py-14 sm:py-20" data-testid="home-ecosystem-promotions">
@@ -466,28 +527,7 @@ export default function ShowroomLanding() {
         </div>
       </section>
 
-      <section id="talk-to-carup" className="scroll-mt-20 bg-white py-14 sm:py-16" data-testid="home-communications">
-        <div className="section-padding mx-auto flex max-w-[1440px] flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-[clamp(1.5rem,2.6vw,2.25rem)] font-bold leading-[1.1] tracking-[-0.03em]">Not sure where to start?</h2>
-            <p className="mt-2 max-w-lg text-[15px] leading-6 text-slate-600">
-              Ask Gutu AI for guided discovery, read Help for quick answers, or reach a person at CarUp.
-            </p>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-3 lg:w-[620px]">
-            <BuyerAssistantDrawer
-              triggerLabel="Ask Gutu AI"
-              triggerClassName="h-12 w-full justify-center rounded-full border-0 bg-[#09122A] px-5 font-semibold text-white hover:bg-[#111D3D] hover:text-white"
-            />
-            <Link to="/help" className="inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold ring-1 ring-slate-300 transition hover:ring-[#09122A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C]">
-              <BookOpen className="h-4 w-4" aria-hidden="true" /> Help centre
-            </Link>
-            <Link to="/contact" className="inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold ring-1 ring-slate-300 transition hover:ring-[#09122A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C]">
-              <Headphones className="h-4 w-4" aria-hidden="true" /> Contact CarUp
-            </Link>
-          </div>
-        </div>
-      </section>
+      <ConversationsBand />
     </div>
   )
 }

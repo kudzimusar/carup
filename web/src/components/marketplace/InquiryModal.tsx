@@ -1,3 +1,5 @@
+import { SiWhatsapp } from 'react-icons/si'
+import { isShowroomPagesEnabled } from '@/lib/presentationFlags'
 import { useState } from 'react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
@@ -170,7 +172,7 @@ export function InquiryModal({
               <SelectTrigger data-testid="marketplace-inquiry-preferred-contact"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {user && <SelectItem value="carup">CarUp</SelectItem>}
-                <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                <SelectItem value="whatsapp">{isShowroomPagesEnabled() ? <span className="inline-flex items-center gap-2"><SiWhatsapp className="h-4 w-4" color="#25D366" aria-hidden="true" />WhatsApp</span> : 'WhatsApp'}</SelectItem>
                 <SelectItem value="email">Email</SelectItem>
               </SelectContent>
             </Select>

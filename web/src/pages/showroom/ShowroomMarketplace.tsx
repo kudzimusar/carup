@@ -1,4 +1,5 @@
 import '@/styles/showroom.css'
+import { AskCarUpMark } from '@/components/showroom/launch/AskCarUpMark'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -865,6 +866,10 @@ export default function ShowroomMarketplace() {
                       </>}
                 </p>
               )}
+              {/* RX03 Addendum 05: contextual Ask CarUp — for when a filter is hard to phrase. */}
+              <Link to="/#ask-carup" className={`mt-1 inline-flex min-h-11 items-center gap-2 rounded-full text-[13px] font-semibold text-[#09122A] hover:text-[#C2410C] ${FOCUS_LIGHT}`} data-testid="marketplace-ask-carup">
+                <AskCarUpMark size={22} /> Describe the car instead — Ask CarUp
+              </Link>
             </div>
 
             <nav

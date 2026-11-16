@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ShowroomListingImage } from '@/components/showroom/ShowroomListingImage'
 import { PHOTO_SIZES } from '@/lib/mediaDelivery'
-import { displayCurrencyCode } from '@/lib/currencyDisplay'
+import { formatMarketplacePrice } from '@/lib/currencyDisplay'
 import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
 import {
   ArrowUpRight,
@@ -87,12 +87,6 @@ function titleCase(value: string | null | undefined) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-function formatMarketplacePrice(price: number | null, currency: string | null) {
-  if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded'
-  if (!currency) return `${price.toLocaleString()} · currency not recorded`
-  if (currency.toUpperCase() === 'USD') return `$${price.toLocaleString()}`
-  return `${displayCurrencyCode(currency)} ${price.toLocaleString()}`
-}
 
 const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] focus-visible:ring-offset-2'
 

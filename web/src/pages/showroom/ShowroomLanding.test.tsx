@@ -11,7 +11,13 @@ import type { MarketplaceListingSummary } from '@/types'
 vi.setConfig({ testTimeout: 30_000 })
 
 const fetchMarketplaceListings = vi.fn()
-vi.mock('@/hooks/useCarUpApi', () => ({ useCarUpApi: () => ({ fetchMarketplaceListings }) }))
+const marketplaceAiBuyerAssistant = vi.fn()
+vi.mock('@/hooks/useCarUpApi', () => ({ useCarUpApi: () => ({ fetchMarketplaceListings, marketplaceAiBuyerAssistant }) }))
+// The reel/plate behaviour is tested with no film in the manifest; film playback has its own tests.
+vi.mock('@/content/media/homeFilms.data', () => ({
+  HOME_FILM: null, SOURCING_FILM: null, SCAN_FILM: null,
+  HOME_FILM_STATUS: { state: 'hold', reason: 'test' },
+}))
 vi.mock('@/components/marketplace/BuyerAssistantDrawer', () => ({
   BuyerAssistantDrawer: ({ triggerLabel }: { triggerLabel: string }) => <button type="button" data-testid="marketplace-ai-assistant-open">{triggerLabel}</button>,
 }))
@@ -117,12 +123,12 @@ describe('Landing — cinematic Open/Pocket Showroom', () => {
     expect(await screen.findByTestId('where')).toHaveTextContent('/marketplace?q=Toyota%20Hilux')
   })
 
-  it('offers Buy, Sell and Verify as one keyboard-reachable console', async () => {
+  it('offers Buy, Sell, Verify and Import as one keyboard-reachable console', async () => {
     fetchMarketplaceListings.mockResolvedValue({ listings: [] })
     renderHome()
     const console = screen.getByTestId('home-primary-search')
     const tabs = within(console).getAllByRole('tab')
-    expect(tabs.map(tab => tab.textContent)).toEqual(['Buy', 'Sell', 'Verify'])
+    expect(tabs.map(tab => tab.textContent)).toEqual(['Buy', 'Sell', 'Verify', 'Import'])
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
   })
 
@@ -137,8 +143,44 @@ describe('Landing — cinematic Open/Pocket Showroom', () => {
     expect(screen.getAllByTestId('home-body-style')[0]).toHaveAttribute('href', '/marketplace?bodyStyle=SUV')
     expect(screen.getAllByTestId('popular-search-chip')).toHaveLength(19)
     const help = screen.getByTestId('home-communications')
-    expect(within(help).getByTestId('marketplace-ai-assistant-open')).toHaveTextContent('Ask Gutu AI')
+    expect(within(help).getByRole('link', { name: /Ask CarUp/ })).toHaveAttribute('href', '#ask-carup')
+    expect(within(help).getAllByTestId('whatsapp-glyph')).toHaveLength(2)
+    expect(help).toHaveTextContent('not affiliated with or endorsed by Meta')
     expect(within(help).getByRole('link', { name: /Help centre/ })).toHaveAttribute('href', '/help')
     expect(within(help).getByRole('link', { name: /Contact CarUp/ })).toHaveAttribute('href', '/contact')
+  })
+})
+
+describe('RX03 Addendum 05 — launch experience on Home', () => {
+  it('places Ask CarUp, Vehicle Story, Import and Conversations; Scan to Start stays out without the preview switch', async () => {
+    fetchMarketplaceListings.mockResolvedValue({ listings: [] })
+    renderHome()
+    expect(screen.getByTestId('home-ask-carup')).toBeInTheDocument()
+    expect(screen.getByTestId('home-import-journey')).toBeInTheDocument()
+    expect(screen.getByTestId('import-start')).toHaveAttribute('href', '/diaspora/imports/new')
+    expect(screen.queryByTestId('home-scan-to-start')).toBeNull()
+    expect(screen.getByTestId('home-conversion-studio')).toBeInTheDocument()
+  })
+
+  it('shows Scan to Start (labelled as a launch preview) only with the preview switch', async () => {
+    ;(globalThis as Record<string, unknown>).__CARUP_LAUNCH_PREVIEW__ = true
+    try {
+      fetchMarketplaceListings.mockResolvedValue({ listings: [] })
+      renderHome()
+      expect(screen.getByTestId('home-scan-to-start')).toHaveAttribute('data-capability-state', 'launch-preview')
+      expect(screen.getByTestId('scan-preview-badge')).toHaveTextContent('Launch preview')
+      expect(screen.queryByTestId('home-conversion-studio')).toBeNull()
+    } finally {
+      delete (globalThis as Record<string, unknown>).__CARUP_LAUNCH_PREVIEW__
+    }
+  })
+
+  it('the hero Import intent opens the real import routes', async () => {
+    fetchMarketplaceListings.mockResolvedValue({ listings: [] })
+    renderHome()
+    const tab = screen.getByTestId('home-intent-import')
+    fireEvent.mouseDown(tab)
+    fireEvent.click(tab)
+    await waitFor(() => expect(screen.getByTestId('home-import-start')).toHaveAttribute('href', '/diaspora/imports/new'))
   })
 })
