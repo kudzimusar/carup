@@ -41,16 +41,24 @@ export default function EvidenceReview() {
   const [items, setItems] = useState<VehicleEvidence[]>([])
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
+  // RX03-P2: a refused or failed queue read is NOT an empty queue (TI-13; MP01 §22.8).
+  const [loadError, setLoadError] = useState<null | 'forbidden' | 'failed'>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   useEffect(() => {
     let mounted = true
     setLoading(true)
+    setLoadError(null)
     fetchEvidenceReviewQueue(status)
       .then(data => {
         if (mounted) setItems(data)
       })
-      .catch(err => toast.error(err instanceof Error ? err.message : 'Failed to load evidence queue'))
+      .catch(err => {
+        if (!mounted) return
+        setItems([])
+        const code = (err as { status?: number } | null)?.status
+        setLoadError(code === 401 || code === 403 ? 'forbidden' : 'failed')
+      })
       .finally(() => {
         if (mounted) setLoading(false)
       })
@@ -99,6 +107,24 @@ export default function EvidenceReview() {
         </Tabs>
       </div>
 
+      {loadError === 'forbidden' && (
+        <div role="alert" data-testid="evidence-review-forbidden"
+          className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-semibold">This vehicle document queue is not open to your session.</p>
+          <p className="mt-1">
+            CarUp lets only administrators and government reviewers verify or reject vehicle evidence.
+            Nothing has been hidden from you as "empty": the queue simply was not shared with this role.
+          </p>
+        </div>
+      )}
+      {loadError === 'failed' && (
+        <div role="alert" data-testid="evidence-review-load-failed"
+          className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-950">
+          <p className="font-semibold">The evidence queue could not be loaded.</p>
+          <p className="mt-1">The counts below are unknown, not zero. Try again shortly.</p>
+        </div>
+      )}
+
       <div className="grid sm:grid-cols-3 gap-4">
         {[
           { label: 'Queue Items', value: counts.total },
@@ -108,7 +134,7 @@ export default function EvidenceReview() {
           <Card key={stat.label} className="border-0 card-shadow">
             <CardContent className="p-5">
               <p className="text-sm text-gray-500">{stat.label}</p>
-              <p className="text-2xl font-bold mt-1">{stat.value}</p>
+              <p className="text-2xl font-bold mt-1">{loadError ? 'Unknown' : stat.value}</p>
             </CardContent>
           </Card>
         ))}
@@ -123,6 +149,10 @@ export default function EvidenceReview() {
             <div className="py-12 flex justify-center text-orange-500">
               <Loader2 className="w-7 h-7 animate-spin" />
             </div>
+          ) : loadError ? (
+            <p className="py-8 text-center text-sm text-gray-600" data-testid="evidence-review-queue-unknown">
+              Queue not shown — see the notice above.
+            </p>
           ) : items.length === 0 ? (
             <div className="py-12 text-center text-gray-400">
               <CheckCircle className="w-10 h-10 mx-auto mb-3 opacity-30" />
