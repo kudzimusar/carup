@@ -146,8 +146,8 @@ describe('surfaces this increment owns carry no stale identity', () => {
  *     review and Owner release decision (dispatch §10); the showroom footer is already corrected.
  *   - PrivacyPolicy / TermsOfService: legal text; corrected versions exist only in PR #222's OC-5R
  *     legal-truth commits (2681f14c, 2ecddc24, …) — legal/Owner review, not a footer change.
- *   - KYCVerification: /kyc retire-or-redirect decision stays with the Owner (edd6b745 note).
- *   - Login.tsx: demo sign-in personas in auth code (auth lane), not company identity.
+ *   - (KYCVerification and Login.tsx left the list in RX03-AUTH: demo login removed per PR #272, KYC prefill
+ *     cleared per edd6b745; the /kyc retire-or-redirect decision itself stays with the Owner.)
  *   - mockData.ts / dashboard CustomerRecords.tsx: product fixtures.
  *   - backend/server.js legal pages and the native register screen: backend / native lanes.
  */
@@ -158,8 +158,6 @@ const OUTSTANDING_OWNER_DECISIONS: Record<string, string[]> = {
   'web/src/data/mockData.ts': ['phone'],
   'web/src/pages/PrivacyPolicy.tsx': ['carup.co.zw', 'phone', 'street', 'entity', 'hours'],
   'web/src/pages/TermsOfService.tsx': ['carup.co.zw', 'street', 'entity'],
-  'web/src/pages/auth/KYCVerification.tsx': ['street'],
-  'web/src/pages/auth/Login.tsx': ['phone'],
   'web/src/pages/dashboard/mechanic/CustomerRecords.tsx': ['phone'],
 }
 

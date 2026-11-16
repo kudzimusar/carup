@@ -320,14 +320,14 @@ export default function Register() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <Field label="First Name">
-                      <Input required autoComplete="given-name" value={form.firstName} onChange={e => set('firstName', e.target.value)} placeholder="Tendai" />
+                      <Input required autoComplete="given-name" value={form.firstName} onChange={e => set('firstName', e.target.value)} placeholder="First name" />
                     </Field>
                     <Field label="Last Name">
-                      <Input required autoComplete="family-name" value={form.lastName} onChange={e => set('lastName', e.target.value)} placeholder="Moyo" />
+                      <Input required autoComplete="family-name" value={form.lastName} onChange={e => set('lastName', e.target.value)} placeholder="Surname" />
                     </Field>
                   </div>
                   <Field label="Email">
-                    <Input type="email" required autoComplete="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="tendai@example.com" />
+                    <Input type="email" required autoComplete="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="you@example.com" />
                   </Field>
                   <Field label="Phone Number">
                     <Input required autoComplete="tel" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+263 7XX XXX XXX" />
