@@ -298,7 +298,7 @@ export function AskCarUp({ initialQuery = '' }: { initialQuery?: string }) {
                   className="mt-4 inline-flex h-12 items-center gap-2 rounded-full bg-[linear-gradient(90deg,#FE7D18,#FD5B0D)] px-6 text-sm font-semibold text-[#09122A] transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#09122A]"
                   data-testid="ask-carup-show-cars"
                 >
-                  {filtered && matches.state === 'ready' && matches.total > 0 ? `Show all ${matches.total} in the Marketplace` : filtered ? 'Show matching cars' : 'Browse all published cars'} <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  {filtered && matches.state === 'ready' && matches.total > 0 ? `Show all ${matches.total} in the Marketplace` : filtered && matches.state === 'ready' ? 'Adjust these filters in the Marketplace' : filtered ? 'Show matching cars' : 'Browse all published cars'} <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Link>
               </div>
 
