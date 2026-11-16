@@ -142,7 +142,7 @@ describe('RX03 R3 — mobile-web navigation follows the binding native IA (13 Oc
   })
 })
 
-describe('RX03 R3 — the header Profile control opens an account-first sheet (showroom chrome)', () => {
+describe('RX03 Addendum 05 — the Profile sheet: account first, then the purpose-grouped taxonomy', () => {
   const open = () => {
     render(<MemoryRouter initialEntries={['/']}><MobileNavDrawer showroom /></MemoryRouter>)
     const trigger = screen.getByTestId('mobile-menu-button')
@@ -150,34 +150,43 @@ describe('RX03 R3 — the header Profile control opens an account-first sheet (s
     fireEvent.click(trigger)
     return screen.getByTestId('mobile-nav-drawer')
   }
-  const sections = (drawer: HTMLElement) => Array.from(drawer.querySelectorAll('nav > section')).map(el => el.getAttribute('aria-label'))
   const hrefs = (drawer: HTMLElement) => within(drawer).queryAllByRole('link').map(a => a.getAttribute('href'))
+  const groups = (drawer: HTMLElement) => Array.from(drawer.querySelectorAll('[data-testid^="sheet-group-"]')).map(el => el.getAttribute('data-testid'))
 
   beforeEach(chromeOn)
 
-  it('signed out: sign in and create account come first; tab destinations are not repeated', () => {
+  it('signed out: sign in first, then the five purpose groups; signed-in-only links stay hidden', () => {
     const drawer = open()
-    expect(sections(drawer)[0]).toBe('Account')
+    expect(drawer.querySelector('nav > section')?.getAttribute('aria-label')).toBe('Account')
     expect(within(drawer).getByTestId('mobile-signin')).toHaveAttribute('href', '/login')
-    for (const tab of ['/', '/marketplace', '/search', '/sell', '/diaspora']) expect(hrefs(drawer)).not.toContain(tab)
-    // The guest Sell entry (→ /register) is the Sell pillar too: offered by the tab bar, not repeated here.
-    expect(within(drawer).queryByTestId('mobile-navitem-mobile.sell')).toBeNull()
+    expect(groups(drawer)).toEqual(['sheet-group-explore', 'sheet-group-sell', 'sheet-group-intelligence', 'sheet-group-import', 'sheet-group-services'])
+    for (const privateRoute of ['/dashboard/saved', '/dashboard/listings', '/diaspora/imports', '/diaspora/rfq', '/dashboard/communications']) {
+      expect(hrefs(drawer)).not.toContain(privateRoute)
+    }
+    expect(hrefs(drawer)).toContain('/sell')
   })
 
-  it('signed in: the dashboard (with Communications, the Inbox) comes first; sign out stays last', () => {
+  it('signed in: dashboard first, Messages reachable, no role-elevation list, sign out last', () => {
     auth.user = { id: 'u1', name: 'Rudo Moyo', role: 'owner' }
     const drawer = open()
-    expect(sections(drawer)[0]).toBe('Your dashboard')
+    expect(drawer.querySelector('nav > section')?.getAttribute('aria-label')).toBe('Your dashboard')
     expect(hrefs(drawer)).toContain('/dashboard/communications')
+    expect(hrefs(drawer)).toContain('/dashboard/sell-vehicle')
+    expect(hrefs(drawer)).not.toContain('/sell')
+    expect(drawer.querySelector('[data-testid^="mobile-roleswitch-"]')).toBeNull()
     const buttons = within(drawer).getAllByRole('button').filter(b => b.getAttribute('data-testid'))
     expect(buttons.at(-1)).toHaveAttribute('data-testid', 'mobile-signout')
-    for (const tab of ['/marketplace', '/search', '/dashboard/sell-vehicle', '/diaspora']) expect(hrefs(drawer)).not.toContain(tab)
   })
 
-  it('accepted drawer (switch off) still opens with Browse', () => {
+  it('a feature switched off removes its links (registry governance still applies)', () => {
+    const drawer = open()
+    expect(hrefs(drawer)).toContain('/insurance')
+  })
+
+  it('accepted drawer (switch off) still opens with Browse and keeps its role list', () => {
     delete (globalThis as Record<string, unknown>).__CARUP_SHOWROOM_CHROME__
     render(<MemoryRouter initialEntries={['/']}><MobileNavDrawer /></MemoryRouter>)
     fireEvent.click(screen.getByTestId('mobile-menu-button'))
-    expect(sections(screen.getByTestId('mobile-nav-drawer'))[0]).toBe('Browse')
+    expect(screen.getByTestId('mobile-nav-drawer').querySelector('nav > section')?.getAttribute('aria-label')).toBe('Browse')
   })
 })
