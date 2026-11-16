@@ -57,9 +57,9 @@ export function ConversationsBand() {
               <div className="flex items-center gap-2 text-[13px] font-semibold text-[#9AF3BC]">
                 <WhatsAppGlyph className="h-6 w-6" /> Replies on WhatsApp
               </div>
-              <p className="mt-4 text-lg font-semibold tracking-[-0.01em]">Ask through CarUp. Choose WhatsApp for the answer.</p>
+              <p className="mt-4 text-lg font-semibold tracking-[-0.01em]">Ask through CarUp. Tell the seller you prefer WhatsApp.</p>
               <p className="mt-2 text-[14px] leading-6 text-white/75">
-                Pick WhatsApp as your reply channel when you send an enquiry. The seller answers through CarUp, so the thread stays attributed to the vehicle’s record — and CarUp never shares your number to start it.
+                Pick WhatsApp as your preferred reply channel when you send an enquiry. The seller answers through CarUp, so the thread stays attributed to the vehicle’s record and CarUp never shares your number to start it. CarUp does not send messages on WhatsApp yet — until it does, the answer waits in your CarUp messages.
               </p>
               <Link to="/marketplace" className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-[#FFB27A] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FE7D18]">Ask about a car</Link>
             </li>

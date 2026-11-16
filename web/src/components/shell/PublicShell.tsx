@@ -43,6 +43,7 @@ import type { UserRole } from '@shared/types'
 import { BrandMark } from './BrandMark'
 import { useHonourBottomBarClaim } from '@/lib/bottomBarClaim'
 import { isActivePath } from './pathUtils'
+import { PUBLIC_IDENTITY } from '@/config/publicIdentity'
 
 const MEGA_MENUS: Array<{ id: 'buy' | 'sell' | 'verify' | 'parts'; label: string; surface: 'navbar-mega-buy' | 'navbar-mega-sell' | 'navbar-mega-verify' | 'navbar-mega-parts' }> = [
   { id: 'buy', label: 'Buy', surface: 'navbar-mega-buy' },
@@ -344,7 +345,8 @@ export function PublicShell({
   const megaSections = MEGA_MENUS.map(m => ({ ...m, sections: projectMegaMenu(m.surface, navCtx) }))
   const directLinks = projectDirectPublicLinks(navCtx)
   const footerColumns = projectFooterColumns(navCtx)
-  const social = getFooterSocial()
+  // RX03-P1b footer identity: no social profile is approved; only a live channel with a URL is shown.
+  const social = getFooterSocial().filter(s => s.state === 'active' && Boolean(s.url))
   const mobile = projectMobileSurfaces(navCtx)
 
   // C4/C5 — the 5-slot mobile bottom bar is projected from the AUTHORITATIVE
@@ -491,7 +493,7 @@ export function PublicShell({
           <div>
             <BrandMark slot="public-footer" tone="light" />
             <p className="mt-3 text-xs text-carup-text-3">
-              Zimbabwe's trusted vehicle marketplace.
+              {PUBLIC_IDENTITY.descriptor} · {PUBLIC_IDENTITY.tagline}
             </p>
           </div>
           {footerColumns.map(col => (
@@ -523,7 +525,7 @@ export function PublicShell({
         </div>
         <div className="border-t border-carup-line">
           <div className="mx-auto flex max-w-[1440px] flex-col items-start gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between lg:px-6">
-            <p className="text-xs text-carup-text-3">© 2026 CarUp</p>
+            <p className="text-xs text-carup-text-3">© {new Date().getFullYear()} {PUBLIC_IDENTITY.legalEntity}</p>
             <ul className="flex flex-wrap items-center gap-2">
               {social.map(s =>
                 s.state === 'planned' ? (

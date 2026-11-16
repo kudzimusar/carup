@@ -40,6 +40,7 @@ import { resolveFeatureIcon } from '@/config/featureIcons'
 import type { UserRole } from '@shared/types'
 import { BrandMark } from './BrandMark'
 import { isActivePath } from './pathUtils'
+import { PUBLIC_IDENTITY } from '@/config/publicIdentity'
 
 const FAMILY_LABELS: Record<string, string> = {
   personal: 'My CarUp',
@@ -524,8 +525,14 @@ export function WorkspaceShell({
           data-testid="shell-ws-footer"
         >
           <div className="mx-auto flex max-w-[1560px] flex-wrap items-center justify-between gap-2 text-xs text-carup-text-3">
-            <p>CarUp · {familyLabel}</p>
-            <p>Server authorization remains authoritative · session and step-up checks stay server-side</p>
+            <p>© {new Date().getFullYear()} {PUBLIC_IDENTITY.legalEntity} · {familyLabel}</p>
+            {/* RX03-P1b footer identity: a utility footer — help and legal only, never a marketing sitemap. */}
+            <ul className="flex flex-wrap items-center gap-x-4" aria-label="Help and legal">
+              <li><Link to="/help" className="hover:text-carup-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus">Help</Link></li>
+              <li><Link to="/contact" className="hover:text-carup-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus">Contact</Link></li>
+              <li><Link to="/privacy" className="hover:text-carup-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus">Privacy</Link></li>
+              <li><Link to="/terms" className="hover:text-carup-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus">Terms</Link></li>
+            </ul>
           </div>
         </footer>
 
