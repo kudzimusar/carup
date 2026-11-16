@@ -143,7 +143,7 @@ describe('Landing — cinematic Open/Pocket Showroom', () => {
     expect(screen.getAllByTestId('home-body-style')[0]).toHaveAttribute('href', '/marketplace?bodyStyle=SUV')
     expect(screen.getAllByTestId('popular-search-chip')).toHaveLength(19)
     const help = screen.getByTestId('home-communications')
-    expect(within(help).getByRole('link', { name: /Ask CarUp/ })).toHaveAttribute('href', '#ask-carup')
+    expect(within(help).getByRole('link', { name: /Gutu AI/ })).toHaveAttribute('href', '#ask-carup')
     expect(within(help).getAllByTestId('whatsapp-glyph')).toHaveLength(2)
     expect(help).toHaveTextContent('not affiliated with or endorsed by Meta')
     expect(within(help).getByRole('link', { name: /Help centre/ })).toHaveAttribute('href', '/help')

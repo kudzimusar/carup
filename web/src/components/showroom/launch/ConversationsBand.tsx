@@ -31,7 +31,7 @@ export function ConversationsBand() {
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
               <a href="#ask-carup" className="inline-flex h-11 items-center gap-2 rounded-full bg-[#09122A] pl-1.5 pr-4 text-sm font-semibold text-white transition hover:bg-[#111D3D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] focus-visible:ring-offset-2">
-                <AskCarUpMark size={30} /> Ask CarUp
+                <AskCarUpMark size={30} /> Gutu AI
               </a>
               <Link to="/help" className="inline-flex h-11 items-center gap-2 rounded-full px-4 text-sm font-semibold text-[#09122A] ring-1 ring-slate-300 transition hover:ring-[#09122A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C]">
                 <BookOpen className="h-4 w-4" aria-hidden="true" /> Help centre

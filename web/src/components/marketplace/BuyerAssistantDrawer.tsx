@@ -9,13 +9,13 @@ import { Sparkles, Loader2, Mic, MicOff } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 
 /**
- * AI buyer assistant entry point. Calls the advisory backend endpoint, which ALWAYS returns useful
+ * Gutu AI buyer assistant entry point (RX03-P2-R4: one assistant name everywhere). Calls the advisory backend endpoint, which ALWAYS returns useful
  * guidance (deterministic fallback when the AI provider is unavailable). An ai_unavailable state is
  * surfaced honestly rather than faked.
  */
 export function BuyerAssistantDrawer({
   triggerClassName = '',
-  triggerLabel = 'Ask CarUp AI',
+  triggerLabel = 'Ask Gutu AI',
 }: {
   triggerClassName?: string
   triggerLabel?: string
@@ -88,7 +88,7 @@ export function BuyerAssistantDrawer({
       </SheetTrigger>
       <SheetContent side="right" className="w-[90%] max-w-md overflow-y-auto" data-testid="marketplace-ai-assistant">
         <SheetHeader>
-          <SheetTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-orange-500" /> AI buyer assistant</SheetTitle>
+          <SheetTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-orange-500" /> Gutu AI</SheetTitle>
         </SheetHeader>
         <div className="space-y-3 px-4 py-3">
           <div>

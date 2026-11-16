@@ -1,9 +1,9 @@
 /**
- * Ask CarUp — turn a sentence ("an automatic diesel pickup under $25k for the farm") into the
+ * Gutu AI (formerly "Ask CarUp") — turn a sentence ("an automatic diesel pickup under $25k for the farm") into the
  * Marketplace filters CarUp already supports. Deterministic and local: it never invents a filter the
  * Marketplace cannot apply, and anything it does not recognise stays with the AI as context only.
  */
-import { VEHICLE_TAXONOMY, canonicalMake, canonicalModel, makeTaxon, resolveFuelType, resolveTransmission } from '@/data/vehicleTaxonomy'
+import { VEHICLE_COLORS, VEHICLE_TAXONOMY, canonicalMake, canonicalModel, makeTaxon, resolveColor, resolveFuelType, resolveTransmission } from '@/data/vehicleTaxonomy'
 
 export interface CarRequest {
   make?: string
@@ -11,6 +11,8 @@ export interface CarRequest {
   bodyStyle?: string
   fuel?: string
   transmission?: string
+  /** Canonical taxonomy colour (the Marketplace `color` filter). */
+  color?: string
   maxPrice?: number
   location?: string
   /** Purpose words passed to the assistant as context; never applied as a filter. */
@@ -90,6 +92,15 @@ export function parseCarRequest(input: string): CarRequest {
   for (const [pattern, value] of BODY_WORDS) if (pattern.test(text)) { request.bodyStyle = value; break }
   for (const [pattern, label] of FUEL_WORDS) if (pattern.test(text)) { request.fuel = canonicalFacet('fuel', label); break }
   for (const [pattern, label] of TRANSMISSION_WORDS) if (pattern.test(text)) { request.transmission = canonicalFacet('transmission', label); break }
+  // RX03-P2-R4 — colour, from the governed colour catalogue (labels + aliases, e.g. gray → Grey).
+  for (const label of VEHICLE_COLORS) {
+    if (label === 'Other') continue
+    const names = label === 'Grey' ? ['grey', 'gray'] : [label]
+    if (names.some(name => word(name).test(text))) {
+      const resolved = resolveColor(label)
+      if (resolved.state === 'canonical' || resolved.state === 'alias_match') { request.color = String(resolved.value); break }
+    }
+  }
   const place = PLACES.find(name => word(name).test(text))
   if (place) request.location = place
   request.maxPrice = readBudget(input)
@@ -105,6 +116,7 @@ export function marketplaceHrefFor(request: CarRequest): string {
   if (request.bodyStyle) params.set('bodyStyle', request.bodyStyle)
   if (request.fuel) params.set('fuel', request.fuel)
   if (request.transmission) params.set('transmission', request.transmission)
+  if (request.color) params.set('color', request.color)
   if (request.maxPrice) params.set('maxPrice', String(request.maxPrice))
   if (request.location) params.set('location', request.location)
   const query = params.toString()
@@ -119,6 +131,7 @@ export function understoodChips(request: CarRequest): UnderstoodChip[] {
   if (request.bodyStyle) chips.push({ key: 'bodyStyle', label: request.bodyStyle === 'MPV' ? 'Van / MPV' : request.bodyStyle })
   if (request.fuel) chips.push({ key: 'fuel', label: request.fuel })
   if (request.transmission) chips.push({ key: 'transmission', label: request.transmission })
+  if (request.color) chips.push({ key: 'color', label: request.color })
   if (request.maxPrice) chips.push({ key: 'maxPrice', label: `Up to $${request.maxPrice.toLocaleString('en-US')}` })
   if (request.location) chips.push({ key: 'location', label: request.location })
   for (const purpose of request.purposes) chips.push({ key: 'purpose', label: `For ${purpose}` })

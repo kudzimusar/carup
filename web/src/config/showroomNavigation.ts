@@ -49,7 +49,7 @@ export const SHOWROOM_NAVIGATION: ShowroomNavGroup[] = [
     shortLabel: 'Explore',
     label: 'Explore vehicles',
     summary: 'Browse, compare and save published cars',
-    feature: { title: 'Ask CarUp', copy: 'Describe the car you need. CarUp turns it into a search of real listings.', href: '/#ask-carup', cta: 'Describe your car', featureId: 'product.marketplace' },
+    feature: { title: 'Gutu AI', copy: 'Describe the car you need. Gutu turns it into a search of real listings.', href: '/#ask-carup', cta: 'Describe your car', featureId: 'product.marketplace' },
     columns: [
       { title: 'Browse', links: [
         { id: 'explore.all', label: 'All published cars', href: '/marketplace', featureId: 'product.marketplace' },

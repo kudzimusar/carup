@@ -237,7 +237,7 @@ export default function ShowroomLanding() {
                   </button>
                 </form>
                 <a href="#ask-carup" className="mt-1 inline-flex min-h-11 items-center gap-2 px-3 text-[13px] font-semibold text-[#09122A] hover:text-[#C2410C]" data-testid="home-ask-carup-link">
-                  <AskCarUpMark size={20} /> Not sure what to search? Describe it to Ask CarUp
+                  <AskCarUpMark size={20} /> Not sure what to search? Describe it to Gutu AI
                 </a>
               </TabsContent>
 

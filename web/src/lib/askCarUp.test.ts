@@ -41,3 +41,19 @@ describe('Ask CarUp — sentence to supported Marketplace filters', () => {
     expect(parseCarRequest('a 7 seater for the family').bodyStyle).toBe('MPV')
   })
 })
+
+describe('RX03-P2-R4 — colour reaches the Marketplace colour filter', () => {
+  it('maps catalogue colours (and the gray alias) to the canonical colour facet', async () => {
+    const { parseCarRequest, marketplaceHrefFor, understoodChips } = await import('./askCarUp')
+    const white = parseCarRequest('a white automatic Toyota SUV under $30,000 in Harare')
+    expect(white.color).toBe('White')
+    expect(marketplaceHrefFor(white)).toContain('color=White')
+    expect(understoodChips(white).map(c => c.label)).toContain('White')
+    expect(parseCarRequest('a gray hatchback').color).toBe('Grey')
+  })
+  it('never invents a colour, and "Other" is not a colour anyone asked for', async () => {
+    const { parseCarRequest } = await import('./askCarUp')
+    expect(parseCarRequest('a diesel pickup for the farm').color).toBeUndefined()
+    expect(parseCarRequest('other options please').color).toBeUndefined()
+  })
+})

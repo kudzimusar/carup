@@ -5,7 +5,8 @@ import type { ShowroomListingCardModel } from '@/components/showroom/ShowroomLis
 import type { CinematicFilm } from '@/content/media/homeFilm'
 
 const marketplaceAiBuyerAssistant = vi.fn()
-vi.mock('@/hooks/useCarUpApi', () => ({ useCarUpApi: () => ({ marketplaceAiBuyerAssistant }) }))
+const fetchMarketplaceListings = vi.fn(async () => ({ listings: [], total: 0, limit: 3 }))
+vi.mock('@/hooks/useCarUpApi', () => ({ useCarUpApi: () => ({ marketplaceAiBuyerAssistant, fetchMarketplaceListings }) }))
 
 const { AskCarUp } = await import('./AskCarUp')
 const { ScanToStart } = await import('./ScanToStart')
@@ -15,7 +16,7 @@ const { EditorialFilm } = await import('@/components/showroom/EditorialFilm')
 
 const wrap = (ui: React.ReactNode) => render(<MemoryRouter>{ui}</MemoryRouter>)
 
-describe('Ask CarUp', () => {
+describe('Gutu AI (formerly Ask CarUp)', () => {
   it('turns a sentence into removable filters, a real Marketplace link and labelled advice', async () => {
     marketplaceAiBuyerAssistant.mockResolvedValue({ guidance: ['Request an inspection before paying.'], ai_available: false })
     wrap(<AskCarUp />)
@@ -24,7 +25,7 @@ describe('Ask CarUp', () => {
     const result = await screen.findByTestId('ask-carup-result')
     expect(marketplaceAiBuyerAssistant).toHaveBeenCalledWith({ budget: 25000, use_case: 'An automatic diesel pickup under $25,000 for the farm' })
     expect(within(result).getByTestId('ask-carup-show-cars')).toHaveAttribute('href', '/marketplace?bodyStyle=Pickup&fuel=Diesel&transmission=Automatic&maxPrice=25000')
-    expect(within(result).getByTestId('ask-carup-guidance')).toHaveTextContent('rules-based (AI not connected)')
+    expect(within(result).getByTestId('ask-carup-guidance')).toHaveTextContent('Gutu guidance · rules-based (AI not connected)')
     expect(within(result).getByTestId('ask-carup-guidance')).toHaveTextContent('cannot verify a vehicle')
     fireEvent.click(within(result).getByRole('button', { name: 'Remove Diesel' }))
     expect(within(result).getByTestId('ask-carup-show-cars')).toHaveAttribute('href', '/marketplace?bodyStyle=Pickup&transmission=Automatic&maxPrice=25000')
@@ -34,7 +35,7 @@ describe('Ask CarUp', () => {
     marketplaceAiBuyerAssistant.mockResolvedValueOnce({ guidance: ['x'], ai_available: true })
     wrap(<AskCarUp />)
     fireEvent.click(screen.getAllByTestId('ask-carup-example')[0])
-    expect(await screen.findByTestId('ask-carup-guidance')).toHaveTextContent('CarUp AI · advice')
+    expect(await screen.findByTestId('ask-carup-guidance')).toHaveTextContent('Gutu AI · advice')
     marketplaceAiBuyerAssistant.mockRejectedValueOnce(new Error('down'))
     fireEvent.click(screen.getAllByTestId('ask-carup-example')[1])
     await waitFor(() => expect(screen.getByTestId('ask-carup-guidance')).toHaveTextContent('never pay outside CarUp'))
@@ -129,5 +130,41 @@ describe('International sourcing + editorial film', () => {
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-label', 'Play the film')
     expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  })
+})
+
+describe('RX03-P2-R4 — Gutu AI matches, languages and voice boundary', () => {
+  it('shows the real matching cars from the listings read, with the same filters as the Marketplace link', async () => {
+    marketplaceAiBuyerAssistant.mockResolvedValue({ guidance: ['Inspect first.'], ai_available: false })
+    fetchMarketplaceListings.mockResolvedValueOnce({ listings: [{ vin: 'VIN-1', year: 2016, make: 'Toyota', model: 'Fortuner', price: 28000, currency: 'USD' }], total: 1, limit: 3 } as never)
+    wrap(<AskCarUp />)
+    fireEvent.change(screen.getByTestId('ask-carup-input'), { target: { value: 'a white automatic Toyota SUV under $30,000' } })
+    fireEvent.click(screen.getByTestId('ask-carup-submit'))
+    expect(await screen.findByTestId('gutu-matches-count')).toHaveTextContent('1 published car matches')
+    expect(screen.getByTestId('gutu-match')).toHaveAttribute('href', '/marketplace/VIN-1')
+    const filters = fetchMarketplaceListings.mock.calls.at(-1)![0] as Record<string, unknown>
+    expect(filters).toMatchObject({ make: 'Toyota', limit: 3 })
+    expect(screen.getByTestId('ask-carup-show-cars').getAttribute('href')).toContain('color=White')
+  })
+  it('a zero result is a truthful no-match; a failed read is NOT a no-match', async () => {
+    marketplaceAiBuyerAssistant.mockResolvedValue({ guidance: ['x'], ai_available: false })
+    fetchMarketplaceListings.mockResolvedValueOnce({ listings: [], total: 0, limit: 3 } as never)
+    wrap(<AskCarUp />)
+    fireEvent.click(screen.getAllByTestId('ask-carup-example')[0])
+    expect(await screen.findByTestId('gutu-matches-none')).toBeInTheDocument()
+    fetchMarketplaceListings.mockRejectedValueOnce(new Error('down'))
+    fireEvent.click(screen.getAllByTestId('ask-carup-example')[1])
+    expect(await screen.findByTestId('gutu-matches-unavailable')).toHaveTextContent('not a “no match”')
+  })
+  it('is branded Gutu AI, offers English/chiShona/isiNdebele, and states the voice boundary honestly', async () => {
+    wrap(<AskCarUp />)
+    expect(screen.getByTestId('gutu-brand')).toHaveTextContent('Gutu AI')
+    fireEvent.click(screen.getByLabelText('chiShona'))
+    expect(screen.getByTestId('gutu-language-capability')).toHaveTextContent('Voice in chiShona is not available yet')
+    expect(screen.getByTestId('gutu-voice-start')).toBeDisabled()
+    fireEvent.click(screen.getByLabelText('English'))
+    // jsdom has no browser speech service: the control is disabled with a typed alternative.
+    expect(screen.getByTestId('gutu-voice-start')).toBeDisabled()
+    expect(screen.getByTestId('gutu-voice-status')).toHaveTextContent('not supported in this browser')
   })
 })

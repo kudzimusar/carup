@@ -2,6 +2,7 @@ import '@/styles/showroom.css'
 import { AskCarUpMark } from '@/components/showroom/launch/AskCarUpMark'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { announceGuestSave } from '@/lib/guestSave'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -666,8 +667,10 @@ export default function ShowroomMarketplace() {
 
     setFavorites(optimistic)
     setFavoritesState(optimistic)
-    toast[isSaved ? 'info' : 'success'](isSaved ? 'Removed from saved cars' : `${vehicleName} saved!`)
-  }, [favorites, isAuthenticated, saveMarketplaceListing, unsaveMarketplaceListing])
+    // RX03-P2-R4: a guest save lives in this browser only — say so (and offer sign-in).
+    if (isSaved) toast.info('Removed from saved cars')
+    else announceGuestSave(vehicleName, navigate)
+  }, [favorites, isAuthenticated, saveMarketplaceListing, unsaveMarketplaceListing, navigate])
 
   // Draft search/price filtering keeps the UI responsive during debounce. All structural facets are
   // already applied by the backend over the full eligible population before its result limit.
@@ -868,7 +871,7 @@ export default function ShowroomMarketplace() {
               )}
               {/* RX03 Addendum 05: contextual Ask CarUp — for when a filter is hard to phrase. */}
               <Link to="/#ask-carup" className={`mt-1 inline-flex min-h-11 items-center gap-2 rounded-full text-[13px] font-semibold text-[#09122A] hover:text-[#C2410C] ${FOCUS_LIGHT}`} data-testid="marketplace-ask-carup">
-                <AskCarUpMark size={22} /> Describe the car instead — Ask CarUp
+                <AskCarUpMark size={22} /> Describe the car instead — Ask Gutu AI
               </Link>
             </div>
 
