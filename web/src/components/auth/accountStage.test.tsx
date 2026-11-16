@@ -84,6 +84,12 @@ describe('the RX-03 account stage (showroom chrome ON)', () => {
     expect(screen.getByTestId('auth-exit')).toHaveTextContent('Continue browsing')
   })
 
+  it('every task control is a 44px target on phones (stage-scoped rule)', () => {
+    renderAt('/login')
+    expect(screen.getByTestId('auth-task-body').className).toMatch(/max-lg:\[&_button\]:min-h-11/)
+    expect(screen.getByTestId('auth-task-body').className).toMatch(/max-lg:\[&_a\]:min-h-11/)
+  })
+
   it('the cinematic still is a desktop-only CSS background of an approved poster, never a video', () => {
     const { container } = renderAt('/login')
     expect(container.querySelector('video')).toBeNull()

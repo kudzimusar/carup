@@ -85,7 +85,11 @@ export function AuthStage({
               {title}
             </h1>
             {subtitle && <div className="mt-2 text-[15px] leading-6 text-slate-600">{subtitle}</div>}
-            <div className="mt-7">{children}</div>
+            {/* Every control in the task is a 44px target on phones (the account pages' own buttons and
+                links included); scoped to this stage so the rest of the app is unchanged. */}
+            <div className="mt-7 max-lg:[&_a]:inline-flex max-lg:[&_a]:min-h-11 max-lg:[&_a]:items-center max-lg:[&_button]:min-h-11" data-testid="auth-task-body">
+              {children}
+            </div>
           </div>
         </main>
       </div>
