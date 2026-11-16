@@ -33,13 +33,29 @@ const VIN_PATTERN = /^[A-HJ-NPR-Z0-9]{17}$/i;
 export const LOOKUP_KINDS = Object.freeze({
   VIN: 'vin',
   RESTRICTED: 'restricted',
+  /**
+   * Service Network (O6): a single-use-ish `service_links.public_token` printed on a windscreen
+   * sticker or job card. Unlike a plate, this identifier is not an attribute of the vehicle — it is
+   * an opaque random token CarUp itself issued, so possessing it is the only way to know it. It
+   * therefore carries no enumeration risk: guessing one reveals nothing, because there is nothing
+   * to correlate it against.
+   */
+  SERVICE_LINK: 'service_link',
 });
 
 /**
- * Identifier kinds an anonymous caller may resolve. Deliberately a list of ONE — a new public
- * kind has to be added here, in the open, rather than by loosening a condition somewhere.
+ * Identifier kinds an anonymous caller may resolve. A new public kind has to be added HERE, in the
+ * open, rather than by loosening a condition somewhere.
+ *
+ * SERVICE_LINK was added by O6. It was already anonymously resolvable through
+ * `GET /api/service-links/:publicToken`, which is deliberate — scanning a sticker must not demand a
+ * login — but that route never consulted this policy, so CarUp had a second public lookup surface
+ * that this list did not know about. The point of the list is that it is the whole answer to "what
+ * can a stranger resolve?", and it was not. Registering it does not widen anything; it makes the
+ * existing surface visible, and `resolveServiceLink` now asks this module for permission, so
+ * removing the entry genuinely closes the route rather than merely contradicting it.
  */
-export const PUBLIC_LOOKUP_KINDS = Object.freeze([LOOKUP_KINDS.VIN]);
+export const PUBLIC_LOOKUP_KINDS = Object.freeze([LOOKUP_KINDS.VIN, LOOKUP_KINDS.SERVICE_LINK]);
 
 export const LOOKUP_DECISIONS = Object.freeze({
   ALLOW: 'allow',
@@ -102,7 +118,7 @@ export function isVerifiedActor(actor) {
  *                                     Always false today; see resolveSellerLookupOptIn.
  */
 export function resolveLookupAccess({ kind, actor, sellerOptIn = false }) {
-  if (kind !== LOOKUP_KINDS.VIN && kind !== LOOKUP_KINDS.RESTRICTED) {
+  if (!Object.values(LOOKUP_KINDS).includes(kind)) {
     return { decision: LOOKUP_DECISIONS.INVALID, kind };
   }
 

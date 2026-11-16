@@ -11,7 +11,7 @@ plus throwaway `git merge-tree` rehearsal — no rehearsal branch was created or
 ## 1. What #197 is, measured
 
 72 files: 17 `backend/services/serviceNetwork/*`, 6 routes, `backend/server.js`, 6 migrations
-(`20260901120000`–`20260901170000`), 6 `database/test/*.mjs`, 21 backend tests, 14 docs
+(`20260904120000`–`20260904170000`), 6 `database/test/*.mjs`, 21 backend tests, 14 docs
 receipts, 8 web files.
 
 **Shared files with #194: exactly TWO** — `backend/server.js` and `web/src/App.tsx`.

@@ -57,6 +57,11 @@ export function RegistryRouteBoundary({
     isBootstrapping: loading,
     isAuthenticated: !!user,
     role: (user?.role as UserRole) ?? null,
+    // A garage employee is an `owner` platform-wide and a `mechanic` in their garage. Omitting this
+    // here while DashboardLayout passed it produced an infinite /garage <-> /dashboard loop: this
+    // boundary redirected to the owner dashboard on the platform role, and the owner dashboard sent
+    // a confirmed garage member straight back.
+    tenantRole: user?.active_tenant_role ?? null,
     effectiveStates,
     enforceAuth,
   })

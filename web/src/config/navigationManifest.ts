@@ -32,6 +32,7 @@ import {
   getAllRoles,
   getRoleMetadata,
   resolveFeatureVisibility,
+  normalizeFrontendRole,
   getDashboardItems,
 } from './featureRegistry'
 
@@ -604,7 +605,24 @@ export function getMobileNavigation(ctx: NavigationContext = {}): MobileNavigati
   let dashboardRoot: { label: string; href: string } | undefined
 
   if (ctx.isAuthenticated && ctx.role) {
-    roleItems = getDashboardItems(ctx.role)
+    // The SEVENTH place that judged a person by one of their two true roles.
+    //
+    // A garage employee is `owner` platform-wide (public registration creates nothing else) and
+    // `mechanic` inside their garage. The desktop sidebar, the route gates and feature governance
+    // were all taught this; the MOBILE drawer was not — so on a phone a real garage operator saw
+    // nineteen owner items, zero garage items, and a "Dashboard" pointing at the owner dashboard
+    // they had just been routed away from. Navigation visibility and route admission must derive
+    // from the same facts, and on mobile they did not.
+    //
+    // `resolveFeatureVisibility` already accepts the tenant role, so the items are merged from both
+    // and de-duplicated by id. It widens nothing: each item is still filtered by that same resolver.
+    const tenantRole = normalizeFrontendRole(ctx.tenantRole as UserRole | undefined)
+    const candidates = tenantRole && tenantRole !== ctx.role
+      ? [...getDashboardItems(ctx.role), ...getDashboardItems(tenantRole)]
+      : getDashboardItems(ctx.role)
+    const seen = new Set<string>()
+    roleItems = candidates
+      .filter(f => (seen.has(f.id) ? false : (seen.add(f.id), true)))
       .map(f => ({ f, vis: resolveFeatureVisibility(f, ctx) }))
       .filter(({ vis }) => vis.visible)
       .map(({ f, vis }) => ({
@@ -618,7 +636,10 @@ export function getMobileNavigation(ctx: NavigationContext = {}): MobileNavigati
         beta: vis.beta,
         governedTrust: false,
       }))
-    dashboardRoot = { label: 'Dashboard', href: getDashboardRoute(ctx.role) }
+    // Where this person actually operates. Sending a garage member to the owner dashboard is the
+    // same defect in one more place — and the owner dashboard now redirects them straight back.
+    const operatingRole = normalizeFrontendRole(ctx.tenantRole as UserRole | undefined) ?? ctx.role
+    dashboardRoot = { label: 'Dashboard', href: getDashboardRoute(operatingRole) }
   }
 
   return { primary, secondary, roleItems, dashboardRoot }
