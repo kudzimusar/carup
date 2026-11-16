@@ -156,3 +156,21 @@ describe('V15 — mobile, low-bandwidth and accessibility parity', () => {
     }
   })
 })
+
+describe('RX03-P2 — the ledger badge never claims a sync for an empty chain', () => {
+  it('verified:true with count 0 (vacuous) shows no "Ledger Synced" badge', async () => {
+    fetchVehiclePassport.mockResolvedValue({ ...passport(), chainVerification: { verified: true, count: 0 } })
+    fetchVehicleEvidence.mockResolvedValue([])
+    renderPage()
+    await screen.findByText(/Nissan/)
+    await waitFor(() => expect(fetchVehiclePassport).toHaveBeenCalled())
+    expect(screen.queryByTestId('badge-ledger-synced')).toBeNull()
+  })
+
+  it('a verified chain with recorded events shows the badge', async () => {
+    fetchVehiclePassport.mockResolvedValue({ ...passport(), chainVerification: { verified: true, count: 3 } })
+    fetchVehicleEvidence.mockResolvedValue([])
+    renderPage()
+    expect(await screen.findByTestId('badge-ledger-synced')).toBeInTheDocument()
+  })
+})

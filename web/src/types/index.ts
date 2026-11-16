@@ -1993,6 +1993,8 @@ export interface ChainVerification {
   verified: boolean;
   integrity?: string;
   blocksChecked?: number;
+  /** Number of ledger events the server checked (0 = an empty, vacuously "verified" chain). */
+  count?: number;
   errors?: string[];
 }
 

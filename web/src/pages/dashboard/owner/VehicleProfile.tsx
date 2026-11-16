@@ -454,7 +454,9 @@ export default function VehicleProfile() {
                     <Star className="w-3 h-3 mr-1" /> PartSentry Active
                   </Badge>
                 )}
-                {passportData?.chainVerification?.verified && (
+                {/* RX03-P2: an EMPTY chain "verifies" vacuously (verifyChain returns {verified:true,count:0});
+                    only claim a synced ledger when at least one recorded event was actually verified. */}
+                {passportData?.chainVerification?.verified && (passportData.chainVerification.count ?? 0) > 0 && (
                   <Badge variant="secondary" className="bg-orange-50 text-orange-700 animate-pulse-glow motion-reduce:animate-none" data-testid="badge-ledger-synced">
                     <CheckCircle className="w-3 h-3 mr-1" /> Ledger Synced
                   </Badge>
