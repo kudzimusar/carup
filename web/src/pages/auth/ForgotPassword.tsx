@@ -113,7 +113,7 @@ export default function ForgotPassword() {
               <Button
                 type="submit"
                 disabled={submitting || !email.trim()}
-                className="w-full bg-orange-500 hover:bg-orange-600"
+                className="w-full bg-orange-700 hover:bg-orange-800"
                 data-testid="forgot-password-submit"
               >
                 {submitting ? 'Sending…' : 'Send reset link'}

@@ -98,7 +98,7 @@ export default function ResetPassword() {
                 The reset link is incomplete or has expired. Request a new one to continue.
               </p>
               <Link to="/auth/forgot-password">
-                <Button className="w-full bg-orange-500 hover:bg-orange-600">Request a new link</Button>
+                <Button className="w-full bg-orange-700 hover:bg-orange-800">Request a new link</Button>
               </Link>
             </div>
           ) : done ? (
@@ -112,7 +112,7 @@ export default function ResetPassword() {
                 you to sign in…
               </p>
               <Link to="/login">
-                <Button className="w-full bg-orange-500 hover:bg-orange-600">Sign in</Button>
+                <Button className="w-full bg-orange-700 hover:bg-orange-800">Sign in</Button>
               </Link>
             </div>
           ) : (
@@ -149,7 +149,7 @@ export default function ResetPassword() {
 
               <Button
                 type="submit" disabled={submitting}
-                className="w-full bg-orange-500 hover:bg-orange-600"
+                className="w-full bg-orange-700 hover:bg-orange-800"
                 data-testid="reset-password-submit"
               >
                 {submitting ? 'Updating…' : 'Update password'}

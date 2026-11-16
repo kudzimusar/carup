@@ -72,7 +72,7 @@ export default function VerifyEmail() {
             </div>
             <Heading className="mt-4 text-xl font-bold text-slate-950">Email verified</Heading>
             <p className="mt-2 text-sm leading-6 text-slate-600">{message}</p>
-            <Button asChild className="mt-6 w-full bg-orange-500 hover:bg-orange-600">
+            <Button asChild className="mt-6 w-full bg-orange-700 hover:bg-orange-800">
               <Link to={isAuthenticated ? '/dashboard' : '/login'}>{isAuthenticated ? 'Continue to CarUp' : 'Sign in to CarUp'}</Link>
             </Button>
           </div>
@@ -91,7 +91,7 @@ export default function VerifyEmail() {
               <MailCheck className="mb-2 h-4 w-4 text-orange-600" />
               Sign in and request another verification message if this link has expired.
             </div>
-            <Button asChild className="mt-4 w-full bg-orange-500 hover:bg-orange-600">
+            <Button asChild className="mt-4 w-full bg-orange-700 hover:bg-orange-800">
               <Link to="/login">Go to sign in</Link>
             </Button>
           </div>
