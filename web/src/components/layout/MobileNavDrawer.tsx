@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { signInHrefFor } from '@/lib/signInHref'
 import { Menu, LogOut, LayoutDashboard, UserCog, LogIn, Car, CircleUserRound, ChevronDown } from 'lucide-react'
 import { BrandIdentity } from '@/components/brand/BrandIdentity'
 import { resolveShowroomNavigation, resolveShowroomSupport } from '@/config/showroomNavigation'
@@ -174,7 +175,7 @@ export default function MobileNavDrawer({ showroom = false }: { showroom?: boole
             ) : (
               <section aria-label="Account" className="flex flex-col gap-2 px-2 pt-4">
                 <Button asChild className="h-11 w-full justify-center gap-2 rounded-full bg-[#09122A] text-[15px] font-semibold text-white hover:bg-[#111D3D]" data-testid="mobile-signin">
-                  <Link to="/login" onClick={close}>
+                  <Link to={signInHrefFor(location)} onClick={close}>
                     <LogIn className="h-4 w-4" aria-hidden="true" /> Sign In
                   </Link>
                 </Button>

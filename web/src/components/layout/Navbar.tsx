@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { signInHrefFor } from '@/lib/signInHref'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -434,7 +435,7 @@ export default function Navbar() {
             ) : (
               <div className="hidden md:flex items-center gap-2">
                 <Button variant="ghost" size="sm" asChild className={showroom ? 'h-10 rounded-full px-4 text-[15px] font-medium text-[#09122A] hover:bg-[#F1EFEA]' : undefined}>
-                  <Link to="/login">Sign In</Link>
+                  <Link to={showroom ? signInHrefFor(location) : '/login'} data-testid="nav-signin">Sign In</Link>
                 </Button>
                 <Button size="sm" className={showroom ? 'h-10 rounded-full bg-[#09122A] px-5 text-[15px] font-semibold text-white hover:bg-[#111D3D]' : 'bg-orange-700 hover:bg-orange-800'} asChild>
                   <Link to={sellerPath} data-testid="nav-sell-cta">Sell Your Car</Link>
