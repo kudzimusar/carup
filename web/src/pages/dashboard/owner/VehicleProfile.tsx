@@ -348,7 +348,7 @@ export default function VehicleProfile() {
           <Button size="sm" variant="outline" asChild>
             <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Edit / continue listing</Link>
           </Button>
-          <Button size="sm" className="bg-orange-500 hover:bg-orange-600" asChild>
+          <Button size="sm" className="bg-orange-700 hover:bg-orange-800" asChild>
             <Link to="/dashboard/listings">Listing &amp; Marketplace</Link>
           </Button>
         </div>
@@ -403,7 +403,7 @@ export default function VehicleProfile() {
                 </div>
                 {trustScore !== null ? (
                   <>
-                    <Progress value={trustScore} className="h-3" />
+                    <Progress value={trustScore} className="h-3" aria-label="CarUp Trust score" />
                     <p className="mt-1 text-xs text-gray-500" data-testid="owner-trust-band">
                       {trustHeadline} · {TRUST_CONFIDENCE_LABELS[publicTrust?.confidence ?? ''] ?? 'Confidence not assessed'}
                       {publicTrust?.calculation_version ? ` · calculation version ${publicTrust.calculation_version}` : ''}

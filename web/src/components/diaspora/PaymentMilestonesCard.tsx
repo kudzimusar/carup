@@ -157,7 +157,7 @@ export default function PaymentMilestonesCard({ orderId, milestones, quotes = []
           <ClipboardCheck className="h-4 w-4 text-orange-600" /> Payment milestones
           {milestones.length > 0 && <Badge variant="secondary">{milestones.length}</Badge>}
         </span>
-        <span className="text-sm text-orange-600">{open ? 'Hide' : 'Show'}</span>
+        <span className="text-sm text-orange-700">{open ? 'Hide' : 'Show'}</span>
       </button>
       {open && (
         <div className="space-y-4 border-t border-gray-100 px-4 py-4">

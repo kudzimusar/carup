@@ -552,7 +552,7 @@ function OrderSummary({ order }: { order: DiasporaImportOrder }) {
     <div className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-order-summary">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase text-gray-400">Import order</p>
+          <p className="text-xs font-semibold uppercase text-gray-500">Import order</p>
           <h1 className="mt-1 text-2xl font-bold text-gray-950">{order.requested_make || 'Vehicle'} {order.requested_model || 'request'}</h1>
         </div>
         <StatusBadge status={order.status} />
@@ -590,7 +590,7 @@ function StatusTimeline({ currentStatus }: { currentStatus?: string }) {
           const active = index <= activeIndex
           return (
             <div key={step} className="flex items-center gap-3" data-testid="diaspora-timeline-item">
-              <span className={`flex h-7 w-7 items-center justify-center rounded-full ${active ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
+              <span className={`flex h-7 w-7 items-center justify-center rounded-full ${active ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
                 {active ? <CheckCircle2 className="h-4 w-4" /> : <Timer className="h-4 w-4" />}
               </span>
               <span className={`text-sm font-medium ${active ? 'text-gray-950' : 'text-gray-500'}`}>{labelize(step)}</span>
@@ -955,7 +955,7 @@ function ReviewerActionsCard({ orderId, onRefresh }: { orderId: string; onRefres
         <span className="flex items-center gap-2 text-base font-semibold text-gray-900">
           <ShieldCheck className="h-4 w-4 text-orange-600" /> Reviewer actions
         </span>
-        <span className="text-sm text-orange-600">{open ? 'Hide' : 'Show'}</span>
+        <span className="text-sm text-orange-700">{open ? 'Hide' : 'Show'}</span>
       </button>
       {open && (
         <div className="space-y-4 border-t border-gray-100 px-4 py-4">
@@ -1389,8 +1389,8 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
               <Badge variant="outline" data-testid="diaspora-shipment-status-badge">{order?.status || 'UNKNOWN'}</Badge>
             </div>
             <dl className="mt-3 grid grid-cols-1 gap-2 text-sm text-gray-600 sm:grid-cols-2">
-              <div><dt className="text-gray-400">Origin</dt><dd data-testid="diaspora-shipment-origin">{routeLabel(order?.origin_city, order?.origin_country, shipment?.origin_port)}</dd></div>
-              <div><dt className="text-gray-400">Destination</dt><dd data-testid="diaspora-shipment-destination">{routeLabel(order?.destination_city, order?.destination_country, shipment?.destination_port)}</dd></div>
+              <div><dt className="text-gray-500">Origin</dt><dd data-testid="diaspora-shipment-origin">{routeLabel(order?.origin_city, order?.origin_country, shipment?.origin_port)}</dd></div>
+              <div><dt className="text-gray-500">Destination</dt><dd data-testid="diaspora-shipment-destination">{routeLabel(order?.destination_city, order?.destination_country, shipment?.destination_port)}</dd></div>
             </dl>
           </section>
 
@@ -1403,7 +1403,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
                   {step.reached
                     ? <CheckCircle2 className="h-4 w-4 text-green-600" />
                     : <span className="inline-block h-3.5 w-3.5 rounded-full border border-gray-300" />}
-                  <span className={step.current ? 'font-semibold text-gray-900' : step.reached ? 'text-gray-700' : 'text-gray-400'}>{step.label}</span>
+                  <span className={step.current ? 'font-semibold text-gray-900' : step.reached ? 'text-gray-700' : 'text-gray-500'}>{step.label}</span>
                 </li>
               ))}
             </ol>
@@ -1437,7 +1437,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
             {shipment ? (
               <div className="mt-3 space-y-2 text-sm text-gray-600" data-testid="diaspora-shipment-details">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-400">Status</span>
+                  <span className="text-gray-500">Status</span>
                   <Badge variant="outline" data-testid="diaspora-shipment-tracking-status">{shipment.status}</Badge>
                 </div>
                 <div>Carrier: {shipment.carrier_name || '—'}{shipment.tracking_number ? ` · Tracking: ${shipment.tracking_number}` : ''}</div>
