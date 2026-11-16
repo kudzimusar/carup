@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 
 /**
  * RX03-P1A-R2 — the phone contact bar on Vehicle Detail (below 1024 px only).
@@ -22,8 +22,32 @@ export function MobileContactBar({
   priceLabel?: string
   children: ReactNode
 }) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  // RX03-P2-R4 (a11y): while the bar is on screen, reserve its height as the page's bottom scroll
+  // padding, so a control scrolled or tabbed into view stops ABOVE the bar instead of under it.
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof window === 'undefined') return
+    const root = document.documentElement
+    const previous = root.style.scrollPaddingBottom
+    const update = () => {
+      const r = el.getBoundingClientRect()
+      const covered = r.height > 0 ? Math.max(0, window.innerHeight - r.top) : 0
+      root.style.scrollPaddingBottom = covered ? `${Math.ceil(covered) + 8}px` : previous
+    }
+    update()
+    window.addEventListener('resize', update)
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    ro?.observe(el)
+    return () => {
+      window.removeEventListener('resize', update)
+      ro?.disconnect()
+      root.style.scrollPaddingBottom = previous
+    }
+  }, [honoured])
   return (
     <div
+      ref={ref}
       role="region"
       aria-label="Contact about this vehicle"
       data-testid="vehicle-detail-contact-bar"

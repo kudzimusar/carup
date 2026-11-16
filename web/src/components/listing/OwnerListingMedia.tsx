@@ -64,7 +64,7 @@ export function OwnerListingMedia({
   if (state === 'none') {
     return (
       <div
-        className={`flex flex-col items-center justify-center gap-1 bg-slate-100 px-3 text-center text-slate-500 ${className}`}
+        className={`flex flex-col items-center justify-center gap-1 bg-slate-100 px-3 text-center text-slate-600 ${className}`}
         data-testid="owner-listing-media-none"
         role="img"
         aria-label={`${alt} — no photos added yet`}
@@ -79,7 +79,7 @@ export function OwnerListingMedia({
   // be a claim about the seller made out of a fault on our side.
   return (
     <div
-      className={`flex flex-col items-center justify-center gap-1 bg-slate-100 px-3 text-center text-slate-500 ${className}`}
+      className={`flex flex-col items-center justify-center gap-1 bg-slate-100 px-3 text-center text-slate-600 ${className}`}
       data-testid="owner-listing-media-not-loaded"
       role="img"
       aria-label={`${alt} — photos could not be loaded`}

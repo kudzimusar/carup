@@ -563,7 +563,7 @@ function DocumentUploadForm({ importOrderId, onDocumentUploaded }: { importOrder
           <Button
             type="submit"
             disabled={submitting || !documentType || !file}
-            className="bg-orange-600 hover:bg-orange-700"
+            className="bg-orange-700 hover:bg-orange-800"
             data-testid="diaspora-document-upload-submit"
           >
             {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
@@ -806,7 +806,7 @@ export function DiasporaLanding() {
             </AlertDescription>
           </Alert>
           <div className="mt-6 flex flex-wrap gap-3">
-            <Button asChild className="bg-orange-600 hover:bg-orange-700" data-testid="diaspora-start-import-button">
+            <Button asChild className="bg-orange-700 hover:bg-orange-800" data-testid="diaspora-start-import-button">
               <Link to="/diaspora/imports/new">
                 <Plus className="mr-2 h-4 w-4" />
                 Start import order
@@ -892,7 +892,7 @@ export function DiasporaImportList() {
             <h1 className="text-2xl font-bold text-gray-950">Import orders</h1>
             <p className="text-sm text-gray-500">Order-scoped buyer import requests.</p>
           </div>
-          <Button asChild className="bg-orange-600 hover:bg-orange-700" data-testid="diaspora-new-import-button">
+          <Button asChild className="bg-orange-700 hover:bg-orange-800" data-testid="diaspora-new-import-button">
             <Link to="/diaspora/imports/new">New import order</Link>
           </Button>
         </div>
@@ -1060,7 +1060,7 @@ export function NewDiasporaImportOrder() {
               <Button type="button" variant="outline" asChild data-testid="diaspora-cancel-import-button">
                 <Link to="/diaspora">Cancel</Link>
               </Button>
-              <Button type="submit" disabled={submitting} className="bg-orange-600 hover:bg-orange-700" data-testid="diaspora-submit-import-button">
+              <Button type="submit" disabled={submitting} className="bg-orange-700 hover:bg-orange-800" data-testid="diaspora-submit-import-button">
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
                 Submit import order
               </Button>
@@ -1630,7 +1630,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
                   <Button size="sm" onClick={updateStage} data-testid="diaspora-shipment-update-stage-button">Update stage</Button>
                 </div>
               ) : (
-                <Button size="sm" className="mt-4 bg-orange-500 hover:bg-orange-600" onClick={createShipment} data-testid="diaspora-shipment-create-button">Create shipment record</Button>
+                <Button size="sm" className="mt-4 bg-orange-700 hover:bg-orange-800" onClick={createShipment} data-testid="diaspora-shipment-create-button">Create shipment record</Button>
               )}
             </section>
           )}
@@ -1728,7 +1728,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
                   onChange={e => setForm(prev => ({ ...prev, estimated_volume: e.target.value }))}
                   data-testid="diaspora-reservation-volume-input"
                 />
-                <Button type="submit" disabled={submitting} className="sm:col-span-3 bg-orange-500 hover:bg-orange-600" data-testid="diaspora-request-reservation-button">
+                <Button type="submit" disabled={submitting} className="sm:col-span-3 bg-orange-700 hover:bg-orange-800" data-testid="diaspora-request-reservation-button">
                   {submitting ? 'Submitting…' : 'Request container space'}
                 </Button>
               </form>
