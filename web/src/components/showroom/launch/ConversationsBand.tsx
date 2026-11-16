@@ -27,7 +27,7 @@ export function ConversationsBand() {
               Talk the way you already do.
             </h2>
             <p className="mt-3 max-w-md text-[15px] leading-7 text-slate-600">
-              Share cars on WhatsApp and get replies there — while the conversation stays on the vehicle’s CarUp record, so nothing gets lost.
+              Share cars on WhatsApp, and choose WhatsApp for replies — while the conversation stays on the vehicle’s CarUp record, so nothing gets lost.
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
               <a href="#ask-carup" className="inline-flex h-11 items-center gap-2 rounded-full bg-[#09122A] pl-1.5 pr-4 text-sm font-semibold text-white transition hover:bg-[#111D3D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] focus-visible:ring-offset-2">
@@ -57,9 +57,9 @@ export function ConversationsBand() {
               <div className="flex items-center gap-2 text-[13px] font-semibold text-[#9AF3BC]">
                 <WhatsAppGlyph className="h-6 w-6" /> Replies on WhatsApp
               </div>
-              <p className="mt-4 text-lg font-semibold tracking-[-0.01em]">Ask through CarUp. Get the answer where you are.</p>
+              <p className="mt-4 text-lg font-semibold tracking-[-0.01em]">Ask through CarUp. Choose WhatsApp for the answer.</p>
               <p className="mt-2 text-[14px] leading-6 text-white/75">
-                Choose WhatsApp when you send an enquiry. The seller answers through CarUp, the reply reaches your WhatsApp, and the thread stays on the vehicle’s record.
+                Pick WhatsApp as your reply channel when you send an enquiry. The seller answers through CarUp, so the thread stays attributed to the vehicle’s record — and CarUp never shares your number to start it.
               </p>
               <Link to="/marketplace" className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-[#FFB27A] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FE7D18]">Ask about a car</Link>
             </li>
