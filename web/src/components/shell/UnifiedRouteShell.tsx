@@ -48,6 +48,7 @@ import { FocusedEmbedContext } from './FocusedEmbedContext'
 import { isUnifiedUiEnabled } from './unifiedFlag'
 import { DEALER_UNIFIED_SLICE, projectDealerOperationsRail, projectTradeRail } from './navProjection'
 import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
+import { focusedTaskFor } from './focusedTitles'
 import type { ShellIdentity, ShellObjectIdentity } from './contracts'
 import type { UserRole } from '@shared/types'
 
@@ -78,21 +79,7 @@ function isPublicSlicePath(pathname: string): boolean {
   return false
 }
 
-/** Focused first slice: pure auth journeys only (KYC etc. stay legacy). */
-const FOCUSED_TITLES: ReadonlyArray<{ pattern: string; title: string }> = [
-  { pattern: '/login', title: 'Sign in to CarUp' },
-  { pattern: '/register', title: 'Create your CarUp account' },
-  { pattern: '/auth/forgot-password', title: 'Recover your password' },
-  { pattern: '/auth/reset-password', title: 'Choose a new password' },
-  { pattern: '/auth/verify-email', title: 'Verify your email' },
-]
-
-function focusedTitleFor(pathname: string): string | null {
-  for (const entry of FOCUSED_TITLES) {
-    if (matchPath(entry.pattern, pathname)) return entry.title
-  }
-  return null
-}
+/* Focused first slice: the five account routes (KYC etc. stay legacy) — titles live in focusedTitles.ts. */
 
 /**
  * R4-1 — Personal-family first-slice allowlist (route-authority register).
@@ -189,16 +176,18 @@ function FocusedUnifiedShell({ legacy }: { legacy: ReactElement }) {
   const identity = useIdentity()
   const navigate = useNavigate()
   const location = useLocation()
-  const title = focusedTitleFor(location.pathname)
+  const task = focusedTaskFor(location.pathname)
   // R2-3/R2-5: routes outside the focused first slice keep legacy chrome.
-  if (!title) return legacy
+  if (!task) return legacy
   return (
     <FocusedShell
       identity={{
         displayName: identity.displayName,
         roleTitle: identity.isAuthenticated ? 'Signed in' : 'Visitor',
       }}
-      title={title}
+      title={task.title}
+      mode="auth"
+      wide={task.wide}
       onExit={() => navigate(safeReturnTarget(location))}
     >
       <FocusedEmbedContext.Provider value={true}>

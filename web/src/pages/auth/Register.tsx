@@ -69,6 +69,8 @@ export default function Register() {
   // stage + brand block so the task gets ONE clear hierarchy. Outside the
   // focused shell (default) the legacy presentation is exactly unchanged.
   const focusedEmbed = useFocusedEmbed()
+  // RX03-AUTH: inside the account stage the stage owns the page's h1; state headings become h2.
+  const Heading = focusedEmbed ? 'h2' : 'h1'
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = searchParams.get('returnTo')
@@ -217,7 +219,7 @@ export default function Register() {
             <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-700">
               <MailCheck className="h-7 w-7" />
             </div>
-            <h1 className="mt-5 text-center text-2xl font-bold text-slate-950">Your account is ready</h1>
+            <Heading className="mt-5 text-center text-2xl font-bold text-slate-950">Your account is ready</Heading>
             <p className="mt-2 text-center text-sm leading-6 text-slate-600">
               We created a secure base account and kept your Seller handoff separate from any
               privileged business access.
@@ -289,7 +291,7 @@ export default function Register() {
               <span className="text-2xl font-bold text-white">Car<span className="text-orange-500">Up</span></span>
             </Link>
           )}
-          <h1 className="text-2xl font-bold text-white mb-2">Create your CarUp profile</h1>
+          <Heading className="text-2xl font-bold text-white mb-2">Create your CarUp profile</Heading>
           <p className="text-sm text-gray-400">
             Tell us who you are in the automotive journey. Verification happens only where it is actually needed.
           </p>

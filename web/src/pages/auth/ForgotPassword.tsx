@@ -25,6 +25,8 @@ export default function ForgotPassword() {
   // C3 — beneath the unified focused chrome, suppress the page's own dark
   // stage + brand block; default (legacy) presentation is unchanged.
   const focusedEmbed = useFocusedEmbed()
+  // RX03-AUTH: inside the account stage the stage owns the page's h1; state headings become h2.
+  const Heading = focusedEmbed ? 'h2' : 'h1'
   const [email, setEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [sent, setSent] = useState(false)
@@ -76,7 +78,7 @@ export default function ForgotPassword() {
               <div className="w-12 h-12 rounded-full bg-orange-50 flex items-center justify-center mb-4">
                 <MailCheck className="w-6 h-6 text-orange-600" />
               </div>
-              <h1 className="text-xl font-bold text-slate-900 mb-2">Check your email</h1>
+              <Heading className="text-xl font-bold text-slate-900 mb-2">Check your email</Heading>
               <p className="text-sm text-slate-600 mb-6">
                 If an account exists for that email address, we have sent a link to reset your
                 password. The link can be used once and expires within the hour.
@@ -89,7 +91,7 @@ export default function ForgotPassword() {
             </div>
           ) : (
             <form onSubmit={handleSubmit} data-testid="forgot-password-form">
-              <h1 className="text-xl font-bold text-slate-900 mb-2">Reset your password</h1>
+              <Heading className="text-xl font-bold text-slate-900 mb-2">Reset your password</Heading>
               <p className="text-sm text-slate-600 mb-6">
                 Enter the email address on your CarUp account and we will send you a reset link.
               </p>

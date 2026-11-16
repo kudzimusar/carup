@@ -1,4 +1,4 @@
-import { Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import Navbar from './Navbar'
 import Footer from './Footer'
 import CompactBottomNav from './CompactBottomNav'
@@ -7,6 +7,10 @@ import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundar
 import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
 import { mainLayoutFooterMode } from './footerPresentation'
 import { ShowroomUtilityFooter } from './ShowroomFooter'
+import { AuthStage } from '@/components/auth/AuthStage'
+import { focusedTaskFor } from '@/components/shell/focusedTitles'
+import { FocusedEmbedContext } from '@/components/shell/FocusedEmbedContext'
+import { safeReturnTarget } from '@/components/shell/safeReturn'
 
 export default function MainLayout({ hideNav = false }: { hideNav?: boolean }) {
   const location = useLocation()
@@ -17,6 +21,21 @@ export default function MainLayout({ hideNav = false }: { hideNav?: boolean }) {
   const showroomChrome = isShowroomChromeEnabled()
   const footerMode = mainLayoutFooterMode(location.pathname)
   const showroomFooter = showroomChrome && !isAuthPage && footerMode !== 'none'
+  const navigate = useNavigate()
+  // RX03-AUTH: the five account routes render in the RX-03 account stage under the showroom chrome —
+  // the stage owns logo, title and exit; the page renders its form once (FocusedEmbedContext).
+  const accountTask = showroomChrome ? focusedTaskFor(location.pathname) : null
+  if (accountTask) {
+    return (
+      <AuthStage title={accountTask.title} wide={accountTask.wide} onExit={() => navigate(safeReturnTarget(location))}>
+        <FocusedEmbedContext.Provider value={true}>
+          <RegistryRouteBoundary enforceAuth={false}>
+            <Outlet />
+          </RegistryRouteBoundary>
+        </FocusedEmbedContext.Provider>
+      </AuthStage>
+    )
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">

@@ -26,6 +26,8 @@ export default function ResetPassword() {
   // C3 — beneath the unified focused chrome, suppress the page's own dark
   // stage + brand block; default (legacy) presentation is unchanged.
   const focusedEmbed = useFocusedEmbed()
+  // RX03-AUTH: inside the account stage the stage owns the page's h1; state headings become h2.
+  const Heading = focusedEmbed ? 'h2' : 'h1'
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const token = params.get('token') || ''
@@ -91,7 +93,7 @@ export default function ResetPassword() {
               <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mb-4">
                 <AlertCircle className="w-6 h-6 text-red-600" />
               </div>
-              <h1 className="text-xl font-bold text-slate-900 mb-2">This link is not valid</h1>
+              <Heading className="text-xl font-bold text-slate-900 mb-2">This link is not valid</Heading>
               <p className="text-sm text-slate-600 mb-6">
                 The reset link is incomplete or has expired. Request a new one to continue.
               </p>
@@ -104,7 +106,7 @@ export default function ResetPassword() {
               <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center mb-4">
                 <CheckCircle2 className="w-6 h-6 text-emerald-600" />
               </div>
-              <h1 className="text-xl font-bold text-slate-900 mb-2">Password updated</h1>
+              <Heading className="text-xl font-bold text-slate-900 mb-2">Password updated</Heading>
               <p className="text-sm text-slate-600 mb-6">
                 Your password has been reset and any existing sessions were signed out. Redirecting
                 you to sign in…
@@ -115,7 +117,7 @@ export default function ResetPassword() {
             </div>
           ) : (
             <form onSubmit={handleSubmit} data-testid="reset-password-form">
-              <h1 className="text-xl font-bold text-slate-900 mb-2">Choose a new password</h1>
+              <Heading className="text-xl font-bold text-slate-900 mb-2">Choose a new password</Heading>
               <p className="text-sm text-slate-600 mb-6">
                 Your new password must be at least {MIN_PASSWORD_LENGTH} characters.
               </p>

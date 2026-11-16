@@ -18,6 +18,8 @@ export default function VerifyEmail() {
   // C3 — beneath the unified focused chrome, suppress the page's own dark
   // full-height stage; default (legacy) presentation is unchanged.
   const focusedEmbed = useFocusedEmbed()
+  // RX03-AUTH: inside the account stage the stage owns the page's h1; state headings become h2.
+  const Heading = focusedEmbed ? 'h2' : 'h1'
   const [params] = useSearchParams()
   const token = params.get('token')
   const { isAuthenticated } = useAuth()
@@ -58,7 +60,7 @@ export default function VerifyEmail() {
         {state === 'loading' && (
           <div className="text-center" data-testid="verify-email-loading">
             <Loader2 className="mx-auto h-9 w-9 animate-spin text-orange-500" />
-            <h1 className="mt-4 text-xl font-bold text-slate-950">Verifying your email…</h1>
+            <Heading className="mt-4 text-xl font-bold text-slate-950">Verifying your email…</Heading>
             <p className="mt-2 text-sm text-slate-600">This one-time link is being checked securely.</p>
           </div>
         )}
@@ -68,7 +70,7 @@ export default function VerifyEmail() {
             <div className="grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-emerald-700">
               <CheckCircle2 className="h-6 w-6" />
             </div>
-            <h1 className="mt-4 text-xl font-bold text-slate-950">Email verified</h1>
+            <Heading className="mt-4 text-xl font-bold text-slate-950">Email verified</Heading>
             <p className="mt-2 text-sm leading-6 text-slate-600">{message}</p>
             <Button asChild className="mt-6 w-full bg-orange-500 hover:bg-orange-600">
               <Link to={isAuthenticated ? '/dashboard' : '/login'}>{isAuthenticated ? 'Continue to CarUp' : 'Sign in to CarUp'}</Link>
@@ -81,7 +83,7 @@ export default function VerifyEmail() {
             <div className="grid h-12 w-12 place-items-center rounded-full bg-red-50 text-red-700">
               <AlertCircle className="h-6 w-6" />
             </div>
-            <h1 className="mt-4 text-xl font-bold text-slate-950">Verification link unavailable</h1>
+            <Heading className="mt-4 text-xl font-bold text-slate-950">Verification link unavailable</Heading>
             <p className="mt-2 text-sm leading-6 text-slate-600">
               {state === 'missing' ? 'This verification link is incomplete.' : message}
             </p>

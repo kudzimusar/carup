@@ -15,7 +15,8 @@
  */
 import { useEffect, useRef, type ReactNode } from 'react'
 import { ArrowLeft, X } from 'lucide-react'
-import type { ShellIdentity } from './contracts'
+import type { FocusedMode, ShellIdentity } from './contracts'
+import { AuthStage } from '@/components/auth/AuthStage'
 import { BrandMark } from './BrandMark'
 
 export function FocusedShell({
@@ -25,6 +26,8 @@ export function FocusedShell({
   progress,
   onBack,
   onExit,
+  mode,
+  wide,
   children,
 }: {
   identity: ShellIdentity
@@ -36,6 +39,9 @@ export function FocusedShell({
   progress?: number
   onBack?: () => void
   onExit: () => void
+  /** RX03-AUTH: 'auth' renders the RX-03 account stage (one logo, the task title, Continue browsing). */
+  mode?: FocusedMode
+  wide?: boolean
   children?: ReactNode
 }) {
   const mainRef = useRef<HTMLElement | null>(null)
@@ -65,6 +71,13 @@ export function FocusedShell({
     return () => document.removeEventListener('keydown', onKey)
   }, [onExit])
 
+  if (mode === 'auth') {
+    return (
+      <AuthStage title={title} wide={wide} onExit={onExit} exitTestId="shell-focused-exit">
+        {children}
+      </AuthStage>
+    )
+  }
   return (
     <div className="flex min-h-screen flex-col bg-carup-bg text-carup-text">
       <a
