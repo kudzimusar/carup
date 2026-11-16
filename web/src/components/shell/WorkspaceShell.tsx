@@ -92,7 +92,7 @@ function RailContent({
       {sections.map((section, sectionIndex) => (
         <div key={`${section.title}-${sectionIndex}`} className={sectionIndex > 0 ? 'mt-3' : ''}>
           {!collapsed && section.title && (
-            <p className={`px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider ${PAPER(55)}`}>
+            <p className={`px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider ${PAPER(55)}`}>
               {section.title}
             </p>
           )}
@@ -180,7 +180,7 @@ function TabBar({
           <div key={`${section.title}-${i}`} role="group" aria-label={section.title || label} className="flex shrink-0 items-stretch gap-0.5">
             {i > 0 && <span aria-hidden="true" className="my-3 mr-2 w-px bg-carup-line 2xl:hidden" />}
             {section.title && (
-              <span className="hidden items-center pr-2 text-[10px] font-semibold uppercase tracking-wider text-carup-text-3 2xl:flex" aria-hidden="true">
+              <span className="hidden items-center pr-2 text-[11px] font-semibold uppercase tracking-wider text-carup-text-3 2xl:flex" aria-hidden="true">
                 {section.title}
               </span>
             )}
@@ -194,7 +194,7 @@ function TabBar({
                     className="flex min-h-11 cursor-not-allowed items-center gap-1.5 whitespace-nowrap px-3 text-sm text-carup-text-3"
                   >
                     {item.label}
-                    <span className="rounded-chrome border border-carup-line px-1 py-px text-[9px] font-medium uppercase tracking-wide">Soon</span>
+                    <span className="rounded-chrome border border-carup-line px-1 py-px text-[11px] font-medium uppercase tracking-wide">Soon</span>
                   </span>
                 )
               }
@@ -419,7 +419,7 @@ export function WorkspaceShell({
           <div className="flex min-w-0 flex-col leading-tight" data-testid="shell-ws-context">
             <span className="truncate text-[13px] font-semibold">{familyLabel}</span>
             {identity.tenantLabel && (
-              <span className={`truncate text-[11px] ${PAPER(68)}`} data-testid="shell-ws-tenant">
+              <span className={`truncate text-[12px] ${PAPER(68)}`} data-testid="shell-ws-tenant">
                 {identity.tenantLabel}
               </span>
             )}
@@ -471,7 +471,7 @@ export function WorkspaceShell({
                   data-testid="shell-ws-account-menu"
                   className="absolute right-0 top-full z-50 mt-1 w-56 rounded-card border border-carup-raw-ink-2 bg-carup-raw-ink p-2 text-carup-raw-paper shadow-sheet"
                 >
-                  <p className={`px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider ${PAPER(55)}`}>
+                  <p className={`px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider ${PAPER(55)}`}>
                     {identity.roleTitle ?? 'Account'}
                   </p>
                   <nav aria-label="Account">
@@ -532,7 +532,7 @@ export function WorkspaceShell({
             <div className="flex h-14 items-center justify-between gap-2 border-b border-carup-raw-ink-2 pl-4 pr-2">
               <div className="min-w-0 leading-tight">
                 <p className="truncate text-[13px] font-semibold">{familyLabel}</p>
-                {identity.tenantLabel && <p className={`truncate text-[11px] ${PAPER(68)}`}>{identity.tenantLabel}</p>}
+                {identity.tenantLabel && <p className={`truncate text-[12px] ${PAPER(68)}`}>{identity.tenantLabel}</p>}
               </div>
               <button
                 type="button"
@@ -694,7 +694,7 @@ export function WorkspaceShell({
                     key={item.label}
                     to={item.href}
                     aria-current={item.active ? 'page' : undefined}
-                    className={`flex min-h-12 flex-col items-center justify-center rounded-control px-1 text-[11px] font-medium transition-colors ${FOCUS_RING} focus-visible:ring-inset ${
+                    className={`flex min-h-12 flex-col items-center justify-center rounded-control px-1 text-[12px] font-medium transition-colors ${FOCUS_RING} focus-visible:ring-inset ${
                       item.active ? 'font-semibold text-carup-action-hover' : 'text-carup-text-2 hover:bg-carup-bg-surface hover:text-carup-text'
                     }`}
                   >

@@ -191,7 +191,7 @@ export default function DealerClaimReview() {
   const selectedOpened=Boolean(evidenceId&&opened.includes(evidenceId))
 
   if(inWorkbench){
-    const chip='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold'
+    const chip='inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-semibold'
     const statusChip=(status:string)=>`${chip} ${/APPROVED/.test(status)?'bg-status-success-soft text-status-success':/REJECT|REVOK/.test(status)?'bg-status-danger-soft text-status-danger':/DISPUT/.test(status)?'bg-status-warning-soft text-status-warning':'bg-status-info-soft text-status-info'}`
     const field='w-full rounded-lg border border-carup-line bg-white p-2.5 text-sm'
     return <div className="min-w-0 pb-8" data-testid="claim-review-workbench">
@@ -242,9 +242,9 @@ export default function DealerClaimReview() {
                       <span className="block truncate text-sm font-semibold">{claim.seed_dealer_id}</span>
                       <span className="mt-1 flex flex-wrap items-center gap-1.5">
                         <span className={statusChip(claim.claim_status)}>{claim.claim_status.replaceAll('_',' ')}</span>
-                        <span className="text-[11px] text-carup-text-3">Scope {claim.claimed_scope.replaceAll('_',' ').toLowerCase()}</span>
+                        <span className="text-[12px] text-carup-text-3">Scope {claim.claimed_scope.replaceAll('_',' ').toLowerCase()}</span>
                       </span>
-                      <span className="mt-1 block text-[11px] text-carup-text-3">Filed {dealerDateTime(claim.created_at)}</span>
+                      <span className="mt-1 block text-[12px] text-carup-text-3">Filed {dealerDateTime(claim.created_at)}</span>
                     </button>
                   </li>
                 })}
@@ -399,7 +399,7 @@ export default function DealerClaimReview() {
                 <textarea id="claim-review-reason" className={field+' min-h-32'} required
                   minLength={40} maxLength={3000} value={reason}
                   onChange={e=>setReason(e.target.value)} />
-                <p className="mt-1 text-right text-[11px] tabular-nums text-carup-text-3">{reason.trim().length} / 40 minimum</p>
+                <p className="mt-1 text-right text-[12px] tabular-nums text-carup-text-3">{reason.trim().length} / 40 minimum</p>
               </div>
               <Button className={DEALER_WRAP_BUTTON+' w-full'} disabled={busy||!password||reason.trim().length<40||
                 (verdict==='CLAIM_APPROVED'&&(!evidenceId||issuer.trim().length<3||!documentConfirmed))}
