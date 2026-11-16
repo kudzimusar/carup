@@ -450,7 +450,7 @@ export default function DealerDashboard(){
         className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         {/* RX03-P2-R4: inside the unified Dealer OS workspace the profile card is the ONE identity row,
             so its cover becomes a slim band and the operating work below starts higher up. */}
-        <DealerProfileCover src={ownerMedia.cover?.url} alt={ownerMedia.cover?.alt} className={unifiedWorkspace?'h-20 sm:h-24':'h-32 sm:h-44 lg:h-52'}>
+        <DealerProfileCover src={ownerMedia.cover?.url} alt={ownerMedia.cover?.alt} className={unifiedWorkspace?'h-20 sm:h-24 lg:h-28':'h-32 sm:h-44 lg:h-52'}>
           {ownerMedia.cover?.reviewStatus===PENDING_REVIEW&&<span
             className="absolute left-3 top-3 inline-flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-900 shadow-md">
             <Clock className="h-3.5 w-3.5 shrink-0 text-amber-700" aria-hidden="true"/>{pendingNote}

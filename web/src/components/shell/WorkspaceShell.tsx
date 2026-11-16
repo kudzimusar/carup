@@ -155,24 +155,32 @@ function RailContent({
 }
 
 /** Compact grouped destinations under the masthead (desktop/tablet); phones use the drawer. */
+// Families with many destinations only get the tab bar where it fits without scrolling;
+// below that breakpoint the same destinations live in the drawer.
+const TABS_VISIBLE = { md: 'hidden md:block', xl: 'hidden xl:block' } as const
+const MENU_HIDDEN_TABS = { md: 'md:hidden', xl: 'xl:hidden' } as const
+
 function TabBar({
   label,
   sections,
   activeHref,
   activeKind,
+  from,
 }: {
   label: string
   sections: ShellNavSection[]
   activeHref: string | null
   activeKind: Current
+  from: keyof typeof TABS_VISIBLE
 }) {
   return (
-    <nav aria-label={label} data-testid="shell-ws-tabs" className="hidden border-b border-carup-line bg-carup-bg-raised md:block">
-      <div className="mx-auto flex max-w-[1560px] items-stretch gap-5 overflow-x-auto px-4 lg:px-6">
+    <nav aria-label={label} data-testid="shell-ws-tabs" className={`${TABS_VISIBLE[from]} border-b border-carup-line bg-carup-bg-raised`}>
+      <div className="mx-auto flex max-w-[1560px] items-stretch gap-3 overflow-x-auto px-3 [scrollbar-width:none] lg:px-5 [&::-webkit-scrollbar]:hidden">
         {sections.map((section, i) => (
           <div key={`${section.title}-${i}`} role="group" aria-label={section.title || label} className="flex shrink-0 items-stretch gap-0.5">
+            {i > 0 && <span aria-hidden="true" className="my-3 mr-2 w-px bg-carup-line 2xl:hidden" />}
             {section.title && (
-              <span className="flex items-center pr-2 text-[10px] font-semibold uppercase tracking-wider text-carup-text-3" aria-hidden="true">
+              <span className="hidden items-center pr-2 text-[10px] font-semibold uppercase tracking-wider text-carup-text-3 2xl:flex" aria-hidden="true">
                 {section.title}
               </span>
             )}
@@ -196,7 +204,7 @@ function TabBar({
                   key={item.id}
                   to={item.href}
                   aria-current={active ? activeKind : undefined}
-                  className={`flex min-h-11 items-center whitespace-nowrap border-b-2 px-3 text-sm transition-colors ${FOCUS_RING} focus-visible:ring-inset ${
+                  className={`flex min-h-11 items-center whitespace-nowrap border-b-2 px-2.5 text-sm transition-colors ${FOCUS_RING} focus-visible:ring-inset ${
                     active ? 'border-carup-action font-semibold text-carup-text' : 'border-transparent text-carup-text-2 hover:text-carup-text'
                   }`}
                 >
@@ -362,7 +370,9 @@ export function WorkspaceShell({
     }
   }, [accountOpen])
 
-  const menuBreakpoint = navStyle === 'tabs' ? 'md:hidden' : 'lg:hidden'
+  const navItemCount = navSections.reduce((n, s) => n + s.items.length, 0)
+  const tabsFrom: keyof typeof TABS_VISIBLE = navItemCount > 5 ? 'xl' : 'md'
+  const menuBreakpoint = navStyle === 'tabs' ? MENU_HIDDEN_TABS[tabsFrom] : 'lg:hidden'
 
   return (
     <div className="flex min-h-screen flex-col bg-carup-bg text-carup-text" data-shell-family={family}>
@@ -501,7 +511,7 @@ export function WorkspaceShell({
       </header>
 
       {hasNav && navStyle === 'tabs' && (
-        <TabBar label={`${familyLabel} navigation`} sections={navSections} activeHref={navActive} activeKind={navActiveKind} />
+        <TabBar label={`${familyLabel} navigation`} sections={navSections} activeHref={navActive} activeKind={navActiveKind} from={tabsFrom} />
       )}
 
       {drawerOpen && (
