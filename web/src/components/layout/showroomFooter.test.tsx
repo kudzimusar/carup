@@ -13,6 +13,7 @@ import { PUBLIC_CONTACTS, PUBLIC_IDENTITY, PUBLIC_LOCATION_LINE } from '@/config
 import { ShowroomFooter, ShowroomUtilityFooter } from './ShowroomFooter'
 import { mainLayoutFooterMode } from './footerPresentation'
 import { useClaimBottomBar } from '@/lib/bottomBarClaim'
+import MainLayout from './MainLayout'
 
 vi.mock('@/context/AuthContext', () => ({
   useAuth: () => ({ user: null, token: null, isAuthenticated: false, loading: false, logout: () => {}, login: () => {}, switchRole: async () => {} }),
@@ -167,10 +168,9 @@ describe('Public / Workspace / Focused footer policy (route → shell register)'
 })
 
 describe('MainLayout composition', { timeout: 30000 }, () => {
+  // presentationFlags reads its sources on every call, so one static import serves both modes.
   async function renderLayout(path: string, chrome: boolean) {
-    vi.resetModules()
     if (chrome) vi.stubGlobal('__CARUP_SHOWROOM_CHROME__', true)
-    const { default: MainLayout } = await import('./MainLayout')
     return render(
       <MemoryRouter initialEntries={[path]}>
         <Routes>
