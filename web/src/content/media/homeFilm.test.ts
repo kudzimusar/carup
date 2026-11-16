@@ -109,6 +109,55 @@ describe('owner-review cuts (RX03 Addendum 05)', () => {
     expect(HOME_FILM?.disclosure).toMatch(/AI-generated, not inventory/)
     expect(SOURCING_FILM?.disclosure).toMatch(/not a shipment record/)
     expect(SCAN_FILM?.disclosure).toMatch(/not a real document/)
-    expect(HOME_FILM_STATUS.state).not.toBe('approved')
+  })
+})
+
+describe('the five Owner-approved cuts (RX03-P2, 2026-11-16)', () => {
+  afterEach(() => vi.unstubAllEnvs())
+  // The exact approved bytes. Any re-encode, crop or swap fails here, not in review.
+  const APPROVED: [string, string][] = [
+    ['home-landscape-poster.jpg', '281443691f5bfab53dd210223dc020173d47d8d056c56d25545dcd1b2f73a0b1'],
+    ['home-landscape.mp4', '1e557b0d1cb99640ac749913f41ea72e537e549dcc34ae6bfe0252316b1f40d8'],
+    ['home-landscape.webm', 'e93c4220e448667ed95143095a2c4ca25eebdc77091c36fc4d1e246576131150'],
+    ['home-portrait-poster.jpg', '6795835f1e55d7aaaef964c292896e23b82aad7b9daa56f9909b577dad50008c'],
+    ['home-portrait.mp4', '9e74a1370de8b1911ae2ac2cdeae6fb8626a3e8da7ac13a85512cb83325759c2'],
+    ['home-portrait.webm', '5390d7f9e61fdb342b9f1d14870c0180406aebb926f09d65deae73b8c019759f'],
+    ['scan-square-poster.jpg', '20215c46e1baf7dfa504a88e81da3ec0c6336086b02aeacc46924d051b8b8622'],
+    ['scan-square.mp4', '1cd24bee1334ff331840100802c10f32dc6d579dd058648c040ba6e53902c61e'],
+    ['scan-square.webm', 'c39c31f3f8418b442a27379ce7c6d3e4022da67994778e7e4f5772d9b775519f'],
+    ['sourcing-landscape-poster.jpg', '09855a14e9d78e03ee05322cef4a4026cf5b5899f05b3175f41723abdefca436'],
+    ['sourcing-landscape.mp4', 'c008e756fa21fa7fba6b457f5218b0546c677f12f3b222d67a732d8e87c7fd75'],
+    ['sourcing-landscape.webm', '7eaccb6591db7eebb3c60752825c6a480b7fe51eb881cb856160fd3bf14bfd91'],
+    ['sourcing-portrait-poster.jpg', '23642eca8c11498d06cef1c10cbaae06917d8f8af648fbd963a7d041d9356691'],
+    ['sourcing-portrait.mp4', 'ee5e8f4f2d160ad56c1a8de9cf7706c4e494923dd5156ece5656a8810622b1dc'],
+    ['sourcing-portrait.webm', '65bb63cdc6a473db2e529a270dc8a72b190e9179c82a23b61662118888326452'],
+  ]
+
+  it('every approved file is on disk with its exact approved hash, and the manifest lists exactly these', () => {
+    const publicDir = join(__dirname, '../../../public/media/home-film')
+    for (const [name, hash] of APPROVED) {
+      expect(createHash('sha256').update(readFileSync(join(publicDir, name))).digest('hex'), name).toBe(hash)
+    }
+    const listed = ([HOME_FILM, SOURCING_FILM, SCAN_FILM] as CinematicFilm[])
+      .flatMap(f => [f.landscape, f.portrait].filter(Boolean).flatMap(r => [...r!.sources, r!.poster]))
+      .map(file => [file.src.split('/').pop(), file.sha256])
+      .sort()
+    expect(listed).toEqual([...APPROVED].sort())
+  })
+
+  it('all three manifests record the Owner approval and confirmed rights', () => {
+    for (const film of [HOME_FILM, SOURCING_FILM, SCAN_FILM] as CinematicFilm[]) {
+      expect(film.review, film.id).toBe('approved')
+      expect(film.provenance.approvedBy).toBe('Owner (CarUp)')
+      expect(film.provenance.approvedAt).toBe('2026-11-16')
+      expect(film.provenance.approvalRef).toMatch(/RX03-P2-CONNECTED-PILOT-CLOSURE-AND-RX04-ENTRY-LR01/)
+      expect(film.rights.licenceRef).toMatch(/Owner confirmed commercial rights for website publication/)
+    }
+    expect(HOME_FILM_STATUS.state).toBe('approved')
+  })
+
+  it('approved cuts may play in a production build (the page release switches still decide whether Home shows them)', () => {
+    vi.stubEnv('PROD', true)
+    for (const film of [HOME_FILM, SOURCING_FILM, SCAN_FILM]) expect(playableFilm(film)).toBe(film)
   })
 })
