@@ -256,7 +256,7 @@ export default function Register() {
             <div className="mt-6 grid gap-3">
               <Button
                 type="button"
-                className="h-11 bg-orange-500 hover:bg-orange-600"
+                className="h-11 bg-orange-700 hover:bg-orange-800"
                 onClick={() => navigate(continueRoute)}
                 data-testid="registration-continue"
               >
@@ -317,7 +317,7 @@ export default function Register() {
               {step === 1 && (
                 <>
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600">1 · Identity & contact</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-800">1 · Identity & contact</p>
                     <h2 className="mt-1 text-lg font-bold">Start with the person we can contact</h2>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -344,7 +344,7 @@ export default function Register() {
               {step === 2 && (
                 <>
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600">2 · Market profile</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-800">2 · Market profile</p>
                     <h2 className="mt-1 text-lg font-bold">How do you participate in the vehicle market?</h2>
                   </div>
 
@@ -442,7 +442,7 @@ export default function Register() {
               {step === 3 && (
                 <>
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600">3 · Security & privacy</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-800">3 · Security & privacy</p>
                     <h2 className="mt-1 text-lg font-bold">Secure the account and choose your permissions</h2>
                   </div>
 
@@ -491,7 +491,7 @@ export default function Register() {
                 </>
               )}
 
-              <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600" disabled={loading}>
+              <Button type="submit" className="w-full bg-orange-700 hover:bg-orange-800" disabled={loading}>
                 {loading ? 'Creating Account…' : step < 3 ? 'Continue' : 'Create Account'}
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
@@ -505,7 +505,7 @@ export default function Register() {
 
             <p className="text-center text-sm text-gray-500 mt-6">
               Already have an account?{' '}
-              <Link to={returnTo ? `/login?returnTo=${encodeURIComponent(returnTo)}` : '/login'} className="text-orange-600 font-medium hover:underline">Sign In</Link>
+              <Link to={returnTo ? `/login?returnTo=${encodeURIComponent(returnTo)}` : '/login'} className="text-orange-700 font-medium hover:underline">Sign In</Link>
             </p>
           </CardContent>
         </Card>
