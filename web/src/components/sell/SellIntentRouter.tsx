@@ -10,6 +10,7 @@ import type { Vehicle } from '@/types'
 import { skin } from '@/lib/unifiedSkin'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import { SellStart } from './SellStart'
+import { vehicleListingState } from '@/lib/vehicleListingState'
 
 /** `vin_first` (RX04-D): start with the VIN and let the Passport check classify the car. */
 export type SellerEntryIntent = 'resume_draft' | 'garage_vehicle' | 'known_vehicle' | 'new_vehicle' | 'vin_first'
@@ -104,7 +105,7 @@ export function SellIntentRouter({
         garageVehicles={garageVehicles}
         hasLocalDraft={hasLocalDraft}
         onResolve={onResolve}
-        vehicleAction={vehicleAction}
+        vehicleAction={vehicle => vehicleListingState(vehicle).action}
       />
     )
   }

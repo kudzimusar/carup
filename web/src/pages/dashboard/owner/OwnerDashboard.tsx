@@ -25,7 +25,7 @@ import {
 import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
-import type { Vehicle, Escrow } from '@/types'
+import type { Vehicle, Escrow, MarketplaceListingSummary } from '@/types'
 import { readOwnerTrustClaim, statedMileage } from './ownerStatedValues'
 import { MyCarUpHome } from './MyCarUpHome'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
@@ -61,7 +61,7 @@ type OwnerActivityNotification = {
 }
 
 export default function OwnerDashboard() {
-  const { fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications } = useCarUpApi()
+  const { fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications, fetchSavedMarketplaceListings } = useCarUpApi()
   const { user } = useAuth()
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -84,6 +84,20 @@ export default function OwnerDashboard() {
   }, [fetchOwnedVehicles, fetchNotifications])
 
   const recentNotifications = liveNotifications.slice(0, 3)
+
+  // RX04-C I-01 — Today's "continue where you left off" reads the owner's saved Marketplace cars.
+  // Unified presentation only: the legacy composition never rendered them, so it never reads them.
+  const unifiedToday = isUnifiedUiEnabled()
+  const [savedState, setSavedState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+  const [savedListings, setSavedListings] = useState<MarketplaceListingSummary[]>([])
+  useEffect(() => {
+    if (!unifiedToday) return
+    let mounted = true
+    fetchSavedMarketplaceListings()
+      .then(data => { if (mounted) { setSavedListings(Array.isArray(data?.listings) ? data.listings : []); setSavedState('ready') } })
+      .catch(() => { if (mounted) { setSavedListings([]); setSavedState('unavailable') } })
+    return () => { mounted = false }
+  }, [unifiedToday, fetchSavedMarketplaceListings])
 
   // Onboarding & settings states.
   //
@@ -176,6 +190,8 @@ export default function OwnerDashboard() {
         notificationsState={notificationsState}
         recentNotifications={recentNotifications}
         attentionItems={attentionItems}
+        savedState={savedState}
+        savedListings={savedListings}
         lowBandwidth={lowBandwidth}
         onToggleLowBandwidth={() => {
           setLowBandwidth(!lowBandwidth)
