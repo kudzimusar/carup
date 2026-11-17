@@ -40,6 +40,7 @@ import type {
   ReportListingSnapshot,
   IntelligenceSeverity,
 } from '@/types'
+import { skin } from '@/lib/unifiedSkin'
 
 interface VehicleHistoryReportProps {
   report: VehicleHistoryReportData
@@ -123,11 +124,11 @@ function verificationMetaFor(value: string | null) {
 function SectionHeading({ icon: Icon, title, subtitle, id }: { icon: LucideIcon; title: string; subtitle?: string; id?: string }) {
   return (
     <div className="mb-3">
-      <h3 id={id} className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-        <Icon className="h-5 w-5 text-gray-500" aria-hidden="true" />
+      <h3 id={id} className={skin('flex items-center gap-2 text-lg font-semibold text-gray-900', 'flex items-center gap-2 text-lg font-semibold text-carup-text')}>
+        <Icon className={skin('h-5 w-5 text-gray-500', 'h-5 w-5 text-carup-text-2')} aria-hidden="true" />
         {title}
       </h3>
-      {subtitle && <p className="mt-0.5 text-xs text-gray-500">{subtitle}</p>}
+      {subtitle && <p className={skin('mt-0.5 text-xs text-gray-500', 'mt-0.5 text-xs text-carup-text-2')}>{subtitle}</p>}
     </div>
   )
 }
@@ -135,7 +136,7 @@ function SectionHeading({ icon: Icon, title, subtitle, id }: { icon: LucideIcon;
 /* A reassuring, neutral empty state — absence of data must never read as "clean". */
 function EmptyState({ icon: Icon, title, hint }: { icon: LucideIcon; title: string; hint?: string }) {
   return (
-    <div className="text-center py-6 text-gray-400">
+    <div className={skin('text-center py-6 text-gray-400', 'text-center py-6 text-carup-text-3')}>
       <Icon className="w-9 h-9 mx-auto mb-2 opacity-30" aria-hidden="true" />
       <p className="font-medium text-sm">{title}</p>
       {hint && <p className="text-xs mt-1">{hint}</p>}
@@ -214,19 +215,19 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
   return (
     <article className="space-y-8" aria-label={`Vehicle history report for ${identityTitle}`} data-testid="vehicle-history-report">
       {/* ── Identity summary + freshness note ── */}
-      <header className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <header className={skin('rounded-xl border border-gray-200 bg-white p-5 shadow-sm', 'rounded-xl border border-carup-line bg-carup-bg-raised p-5 shadow-sm')}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Vehicle History Report</p>
-            <h2 className="mt-1 flex items-center gap-2 text-xl font-bold text-gray-900">
-              <Car className="h-5 w-5 text-gray-500" aria-hidden="true" />
+            <p className={skin('text-xs font-medium uppercase tracking-wide text-gray-400', 'text-xs font-medium uppercase tracking-wide text-carup-text-3')}>Vehicle History Report</p>
+            <h2 className={skin('mt-1 flex items-center gap-2 text-xl font-bold text-gray-900', 'mt-1 flex items-center gap-2 text-xl font-bold text-carup-text')}>
+              <Car className={skin('h-5 w-5 text-gray-500', 'h-5 w-5 text-carup-text-2')} aria-hidden="true" />
               {identityTitle}
             </h2>
-            <p className="mt-1 font-mono text-xs text-gray-500" data-testid="report-vin">
+            <p className={skin('mt-1 font-mono text-xs text-gray-500', 'mt-1 font-mono text-xs text-carup-text-2')} data-testid="report-vin">
               VIN: {identity?.vin || report.vin || '—'}
             </p>
           </div>
-          <div className="text-right text-xs text-gray-500">
+          <div className={skin('text-right text-xs text-gray-500', 'text-right text-xs text-carup-text-2')}>
             {generatedAt ? (
               <p data-testid="report-generated-at">Generated {formatDateTime(generatedAt)}</p>
             ) : (
@@ -238,7 +239,7 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
         {correctionNotice && (
           <div
             role="status"
-            className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
+            className={skin('mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800', 'mt-4 flex items-start gap-2 rounded-lg border border-status-warning bg-status-warning-soft p-3 text-sm text-status-warning')}
             data-testid="report-correction-notice"
           >
             <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -259,9 +260,9 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
           subtitle="What this report does and does not cover. Absence of records is not proof of a clean history."
         />
         <div className="grid gap-4 md:grid-cols-2">
-          <Card className="border-gray-200">
+          <Card className={skin('border-gray-200', 'border-carup-line')}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold text-gray-700">Coverage indicators</CardTitle>
+              <CardTitle className={skin('text-sm font-semibold text-gray-700', 'text-sm font-semibold text-carup-text-2')}>Coverage indicators</CardTitle>
             </CardHeader>
             <CardContent>
               <ul className="space-y-2" data-testid="report-coverage">
@@ -269,14 +270,14 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
                   const StatusIcon = item.ok ? CheckCircle2 : AlertTriangle
                   return (
                     <li key={item.label} className="flex items-center justify-between gap-3 text-sm">
-                      <span className="flex items-center gap-2 text-gray-600">
+                      <span className={skin('flex items-center gap-2 text-gray-600', 'flex items-center gap-2 text-carup-text-2')}>
                         <StatusIcon
-                          className={`h-4 w-4 shrink-0 ${item.ok ? 'text-green-600' : 'text-amber-500'}`}
+                          className={`h-4 w-4 shrink-0 ${item.ok ? skin('text-green-600', 'text-status-success') : skin('text-amber-500', 'text-status-warning')}`}
                           aria-hidden="true"
                         />
                         {item.label}
                       </span>
-                      <span className="font-medium text-gray-800">{item.value}</span>
+                      <span className={skin('font-medium text-gray-800', 'font-medium text-carup-text')}>{item.value}</span>
                     </li>
                   )
                 })}
@@ -285,18 +286,18 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
           </Card>
 
           {/* Limitations rendered prominently with a warning treatment. */}
-          <Card className="border-amber-300 bg-amber-50/60">
+          <Card className={skin('border-amber-300 bg-amber-50/60', 'border-status-warning bg-status-warning-soft')}>
             <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-semibold text-amber-800">
+              <CardTitle className={skin('flex items-center gap-2 text-sm font-semibold text-amber-800', 'flex items-center gap-2 text-sm font-semibold text-status-warning')}>
                 <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                 Limitations &amp; data not available
               </CardTitle>
             </CardHeader>
             <CardContent>
               {limitations.length === 0 ? (
-                <p className="text-sm text-amber-800">No reporting limitations were recorded for this vehicle.</p>
+                <p className={skin('text-sm text-amber-800', 'text-sm text-status-warning')}>No reporting limitations were recorded for this vehicle.</p>
               ) : (
-                <ul className="list-disc space-y-1.5 pl-5 text-sm text-amber-900" data-testid="report-limitations">
+                <ul className={skin('list-disc space-y-1.5 pl-5 text-sm text-amber-900', 'list-disc space-y-1.5 pl-5 text-sm text-carup-text')} data-testid="report-limitations">
                   {limitations.map((line, idx) => (
                     <li key={idx}>{line}</li>
                   ))}
@@ -332,7 +333,7 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
               return (
                 <li
                   key={`${alert.category}-${alert.type ?? 'alert'}-${idx}`}
-                  className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+                  className={skin('rounded-xl border border-gray-200 bg-white p-4 shadow-sm', 'rounded-xl border border-carup-line bg-carup-bg-raised p-4 shadow-sm')}
                   data-testid="report-key-alert"
                   data-alert-category={alert.category}
                 >
@@ -345,9 +346,9 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="text-sm font-semibold text-gray-900">{headline}</h4>
+                        <h4 className={skin('text-sm font-semibold text-gray-900', 'text-sm font-semibold text-carup-text')}>{headline}</h4>
                         {alert.component && (
-                          <Badge variant="secondary" className="bg-gray-100 font-normal text-gray-700">
+                          <Badge variant="secondary" className={skin('bg-gray-100 font-normal text-gray-700', 'bg-carup-bg-surface-2 font-normal text-carup-text-2')}>
                             {titleCase(alert.component)}
                           </Badge>
                         )}
@@ -357,7 +358,7 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
                         </Badge>
                         <Badge
                           variant="outline"
-                          className={`inline-flex items-center gap-1 border ${reviewed ? 'bg-green-100 text-green-800 border-green-200' : 'bg-amber-100 text-amber-800 border-amber-200'}`}
+                          className={`inline-flex items-center gap-1 border ${reviewed ? skin('bg-green-100 text-green-800 border-green-200', 'bg-status-success-soft text-status-success border-status-success') : skin('bg-amber-100 text-amber-800 border-amber-200', 'bg-status-warning-soft text-status-warning border-status-warning')}`}
                         >
                           <ReviewIcon className="h-3 w-3" aria-hidden="true" />
                           {reviewed ? 'Reviewer confirmed' : 'Not yet reviewed'}
@@ -365,9 +366,9 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
                       </div>
 
                       {/* Render summaries verbatim — do not paraphrase the backend's careful wording. */}
-                      {alert.summary && <p className="mt-2 text-sm text-gray-700">{alert.summary}</p>}
+                      {alert.summary && <p className={skin('mt-2 text-sm text-gray-700', 'mt-2 text-sm text-carup-text-2')}>{alert.summary}</p>}
 
-                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                      <div className={skin('mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500', 'mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-carup-text-2')}>
                         <span className="inline-flex items-center gap-1">
                           <FileSearch className="h-3.5 w-3.5" aria-hidden="true" />
                           {alert.evidence_count} supporting item{alert.evidence_count === 1 ? '' : 's'}
@@ -375,8 +376,8 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
                       </div>
 
                       {alert.recommended_action && (
-                        <p className="mt-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                          <span className="font-medium text-gray-700">Recommended action: </span>
+                        <p className={skin('mt-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600', 'mt-2 rounded-lg bg-carup-bg-surface px-3 py-2 text-xs text-carup-text-2')}>
+                          <span className={skin('font-medium text-gray-700', 'font-medium text-carup-text-2')}>Recommended action: </span>
                           {alert.recommended_action}
                         </p>
                       )}
@@ -397,12 +398,12 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
           title="Records by life stage"
           subtitle="Count of canonical lifecycle records CarUp can currently support across evidence, ownership, maintenance, inspection, insurance and listing observations."
         />
-        <div className="grid grid-cols-2 border-l border-t border-slate-200 sm:grid-cols-3 lg:grid-cols-4" data-testid="report-section-counts">
+        <div className={skin('grid grid-cols-2 border-l border-t border-slate-200 sm:grid-cols-3 lg:grid-cols-4', 'grid grid-cols-2 border-l border-t border-carup-line sm:grid-cols-3 lg:grid-cols-4')} data-testid="report-section-counts">
           {sectionCounts.map(({ label, value, icon: Icon }) => (
-            <div key={label} className="border-b border-r border-slate-200 bg-white p-4 text-left">
-              <Icon className="h-5 w-5 text-orange-500" aria-hidden="true" />
-              <p className="mt-3 text-3xl font-black tracking-tight text-slate-950">{value}</p>
-              <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+            <div key={label} className={skin('border-b border-r border-slate-200 bg-white p-4 text-left', 'border-b border-r border-carup-line bg-carup-bg-raised p-4 text-left')}>
+              <Icon className={skin('h-5 w-5 text-orange-500', 'h-5 w-5 text-carup-action')} aria-hidden="true" />
+              <p className={skin('mt-3 text-3xl font-black tracking-tight text-slate-950', 'mt-3 text-3xl font-bold tracking-tight text-carup-text')}>{value}</p>
+              <p className={skin('mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500', 'mt-1 text-xs font-semibold uppercase tracking-wide text-carup-text-2')}>{label}</p>
             </div>
           ))}
         </div>
@@ -419,7 +420,7 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
         {mileage_history.anomaly && (
           <div
             role="alert"
-            className="mb-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+            className={skin('mb-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800', 'mb-3 flex items-start gap-2 rounded-lg border border-status-danger bg-status-danger-soft p-3 text-sm text-status-danger')}
             data-testid="report-mileage-anomaly"
           >
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -443,11 +444,11 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
             {mileage_history.observations.map((obs: ReportMileageObservation, idx) => (
               <li
                 key={`${obs.source}-${obs.evidence_id ?? obs.listing_id ?? idx}`}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm"
+                className={skin('flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm', 'flex flex-wrap items-center justify-between gap-2 rounded-lg bg-carup-bg-surface px-3 py-2 text-sm')}
               >
-                <span className="font-medium text-gray-800">{formatMileage(obs.value, obs.unit)}</span>
-                <span className="text-xs text-gray-500">{formatDate(obs.date)}</span>
-                <Badge variant="secondary" className="bg-gray-100 font-normal text-gray-600">
+                <span className={skin('font-medium text-gray-800', 'font-medium text-carup-text')}>{formatMileage(obs.value, obs.unit)}</span>
+                <span className={skin('text-xs text-gray-500', 'text-xs text-carup-text-2')}>{formatDate(obs.date)}</span>
+                <Badge variant="secondary" className={skin('bg-gray-100 font-normal text-gray-600', 'bg-carup-bg-surface-2 font-normal text-carup-text-2')}>
                   {titleCase(obs.source, 'Source')}
                 </Badge>
               </li>
@@ -467,7 +468,7 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
         {listing_history.length === 0 ? (
           <EmptyState icon={Tag} title="No listing snapshots captured" hint="No advertised history is on record for this vehicle." />
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <div className={skin('overflow-x-auto rounded-lg border border-gray-200', 'overflow-x-auto rounded-lg border border-carup-line')}>
             <Table data-testid="report-listing-history">
               <TableHeader>
                 <TableRow>
@@ -481,7 +482,7 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
               <TableBody>
                 {listing_history.map((l: ReportListingSnapshot, idx) => (
                   <TableRow key={`${l.version ?? idx}-${l.captured_at ?? idx}`}>
-                    <TableCell className="whitespace-nowrap text-xs text-gray-500">{formatDate(l.captured_at)}</TableCell>
+                    <TableCell className={skin('whitespace-nowrap text-xs text-gray-500', 'whitespace-nowrap text-xs text-carup-text-2')}>{formatDate(l.captured_at)}</TableCell>
                     <TableCell className="max-w-[16rem] truncate">{l.title || '—'}</TableCell>
                     <TableCell className="whitespace-nowrap font-medium">{formatPrice(l.price, l.currency)}</TableCell>
                     <TableCell className="whitespace-nowrap">
@@ -536,16 +537,16 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
               return (
                 <li
                   key={`${item.evidence_id}-${idx}`}
-                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-gray-50 px-3 py-2 text-sm"
+                  className={skin('flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-gray-50 px-3 py-2 text-sm', 'flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-carup-bg-surface px-3 py-2 text-sm')}
                 >
-                  <span className="font-medium text-gray-700">{formatDate(item.date)}</span>
-                  <span className="text-gray-600">{titleCase(item.evidence_class, 'Record')}</span>
-                  {item.evidence_subtype && <span className="text-xs text-gray-500">{titleCase(item.evidence_subtype)}</span>}
+                  <span className={skin('font-medium text-gray-700', 'font-medium text-carup-text-2')}>{formatDate(item.date)}</span>
+                  <span className={skin('text-gray-600', 'text-carup-text-2')}>{titleCase(item.evidence_class, 'Record')}</span>
+                  {item.evidence_subtype && <span className={skin('text-xs text-gray-500', 'text-xs text-carup-text-2')}>{titleCase(item.evidence_subtype)}</span>}
                   {typeof item.mileage === 'number' && (
-                    <span className="text-xs font-semibold text-slate-600">{formatMileage(item.mileage, item.mileage_unit || 'km')}</span>
+                    <span className={skin('text-xs font-semibold text-slate-600', 'text-xs font-semibold text-carup-text-2')}>{formatMileage(item.mileage, item.mileage_unit || 'km')}</span>
                   )}
                   {item.source_kind && (
-                    <span className="text-[11px] uppercase tracking-wide text-slate-600">{titleCase(item.source_kind)}</span>
+                    <span className={skin('text-[11px] uppercase tracking-wide text-slate-600', 'text-[11px] uppercase tracking-wide text-carup-text-2')}>{titleCase(item.source_kind)}</span>
                   )}
                   <Badge variant="outline" className={`ml-auto inline-flex items-center gap-1 border ${statusMeta.className}`}>
                     <StatusIcon className="h-3 w-3" aria-hidden="true" />
@@ -569,7 +570,7 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
         {evidence_index.length === 0 ? (
           <EmptyState icon={FileSearch} title="No evidence on record" hint="This report is built from no evidence items yet." />
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <div className={skin('overflow-x-auto rounded-lg border border-gray-200', 'overflow-x-auto rounded-lg border border-carup-line')}>
             <Table data-testid="report-evidence-index">
               <TableHeader>
                 <TableRow>
@@ -588,8 +589,8 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
                     <TableRow key={`${item.evidence_id}-${idx}`}>
                       <TableCell>{titleCase(item.evidence_class, '—')}</TableCell>
                       <TableCell>{titleCase(item.evidence_subtype, '—')}</TableCell>
-                      <TableCell className="whitespace-nowrap text-xs text-gray-500">{formatDate(item.date)}</TableCell>
-                      <TableCell className="font-mono text-xs text-gray-500">{item.source_id || '—'}</TableCell>
+                      <TableCell className={skin('whitespace-nowrap text-xs text-gray-500', 'whitespace-nowrap text-xs text-carup-text-2')}>{formatDate(item.date)}</TableCell>
+                      <TableCell className={skin('font-mono text-xs text-gray-500', 'font-mono text-xs text-carup-text-2')}>{item.source_id || '—'}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className={`inline-flex items-center gap-1 border ${statusMeta.className}`}>
                           <StatusIcon className="h-3 w-3" aria-hidden="true" />

@@ -26,6 +26,7 @@ import type {
   IntelligenceSeverity,
   IntelligenceReviewerState,
 } from '@/types'
+import { skin } from '@/lib/unifiedSkin'
 
 interface VehicleTemporalComparisonProps {
   findings: TemporalFinding[]
@@ -134,7 +135,7 @@ export default function VehicleTemporalComparison({ findings }: VehicleTemporalC
   // most buyer-facing vehicles and must NOT imply anything is wrong.
   if (findings.length === 0) {
     return (
-      <div className="text-center py-8 text-gray-400" data-testid="temporal-comparison-empty">
+      <div className={skin('text-center py-8 text-gray-400', 'text-center py-8 text-carup-text-3')} data-testid="temporal-comparison-empty">
         <GitCompareArrows className="w-10 h-10 mx-auto mb-3 opacity-30" aria-hidden="true" />
         <p className="font-medium">No confirmed component changes</p>
         <p className="text-xs mt-1">
@@ -160,7 +161,7 @@ export default function VehicleTemporalComparison({ findings }: VehicleTemporalC
             return (
               <li
                 key={`${finding.finding_type}-${finding.component ?? 'component'}-${idx}`}
-                className={`rounded-xl border bg-white p-4 shadow-sm ${meta.ring}`}
+                className={`${skin('rounded-xl border bg-white p-4 shadow-sm', 'rounded-xl border bg-carup-bg-raised p-4 shadow-sm')} ${meta.ring}`}
                 data-testid="temporal-finding"
                 data-finding-type={finding.finding_type}
               >
@@ -173,8 +174,8 @@ export default function VehicleTemporalComparison({ findings }: VehicleTemporalC
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-semibold text-gray-900">{componentLabel}</h3>
-                      <Badge variant="secondary" className="bg-gray-100 text-gray-700 font-normal">
+                      <h3 className={skin('text-sm font-semibold text-gray-900', 'text-sm font-semibold text-carup-text')}>{componentLabel}</h3>
+                      <Badge variant="secondary" className={skin('bg-gray-100 text-gray-700 font-normal', 'bg-carup-bg-surface-2 text-carup-text-2 font-normal')}>
                         {meta.label}
                       </Badge>
                       <Badge
@@ -188,24 +189,24 @@ export default function VehicleTemporalComparison({ findings }: VehicleTemporalC
 
                     {/* Before / after dates — the temporal axis of the comparison. */}
                     <div
-                      className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600"
+                      className={skin('mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600', 'mt-2 flex flex-wrap items-center gap-2 text-xs text-carup-text-2')}
                       data-testid="temporal-finding-dates"
                     >
-                      <span className="inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-1">
-                        <CalendarClock className="h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
-                        <span className="text-gray-500">Earlier:</span>
-                        <span className="font-medium text-gray-700">{formatDate(finding.earlier_date)}</span>
+                      <span className={skin('inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-1', 'inline-flex items-center gap-1 rounded-md bg-carup-bg-surface px-2 py-1')}>
+                        <CalendarClock className={skin('h-3.5 w-3.5 text-gray-400', 'h-3.5 w-3.5 text-carup-text-3')} aria-hidden="true" />
+                        <span className={skin('text-gray-500', 'text-carup-text-2')}>Earlier:</span>
+                        <span className={skin('font-medium text-gray-700', 'font-medium text-carup-text-2')}>{formatDate(finding.earlier_date)}</span>
                       </span>
-                      <ArrowRight className="h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
-                      <span className="inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-1">
-                        <CalendarClock className="h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
-                        <span className="text-gray-500">Later:</span>
-                        <span className="font-medium text-gray-700">{formatDate(finding.later_date)}</span>
+                      <ArrowRight className={skin('h-3.5 w-3.5 text-gray-400', 'h-3.5 w-3.5 text-carup-text-3')} aria-hidden="true" />
+                      <span className={skin('inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-1', 'inline-flex items-center gap-1 rounded-md bg-carup-bg-surface px-2 py-1')}>
+                        <CalendarClock className={skin('h-3.5 w-3.5 text-gray-400', 'h-3.5 w-3.5 text-carup-text-3')} aria-hidden="true" />
+                        <span className={skin('text-gray-500', 'text-carup-text-2')}>Later:</span>
+                        <span className={skin('font-medium text-gray-700', 'font-medium text-carup-text-2')}>{formatDate(finding.later_date)}</span>
                       </span>
                     </div>
 
                     {finding.public_summary && (
-                      <p className="mt-2 text-sm text-gray-700">{finding.public_summary}</p>
+                      <p className={skin('mt-2 text-sm text-gray-700', 'mt-2 text-sm text-carup-text-2')}>{finding.public_summary}</p>
                     )}
 
                     <Badge
@@ -226,21 +227,21 @@ export default function VehicleTemporalComparison({ findings }: VehicleTemporalC
       {/* Explicit "insufficient evidence / unable to compare" edge state. */}
       {inconclusive.length > 0 && (
         <div
-          className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+          className={skin('rounded-xl border border-slate-200 bg-slate-50 p-4', 'rounded-xl border border-carup-line bg-carup-bg-surface p-4')}
           data-testid="temporal-comparison-inconclusive"
         >
           <div className="flex items-start gap-3">
             <span
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500"
+              className={skin('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500', 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-carup-bg-raised text-carup-text-2')}
               aria-hidden="true"
             >
               <HelpCircle className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-semibold text-slate-700">
+              <h3 className={skin('text-sm font-semibold text-slate-700', 'text-sm font-semibold text-carup-text-2')}>
                 Insufficient evidence to compare
               </h3>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className={skin('mt-0.5 text-xs text-slate-500', 'mt-0.5 text-xs text-carup-text-2')}>
                 {inconclusive.length === 1
                   ? 'One component could not be compared across time due to limited evidence.'
                   : `${inconclusive.length} components could not be compared across time due to limited evidence.`}
@@ -249,11 +250,11 @@ export default function VehicleTemporalComparison({ findings }: VehicleTemporalC
                 {inconclusive.map((finding, idx) => (
                   <li
                     key={`unable-${finding.component ?? 'component'}-${idx}`}
-                    className="text-xs text-slate-600"
+                    className={skin('text-xs text-slate-600', 'text-xs text-carup-text-2')}
                     data-testid="temporal-finding-inconclusive"
                   >
-                    <span className="font-medium text-slate-700">{formatComponent(finding.component)}</span>
-                    {finding.public_summary ? <span className="text-slate-500"> — {finding.public_summary}</span> : null}
+                    <span className={skin('font-medium text-slate-700', 'font-medium text-carup-text-2')}>{formatComponent(finding.component)}</span>
+                    {finding.public_summary ? <span className={skin('text-slate-500', 'text-carup-text-2')}> — {finding.public_summary}</span> : null}
                   </li>
                 ))}
               </ul>

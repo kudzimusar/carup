@@ -1113,7 +1113,7 @@ export default function SellVehicle() {
             <div>
               <label className="text-sm font-medium mb-1.5 block">Year *</label>
               <Select value={form.year} onValueChange={v => set('year', v)} disabled={canonicalLocked}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label={unified ? 'Year' : undefined}><SelectValue /></SelectTrigger>
                 <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
               </Select>
             </div>
@@ -1210,7 +1210,7 @@ export default function SellVehicle() {
           <div>
             <label className="text-sm font-medium mb-1.5 block">Zimbabwe registration stage</label>
             <Select value={form.registrationStatus} onValueChange={v => set('registrationStatus', v)} disabled={registrationStageLocked}>
-              <SelectTrigger data-testid="registration-status-select"><SelectValue placeholder="Choose the vehicle's current stage" /></SelectTrigger>
+              <SelectTrigger data-testid="registration-status-select" aria-label={unified ? 'Zimbabwe registration stage' : undefined}><SelectValue placeholder="Choose the vehicle's current stage" /></SelectTrigger>
               <SelectContent>
                 {ZIMBABWE_REGISTRATION_OPTIONS.map(option => (
                   <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>

@@ -474,7 +474,7 @@ export default function GuestSell() {
             <div className="sm:col-span-2">
               <Field label="Zimbabwe registration stage">
                 <Select value={form.registrationStatus} onValueChange={v => set('registrationStatus', v)}>
-                  <SelectTrigger data-testid="guest-registration-status-select"><SelectValue placeholder="Choose the vehicle's current stage" /></SelectTrigger>
+                  <SelectTrigger data-testid="guest-registration-status-select" aria-label={unified ? 'Zimbabwe registration stage' : undefined}><SelectValue placeholder="Choose the vehicle's current stage" /></SelectTrigger>
                   <SelectContent>
                     {ZIMBABWE_REGISTRATION_OPTIONS.map(option => (
                       <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
@@ -704,7 +704,7 @@ export default function GuestSell() {
             </div>
           </div>
 
-          <div className={skin('rounded-[2rem] border border-slate-200 bg-slate-50 p-4 sm:p-6', 'rounded-[2rem] border border-carup-line bg-carup-bg-surface p-4 sm:p-6')}>
+          <div className={skin('rounded-[2rem] border border-slate-200 bg-slate-50 p-4 sm:p-6', 'rounded-[2rem] border border-carup-line bg-carup-bg-raised p-4 sm:p-6')}>
             <div className="mx-auto w-full max-w-sm" data-testid="guest-sell-buyer-preview">
               {unified ? (
                 <ShowroomListingCard

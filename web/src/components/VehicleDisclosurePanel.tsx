@@ -18,6 +18,7 @@ import type {
   IntelligenceSeverity,
   IntelligenceReviewerState,
 } from '@/types'
+import { skin } from '@/lib/unifiedSkin'
 
 interface VehicleDisclosurePanelProps {
   conflicts: DisclosureConflict[]
@@ -103,7 +104,7 @@ export default function VehicleDisclosurePanel({ conflicts }: VehicleDisclosureP
   // read as reassuring/neutral and must NOT imply anything is wrong.
   if (conflicts.length === 0) {
     return (
-      <div className="text-center py-8 text-gray-400" data-testid="disclosure-panel-empty">
+      <div className={skin('text-center py-8 text-gray-400', 'text-center py-8 text-carup-text-3')} data-testid="disclosure-panel-empty">
         <ShieldCheck className="w-10 h-10 mx-auto mb-3 opacity-30" aria-hidden="true" />
         <p className="font-medium">No confirmed disclosure conflicts</p>
         <p className="text-xs mt-1">
@@ -126,7 +127,7 @@ export default function VehicleDisclosurePanel({ conflicts }: VehicleDisclosureP
         return (
           <li
             key={`${conflict.conflict_type ?? 'claim'}-${conflict.classification}-${idx}`}
-            className={`rounded-xl border bg-white p-4 shadow-sm ${classification.ring}`}
+            className={`${skin('rounded-xl border bg-white p-4 shadow-sm', 'rounded-xl border bg-carup-bg-raised p-4 shadow-sm')} ${classification.ring}`}
             data-testid="disclosure-conflict"
             data-classification={conflict.classification}
           >
@@ -139,7 +140,7 @@ export default function VehicleDisclosurePanel({ conflicts }: VehicleDisclosureP
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-sm font-semibold text-gray-900">
+                  <h3 className={skin('text-sm font-semibold text-gray-900', 'text-sm font-semibold text-carup-text')}>
                     {formatConflictType(conflict.conflict_type)}
                   </h3>
                   <Badge
@@ -159,19 +160,19 @@ export default function VehicleDisclosurePanel({ conflicts }: VehicleDisclosureP
                 </div>
 
                 {conflict.public_summary && (
-                  <p className="mt-2 text-sm text-gray-700">{conflict.public_summary}</p>
+                  <p className={skin('mt-2 text-sm text-gray-700', 'mt-2 text-sm text-carup-text-2')}>{conflict.public_summary}</p>
                 )}
 
                 {conflict.seller_response && (
                   <div
-                    className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3"
+                    className={skin('mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3', 'mt-3 rounded-lg border border-carup-line bg-carup-bg-surface p-3')}
                     data-testid="disclosure-seller-response"
                   >
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
-                      <MessageSquareQuote className="h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
+                    <div className={skin('flex items-center gap-1.5 text-xs font-medium text-gray-600', 'flex items-center gap-1.5 text-xs font-medium text-carup-text-2')}>
+                      <MessageSquareQuote className={skin('h-3.5 w-3.5 text-gray-400', 'h-3.5 w-3.5 text-carup-text-3')} aria-hidden="true" />
                       Seller response
                     </div>
-                    <p className="mt-1 text-sm text-gray-700">{conflict.seller_response}</p>
+                    <p className={skin('mt-1 text-sm text-gray-700', 'mt-1 text-sm text-carup-text-2')}>{conflict.seller_response}</p>
                   </div>
                 )}
 

@@ -273,7 +273,7 @@ export function SellerStudioFrame({
 
         <aside className="min-w-0 space-y-4 lg:sticky lg:top-20" aria-label="Your listing as buyers will see it">
           {preview && (
-            <section className="rounded-card border border-carup-line bg-carup-bg-surface p-4" data-testid="seller-studio-preview">
+            <section className="rounded-card border border-carup-line bg-carup-bg-raised p-4" data-testid="seller-studio-preview">
               <div className="mb-3 flex items-baseline justify-between gap-3">
                 <h2 className="text-sm font-semibold text-carup-text">Buyer preview</h2>
                 <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-carup-text-3">Not public</span>

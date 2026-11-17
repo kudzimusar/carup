@@ -936,14 +936,16 @@ function buildVerificationSources(passport: VehiclePassport | null): PassportVer
 
 // ── Status badge for verification sources ───────────────────────────────────
 function VerificationBadge({ status }: { status: PassportVerificationSource['status'] }) {
+  // RX04-B: readable status chips (the white-on-green/grey 10px badges failed AA once the chapter
+  // stopped hiding behind a tab).
   const map = {
-    verified:     { label: 'Verified',   cls: 'bg-green-500 text-white' },
-    not_verified: { label: 'Unverified', cls: 'bg-gray-400 text-white' },
-    warning:      { label: 'Warning',    cls: 'bg-amber-500 text-white' },
-    unknown:      { label: 'Unknown',    cls: 'bg-gray-300 text-gray-700' },
+    verified:     { label: 'Verified',   cls: 'bg-status-success-soft text-status-success' },
+    not_verified: { label: 'Unverified', cls: 'bg-carup-bg-surface-2 text-carup-text-2' },
+    warning:      { label: 'Warning',    cls: 'bg-status-warning-soft text-status-warning' },
+    unknown:      { label: 'Unknown',    cls: 'bg-carup-bg-surface-2 text-carup-text-2' },
   }
   const { label, cls } = map[status]
-  return <Badge className={`${cls} text-[10px]`}>{label}</Badge>
+  return <Badge className={`${cls} border-0 text-[12px] font-semibold`}>{label}</Badge>
 }
 
 // ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
