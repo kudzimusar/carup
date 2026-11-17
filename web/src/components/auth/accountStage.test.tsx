@@ -166,13 +166,13 @@ describe('the RX-03 account stage (showroom chrome ON)', () => {
     expect(login).not.toHaveBeenCalled()
   })
 
-  it('the five account routes share one title map', () => {
-    expect(focusedTaskFor('/login')).toEqual({ title: 'Sign in to CarUp', wide: false })
-    expect(focusedTaskFor('/register')).toEqual({ title: 'Create your CarUp account', wide: true })
+  it('the five account routes share one title map (and RX04-E adds the identity check in its own mode)', () => {
+    expect(focusedTaskFor('/login')).toEqual({ title: 'Sign in to CarUp', wide: false, mode: 'auth' })
+    expect(focusedTaskFor('/register')).toEqual({ title: 'Create your CarUp account', wide: true, mode: 'auth' })
     expect(focusedTaskFor('/auth/forgot-password')?.title).toBe('Recover your password')
     expect(focusedTaskFor('/auth/reset-password')?.title).toBe('Choose a new password')
     expect(focusedTaskFor('/auth/verify-email')?.title).toBe('Verify your email')
-    expect(focusedTaskFor('/kyc')).toBeNull()
+    expect(focusedTaskFor('/kyc')).toEqual({ title: 'Identity check', wide: false, mode: 'identity' })
   })
 })
 
