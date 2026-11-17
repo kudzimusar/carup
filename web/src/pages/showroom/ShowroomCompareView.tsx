@@ -68,7 +68,7 @@ function trustCell(v: CompareVehicle) {
   )
 }
 
-interface Signal { label: string; render: (v: CompareVehicle) => ReactNode; strong?: boolean }
+interface Signal { label: string; render: (v: CompareVehicle) => ReactNode; strong?: boolean; /** Value is too wide to share a phone row with the car's name. */ stacked?: boolean }
 interface SignalGroup { title: string; signals: Signal[] }
 
 const GROUPS: SignalGroup[] = [
@@ -95,10 +95,11 @@ const GROUPS: SignalGroup[] = [
   {
     title: 'CarUp Trust',
     signals: [
-      { label: 'Trust evaluation', strong: true, render: trustCell },
+      { label: 'Trust evaluation', strong: true, stacked: true, render: trustCell },
       { label: 'Confidence', render: v => titleCase(v.trust?.confidence) ?? <NotRecorded /> },
       {
         label: 'Published badges',
+        stacked: true,
         render: v => v.trust_summary?.trust_badges?.length
           ? (
             <span className="flex flex-wrap gap-1.5">
@@ -200,7 +201,7 @@ export function ShowroomCompareView({ state, requestedCount, entries, onRetry, o
           <>
             {/* Phones and small tablets: vehicle strip + attribute-first lists. */}
             <div className="md:hidden" data-testid="compare-mobile">
-              <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2" role="list" aria-label="Vehicles in this comparison">
+              <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2" role="list" aria-label="Vehicles in this comparison">
                 {entries.map(v => (
                   <div key={v.vin} role="listitem" className="w-[min(72vw,16rem)] shrink-0 snap-start">
                     <VehicleHead v={v} onRemove={onRemove} compact />
@@ -215,7 +216,12 @@ export function ShowroomCompareView({ state, requestedCount, entries, onRetry, o
                       <div key={signal.label} className="py-3">
                         <dt className="text-[13px] font-medium text-carup-text-2">{signal.label}</dt>
                         <dd className="mt-2 space-y-1.5">
-                          {entries.map(v => (
+                          {entries.map(v => signal.stacked ? (
+                            <div key={v.vin} className="min-w-0 text-[14px]">
+                              <span className="block truncate text-carup-text-2">{name(v)}</span>
+                              <span className={`mt-1 block min-w-0 ${signal.strong ? 'font-semibold text-carup-raw-ink' : 'text-carup-text'}`}>{signal.render(v)}</span>
+                            </div>
+                          ) : (
                             <div key={v.vin} className="flex items-baseline justify-between gap-3 text-[14px]">
                               <span className="min-w-0 truncate text-carup-text-2">{name(v)}</span>
                               <span className={`shrink-0 text-right ${signal.strong ? 'font-semibold text-carup-raw-ink' : 'text-carup-text'}`}>{signal.render(v)}</span>
