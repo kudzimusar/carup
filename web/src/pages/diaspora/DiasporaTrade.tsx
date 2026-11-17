@@ -648,13 +648,13 @@ function StatusTimeline({ currentStatus }: { currentStatus?: string }) {
     <div className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-status-timeline">
       <h2 className="text-base font-semibold text-gray-900">Status timeline</h2>
       {outcome && (
-        <p className="mt-2 rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-700" data-testid="diaspora-status-outcome">{outcome.timeline}</p>
+        <p className="mt-2 rounded-md bg-carup-bg-surface px-3 py-2 text-sm text-carup-text-2" data-testid="diaspora-status-outcome">{outcome.timeline}</p>
       )}
       <div className="mt-4 grid gap-3">
         {timelineSteps.map((step) => {
           const active = !outcome && rank >= 0 && orderRank(step) <= rank
           return (
-            <div key={step} className="flex items-center gap-3" data-testid="diaspora-timeline-item">
+            <div key={step} className="flex items-center gap-3" data-testid="diaspora-timeline-item" data-reached={active ? 'true' : 'false'}>
               <span className={`flex h-7 w-7 items-center justify-center rounded-full ${active ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
                 {active ? <CheckCircle2 className="h-4 w-4" /> : <Timer className="h-4 w-4" />}
               </span>
@@ -842,7 +842,7 @@ function ImportOrderListUnified({ orders, loading, error }: { orders: DiasporaIm
                   </div>
                   <p className="text-sm text-gray-700">{labelize(order.order_type)} · {[order.origin_country, order.destination_country].filter(Boolean).join(' → ')}</p>
                   {rejectedCount > 0
-                    ? <p className="text-xs font-semibold text-red-800">{rejectedCount} required document{rejectedCount === 1 ? '' : 's'} rejected — action needed</p>
+                    ? <p className="text-xs font-semibold text-status-danger">{rejectedCount} required document{rejectedCount === 1 ? '' : 's'} rejected — action needed</p>
                     : pending !== null && <p className="text-xs text-gray-600">{pending === 0 ? 'All required documents uploaded' : `${pending} required document${pending === 1 ? '' : 's'} still to upload`}</p>}
                   <span className="mt-auto inline-flex items-center gap-1 text-sm font-semibold text-orange-700">Open order <ArrowRight className="h-4 w-4" aria-hidden="true" /></span>
                 </Link>

@@ -71,7 +71,7 @@ async function renderWith(order: Record<string, unknown>, opts: { unified?: bool
 }
 const nextStep = () => screen.getByTestId('trade-next-step').textContent || ''
 const rows = () => [0, 1, 2, 3, 4].map(i => screen.getByTestId(`diaspora-document-status-${i}`).textContent)
-const lit = () => screen.getAllByTestId('diaspora-timeline-item').filter(i => i.querySelector('.bg-orange-600')).length
+const lit = () => screen.getAllByTestId('diaspora-timeline-item').filter(i => i.dataset.reached === 'true').length
 
 describe('TRADE-01 — truthful next step (unified order workbench)', () => {
   it('1 · all required documents genuinely verified → verified result, waiting for a booking', async () => {
@@ -128,7 +128,7 @@ describe('TRADE-01 — truthful next step (unified order workbench)', () => {
     expect(lit()).toBe(1)
     cleanup()
     await renderWith({ status: 'ARRIVED_AT_BORDER', diaspora_trade_documents: allVerified() }, { unified: true })
-    expect(screen.getAllByTestId('diaspora-timeline-item').filter(i => i.querySelector('.bg-orange-600')).length).toBeGreaterThanOrEqual(5)
+    expect(screen.getAllByTestId('diaspora-timeline-item').filter(i => i.dataset.reached === 'true').length).toBeGreaterThanOrEqual(5)
   })
   it('10 · flags OFF uses the same corrected document truth (no new controls)', async () => {
     const docs = allVerified(); docs[2] = doc('x', 'export_certificate', 'REJECTED')
