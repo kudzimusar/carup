@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { journeyStepFor, prefersDataSaving, warmJourney } from './routeWarmup'
+import { journeyStepFor, prefersDataSaving, QUIET_MS, warmJourney } from './routeWarmup'
 
 describe('journeyStepFor', () => {
   it.each([
@@ -38,6 +38,30 @@ describe('warmJourney', () => {
     expect(s.detail).toHaveBeenCalledTimes(1)
     expect(s.home).toHaveBeenCalledTimes(1)
     Object.defineProperty(document, 'readyState', { value: 'complete', configurable: true })
+  })
+
+  it('holds the warm-up while the page is still downloading (e.g. its photo), then warms once quiet', () => {
+    vi.useFakeTimers()
+    let busy = true
+    const spy = vi.spyOn(performance, 'getEntriesByType').mockImplementation(() => {
+      // While busy, a download "just finished" right now; afterwards nothing new happens.
+      const t = busy ? Date.now() - performance.timeOrigin : 0
+      return [{ startTime: t, responseEnd: t } as PerformanceEntry & { responseEnd: number }] as unknown as PerformanceEntryList
+    })
+    try {
+      const s = steps()
+      warmJourney('/marketplace/ABC123', s)
+      expect(s.detail).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(QUIET_MS * 4)
+      expect(s.home).not.toHaveBeenCalled()
+      expect(s.marketplace).not.toHaveBeenCalled()
+      busy = false
+      vi.advanceTimersByTime(QUIET_MS + 500)
+      expect(s.home).toHaveBeenCalledTimes(1)
+      expect(s.marketplace).toHaveBeenCalledTimes(1)
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('never speculates under Save-Data', () => {

@@ -6,8 +6,9 @@
  * Marketplace and Vehicle Detail code while its hero was still loading. Now:
  *
  *   1. the chunk for the page being opened is requested immediately (no extra round trip later);
- *   2. the other journey steps are requested only after `load`, when the browser is idle, and not
- *      at all when the visitor asked to save data (Save-Data / 2g).
+ *   2. the other journey steps are requested only after `load` AND once the network has been quiet
+ *      for 1.5 s (so they never compete with the page's own photo), and not at all when the
+ *      visitor asked to save data (Save-Data / 2g).
  *
  * Warming only downloads code. It renders nothing and never bypasses a route guard.
  */
@@ -39,6 +40,9 @@ export function prefersDataSaving(connection: ConnectionHints | undefined): bool
 
 type Preload = () => Promise<unknown>
 
+export const QUIET_MS = 1500
+export const MAX_WAIT_MS = 15000
+
 export function warmJourney(pathname: string, steps: Record<JourneyStep, Preload>): void {
   const current = journeyStepFor(pathname)
   if (!current) return
@@ -49,11 +53,25 @@ export function warmJourney(pathname: string, steps: Record<JourneyStep, Preload
   const warmRest = () => {
     for (const step of Object.keys(steps) as JourneyStep[]) if (step !== current) void steps[step]()
   }
-  const whenIdle = () => {
-    const ric = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback
-    if (typeof ric === 'function') ric(warmRest, { timeout: 5000 })
-    else setTimeout(warmRest, 2000)
+  // `load` can fire before a page's main image is even requested (Vehicle Detail renders its photo
+  // only after its data arrives), so "after load, on idle" still competed with the LCP image on a
+  // phone. Warm only once the network has been quiet for QUIET_MS (no new resource started), or
+  // after MAX_WAIT_MS at the latest.
+  const started = Date.now()
+  // Resource entries appear when a download FINISHES, so the latest start-or-finish time across all of
+  // them moves forward whenever anything (e.g. the LCP photo) completes; an in-flight download keeps
+  // the network "busy" until it lands and its entry resets the quiet clock.
+  const lastNetworkActivity = () => {
+    const entries = (typeof performance.getEntriesByType === 'function' ? performance.getEntriesByType('resource') : []) as PerformanceResourceTiming[]
+    let latest = 0
+    for (const e of entries) latest = Math.max(latest, e.startTime, e.responseEnd)
+    return entries.length ? performance.timeOrigin + latest : 0
   }
-  if (document.readyState === 'complete') whenIdle()
-  else window.addEventListener('load', whenIdle, { once: true })
+  const waitForQuiet = () => {
+    const quietFor = Date.now() - Math.max(lastNetworkActivity(), started)
+    if (quietFor >= QUIET_MS || Date.now() - started >= MAX_WAIT_MS) warmRest()
+    else setTimeout(waitForQuiet, Math.max(250, QUIET_MS - quietFor))
+  }
+  if (document.readyState === 'complete') waitForQuiet()
+  else window.addEventListener('load', waitForQuiet, { once: true })
 }
