@@ -40,24 +40,41 @@ interface LazyRouteBoundaryProps {
   children: ReactNode
   /** Optional override for the retry shell title. */
   title?: string
+  /**
+   * RX07: when this value changes while the error shell is showing (e.g. the visitor navigated to
+   * another path), the boundary clears itself so one page's failure never sticks to the next.
+   */
+  resetKey?: string
+  /** RX07: runs on Retry (and on a path-change reset) before remounting, e.g. to forget a failed import. */
+  onRetry?: () => void
 }
 
 interface LazyRouteBoundaryState {
   hasError: boolean
   resetKey: number
+  /** RX07: consecutive failed attempts; after a failed retry a full reload is offered too. */
+  failures: number
 }
 
 export class LazyRouteBoundary extends Component<
   LazyRouteBoundaryProps,
   LazyRouteBoundaryState
 > {
-  state: LazyRouteBoundaryState = { hasError: false, resetKey: 0 }
+  state: LazyRouteBoundaryState = { hasError: false, resetKey: 0, failures: 0 }
 
   static getDerivedStateFromError(): Partial<LazyRouteBoundaryState> {
     return { hasError: true }
   }
 
+  componentDidUpdate(prev: LazyRouteBoundaryProps) {
+    if (this.state.hasError && prev.resetKey !== this.props.resetKey) {
+      this.props.onRetry?.()
+      this.setState((s) => ({ hasError: false, failures: 0, resetKey: s.resetKey + 1 }))
+    }
+  }
+
   componentDidCatch(error: unknown) {
+    this.setState((s) => ({ failures: s.failures + 1 }))
     // Surface for diagnostics; chunk failures are expected-but-rare (stale
     // deploys), so log rather than swallow.
     if (isChunkLoadError(error)) {
@@ -70,6 +87,7 @@ export class LazyRouteBoundary extends Component<
   private handleRetry = () => {
     // Clear the error and bump the reset key: this remounts the Suspense child,
     // which re-attempts the deferred dynamic import.
+    this.props.onRetry?.()
     this.setState((s) => ({ hasError: false, resetKey: s.resetKey + 1 }))
   }
 
@@ -92,9 +110,18 @@ export class LazyRouteBoundary extends Component<
             Something interrupted loading this part of the app. This is usually a
             temporary network issue or an updated version — please try again.
           </p>
-          <Button onClick={this.handleRetry} data-testid="lazy-route-retry">
-            Retry
-          </Button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button onClick={this.handleRetry} data-testid="lazy-route-retry">
+              Retry
+            </Button>
+            {this.state.failures > 1 && (
+              // A chunk that keeps failing is usually a newer deployment replacing this one's files;
+              // a reload fetches the current version. Shown only after a retry has already failed.
+              <Button variant="outline" onClick={() => window.location.reload()} data-testid="lazy-route-reload">
+                Reload page
+              </Button>
+            )}
+          </div>
         </div>
       )
     }
