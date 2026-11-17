@@ -19,6 +19,10 @@ import {DealerProfileAvatar,DealerProfileCover} from '@/components/dealer/profil
 import {
   COMPANY_COVER_IMAGE,COMPANY_PROFILE_IMAGE,humanizeKey,newestMediaOf,plural,
 } from '@/components/dealer/profile/dealerProfileLabels'
+import {skin} from '@/lib/unifiedSkin'
+import {DealerTodayView} from '@/components/dealer/today/DealerTodayView'
+import {buildDealerActionQueue} from '@/components/dealer/today/dealerActionQueue'
+import {useDealerTodaySignals} from '@/components/dealer/today/useDealerTodaySignals'
 
 type Profile={
   id:string;legal_name:string|null;trading_name:string|null;tenant_id:string|null
@@ -56,6 +60,8 @@ type RecordedVehicle={
   recorded_marketplace_publication_state:string|null;
   seller_authority:'NOT_DETERMINED_BY_TENANT_INVENTORY_READ';
   public_listing_approved_by_this_read:false;
+  /** RX05-B: existing marketplace eligibility precheck, when the API includes it (read-only). */
+  listing_structural_precheck?:{result?:string|null;blocking_reason_codes?:string[]|null}|null;
 }
 type Inventory={
   owner_tenant_id:string;entries:RecordedVehicle[];returned_count:number;actual_total:null;
@@ -202,6 +208,8 @@ export default function DealerDashboard(){
   const [performance,setPerformance]=useState<PerformanceSummary|null>(null)
   const [performanceStatus,setPerformanceStatus]=useState<'loading'|'ready'|'unavailable'>('loading')
   const [ownerMedia,setOwnerMedia]=useState<{cover:OwnerImage|null;avatar:OwnerImage|null}>({cover:null,avatar:null})
+  // RX05-B: the same owner media list, kept for the Dealer Action Queue (review state per category only).
+  const [mediaList,setMediaList]=useState<{status:'loading'|'ready'|'unavailable';items:OwnerMediaItem[]}>({status:'loading',items:[]})
   const [branchName,setBranchName]=useState('')
   const [branchAddress,setBranchAddress]=useState('')
   const [branchLatitude,setBranchLatitude]=useState('')
@@ -316,6 +324,7 @@ export default function DealerDashboard(){
         return null
       }
     }
+    void listed.then(items=>{if(live)setMediaList(items?{status:'ready',items}:{status:'unavailable',items:[]})})
     void listed.then(items=>Promise.all([preview('cover',items),preview('profile',items)]))
       .then(([cover,avatar])=>{if(live)setOwnerMedia({cover,avatar})})
     return()=>{
@@ -323,6 +332,10 @@ export default function DealerDashboard(){
       objectUrls.forEach(url=>URL.revokeObjectURL(url))
     }
   },[user,token,tenantId])
+
+  // RX05-B: the inbox and staff reads for the Dealer Action Queue (unified Dealer OS only).
+  const todaySignals=useDealerTodaySignals({enabled:isUnifiedUiEnabled()&&status==='ready',
+    userId:user?.id,token,tenantId,revision})
 
   function focusBranchEditor(){
     window.setTimeout(()=>{
@@ -402,7 +415,129 @@ export default function DealerDashboard(){
   ]:[]
   const pendingNote='Awaiting independent review — only you can see this'
 
+  const branchEditor=<Collapsible open={branchFormOpen} onOpenChange={setBranchFormOpen}
+      className={skin('mt-4 rounded-2xl border border-dashed border-slate-300','mt-4 rounded-card border border-dashed border-carup-line-strong')}>
+      <CollapsibleTrigger asChild>
+        <button type="button"
+          className={skin('flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500',
+            'flex min-h-11 w-full items-center justify-between gap-3 rounded-card px-3 py-2 text-left text-sm font-semibold text-carup-text hover:bg-carup-bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus')}>
+          <span className="flex items-center gap-2"><Plus className={skin('h-4 w-4 text-orange-700','h-4 w-4 text-carup-action')} aria-hidden="true"/>Add or edit a branch</span>
+          <ChevronDown className={cn(skin('h-4 w-4 shrink-0 text-slate-500 transition-transform','h-4 w-4 shrink-0 text-carup-text-3 transition-transform'),branchFormOpen&&'rotate-180')} aria-hidden="true"/>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className={skin('space-y-4 border-t border-dashed border-slate-300 px-4 pb-5 pt-4','space-y-4 border-t border-dashed border-carup-line-strong px-3 pb-4 pt-3')}>
+        <h3 id="dealer-branch-editor" className={skin('font-semibold text-slate-950','font-semibold text-carup-text')}>
+          {editingBranchId?'Edit private branch declaration':'Add a private branch declaration'}
+        </h3>
+        <div className={skin('grid gap-4 md:grid-cols-2','grid gap-4 md:grid-cols-2')}>
+          <div className="min-w-0">
+            <label htmlFor="dealer-new-branch-name" className="mb-1.5 block text-sm font-medium">Branch name</label>
+            <Input id="dealer-new-branch-name" value={branchName}
+              maxLength={180} onChange={event=>setBranchName(event.target.value)}/>
+          </div>
+          <div className="min-w-0">
+            <label htmlFor="dealer-new-branch-address" className="mb-1.5 block text-sm font-medium">Physical address</label>
+            <Input id="dealer-new-branch-address" value={branchAddress}
+              maxLength={400} onChange={event=>setBranchAddress(event.target.value)}/>
+          </div>
+          <div className="min-w-0">
+            <label htmlFor="dealer-branch-latitude" className="mb-1.5 block text-sm font-medium">
+              Latitude (optional)
+            </label>
+            <Input id="dealer-branch-latitude" value={branchLatitude}
+              placeholder="e.g. -17.825500" maxLength={12}
+              onChange={event=>setBranchLatitude(event.target.value)}/>
+          </div>
+          <div className="min-w-0">
+            <label htmlFor="dealer-branch-longitude" className="mb-1.5 block text-sm font-medium">
+              Longitude (optional)
+            </label>
+            <Input id="dealer-branch-longitude" value={branchLongitude}
+              placeholder="e.g. 31.050000" maxLength={13}
+              onChange={event=>setBranchLongitude(event.target.value)}/>
+          </div>
+        </div>
+        <p className={skin('text-xs text-slate-600','text-xs text-carup-text-3')}>
+          Supply both coordinates together or leave both blank. All coordinates remain unverified private declarations.
+        </p>
+        <div>
+          <label htmlFor="dealer-branch-hours" className="mb-1.5 block text-sm font-medium">
+            Dealer-declared operating hours (optional)
+          </label>
+          <Input id="dealer-branch-hours" value={branchHours} maxLength={350}
+            placeholder="Mon–Fri 08:00–17:00; Sat 09:00–13:00; Sun closed"
+            onChange={event=>setBranchHours(event.target.value)}/>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={()=>{void saveBranch()}} disabled={saving||!branchName.trim()||!branchAddress.trim()}
+            className={cn(DEALER_WRAP_BUTTON,'min-h-10 px-4')}>
+            {editingBranchId?'Save existing branch changes':'Save branch to canonical dealership profile'}
+          </Button>
+          {editingBranchId&&<Button variant="outline" onClick={resetBranchForm} disabled={saving} className={cn('min-h-10',skin(QUIET_HOVER,''))}>
+            Cancel edit
+          </Button>}
+        </div>
+        <p className={skin('text-xs text-slate-600','text-xs text-carup-text-3')}>
+          Adding a branch does not grant a franchise, listing, geographic verification or new staff permissions.
+        </p>
+      </CollapsibleContent>
+    </Collapsible>
+
   const unifiedWorkspace=isUnifiedUiEnabled()
+  // RX05-B — Dealer Today (unified Dealer OS only): same state, same handlers, same branch editor.
+  if(unifiedWorkspace&&status==='ready'&&workspace&&p){
+    const queue=buildDealerActionQueue({
+      now:new Date(),profile:p,attachedClaims,branches,
+      carryoverNeedsAttention:carryover?carryover.needs_attention.length:null,
+      inventory:{status:stockStatus,entries:vehicles},
+      enquiries:todaySignals.enquiries,media:mediaList,staff:todaySignals.staff,
+    })
+    const chipTone=(className:string)=>className===GOOD_BADGE?'good' as const:className===BAD_BADGE?'bad' as const:className===WARN_BADGE?'warn' as const:'neutral' as const
+    const claimTone=(s:string)=>s==='ACTIVE'?'good' as const:s==='REVOKED'||s==='LEGAL_REVIEW_EXPIRED'?'bad' as const:s.startsWith('SUSPENDED')?'warn' as const:'neutral' as const
+    return <DealerTodayView
+      displayName={displayName} legalName={p.legal_name} registrationNumber={p.registration_number}
+      chips={[...statusBadges.map(([label,className])=>({label,tone:chipTone(className)})),
+        {label:'Legal review expires '+dealerDate(p.expiry_date),tone:'neutral' as const}]}
+      cover={ownerMedia.cover?{url:ownerMedia.cover.url,alt:ownerMedia.cover.alt,pending:ownerMedia.cover.reviewStatus===PENDING_REVIEW}:null}
+      avatar={ownerMedia.avatar?{url:ownerMedia.avatar.url,alt:ownerMedia.avatar.alt,pending:ownerMedia.avatar.reviewStatus===PENDING_REVIEW}:null}
+      publicHref={publicHref} queue={queue} onRefresh={refresh} busy={saving}
+      performance={{status:performanceStatus,generatedAt:performance?.generated_at??null,metrics}}
+      formatDateTime={iso=>dealerDateTime(iso)}
+      branches={branches.map(b=>{
+        const source=workspace.branch_sources?.[b.id]
+        return {id:b.id,name:b.name,address:b.address,hasGps:b.latitude!==null&&b.longitude!==null,hours:b.opening_hours_text,
+          sourceLabel:branchSourceLabel(source),
+          sourceStatus:source?.status&&source.status!=='ACTIVE'?claimStatus(source.status).label:null}
+      })}
+      onEditBranch={id=>{const b=branches.find(x=>x.id===id);if(b)editBranch(b)}}
+      onAddBranch={startNewBranch} branchEditor={branchEditor} notice={notice} error={error}
+      compliance={[
+        ['Legal identity',humanizeKey(p.identity_status)],['Compliance',humanizeKey(p.compliance_review_state)],
+        ['Tenant',humanizeKey(p.active_state)],['Legal review expires',dealerDate(p.expiry_date)],
+        ['Member role','Canonical legal owner'],
+        ['Tenant memberships',Number.isInteger(count)?String(count):'Not available'],
+      ]}
+      claims={[
+        {key:'primary',title:seed||'Primary claim',kind:'Primary claim',status:claimStatus('ACTIVE').label,tone:'good' as const,
+          detail:'Legal review expires '+dealerDate(p.expiry_date)},
+        ...(attachedClaims??[]).map(claim=>({key:claim.attachment_id,title:claim.seed_dealer_id,
+          kind:'Attached claim'+(claim.application_version?' · version '+claim.application_version:''),
+          status:claimStatus(claim.effective_status).label,tone:claimTone(String(claim.effective_status)),
+          detail:'Legal expiry '+dealerDate(claim.legal_expires_at)+' · branches: '+((claim.branches||[]).map(b=>b.name||'Unnamed branch').join(', ')||'none')})),
+      ]}
+      carryover={carryover?<details className="mt-4 rounded-control border border-carup-line p-3 text-sm" data-testid="dealer-activation-carryover">
+        <summary className="cursor-pointer font-semibold text-carup-text">Carried from your approved application</summary>
+        <div className="mt-2 space-y-2 text-carup-text-2">
+          <p>Application version {carryover.application_version??'—'} was copied into your operating profile. Carried details stay private: none of it is verified or public.</p>
+          <p>{carryover.branches.length} {plural(carryover.branches.length,'branch','branches')} carried: {carryover.branches.map(b=>b.name||'Unnamed branch').join(', ')||'none'}</p>
+          <p>Policy sections carried: {carryover.sections.map(x=>SECTION_LABELS[x]||x).join(', ')||'none'}</p>
+          {(carryover.counts.RETAINED_PRIVATE_NOT_CANONICAL||0)>0&&<p data-testid="dealer-carryover-retained" className="text-xs leading-5">
+            {carryover.counts.RETAINED_PRIVATE_NOT_CANONICAL} other declared detail(s) stay private in your approved application because CarUp has no operating field for them yet. They are not lost, not published and not verified.
+          </p>}
+        </div>
+      </details>:null}
+    />
+  }
   return <div className="space-y-6" data-testid="real-dealer-dashboard">
     <header className="flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
@@ -598,72 +733,7 @@ export default function DealerDashboard(){
                 </li>
               })}
             </ul>}
-            <Collapsible open={branchFormOpen} onOpenChange={setBranchFormOpen}
-              className="mt-4 rounded-2xl border border-dashed border-slate-300">
-              <CollapsibleTrigger asChild>
-                <button type="button"
-                  className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">
-                  <span className="flex items-center gap-2"><Plus className="h-4 w-4 text-orange-700" aria-hidden="true"/>Add or edit a branch</span>
-                  <ChevronDown className={cn('h-4 w-4 shrink-0 text-slate-500 transition-transform',branchFormOpen&&'rotate-180')} aria-hidden="true"/>
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="space-y-4 border-t border-dashed border-slate-300 px-4 pb-5 pt-4">
-                <h3 id="dealer-branch-editor" className="font-semibold text-slate-950">
-                  {editingBranchId?'Edit private branch declaration':'Add a private branch declaration'}
-                </h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="min-w-0">
-                    <label htmlFor="dealer-new-branch-name" className="mb-1.5 block text-sm font-medium">Branch name</label>
-                    <Input id="dealer-new-branch-name" value={branchName}
-                      maxLength={180} onChange={event=>setBranchName(event.target.value)}/>
-                  </div>
-                  <div className="min-w-0">
-                    <label htmlFor="dealer-new-branch-address" className="mb-1.5 block text-sm font-medium">Physical address</label>
-                    <Input id="dealer-new-branch-address" value={branchAddress}
-                      maxLength={400} onChange={event=>setBranchAddress(event.target.value)}/>
-                  </div>
-                  <div className="min-w-0">
-                    <label htmlFor="dealer-branch-latitude" className="mb-1.5 block text-sm font-medium">
-                      Latitude (optional)
-                    </label>
-                    <Input id="dealer-branch-latitude" value={branchLatitude}
-                      placeholder="e.g. -17.825500" maxLength={12}
-                      onChange={event=>setBranchLatitude(event.target.value)}/>
-                  </div>
-                  <div className="min-w-0">
-                    <label htmlFor="dealer-branch-longitude" className="mb-1.5 block text-sm font-medium">
-                      Longitude (optional)
-                    </label>
-                    <Input id="dealer-branch-longitude" value={branchLongitude}
-                      placeholder="e.g. 31.050000" maxLength={13}
-                      onChange={event=>setBranchLongitude(event.target.value)}/>
-                  </div>
-                </div>
-                <p className="text-xs text-slate-600">
-                  Supply both coordinates together or leave both blank. All coordinates remain unverified private declarations.
-                </p>
-                <div>
-                  <label htmlFor="dealer-branch-hours" className="mb-1.5 block text-sm font-medium">
-                    Dealer-declared operating hours (optional)
-                  </label>
-                  <Input id="dealer-branch-hours" value={branchHours} maxLength={350}
-                    placeholder="Mon–Fri 08:00–17:00; Sat 09:00–13:00; Sun closed"
-                    onChange={event=>setBranchHours(event.target.value)}/>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={()=>{void saveBranch()}} disabled={saving||!branchName.trim()||!branchAddress.trim()}
-                    className={cn(DEALER_WRAP_BUTTON,'min-h-10 px-4')}>
-                    {editingBranchId?'Save existing branch changes':'Save branch to canonical dealership profile'}
-                  </Button>
-                  {editingBranchId&&<Button variant="outline" onClick={resetBranchForm} disabled={saving} className={cn('min-h-10',QUIET_HOVER)}>
-                    Cancel edit
-                  </Button>}
-                </div>
-                <p className="text-xs text-slate-600">
-                  Adding a branch does not grant a franchise, listing, geographic verification or new staff permissions.
-                </p>
-              </CollapsibleContent>
-            </Collapsible>
+            {branchEditor}
           </section>
 
           {/* ── Stock overview: the tenant-scoped first-100 VIN read ── */}
