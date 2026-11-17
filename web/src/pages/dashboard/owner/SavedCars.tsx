@@ -97,7 +97,7 @@ export default function SavedCars() {
                     onFavorite={event => { event.preventDefault(); event.stopPropagation(); void removeUnified(vehicle.vin, model.name) }}
                     onCompare={event => { event.preventDefault(); event.stopPropagation(); toggle(vehicle.vin) }}
                     dataTestId="saved-marketplace-vehicle"
-                    ctaLabel="Re-open vehicle & Passport"
+                    ctaLabel="Open vehicle & Passport"
                     priceTestId={`saved-price-${vehicle.vin}`}
                     mileageTestId={`saved-mileage-${vehicle.vin}`}
                     locationTestId={`saved-location-${vehicle.vin}`}
