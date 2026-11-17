@@ -10,6 +10,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import type { Vehicle } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { PartSentryView, type LedgerIntegrity } from '@/components/owner/companion/PartSentryView'
 
 // Matches the DB CHECK constraint on partsentry_logs.action_type.
 const ACTION_TYPES = ['Replaced', 'Repaired', 'Inspected', 'Diagnosed'] as const
@@ -48,6 +50,13 @@ export default function PartSentry() {
     mileage: '',
     partOem: '',
   })
+  // RX04-C2 (unified view only): whether the car list was read (a failed read is not "no cars"),
+  // a retry for it, and which car the last integrity result belongs to — so a result is never
+  // shown against a different car. The accepted view below does not read these.
+  const [vehiclesState, setVehiclesState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [vehiclesAttempt, setVehiclesAttempt] = useState(0)
+  const [ledgerVin, setLedgerVin] = useState<string | null>(null)
+  const unified = isUnifiedUiEnabled()
 
   useEffect(() => {
     fetchOwnedVehicles().then(data => {
@@ -56,8 +65,12 @@ export default function PartSentry() {
         setSelectedVehicle(data[0].vin)
         setRepairForm(f => ({ ...f, vin: data[0].vin }))
       }
-    }).catch(() => setVehicles([]))
-  }, [fetchOwnedVehicles])
+      setVehiclesState('ready')
+    }).catch(() => {
+      setVehicles([])
+      setVehiclesState('error')
+    })
+  }, [fetchOwnedVehicles, vehiclesAttempt])
 
   // Promise-chain form: every setState lives in a .then/.catch/.finally callback
   // so the effect that invokes this never sets state synchronously.
@@ -83,11 +96,13 @@ export default function PartSentry() {
       .then(data => {
         setLedgerVerified(data?.integrity === 'verified' || data?.verified === true)
         setLedgerError(null)
+        setLedgerVin(selectedVehicle)
       })
       .catch((err: unknown) => {
         // A failed verification is an error, never a fake "verified".
         setLedgerVerified(null)
         setLedgerError(err instanceof Error ? err.message : 'Ledger verification unavailable')
+        setLedgerVin(selectedVehicle)
       })
   }, [selectedVehicle, verifyLedger, loadHistory])
 
@@ -161,6 +176,45 @@ export default function PartSentry() {
   }
 
   const lastService = repairLogs.length > 0 ? new Date(repairLogs[0].timestamp).toLocaleDateString() : '—'
+
+  if (unified) {
+    // Integrity is shown only for the car it was checked for; anything else is still "checking".
+    const integrity: LedgerIntegrity = ledgerVin !== selectedVehicle
+      ? 'checking'
+      : ledgerError ? 'unavailable' : ledgerVerified === true ? 'verified' : ledgerVerified === false ? 'failed' : 'checking'
+    const copyPartNumber = (value: string) => {
+      navigator.clipboard.writeText(value).catch(() => {})
+      setCopiedHash(value)
+      setTimeout(() => setCopiedHash(null), 2000)
+      toast.success('Part number copied')
+    }
+    return (
+      <PartSentryView
+        vehicles={vehicles}
+        vehiclesState={vehiclesState}
+        onRetryVehicles={() => { setVehiclesState('loading'); setVehiclesAttempt(n => n + 1) }}
+        selectedVin={selectedVehicle}
+        onSelectVin={vin => {
+          setSelectedVehicle(vin)
+          setRepairForm(f => ({ ...f, vin }))
+        }}
+        entries={repairLogs}
+        historyLoading={historyLoading}
+        historyError={historyError}
+        onRetryHistory={() => { if (selectedVehicle) loadHistory(selectedVehicle) }}
+        integrity={integrity}
+        copiedValue={copiedHash}
+        onCopy={copyPartNumber}
+        dialogOpen={showAddDialog}
+        onDialogOpenChange={setShowAddDialog}
+        form={repairForm}
+        onFormChange={patch => setRepairForm(f => ({ ...f, ...patch }))}
+        actionTypes={ACTION_TYPES}
+        submitting={submitting}
+        onSubmit={handleAddRepair}
+      />
+    )
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">

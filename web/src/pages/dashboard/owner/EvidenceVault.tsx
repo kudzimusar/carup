@@ -8,11 +8,16 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { statedCount } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
 import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { EvidenceView } from '@/components/owner/companion/EvidenceView'
 
 export default function EvidenceVault() {
   const { fetchOwnedVehicles } = useCarUpApi()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
+  // RX04-C2: Retry for the unified view; the accepted view keeps its single read.
+  const [attempt, setAttempt] = useState(0)
+  const unified = isUnifiedUiEnabled()
 
   useEffect(() => {
     let active = true
@@ -26,7 +31,11 @@ export default function EvidenceVault() {
         if (active) setState('error')
       })
     return () => { active = false }
-  }, [fetchOwnedVehicles])
+  }, [fetchOwnedVehicles, attempt])
+
+  if (unified) {
+    return <EvidenceView vehicles={vehicles} state={state} onRetry={() => { setState('loading'); setAttempt(n => n + 1) }} />
+  }
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-8" data-testid="owner-evidence-vault">

@@ -5,6 +5,9 @@ import { Wrench, Search, Calendar, DollarSign } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { Vehicle, ServiceRecord, Part } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { ServiceHistoryView } from '@/components/owner/companion/ServiceHistoryView'
+import type { CompanionRead } from '@/components/owner/companion/companionFormat'
 
 export default function ServiceHistory() {
   const { fetchOwnedVehicles, fetchServiceHistory } = useCarUpApi()
@@ -12,14 +15,32 @@ export default function ServiceHistory() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [allServices, setAllServices] = useState<ServiceRecord[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState<string>('')
+  // RX04-C2 (unified view only): each read's own outcome — so a failed read is an error, never
+  // "no service history" — and a retry. The accepted view below still waits for both reads.
+  const [vehiclesRead, setVehiclesRead] = useState<CompanionRead<Vehicle[]>>({ state: 'loading' })
+  const [servicesRead, setServicesRead] = useState<CompanionRead<ServiceRecord[]>>({ state: 'loading' })
+  const [attempt, setAttempt] = useState(0)
+  const unified = isUnifiedUiEnabled()
 
   useEffect(() => {
-    Promise.all([fetchOwnedVehicles(), fetchServiceHistory()]).then(([vData, sData]) => {
+    const vehiclesRequest = fetchOwnedVehicles()
+    const servicesRequest = fetchServiceHistory()
+    Promise.all([vehiclesRequest, servicesRequest]).then(([vData, sData]) => {
       setVehicles(vData)
       setAllServices(sData)
       if (vData.length > 0) setSelectedVehicle(vData[0].vin)
+    }).catch(() => {
+      // Accepted view: a failed read renders nothing, exactly as before (now without an unhandled rejection).
     })
-  }, [fetchOwnedVehicles, fetchServiceHistory])
+    vehiclesRequest.then(
+      rows => setVehiclesRead({ state: 'ready', rows: Array.isArray(rows) ? rows : [] }),
+      () => setVehiclesRead({ state: 'error' }),
+    )
+    servicesRequest.then(
+      rows => setServicesRead({ state: 'ready', rows: Array.isArray(rows) ? rows : [] }),
+      () => setServicesRead({ state: 'error' }),
+    )
+  }, [fetchOwnedVehicles, fetchServiceHistory, attempt])
 
   // The phase-4 schema stores the text in `description`; historical rows used `issue_description`.
   const serviceDescription = (s: ServiceRecord) => s.description || s.issue_description || ''
@@ -30,6 +51,22 @@ export default function ServiceHistory() {
   )
 
   const totalCost = services.reduce((a, s) => a + (s.total_cost || 0), 0)
+
+  if (unified) {
+    return (
+      <ServiceHistoryView
+        vehiclesRead={vehiclesRead}
+        servicesRead={servicesRead}
+        search={search}
+        onSearchChange={setSearch}
+        onRetry={() => {
+          setVehiclesRead({ state: 'loading' })
+          setServicesRead({ state: 'loading' })
+          setAttempt(n => n + 1)
+        }}
+      />
+    )
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">

@@ -5,21 +5,33 @@ import { Shield, AlertTriangle, Plus } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { Vehicle, InsuranceRecord } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { InsuranceView } from '@/components/owner/companion/InsuranceView'
 
 export default function InsuranceRecords() {
   const { fetchOwnedVehicles } = useCarUpApi()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState<string>('')
+  // RX04-C2 (unified view only): the read's own outcome — a failed read is an error, never "no
+  // policies" — and a retry. The accepted view below renders exactly as before.
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [attempt, setAttempt] = useState(0)
+  const unified = isUnifiedUiEnabled()
 
   useEffect(() => {
     fetchOwnedVehicles().then(data => {
       setVehicles(data)
       if (data.length > 0) setSelectedVehicle(data[0].vin)
-    })
-  }, [fetchOwnedVehicles])
+      setLoadState('ready')
+    }).catch(() => setLoadState('error'))
+  }, [fetchOwnedVehicles, attempt])
 
   const vehicle = vehicles.find(v => v.vin === selectedVehicle) || null
   const insuranceRecords = vehicle?.insurance_records || []
+
+  if (unified) {
+    return <InsuranceView vehicles={vehicles} state={loadState} onRetry={() => { setLoadState('loading'); setAttempt(n => n + 1) }} />
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
