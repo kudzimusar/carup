@@ -60,6 +60,24 @@ function useStageVisible(ref: React.RefObject<HTMLElement | null>) {
   return inView && pageVisible
 }
 
+/**
+ * RX07-WEB-PERF-01-A — the film's poster is the page's largest paint on phones. Starting the video
+ * download at the same moment split a ~1.6 Mbps link between the poster and ~1 MB of film, so the
+ * poster (LCP) arrived late. The poster is still requested immediately; the video itself waits for the
+ * page's `load` event (which the poster is part of). Timing only: what plays, when it may play
+ * (reduced motion, Data Saver, off-screen, Pause) and the fallbacks are unchanged.
+ */
+function usePageLoaded() {
+  const [loaded, setLoaded] = useState(() => typeof document === 'undefined' || document.readyState === 'complete')
+  useEffect(() => {
+    if (loaded) return
+    const done = () => setLoaded(true)
+    window.addEventListener('load', done, { once: true })
+    return () => window.removeEventListener('load', done)
+  }, [loaded])
+  return loaded
+}
+
 function FilmLayer({
   rendition,
   playing,
@@ -72,18 +90,20 @@ function FilmLayer({
   onFailed: () => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const pageLoaded = usePageLoaded()
+  const play = playing && pageLoaded
 
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
-    if (playing) {
+    if (play) {
       // Autoplay can still be refused (Low Power Mode, browser policy). The poster stays; the
       // visitor can press Play, which is a user gesture and normally succeeds.
       Promise.resolve(video.play()).catch(() => { /* poster remains */ })
     } else {
       video.pause()
     }
-  }, [playing])
+  }, [play])
 
   if (stillOnly) {
     return <img src={rendition.poster.src} alt="" className="h-full w-full object-cover" data-testid="home-hero-film-poster" />
@@ -97,12 +117,13 @@ function FilmLayer({
       muted
       playsInline
       loop
-      preload="metadata"
-      autoPlay={playing}
+      preload={pageLoaded ? 'metadata' : 'none'}
+      autoPlay={play}
       disablePictureInPicture
       disableRemotePlayback
       onError={onFailed}
       data-testid="home-hero-film"
+      data-film-deferred={pageLoaded ? 'false' : 'true'}
     >
       {rendition.sources.map(source => (
         <source key={source.src} src={source.src} type={source.type} onError={onFailed} />

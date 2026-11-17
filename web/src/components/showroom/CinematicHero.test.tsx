@@ -130,6 +130,43 @@ describe('CinematicHero', () => {
     expect(screen.getByTestId('home-hero')).toHaveAttribute('data-hero-mode', 'reel')
   })
 
+  it('RX07: before the page has loaded, shows the poster but does not download or play the film', () => {
+    const ready = Object.getOwnPropertyDescriptor(Document.prototype, 'readyState')
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' })
+    try {
+      const { container } = renderHero({ film })
+      const video = container.querySelector('video') as HTMLVideoElement
+      expect(video).toHaveAttribute('poster', '/media/home-film/poster.jpg')
+      expect(video).toHaveAttribute('preload', 'none')
+      expect(video.autoplay).toBe(false)
+      expect(video).toHaveAttribute('data-film-deferred', 'true')
+      expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+
+      Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'complete' })
+      fireEvent(window, new Event('load'))
+      expect(video).toHaveAttribute('preload', 'metadata')
+      expect(video).toHaveAttribute('data-film-deferred', 'false')
+      expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
+    } finally {
+      Reflect.deleteProperty(document, 'readyState')
+      if (ready) Object.defineProperty(Document.prototype, 'readyState', ready)
+    }
+  })
+
+  it('RX07: reduced motion still shows only the poster before and after load (no video ever)', () => {
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' })
+    try {
+      mockMedia({ reduce: true })
+      const { container } = renderHero({ film })
+      expect(container.querySelector('video')).toBeNull()
+      fireEvent(window, new Event('load'))
+      expect(container.querySelector('video')).toBeNull()
+      expect(screen.getByTestId('home-hero-film-poster')).toBeInTheDocument()
+    } finally {
+      Reflect.deleteProperty(document, 'readyState')
+    }
+  })
+
   it('falls back to the reel when the film cannot play', () => {
     const { container } = renderHero({ film })
     fireEvent.error(container.querySelector('video') as HTMLVideoElement)
