@@ -372,10 +372,10 @@ describe('R2-3 — first-slice scope', () => {
     expect(container.querySelector('[data-testid="shell-public-header"]')).toBeNull()
   })
 
-  it('focused off-slice path (/kyc) renders legacy even when opted in', async () => {
+  it('RX04-E: /kyc renders in the focused identity shell when opted in (title + explicit exit, no legacy chrome)', async () => {
     window.sessionStorage.setItem(KEY, '1')
     const { UnifiedRouteShell } = await loadSwitch()
-    const { container } = render(
+    render(
       <MemoryRouter initialEntries={['/kyc']}>
         <Routes>
           <Route element={<UnifiedRouteShell family="focused" legacy={legacyMain} />}>
@@ -384,9 +384,10 @@ describe('R2-3 — first-slice scope', () => {
         </Routes>
       </MemoryRouter>,
     )
-    expect(screen.getByTestId('legacy-layout')).toBeInTheDocument()
+    expect(screen.queryByTestId('legacy-layout')).toBeNull()
     expect(screen.getByText('kyc body')).toBeInTheDocument()
-    expect(container.querySelector('[data-testid="shell-focused-exit"]')).toBeNull()
+    expect(screen.getByTestId('shell-focused-exit')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Identity check')
   })
 
   it('marketplace compare is NOT mistaken for a vehicle-detail slice route', async () => {

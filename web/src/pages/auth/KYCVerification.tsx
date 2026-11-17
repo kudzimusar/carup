@@ -9,6 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Car, Upload, CheckCircle, ArrowRight, Camera, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { useAuth } from '@/context/AuthContext'
 
 export default function KYCVerification() {
   const [step, setStep] = useState(1)
@@ -29,6 +31,8 @@ export default function KYCVerification() {
   const [fileName, setFileName] = useState('')
 
   const { uploadKycDocument } = useCarUpApi()
+  const { isAuthenticated } = useAuth()
+  const unified = isUnifiedUiEnabled()
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -58,6 +62,71 @@ export default function KYCVerification() {
 
   const triggerFileSelect = () => {
     document.getElementById('kyc-file-input')?.click()
+  }
+
+  // RX04-E — the identity check, told truthfully. On the web there is no identity review pipeline
+  // and no status read: the only real action is the document upload above. The legacy selfie step
+  // (no capture, no request, then "KYC verification complete!") and the personal-details fields
+  // (never sent anywhere) are not offered here.
+  if (unified) {
+    return (
+      <div className="mt-6 space-y-6" data-testid="kyc-unified">
+        <input type="file" id="kyc-file-input" className="hidden" onChange={handleFileChange} accept="image/*,application/pdf" />
+        <section className="rounded-card border border-status-info bg-status-info-soft p-4 text-sm text-carup-text" data-testid="kyc-status" role="status">
+          <p className="font-semibold">Identity verification is not available on the web yet.</p>
+          <p className="mt-1 text-carup-text-2">CarUp has not verified your identity, and nothing on this page changes that. When identity review is available, CarUp will say so here and in your account.</p>
+        </section>
+
+        {!isAuthenticated ? (
+          <section className="rounded-card bg-carup-bg-raised p-5 ring-1 ring-carup-line">
+            <p className="text-sm text-carup-text-2">Sign in to keep an identity document with your account.</p>
+            <Link to="/login?returnTo=%2Fkyc" className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-carup-action px-5 text-sm font-semibold text-carup-action-on hover:bg-carup-action-hover">
+              Sign in to continue <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </section>
+        ) : (
+          <section className="rounded-card bg-carup-bg-raised p-5 ring-1 ring-carup-line" aria-labelledby="kyc-upload-title" data-testid="kyc-upload">
+            <h2 id="kyc-upload-title" className="text-[17px] font-semibold tracking-[-0.01em] text-carup-text">Keep an identity document with your account</h2>
+            <p className="mt-1 text-[13px] leading-5 text-carup-text-2">Optional. The document is attached to your account for a future review. Uploading it does not verify you.</p>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label htmlFor="kyc-doc-type" className="mb-1.5 block text-[13px] font-semibold text-carup-text">Document</label>
+                <select id="kyc-doc-type" value={docType} onChange={e => setDocType(e.target.value)} className="h-11 w-full rounded-control border border-carup-line-strong bg-carup-bg-raised px-3 text-sm text-carup-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus">
+                  <option value="national-id">National ID</option>
+                  <option value="passport">Passport</option>
+                  <option value="drivers-license">Driver’s licence</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="kyc-doc-number" className="mb-1.5 block text-[13px] font-semibold text-carup-text">Document number <span className="font-normal text-carup-text-3">· optional</span></label>
+                <Input id="kyc-doc-number" value={nationalId} onChange={e => setNationalId(e.target.value)} placeholder="As printed on the document" className="h-11" autoComplete="off" />
+              </div>
+              <button
+                type="button"
+                onClick={triggerFileSelect}
+                disabled={uploading}
+                className="flex min-h-28 w-full flex-col items-center justify-center gap-2 rounded-card border border-dashed border-carup-line-strong bg-carup-bg-surface p-5 text-center text-sm text-carup-text-2 hover:border-carup-action disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus"
+                data-testid="kyc-upload-button"
+              >
+                {uploading ? <Loader2 className="h-6 w-6 animate-spin text-carup-action" aria-hidden="true" /> : <Upload className="h-6 w-6 text-carup-text-3" aria-hidden="true" />}
+                <span className="font-semibold text-carup-text">{uploading ? 'Uploading…' : 'Choose a photo or PDF'}</span>
+              </button>
+              {verified && fileName && (
+                <p className="flex items-start gap-2 rounded-control bg-carup-bg-surface p-3 text-[13px] text-carup-text-2" data-testid="kyc-upload-done" role="status">
+                  <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-status-success" aria-hidden="true" />
+                  <span><b className="text-carup-text">{fileName}</b> is attached to your account. It has not been reviewed, and you are not verified yet.</span>
+                </p>
+              )}
+            </div>
+          </section>
+        )}
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Link to="/dashboard" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-full bg-carup-bg-raised px-4 text-sm font-semibold text-carup-text ring-1 ring-carup-line hover:bg-carup-bg-surface">Back to My CarUp</Link>
+          <Link to="/marketplace" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-full bg-carup-bg-raised px-4 text-sm font-semibold text-carup-text ring-1 ring-carup-line hover:bg-carup-bg-surface">Browse cars</Link>
+        </div>
+      </div>
+    )
   }
 
   return (

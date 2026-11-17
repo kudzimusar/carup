@@ -189,7 +189,7 @@ function FocusedUnifiedShell({ legacy }: { legacy: ReactElement }) {
         roleTitle: identity.isAuthenticated ? 'Signed in' : 'Visitor',
       }}
       title={task.title}
-      mode="auth"
+      mode={task.mode}
       wide={task.wide}
       onExit={() => navigate(safeReturnTarget(location))}
     >
