@@ -8,6 +8,7 @@
 import { AlertTriangle, CheckCircle2, Info, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { sellerIdentificationMessage, type SellerVehicleIdentification } from '@/lib/sellerVehicleIdentification'
+import { skin } from '@/lib/unifiedSkin'
 
 export function VehicleIdentificationNotice({
   result,
@@ -24,7 +25,7 @@ export function VehicleIdentificationNotice({
 }) {
   if (checking) {
     return (
-      <p className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-500" data-testid="sell-vin-identification-checking">
+      <p className={skin('mt-2 flex items-center gap-2 text-xs font-semibold text-slate-500', 'mt-2 flex items-center gap-2 text-xs font-semibold text-carup-text-2')} data-testid="sell-vin-identification-checking">
         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
         Checking CarUp Passport records…
       </p>
@@ -40,7 +41,7 @@ export function VehicleIdentificationNotice({
     const described = [found?.year, found?.make, found?.model].filter(Boolean).join(' ')
     return (
       <div
-        className="mt-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
+        className={skin('mt-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900', 'mt-2 rounded-xl border border-status-warning bg-status-warning-soft p-3 text-xs text-carup-text')}
         data-testid="sell-vin-passport-exists"
         role="status"
       >
@@ -58,7 +59,7 @@ export function VehicleIdentificationNotice({
           Colour, mileage, condition, price and description remain your seller-stated listing facts.
         </p>
         {confirmed ? (
-          <div className="mt-3 ml-6 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-emerald-800" data-testid="sell-vin-passport-confirmed">
+          <div className={skin('mt-3 ml-6 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-emerald-800', 'mt-3 ml-6 rounded-lg border border-status-success bg-status-success-soft p-2.5 text-status-success')} data-testid="sell-vin-passport-confirmed">
             <p className="flex items-center gap-2 font-semibold">
               <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
               Same vehicle confirmed. CarUp will reuse this Passport; it will not create a duplicate.
@@ -71,7 +72,7 @@ export function VehicleIdentificationNotice({
           </div>
         ) : onConfirm ? (
           <div className="mt-3 ml-6 flex flex-wrap gap-2" data-testid="sell-vin-passport-actions">
-            <Button type="button" size="sm" onClick={onConfirm} className="bg-amber-900 text-white hover:bg-amber-800">
+            <Button type="button" size="sm" onClick={onConfirm} className={skin('bg-amber-900 text-white hover:bg-amber-800', 'bg-carup-action text-carup-action-on hover:bg-carup-action-hover')}>
               Yes — this is the same vehicle
             </Button>
             {onUseDifferentVin && (

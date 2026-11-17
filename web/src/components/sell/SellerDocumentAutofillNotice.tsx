@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FileSearch, ScanText, Sparkles } from 'lucide-react'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
+import { skin } from '@/lib/unifiedSkin'
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -37,23 +38,23 @@ export function SellerDocumentAutofillNotice() {
   const known = providers !== null
 
   return (
-    <section className="rounded-[2rem] border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-orange-50 p-5 sm:p-6" data-testid="seller-document-autofill">
+    <section className={skin('rounded-[2rem] border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-orange-50 p-5 sm:p-6', 'rounded-[2rem] border border-status-info bg-gradient-to-br from-status-info-soft via-white to-carup-action-soft p-5 sm:p-6')} data-testid="seller-document-autofill">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <div className="grid h-11 w-11 flex-none place-items-center rounded-2xl bg-violet-600 text-white">
+          <div className={skin('grid h-11 w-11 flex-none place-items-center rounded-2xl bg-violet-600 text-white', 'grid h-11 w-11 flex-none place-items-center rounded-2xl bg-status-info text-carup-action-on')}>
             <ScanText className="h-5 w-5" />
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-black text-slate-950">Smart document scan & autofill</h3>
+              <h3 className={skin('text-sm font-black text-slate-950', 'text-sm font-bold text-carup-text')}>Smart document scan & autofill</h3>
               <span
                 data-testid="seller-autofill-availability"
-                className={'rounded-full px-2.5 py-1 text-[10px] font-black ' + (
+                className={skin('rounded-full px-2.5 py-1 text-[10px] font-black ', 'rounded-full px-2.5 py-1 text-[10px] font-bold') + (
                   enabled
-                    ? 'bg-emerald-100 text-emerald-700'
+                    ? skin('bg-emerald-100 text-emerald-700', 'bg-status-success-soft text-status-success')
                     : known
-                      ? 'bg-violet-100 text-violet-700'
-                      : 'bg-slate-100 text-slate-500'
+                      ? skin('bg-violet-100 text-violet-700', 'bg-status-info-soft text-status-info')
+                      : skin('bg-slate-100 text-slate-500', 'bg-carup-bg-surface-2 text-carup-text-2')
                 )}
               >
                 {enabled
@@ -65,7 +66,7 @@ export function SellerDocumentAutofillNotice() {
                       : 'Checking availability…'}
               </span>
             </div>
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-600">
+            <p className={skin('mt-2 max-w-2xl text-xs leading-5 text-slate-600', 'mt-2 max-w-2xl text-xs leading-5 text-carup-text-2')}>
               CarUp already has a governed document-extraction and reviewer pipeline. Seller Journey autofill will use that same
               pipeline for registration/logbook, customs and duty papers, auction sheets, inspections and other supported documents
               instead of creating a second OCR system.
@@ -75,20 +76,20 @@ export function SellerDocumentAutofillNotice() {
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
-          <FileSearch className="h-4 w-4 text-violet-600" />
-          <p className="mt-2 text-xs font-black">Read candidate fields</p>
-          <p className="mt-1 text-[11px] leading-4 text-slate-500">VIN, year, identifiers, mileage and document-specific fields where supported.</p>
+        <div className={skin('rounded-2xl bg-white p-3 ring-1 ring-slate-200', 'rounded-2xl bg-carup-bg-raised p-3 ring-1 ring-carup-line')}>
+          <FileSearch className={skin('h-4 w-4 text-violet-600', 'h-4 w-4 text-status-info')} />
+          <p className={skin('mt-2 text-xs font-black', 'mt-2 text-xs font-bold')}>Read candidate fields</p>
+          <p className={skin('mt-1 text-[11px] leading-4 text-slate-500', 'mt-1 text-[11px] leading-4 text-carup-text-2')}>VIN, year, identifiers, mileage and document-specific fields where supported.</p>
         </div>
-        <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
-          <Sparkles className="h-4 w-4 text-violet-600" />
-          <p className="mt-2 text-xs font-black">Suggest, never silently overwrite</p>
-          <p className="mt-1 text-[11px] leading-4 text-slate-500">OCR output is a candidate reading. Seller-stated and governed facts remain separate.</p>
+        <div className={skin('rounded-2xl bg-white p-3 ring-1 ring-slate-200', 'rounded-2xl bg-carup-bg-raised p-3 ring-1 ring-carup-line')}>
+          <Sparkles className={skin('h-4 w-4 text-violet-600', 'h-4 w-4 text-status-info')} />
+          <p className={skin('mt-2 text-xs font-black', 'mt-2 text-xs font-bold')}>Suggest, never silently overwrite</p>
+          <p className={skin('mt-1 text-[11px] leading-4 text-slate-500', 'mt-1 text-[11px] leading-4 text-carup-text-2')}>OCR output is a candidate reading. Seller-stated and governed facts remain separate.</p>
         </div>
-        <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
-          <ScanText className="h-4 w-4 text-violet-600" />
-          <p className="mt-2 text-xs font-black">Human/governed review stays authoritative</p>
-          <p className="mt-1 text-[11px] leading-4 text-slate-500">Extraction confidence never auto-approves a vehicle fact or Trust claim.</p>
+        <div className={skin('rounded-2xl bg-white p-3 ring-1 ring-slate-200', 'rounded-2xl bg-carup-bg-raised p-3 ring-1 ring-carup-line')}>
+          <ScanText className={skin('h-4 w-4 text-violet-600', 'h-4 w-4 text-status-info')} />
+          <p className={skin('mt-2 text-xs font-black', 'mt-2 text-xs font-bold')}>Human/governed review stays authoritative</p>
+          <p className={skin('mt-1 text-[11px] leading-4 text-slate-500', 'mt-1 text-[11px] leading-4 text-carup-text-2')}>Extraction confidence never auto-approves a vehicle fact or Trust claim.</p>
         </div>
       </div>
     </section>

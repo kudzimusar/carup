@@ -10,54 +10,55 @@ import { Link } from 'react-router-dom'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { FactReconciliationPanel } from '@/components/sell/FactReconciliationPanel'
 import type { VehicleCompleteness, EvidenceRequirement, EvidenceRequirementStatus } from '@/types'
+import { skin } from '@/lib/unifiedSkin'
 
 const STATUS_CONFIG: Record<EvidenceRequirementStatus, { label: string; icon: React.ReactNode; className: string }> = {
   verified: {
     label: 'Verified',
-    icon: <CheckCircle2 className="w-4 h-4 text-green-600" />,
-    className: 'text-green-700 bg-green-50 border-green-200',
+    icon: <CheckCircle2 className={skin('w-4 h-4 text-green-600', 'w-4 h-4 text-status-success')} />,
+    className: skin('text-green-700 bg-green-50 border-green-200', 'text-status-success bg-status-success-soft border-status-success'),
   },
   present: {
     label: 'Uploaded',
-    icon: <CheckCircle2 className="w-4 h-4 text-blue-600" />,
-    className: 'text-blue-700 bg-blue-50 border-blue-200',
+    icon: <CheckCircle2 className={skin('w-4 h-4 text-blue-600', 'w-4 h-4 text-status-info')} />,
+    className: skin('text-blue-700 bg-blue-50 border-blue-200', 'text-status-info bg-status-info-soft border-status-info'),
   },
   pending: {
     label: 'Under review',
-    icon: <Clock className="w-4 h-4 text-amber-600" />,
-    className: 'text-amber-700 bg-amber-50 border-amber-200',
+    icon: <Clock className={skin('w-4 h-4 text-amber-600', 'w-4 h-4 text-status-warning')} />,
+    className: skin('text-amber-700 bg-amber-50 border-amber-200', 'text-status-warning bg-status-warning-soft border-status-warning'),
   },
   missing: {
     label: 'Required — missing',
-    icon: <XCircle className="w-4 h-4 text-red-500" />,
-    className: 'text-red-700 bg-red-50 border-red-200',
+    icon: <XCircle className={skin('w-4 h-4 text-red-500', 'w-4 h-4 text-status-danger')} />,
+    className: skin('text-red-700 bg-red-50 border-red-200', 'text-status-danger bg-status-danger-soft border-status-danger'),
   },
   rejected: {
     label: 'Rejected — resubmit',
-    icon: <XCircle className="w-4 h-4 text-red-600" />,
-    className: 'text-red-700 bg-red-50 border-red-200',
+    icon: <XCircle className={skin('w-4 h-4 text-red-600', 'w-4 h-4 text-status-danger')} />,
+    className: skin('text-red-700 bg-red-50 border-red-200', 'text-status-danger bg-status-danger-soft border-status-danger'),
   },
   expired: {
     label: 'Expired',
-    icon: <AlertCircle className="w-4 h-4 text-orange-500" />,
-    className: 'text-orange-700 bg-orange-50 border-orange-200',
+    icon: <AlertCircle className={skin('w-4 h-4 text-orange-500', 'w-4 h-4 text-carup-action')} />,
+    className: skin('text-orange-700 bg-orange-50 border-orange-200', 'text-status-warning bg-status-warning-soft border-status-warning'),
   },
   not_applicable: {
     label: 'Not required',
-    icon: <CheckCircle2 className="w-4 h-4 text-gray-400" />,
-    className: 'text-gray-500 bg-gray-50 border-gray-200',
+    icon: <CheckCircle2 className={skin('w-4 h-4 text-gray-400', 'w-4 h-4 text-carup-text-3')} />,
+    className: skin('text-gray-500 bg-gray-50 border-gray-200', 'text-carup-text-2 bg-carup-bg-surface border-carup-line'),
   },
 }
 
 function RequirementRow({ req }: { req: EvidenceRequirement }) {
   const cfg = STATUS_CONFIG[req.status]
   return (
-    <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0" data-testid="requirement-row">
+    <div className={skin('flex items-center justify-between py-2 border-b border-gray-100 last:border-0', 'flex items-center justify-between py-2 border-b border-carup-line last:border-0')} data-testid="requirement-row">
       <div className="flex items-center gap-2">
         {cfg.icon}
-        <span className="text-sm font-medium text-gray-800">{req.label}</span>
+        <span className={skin('text-sm font-medium text-gray-800', 'text-sm font-medium text-carup-text')}>{req.label}</span>
         {req.is_blocking && req.status === 'missing' && (
-          <Badge variant="outline" className="text-xs border-red-300 text-red-600 py-0">blocks publish</Badge>
+          <Badge variant="outline" className={skin('text-xs border-red-300 text-red-600 py-0', 'text-xs border-status-danger text-status-danger py-0')}>blocks publish</Badge>
         )}
       </div>
       <span className={`text-xs font-medium px-2 py-0.5 rounded border ${cfg.className}`}>
@@ -107,7 +108,7 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
   if (error) {
     return (
       <Card className={`border-0 card-shadow ${className}`} data-testid="completeness-panel-error">
-        <CardContent className="py-6 flex items-center gap-2 text-red-600">
+        <CardContent className={skin('py-6 flex items-center gap-2 text-red-600', 'py-6 flex items-center gap-2 text-status-danger')}>
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span className="text-sm">Could not load requirements: {error}</span>
         </CardContent>
@@ -125,13 +126,13 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <FileWarning className="w-4 h-4 text-orange-500" />
+            <FileWarning className={skin('w-4 h-4 text-orange-500', 'w-4 h-4 text-carup-action')} />
             Publication requirements
           </CardTitle>
           {data.is_publishable ? (
-            <Badge className="bg-green-600 text-white text-xs">Ready to publish</Badge>
+            <Badge className={skin('bg-green-600 text-white text-xs', 'bg-status-success text-white text-xs')}>Ready to publish</Badge>
           ) : (
-            <Badge variant="outline" className="border-amber-400 text-amber-700 text-xs">Draft — not yet publishable</Badge>
+            <Badge variant="outline" className={skin('border-amber-400 text-amber-700 text-xs', 'border-status-warning text-status-warning text-xs')}>Draft — not yet publishable</Badge>
           )}
         </div>
       </CardHeader>
@@ -140,8 +141,8 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
         {/* Completeness bar */}
         <div>
           <div className="flex justify-between mb-1">
-            <span className="text-xs text-gray-500">Completeness</span>
-            <span className="text-xs font-semibold text-gray-700">{data.completeness_percent}%</span>
+            <span className={skin('text-xs text-gray-500', 'text-xs text-carup-text-2')}>Completeness</span>
+            <span className={skin('text-xs font-semibold text-gray-700', 'text-xs font-semibold text-carup-text-2')}>{data.completeness_percent}%</span>
           </div>
           <Progress value={data.completeness_percent} className="h-2" />
         </div>
@@ -154,9 +155,9 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
 
         {/* Blocking gaps callout */}
         {data.blocking_gaps.length > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
-            <p className="font-semibold text-red-800 mb-1">Publication is blocked</p>
-            <ul className="list-disc list-inside text-red-700 space-y-0.5">
+          <div className={skin('bg-red-50 border border-red-200 rounded-lg p-3 text-sm', 'bg-status-danger-soft border border-status-danger rounded-lg p-3 text-sm')}>
+            <p className={skin('font-semibold text-red-800 mb-1', 'font-semibold text-status-danger mb-1')}>Publication is blocked</p>
+            <ul className={skin('list-disc list-inside text-red-700 space-y-0.5', 'list-disc list-inside text-status-danger space-y-0.5')}>
               {/* A gap is `{key, label}` on the wire, not a string. Rendering it directly crashed
                   this panel with React error #31 the moment a draft had any blocking requirement —
                   which is every newly created listing. One naming authority, shared with
@@ -170,9 +171,9 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
 
         {/* Pending advisory */}
         {data.pending_gaps.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
-            <p className="font-semibold text-amber-800 mb-1">Awaiting review</p>
-            <p className="text-amber-700">
+          <div className={skin('bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm', 'bg-status-warning-soft border border-status-warning rounded-lg p-3 text-sm')}>
+            <p className={skin('font-semibold text-amber-800 mb-1', 'font-semibold text-status-warning mb-1')}>Awaiting review</p>
+            <p className={skin('text-amber-700', 'text-status-warning')}>
               {data.pending_gaps.map(publicationGapName).join(', ')} — submitted and under review. Publication will advance once approved.
             </p>
           </div>
@@ -181,8 +182,8 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
         {/* Required (blocking) documents */}
         {blockingReqs.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Required for publication</p>
-            <div className="border border-gray-200 rounded-lg overflow-hidden px-3">
+            <p className={skin('text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2', 'text-xs font-semibold text-carup-text-2 uppercase tracking-wide mb-2')}>Required for publication</p>
+            <div className={skin('border border-gray-200 rounded-lg overflow-hidden px-3', 'border border-carup-line rounded-lg overflow-hidden px-3')}>
               {blockingReqs.map(req => <RequirementRow key={req.key} req={req} />)}
             </div>
           </div>
@@ -191,8 +192,8 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
         {/* Advisory (non-blocking) documents */}
         {advisoryReqs.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recommended documents</p>
-            <div className="border border-gray-100 rounded-lg overflow-hidden px-3 bg-gray-50/50">
+            <p className={skin('text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2', 'text-xs font-semibold text-carup-text-2 uppercase tracking-wide mb-2')}>Recommended documents</p>
+            <div className={skin('border border-gray-100 rounded-lg overflow-hidden px-3 bg-gray-50/50', 'border border-carup-line rounded-lg overflow-hidden px-3 bg-carup-bg-surface')}>
               {advisoryReqs.map(req => <RequirementRow key={req.key} req={req} />)}
             </div>
           </div>
@@ -200,7 +201,7 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
 
         {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-2 pt-1">
-          <Button asChild className="bg-orange-500 hover:bg-orange-600 flex-1">
+          <Button asChild className={skin('bg-orange-500 hover:bg-orange-600 flex-1', 'bg-carup-action hover:bg-carup-action-hover flex-1')}>
             {/* The garage vehicle profile mounts EvidenceUploadModal; ?upload=1 opens it on arrival. */}
             <Link to={`/dashboard/garage/${encodeURIComponent(data.vin)}?upload=1`}>
               Upload documents <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
@@ -211,7 +212,7 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
           </Button>
         </div>
 
-        <p className="text-xs text-gray-400 text-center">
+        <p className={skin('text-xs text-gray-400 text-center', 'text-xs text-carup-text-3 text-center')}>
           Publication status: <span className="font-medium">{data.publication_status.replace(/_/g, ' ')}</span>
           {' · '}VIN: {data.vin}
         </p>

@@ -89,9 +89,8 @@ function isPublicSlicePath(pathname: string): boolean {
  * These are the owner routes whose unified chrome is IN SCOPE for this slice.
  * `/dashboard/sell-vehicle` is deliberately ABSENT: register row R076 assigns
  * the seller claim flow to its own `FocusedShell (seller-claim)` composition,
- * so it must never enter the unified personal WorkspaceShell (the deferred
- * seller redesign is NOT implemented here — the route keeps its exact legacy
- * element, unchanged, when the opt-in is on).
+ * so it must never enter the unified personal WorkspaceShell. RX04-D implements
+ * that composition (FocusedSellerStudioShell, behind the same guard).
  */
 const PERSONAL_SLICE_PATTERNS: ReadonlyArray<string> = [
   '/dashboard',
@@ -150,6 +149,7 @@ function PublicUnifiedShell({ legacy }: { legacy: ReactElement }) {
   // RX03-P2 — workspace-registered routes that are routed under MainLayout.
   if (isDealerOpsSlicePath(pathname)) return <WorkspaceDealerUnifiedShell lifecycleBoundary />
   if (matchPath('/diaspora/imports/new', pathname)) return <FocusedImportFlowShell legacy={legacy} />
+  if (matchPath('/sell', pathname)) return <FocusedSellerStudioShell exitTo="/" />
   const orderId = tradeWorkspaceOrderId(pathname)
   if (orderId !== null) return <WorkspaceTradeUnifiedShell legacy={legacy} orderId={orderId || null} />
   // R2-3: off-slice public paths keep the preserved legacy composition.
@@ -468,6 +468,32 @@ function FocusedImportFlowShell({ legacy }: { legacy: ReactElement }) {
 }
 
 /**
+ * RX04-D — Seller Studio (register R003 guest `/sell`, R076 `/dashboard/sell-vehicle`):
+ * FocusedShell mode "seller-claim". Guest Sell keeps its lifecycle-only boundary
+ * (anyone may start a browser draft); the account flow sits behind the SAME
+ * centralized guard the legacy DashboardLayout uses, applied by the caller.
+ */
+function FocusedSellerStudioShell({ exitTo }: { exitTo: string }) {
+  const identity = useIdentity()
+  const navigate = useNavigate()
+  return (
+    <FocusedShell
+      identity={{
+        displayName: identity.displayName,
+        roleTitle: identity.isAuthenticated ? 'Signed in' : 'Visitor',
+      }}
+      title="Seller Studio"
+      mode="seller-claim"
+      onExit={() => navigate(exitTo)}
+    >
+      <RegistryRouteBoundary enforceAuth={false}>
+        <Outlet />
+      </RegistryRouteBoundary>
+    </FocusedShell>
+  )
+}
+
+/**
  * R4-1 — Personal-family scope switch. Routes inside the approved personal
  * slice render behind the SAME centralized guard the legacy DashboardLayout
  * uses; routes outside it (the seller claim flow) keep their exact assigned
@@ -476,6 +502,13 @@ function FocusedImportFlowShell({ legacy }: { legacy: ReactElement }) {
  */
 function WorkspacePersonalSwitch({ legacy }: { legacy: ReactElement }) {
   const location = useLocation()
+  if (matchPath('/dashboard/sell-vehicle', location.pathname)) {
+    return (
+      <RegistryRouteBoundary>
+        <FocusedSellerStudioShell exitTo="/dashboard/listings" />
+      </RegistryRouteBoundary>
+    )
+  }
   if (!isPersonalSlicePath(location.pathname)) return legacy
   return (
     <RegistryRouteBoundary>

@@ -21,6 +21,7 @@ import { AlertTriangle, CheckCircle2, FileText } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import type { SellerFactReconciliation, SellerFactReconciliationEntry } from '@/types'
+import { skin } from '@/lib/unifiedSkin'
 
 /** Field names as a seller would say them. Unknown fields fall back to a readable form. */
 const FIELD_LABELS: Record<string, string> = {
@@ -45,33 +46,33 @@ const documentLabel = (documentType: string | null) =>
 function ReconciliationRow({ entry }: { entry: SellerFactReconciliationEntry }) {
   return (
     <li
-      className={`rounded-xl border p-3 ${entry.resolved ? 'border-slate-200 bg-slate-50' : 'border-amber-300 bg-amber-50'}`}
+      className={`rounded-xl border p-3 ${entry.resolved ? skin('border-slate-200 bg-slate-50', 'border-carup-line bg-carup-bg-surface') : skin('border-amber-300 bg-amber-50', 'border-status-warning bg-status-warning-soft')}`}
       data-testid={`reconciliation-row-${entry.field}`}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-bold text-slate-900">{fieldLabel(entry.field)}</p>
+        <p className={skin('text-sm font-bold text-slate-900', 'text-sm font-bold text-carup-text')}>{fieldLabel(entry.field)}</p>
         {entry.resolved ? (
-          <Badge variant="outline" className="border-slate-300 text-[10px] text-slate-600">Resolved</Badge>
+          <Badge variant="outline" className={skin('border-slate-300 text-[10px] text-slate-600', 'border-carup-line-strong text-[10px] text-carup-text-2')}>Resolved</Badge>
         ) : (
-          <Badge className="bg-amber-500 text-[10px] text-white">Awaiting review</Badge>
+          <Badge className={skin('bg-amber-500 text-[10px] text-white', 'bg-status-warning text-[10px] text-white')}>Awaiting review</Badge>
         )}
       </div>
 
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
-        <div className="rounded-lg bg-white p-2" data-testid={`reconciliation-seller-${entry.field}`}>
-          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">You stated</p>
-          <p className="mt-0.5 font-semibold text-slate-900">{entry.seller_stated ?? 'Not recorded'}</p>
+        <div className={skin('rounded-lg bg-white p-2', 'rounded-lg bg-carup-bg-raised p-2')} data-testid={`reconciliation-seller-${entry.field}`}>
+          <p className={skin('text-[10px] font-bold uppercase tracking-wide text-slate-600', 'text-[10px] font-bold uppercase tracking-wide text-carup-text-2')}>You stated</p>
+          <p className={skin('mt-0.5 font-semibold text-slate-900', 'mt-0.5 font-semibold text-carup-text')}>{entry.seller_stated ?? 'Not recorded'}</p>
         </div>
-        <div className="rounded-lg bg-white p-2" data-testid={`reconciliation-evidence-${entry.field}`}>
-          <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+        <div className={skin('rounded-lg bg-white p-2', 'rounded-lg bg-carup-bg-raised p-2')} data-testid={`reconciliation-evidence-${entry.field}`}>
+          <p className={skin('flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-600', 'flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-carup-text-2')}>
             <FileText className="h-3 w-3" aria-hidden="true" />
             {documentLabel(entry.document_type)} reads
           </p>
-          <p className="mt-0.5 font-semibold text-slate-900">{entry.evidence_indicated ?? 'Not recorded'}</p>
+          <p className={skin('mt-0.5 font-semibold text-slate-900', 'mt-0.5 font-semibold text-carup-text')}>{entry.evidence_indicated ?? 'Not recorded'}</p>
           {/* "on the document" is doing real work: a reviewer confirms what a PAGE says, which is
               not the same as CarUp certifying the vehicle's model year. */}
           {entry.evidence_verified && (
-            <p className="mt-0.5 text-[11px] text-slate-500">A reviewer confirmed this reading on the document.</p>
+            <p className={skin('mt-0.5 text-[11px] text-slate-500', 'mt-0.5 text-[11px] text-carup-text-2')}>A reviewer confirmed this reading on the document.</p>
           )}
         </div>
       </div>
@@ -97,10 +98,10 @@ export function FactReconciliationPanel({
     <Card className={`border-0 card-shadow ${className}`} data-testid="fact-reconciliation-panel">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <AlertTriangle className="h-4 w-4 text-amber-500" />
+          <AlertTriangle className={skin('h-4 w-4 text-amber-500', 'h-4 w-4 text-status-warning')} />
           Your documents disagree with your details
         </CardTitle>
-        <p className="mt-1 text-xs text-gray-500">
+        <p className={skin('mt-1 text-xs text-gray-500', 'mt-1 text-xs text-carup-text-2')}>
           CarUp has not changed anything you entered. Both readings are shown below exactly as they
           stand, and a reviewer decides which one is right.
         </p>
@@ -113,7 +114,7 @@ export function FactReconciliationPanel({
 
         {blocking ? (
           <div
-            className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+            className={skin('rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900', 'rounded-lg border border-status-warning bg-status-warning-soft p-3 text-sm text-carup-text')}
             data-testid="reconciliation-blocking-notice"
           >
             <p className="font-semibold">This listing is held until the disagreement is settled.</p>
@@ -124,7 +125,7 @@ export function FactReconciliationPanel({
             </p>
           </div>
         ) : (
-          <p className="flex items-start gap-1.5 text-sm text-emerald-700" data-testid="reconciliation-cleared">
+          <p className={skin('flex items-start gap-1.5 text-sm text-emerald-700', 'flex items-start gap-1.5 text-sm text-status-success')} data-testid="reconciliation-cleared">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             Every disagreement above has been reviewed. Publication is no longer held for this reason.
           </p>

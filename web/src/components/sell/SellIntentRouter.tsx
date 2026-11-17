@@ -7,6 +7,7 @@ import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { Vehicle } from '@/types'
+import { skin } from '@/lib/unifiedSkin'
 
 export type SellerEntryIntent = 'resume_draft' | 'garage_vehicle' | 'known_vehicle' | 'new_vehicle'
 
@@ -38,12 +39,12 @@ function IntentCard({
 }) {
   const body = (
     <>
-      <span className="flex h-11 w-11 items-center justify-center bg-orange-50 text-orange-600">
+      <span className={skin('flex h-11 w-11 items-center justify-center bg-orange-50 text-orange-600', 'flex h-11 w-11 items-center justify-center bg-carup-action-soft text-carup-action')}>
         <Icon className="h-5 w-5" aria-hidden="true" />
       </span>
-      <span className="mt-6 block text-xl font-black tracking-[-0.025em] text-slate-950">{title}</span>
-      <span className="mt-2 block max-w-sm text-sm leading-6 text-slate-500">{copy}</span>
-      <span className="mt-7 inline-flex items-center gap-2 text-xs font-black text-slate-950">
+      <span className={skin('mt-6 block text-xl font-black tracking-[-0.025em] text-slate-950', 'mt-6 block text-xl font-bold tracking-[-0.025em] text-carup-text')}>{title}</span>
+      <span className={skin('mt-2 block max-w-sm text-sm leading-6 text-slate-500', 'mt-2 block max-w-sm text-sm leading-6 text-carup-text-2')}>{copy}</span>
+      <span className={skin('mt-7 inline-flex items-center gap-2 text-xs font-black text-slate-950', 'mt-7 inline-flex items-center gap-2 text-xs font-bold text-carup-text')}>
         Continue <ArrowRight className="h-4 w-4" />
       </span>
     </>
@@ -93,64 +94,64 @@ export function SellIntentRouter({
   }, [fetchOwnedVehicles, isAuthenticated])
 
   return (
-    <div className="min-h-screen bg-[#f6f7f9] text-slate-950" data-testid="sell-intent-router">
-      <section className="relative overflow-hidden bg-[#07111f] text-white">
-        <div className="absolute inset-0 opacity-90 [background-image:radial-gradient(circle_at_78%_18%,rgba(249,115,22,0.22),transparent_25%),linear-gradient(120deg,transparent_0%,transparent_62%,rgba(255,255,255,0.04)_62%,rgba(255,255,255,0.04)_63%,transparent_63%)]" />
-        <div className="section-padding relative mx-auto max-w-[1440px] py-14 sm:py-20">
-          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">Sell with the vehicle thread intact</p>
-          <h1 className="mt-4 max-w-4xl text-5xl font-black leading-[0.9] tracking-[-0.055em] sm:text-6xl">
+    <div className={skin('min-h-screen bg-[#f6f7f9] text-slate-950', 'text-carup-text')} data-testid="sell-intent-router">
+      <section className={skin('relative overflow-hidden bg-[#07111f] text-white', 'relative')}>
+        <div className={skin('absolute inset-0 opacity-90 [background-image:radial-gradient(circle_at_78%_18%,rgba(249,115,22,0.22),transparent_25%),linear-gradient(120deg,transparent_0%,transparent_62%,rgba(255,255,255,0.04)_62%,rgba(255,255,255,0.04)_63%,transparent_63%)]', 'absolute inset-0 opacity-90')} />
+        <div className={skin('section-padding relative mx-auto max-w-[1440px] py-14 sm:py-20', 'relative pb-2 pt-1')}>
+          <p className={skin('text-[10px] font-black uppercase tracking-[0.22em] text-orange-400', 'text-[11px] font-semibold uppercase tracking-[0.18em] text-carup-text-2')}>Sell with the vehicle thread intact</p>
+          <h1 className={skin('mt-4 max-w-4xl text-5xl font-black leading-[0.9] tracking-[-0.055em] sm:text-6xl', 'mt-3 max-w-4xl text-[clamp(1.75rem,3.2vw,2.75rem)] font-bold leading-tight tracking-[-0.03em]')}>
             Which vehicle are you selling?
           </h1>
-          <p className="mt-6 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
+          <p className={skin('mt-6 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base', 'mt-3 max-w-2xl text-sm leading-6 text-carup-text-2 sm:text-base')}>
             Reuse a vehicle CarUp already knows whenever possible. A vehicle new to CarUp is different from a seller saying the vehicle condition is “New”.
           </p>
         </div>
       </section>
 
-      <main className="section-padding mx-auto max-w-[1440px] py-10 sm:py-14">
+      <main className={skin('section-padding mx-auto max-w-[1440px] py-10 sm:py-14', 'py-6 sm:py-8')}>
         {hasLocalDraft && (
           <button
             type="button"
             onClick={() => onResolve('resume_draft')}
-            className="mb-10 flex w-full flex-col justify-between gap-4 border-l-4 border-orange-500 bg-white px-6 py-5 text-left shadow-[0_18px_45px_rgba(15,23,42,0.08)] sm:flex-row sm:items-center"
+            className={skin('mb-10 flex w-full flex-col justify-between gap-4 border-l-4 border-orange-500 bg-white px-6 py-5 text-left shadow-[0_18px_45px_rgba(15,23,42,0.08)] sm:flex-row sm:items-center', 'mb-10 flex w-full flex-col justify-between gap-4 border-l-4 border-carup-action bg-carup-bg-raised px-6 py-5 text-left sm:flex-row sm:items-center')}
             data-testid="sell-intent-resume-draft"
           >
             <span>
-              <span className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Draft found in this browser</span>
-              <span className="mt-1 block text-lg font-black text-slate-950">Continue where you left off</span>
-              <span className="mt-1 block text-sm text-slate-500">Your saved Seller draft remains separate from publication until you explicitly publish it.</span>
+              <span className={skin('text-[10px] font-black uppercase tracking-[0.18em] text-orange-600', 'text-[10px] font-bold uppercase tracking-[0.18em] text-carup-action')}>Draft found in this browser</span>
+              <span className={skin('mt-1 block text-lg font-black text-slate-950', 'mt-1 block text-lg font-bold text-carup-text')}>Continue where you left off</span>
+              <span className={skin('mt-1 block text-sm text-slate-500', 'mt-1 block text-sm text-carup-text-2')}>Your saved Seller draft remains separate from publication until you explicitly publish it.</span>
             </span>
-            <span className="inline-flex shrink-0 items-center gap-2 text-sm font-black text-slate-950">Resume draft <RotateCcw className="h-4 w-4" /></span>
+            <span className={skin('inline-flex shrink-0 items-center gap-2 text-sm font-black text-slate-950', 'inline-flex shrink-0 items-center gap-2 text-sm font-bold text-carup-text')}>Resume draft <RotateCcw className="h-4 w-4" /></span>
           </button>
         )}
 
         {isAuthenticated && (
           <section className="mb-12" data-testid="sell-intent-garage">
-            <div className="flex flex-col gap-3 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+            <div className={skin('flex flex-col gap-3 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between', 'flex flex-col gap-3 border-b border-carup-line pb-5 sm:flex-row sm:items-end sm:justify-between')}>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Your vehicles</p>
-                <h2 className="mt-2 text-3xl font-black tracking-[-0.04em]">Start with My Garage.</h2>
+                <p className={skin('text-[10px] font-black uppercase tracking-[0.2em] text-orange-600', 'text-[10px] font-bold uppercase tracking-[0.2em] text-carup-action')}>Your vehicles</p>
+                <h2 className={skin('mt-2 text-3xl font-black tracking-[-0.04em]', 'mt-2 text-3xl font-bold tracking-[-0.04em]')}>Start with My Garage.</h2>
               </div>
-              <Link to="/dashboard/garage" className="text-sm font-black text-slate-700 hover:text-orange-700">Open My Garage</Link>
+              <Link to="/dashboard/garage" className={skin('text-sm font-black text-slate-700 hover:text-orange-700', 'text-sm font-bold text-carup-text-2 hover:text-carup-action-hover')}>Open My Garage</Link>
             </div>
 
-            {garageState === 'loading' && <p className="py-8 text-sm text-slate-500">Reading your eligible vehicles…</p>}
+            {garageState === 'loading' && <p className={skin('py-8 text-sm text-slate-500', 'py-8 text-sm text-carup-text-2')}>Reading your eligible vehicles…</p>}
             {garageState === 'error' && (
-              <div className="my-6 border-y border-amber-200 bg-amber-50 px-5 py-5 text-sm text-amber-900">
+              <div className={skin('my-6 border-y border-amber-200 bg-amber-50 px-5 py-5 text-sm text-amber-900', 'my-6 border-y border-status-warning bg-status-warning-soft px-5 py-5 text-sm text-carup-text')}>
                 CarUp could not read your Garage right now. This is not treated as “you have no vehicles”; you can still identify another known vehicle below.
               </div>
             )}
             {garageState === 'ready' && garageVehicles.length === 0 && (
-              <p className="py-8 text-sm text-slate-500">No Garage vehicle is recorded for this account yet.</p>
+              <p className={skin('py-8 text-sm text-slate-500', 'py-8 text-sm text-carup-text-2')}>No Garage vehicle is recorded for this account yet.</p>
             )}
 
             {garageVehicles.length > 0 && (
-              <div className="divide-y divide-slate-200">
+              <div className={skin('divide-y divide-slate-200', 'divide-y divide-carup-line')}>
                 {garageVehicles.map(vehicle => {
                   const action = vehicleAction(vehicle)
                   return (
                     <article key={vehicle.vin} className="grid gap-5 py-5 sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:items-center" data-testid={`sell-garage-vehicle-${vehicle.vin}`}>
-                      <div className="aspect-[16/10] overflow-hidden bg-slate-100">
+                      <div className={skin('aspect-[16/10] overflow-hidden bg-slate-100', 'aspect-[16/10] overflow-hidden bg-carup-bg-surface-2')}>
                         <ListingImage
                           src={primaryListingImageUrl(vehicle.listing_media)}
                           alt={[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
@@ -158,13 +159,13 @@ export function SellIntentRouter({
                         />
                       </div>
                       <div className="min-w-0">
-                        <p className="font-mono text-[10px] text-slate-400">{vehicle.vin}</p>
-                        <h3 className="mt-1 text-xl font-black tracking-[-0.03em]">{[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'}</h3>
-                        <p className="mt-2 text-xs font-semibold text-slate-500">
+                        <p className={skin('font-mono text-[10px] text-slate-400', 'font-mono text-[10px] text-carup-text-3')}>{vehicle.vin}</p>
+                        <h3 className={skin('mt-1 text-xl font-black tracking-[-0.03em]', 'mt-1 text-xl font-bold tracking-[-0.03em]')}>{[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'}</h3>
+                        <p className={skin('mt-2 text-xs font-semibold text-slate-500', 'mt-2 text-xs font-semibold text-carup-text-2')}>
                           Passport vehicle · {vehicle.publication_status ? `listing ${String(vehicle.publication_status).replace(/_/g, ' ')}` : 'no listing state recorded'}
                         </p>
                       </div>
-                      <Button asChild className="rounded-none bg-orange-600 font-black hover:bg-orange-700">
+                      <Button asChild className={skin('rounded-none bg-orange-600 font-black hover:bg-orange-700', 'rounded-none bg-carup-action font-bold hover:bg-carup-action-hover')}>
                         <Link to={action.href}>{action.label} <ArrowRight className="ml-2 h-4 w-4" /></Link>
                       </Button>
                     </article>
@@ -177,8 +178,8 @@ export function SellIntentRouter({
 
         <section>
           <div className="mb-6">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">{isAuthenticated ? 'Another vehicle' : 'Choose a path'}</p>
-            <h2 className="mt-2 text-3xl font-black tracking-[-0.04em]">{isAuthenticated ? 'Find or add the right identity.' : 'Start without losing the vehicle context.'}</h2>
+            <p className={skin('text-[10px] font-black uppercase tracking-[0.2em] text-orange-600', 'text-[10px] font-bold uppercase tracking-[0.2em] text-carup-action')}>{isAuthenticated ? 'Another vehicle' : 'Choose a path'}</p>
+            <h2 className={skin('mt-2 text-3xl font-black tracking-[-0.04em]', 'mt-2 text-3xl font-bold tracking-[-0.04em]')}>{isAuthenticated ? 'Find or add the right identity.' : 'Start without losing the vehicle context.'}</h2>
           </div>
 
           <div className={`grid gap-5 ${isAuthenticated ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>

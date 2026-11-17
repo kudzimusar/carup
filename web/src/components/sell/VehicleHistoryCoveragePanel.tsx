@@ -1,5 +1,6 @@
 import { BadgeCheck, Database, FileSearch, ShieldCheck } from 'lucide-react'
 import type { EvidenceSourcesResponse, EvidenceTaxonomyResponse } from '@/types'
+import { skin } from '@/lib/unifiedSkin'
 
 export type HistoryEvidencePlanState = 'now' | 'later'
 export type HistoryEvidencePlan = Record<string, HistoryEvidencePlanState>
@@ -75,31 +76,31 @@ export function VehicleHistoryCoveragePanel({
   const sourceRows = (sources?.sources ?? []).filter(source => source.active)
 
   return (
-    <section className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6" data-testid="seller-history-coverage">
+    <section className={skin('rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6', 'rounded-[2rem] border border-carup-line bg-carup-bg-raised p-5 sm:p-6')} data-testid="seller-history-coverage">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-2xl">
           <div className="flex items-center gap-2">
-            <Database className="h-5 w-5 text-orange-600" />
-            <h3 className="text-base font-black">Vehicle history & source coverage</h3>
+            <Database className={skin('h-5 w-5 text-orange-600', 'h-5 w-5 text-carup-action')} />
+            <h3 className={skin('text-base font-black', 'text-base font-bold')}>Vehicle history & source coverage</h3>
           </div>
-          <p className="mt-2 text-xs leading-5 text-slate-600">
+          <p className={skin('mt-2 text-xs leading-5 text-slate-600', 'mt-2 text-xs leading-5 text-carup-text-2')}>
             Optional now. Tell CarUp what records you already have, or leave them for later. If this VIN already has a CarUp
             Passport, existing governed history can be reused instead of asking you to re-enter it.
           </p>
         </div>
-        <div className="rounded-2xl bg-slate-950 px-4 py-3 text-white">
-          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Evidence preparation</p>
-          <p className="mt-1 text-lg font-black">{readyNow} ready now · {addLater} later</p>
-          <p className="mt-0.5 text-[10px] text-slate-400">Preparation only — not a Trust score.</p>
+        <div className={skin('rounded-2xl bg-slate-950 px-4 py-3 text-white', 'rounded-2xl bg-carup-raw-ink px-4 py-3 text-white')}>
+          <p className={skin('text-[10px] font-black uppercase tracking-[0.14em] text-slate-400', 'text-[10px] font-bold uppercase tracking-[0.14em] text-carup-text-3')}>Evidence preparation</p>
+          <p className={skin('mt-1 text-lg font-black', 'mt-1 text-lg font-bold')}>{readyNow} ready now · {addLater} later</p>
+          <p className={skin('mt-0.5 text-[10px] text-slate-400', 'mt-0.5 text-[10px] text-carup-text-3')}>Preparation only — not a Trust score.</p>
         </div>
       </div>
 
-      <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className={skin('mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4', 'mt-5 rounded-2xl border border-carup-line bg-carup-bg-surface p-4')}>
         <div className="flex items-start gap-3">
-          <ShieldCheck className="mt-0.5 h-5 w-5 flex-none text-orange-600" />
+          <ShieldCheck className={skin('mt-0.5 h-5 w-5 flex-none text-orange-600', 'mt-0.5 h-5 w-5 flex-none text-carup-action')} />
           <div>
-            <p className="text-xs font-black text-slate-900">Government & partner source checks</p>
-            <p className="mt-1 text-[11px] leading-5 text-slate-500">
+            <p className={skin('text-xs font-black text-slate-900', 'text-xs font-bold text-carup-text')}>Government & partner source checks</p>
+            <p className={skin('mt-1 text-[11px] leading-5 text-slate-500', 'mt-1 text-[11px] leading-5 text-carup-text-2')}>
               CarUp can combine seller uploads with governed sources when a source is available. Source availability and authority
               are shown explicitly; a configured sandbox is never presented as a live government integration.
             </p>
@@ -108,15 +109,15 @@ export function VehicleHistoryCoveragePanel({
         {sourceRows.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-2">
             {sourceRows.map(source => (
-              <span key={source.id} className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-200">
+              <span key={source.id} className={skin('rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-200', 'rounded-full bg-carup-bg-raised px-3 py-1.5 text-[11px] font-semibold text-carup-text-2 ring-1 ring-carup-line')}>
                 {source.display_name}{source.verification_status !== 'verified' ? ' · ' + source.verification_status : ''}
               </span>
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-xs text-slate-500">Source registry unavailable in this preview. Seller evidence can still be added after account creation.</p>
+          <p className={skin('mt-3 text-xs text-slate-500', 'mt-3 text-xs text-carup-text-2')}>Source registry unavailable in this preview. Seller evidence can still be added after account creation.</p>
         )}
-        <div className="mt-3 rounded-xl bg-orange-50 px-3 py-2 text-[11px] leading-5 text-orange-950">
+        <div className={skin('mt-3 rounded-xl bg-orange-50 px-3 py-2 text-[11px] leading-5 text-orange-950', 'mt-3 rounded-xl bg-carup-action-soft px-3 py-2 text-[11px] leading-5 text-carup-text')}>
           <strong>ZIMRA papers:</strong> customs entry and duty / clearance documents belong to the canonical <em>Import</em> evidence class.
           Upload support does not imply a live direct ZIMRA connection.
         </div>
@@ -124,28 +125,28 @@ export function VehicleHistoryCoveragePanel({
 
       <div className="mt-5 grid gap-3 lg:grid-cols-2">
         {loading && classes.length === 0 ? (
-          <div className="lg:col-span-2 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Loading CarUp&apos;s evidence catalog…</div>
+          <div className={skin('lg:col-span-2 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500', 'lg:col-span-2 rounded-2xl bg-carup-bg-surface p-4 text-sm text-carup-text-2')}>Loading CarUp&apos;s evidence catalog…</div>
         ) : classes.map(group => {
           const meta = CLASS_COPY[group.evidence_class]
           const state = plan[group.evidence_class]
           return (
-            <details key={group.evidence_class} className="group rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+            <details key={group.evidence_class} className={skin('group rounded-2xl border border-slate-200 bg-slate-50/60 p-4', 'group rounded-2xl border border-carup-line bg-carup-bg-surface p-4')}>
               <summary className="cursor-pointer list-none">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-black text-slate-900">{humanClass(group.evidence_class)}</p>
-                    <p className="mt-1 text-[11px] leading-5 text-slate-500">{meta?.description}</p>
+                    <p className={skin('text-sm font-black text-slate-900', 'text-sm font-bold text-carup-text')}>{humanClass(group.evidence_class)}</p>
+                    <p className={skin('mt-1 text-[11px] leading-5 text-slate-500', 'mt-1 text-[11px] leading-5 text-carup-text-2')}>{meta?.description}</p>
                   </div>
-                  <span className={'shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black ' + statePillClass(state)}>
+                  <span className={skin('shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black ', 'shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold') + statePillClass(state)}>
                     {state === 'now' ? 'Have records' : state === 'later' ? 'Add later' : 'Optional'}
                   </span>
                 </div>
               </summary>
 
-              <div className="mt-4 border-t border-slate-200 pt-4">
+              <div className={skin('mt-4 border-t border-slate-200 pt-4', 'mt-4 border-t border-carup-line pt-4')}>
                 <div className="flex flex-wrap gap-1.5">
                   {group.subtypes.map(subtype => (
-                    <span key={subtype.subtype_code} className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200">
+                    <span key={subtype.subtype_code} className={skin('rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200', 'rounded-full bg-carup-bg-raised px-2.5 py-1 text-[10px] font-semibold text-carup-text-2 ring-1 ring-carup-line')}>
                       {subtype.label}
                     </span>
                   ))}
@@ -155,7 +156,7 @@ export function VehicleHistoryCoveragePanel({
                     type="button"
                     onClick={() => onPlanChange(group.evidence_class, 'now')}
                     aria-pressed={state === 'now'}
-                    className={actionClass(state === 'now', 'bg-emerald-600 text-white', 'hover:ring-emerald-300')}
+                    className={actionClass(state === 'now', skin('bg-emerald-600 text-white', 'bg-status-success text-carup-action-on'), skin('hover:ring-emerald-300', 'hover:ring-status-success'))}
                   >
                     <BadgeCheck className="mr-1.5 inline h-3.5 w-3.5" /> I have records
                   </button>
@@ -163,7 +164,7 @@ export function VehicleHistoryCoveragePanel({
                     type="button"
                     onClick={() => onPlanChange(group.evidence_class, 'later')}
                     aria-pressed={state === 'later'}
-                    className={actionClass(state === 'later', 'bg-slate-700 text-white', 'hover:ring-slate-300')}
+                    className={actionClass(state === 'later', skin('bg-slate-700 text-white', 'bg-carup-raw-ink-2 text-white'), skin('hover:ring-slate-300', 'hover:ring-carup-line-strong'))}
                   >
                     Add after account
                   </button>
@@ -174,11 +175,11 @@ export function VehicleHistoryCoveragePanel({
         })}
       </div>
 
-      <div className="mt-5 flex items-start gap-3 rounded-2xl bg-[#0b1625] p-4 text-white">
-        <FileSearch className="mt-0.5 h-5 w-5 flex-none text-orange-400" />
+      <div className={skin('mt-5 flex items-start gap-3 rounded-2xl bg-[#0b1625] p-4 text-white', 'mt-5 flex items-start gap-3 rounded-2xl bg-carup-bg-surface border border-carup-line p-4 text-carup-text')}>
+        <FileSearch className={skin('mt-0.5 h-5 w-5 flex-none text-orange-400', 'mt-0.5 h-5 w-5 flex-none text-carup-action')} />
         <div>
-          <p className="text-xs font-black">What can contribute to the vehicle story?</p>
-          <p className="mt-1 text-[11px] leading-5 text-slate-400">
+          <p className={skin('text-xs font-black', 'text-xs font-bold')}>What can contribute to the vehicle story?</p>
+          <p className={skin('mt-1 text-[11px] leading-5 text-slate-400', 'mt-1 text-[11px] leading-5 text-carup-text-3')}>
             Import/customs records, auction history, ownership transfers, police/accident records, insurer assessments,
             repair invoices and parts, inspections, odometer readings, prior listings/price history and current-condition evidence.
             Only governed evidence can strengthen a verified claim.

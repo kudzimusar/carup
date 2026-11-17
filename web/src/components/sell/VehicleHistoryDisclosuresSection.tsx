@@ -14,6 +14,7 @@ import {
   type FinanceType,
   type InsuranceDisclosure,
 } from '@/lib/vehicleHistoryDisclosures'
+import { skin } from '@/lib/unifiedSkin'
 
 /**
  * Vehicle History & Obligations — the Seller's structured accident / insurance / finance
@@ -56,7 +57,7 @@ function RadioRow({
   onSelect: () => void; disabled?: boolean; testId: string
 }) {
   return (
-    <label htmlFor={id} className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-2xl border px-4 py-2.5 text-sm transition ${checked ? 'border-orange-400 bg-orange-50 font-bold text-slate-950' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}>
+    <label htmlFor={id} className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-2xl border px-4 py-2.5 text-sm transition ${checked ? skin('border-orange-400 bg-orange-50 font-bold text-slate-950', 'border-carup-action bg-carup-action-soft font-bold text-carup-text') : skin('border-slate-200 bg-white text-slate-700 hover:border-slate-300', 'border-carup-line bg-carup-bg-raised text-carup-text-2 hover:border-carup-line-strong')}`}>
       <input
         type="radio"
         id={id}
@@ -64,7 +65,7 @@ function RadioRow({
         checked={checked}
         onChange={onSelect}
         disabled={disabled}
-        className="h-4 w-4 accent-orange-600"
+        className={skin('h-4 w-4 accent-orange-600', 'h-4 w-4 accent-carup-action')}
         data-testid={testId}
       />
       <span>{label}</span>
@@ -80,7 +81,7 @@ function DetailInput({
 }) {
   return (
     <div>
-      <label htmlFor={id} className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</label>
+      <label htmlFor={id} className={skin('mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500', 'mb-1 block text-[11px] font-bold uppercase tracking-wide text-carup-text-2')}>{label}</label>
       <input
         id={id}
         type="text"
@@ -89,7 +90,7 @@ function DetailInput({
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
-        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-orange-400 focus:bg-white focus:ring-2 focus:ring-orange-100"
+        className={skin('w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-orange-400 focus:bg-white focus:ring-2 focus:ring-orange-100', 'w-full rounded-xl border border-carup-line bg-carup-bg-surface px-3 py-2 text-sm outline-none transition focus:border-carup-action focus:bg-white focus:ring-2 focus:ring-carup-action-soft')}
         data-testid={testId}
       />
     </div>
@@ -109,12 +110,12 @@ export function VehicleHistoryDisclosuresSection({
   }
 
   return (
-    <section className="rounded-3xl border border-slate-200 p-5 sm:p-6" data-testid="vehicle-history-disclosures">
+    <section className={skin('rounded-3xl border border-slate-200 p-5 sm:p-6', 'rounded-3xl border border-carup-line p-5 sm:p-6')} data-testid="vehicle-history-disclosures">
       <div className="flex items-center gap-3">
-        <ShieldQuestion className="h-5 w-5 text-orange-600" aria-hidden="true" />
+        <ShieldQuestion className={skin('h-5 w-5 text-orange-600', 'h-5 w-5 text-carup-action')} aria-hidden="true" />
         <div>
-          <h3 className="text-sm font-black">Vehicle history &amp; obligations</h3>
-          <p className="text-xs text-slate-500">
+          <h3 className={skin('text-sm font-black', 'text-sm font-bold')}>Vehicle history &amp; obligations</h3>
+          <p className={skin('text-xs text-slate-500', 'text-xs text-carup-text-2')}>
             Your answers are recorded as seller statements, kept separate from any insurer, police, garage or
             lender evidence. A question you skip stays “not recorded” — it is never shown as “No”.
           </p>
@@ -124,7 +125,7 @@ export function VehicleHistoryDisclosuresSection({
       <div className="mt-5 space-y-6">
         {/* ── Accident / collision history ─────────────────────────────────────────── */}
         <fieldset data-testid="history-accident-disclosure">
-          <legend className="text-xs font-black uppercase tracking-wide text-slate-600">
+          <legend className={skin('text-xs font-black uppercase tracking-wide text-slate-600', 'text-xs font-bold uppercase tracking-wide text-carup-text-2')}>
             Has this vehicle been in an accident or collision?
           </legend>
           <div className="mt-2 grid gap-2 sm:grid-cols-3">
@@ -145,14 +146,14 @@ export function VehicleHistoryDisclosuresSection({
           {accident?.state === 'yes' && (
             <div className="mt-4 space-y-4" data-testid="history-accident-events">
               {events.map((event, index) => (
-                <div key={index} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                <div key={index} className={skin('rounded-2xl border border-slate-200 bg-slate-50/60 p-4', 'rounded-2xl border border-carup-line bg-carup-bg-surface p-4')}>
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-black text-slate-700">Accident event {index + 1}</p>
+                    <p className={skin('text-xs font-black text-slate-700', 'text-xs font-bold text-carup-text-2')}>Accident event {index + 1}</p>
                     <button
                       type="button"
                       onClick={() => onAccidentChange({ state: 'yes', events: events.filter((_, i) => i !== index) })}
                       disabled={disabled}
-                      className="min-h-9 rounded-lg px-2 text-xs font-bold text-slate-500 hover:text-red-600"
+                      className={skin('min-h-9 rounded-lg px-2 text-xs font-bold text-slate-500 hover:text-red-600', 'min-h-9 rounded-lg px-2 text-xs font-bold text-carup-text-2 hover:text-status-danger')}
                       data-testid={`history-accident-remove-event-${index}`}
                     >
                       Remove
@@ -179,13 +180,13 @@ export function VehicleHistoryDisclosuresSection({
                   type="button"
                   onClick={() => onAccidentChange({ state: 'yes', events: [...events, {}] })}
                   disabled={disabled}
-                  className="min-h-11 rounded-xl border border-dashed border-slate-300 px-4 text-xs font-bold text-slate-600 transition hover:border-orange-400 hover:text-orange-700"
+                  className={skin('min-h-11 rounded-xl border border-dashed border-slate-300 px-4 text-xs font-bold text-slate-600 transition hover:border-orange-400 hover:text-orange-700', 'min-h-11 rounded-xl border border-dashed border-carup-line-strong px-4 text-xs font-bold text-carup-text-2 transition hover:border-carup-action hover:text-carup-action-hover')}
                   data-testid="history-accident-add-event"
                 >
                   + Add accident details
                 </button>
               )}
-              <p className="text-[11px] leading-4 text-slate-500">
+              <p className={skin('text-[11px] leading-4 text-slate-500', 'text-[11px] leading-4 text-carup-text-2')}>
                 Accident, insurer-claim and repair photos belong in the vehicle’s history evidence, not the
                 listing gallery — you can add them from the vehicle’s evidence workspace after saving.
               </p>
@@ -195,7 +196,7 @@ export function VehicleHistoryDisclosuresSection({
 
         {/* ── Current insurance ────────────────────────────────────────────────────── */}
         <fieldset data-testid="history-insurance-disclosure">
-          <legend className="text-xs font-black uppercase tracking-wide text-slate-600">
+          <legend className={skin('text-xs font-black uppercase tracking-wide text-slate-600', 'text-xs font-bold uppercase tracking-wide text-carup-text-2')}>
             Is the vehicle currently insured?
           </legend>
           <div className="mt-2 grid gap-2 sm:grid-cols-3">
@@ -222,7 +223,7 @@ export function VehicleHistoryDisclosuresSection({
                 disabled={disabled}
                 testId="history-insurance-insurer-name"
               />
-              <p className="mt-1 text-[11px] leading-4 text-slate-500">
+              <p className={skin('mt-1 text-[11px] leading-4 text-slate-500', 'mt-1 text-[11px] leading-4 text-carup-text-2')}>
                 Your statement — CarUp shows confirmed cover separately when an insurer record exists.
               </p>
             </div>
@@ -231,7 +232,7 @@ export function VehicleHistoryDisclosuresSection({
 
         {/* ── Existing finance / lease / lender interest ───────────────────────────── */}
         <fieldset data-testid="history-finance-disclosure">
-          <legend className="text-xs font-black uppercase tracking-wide text-slate-600">
+          <legend className={skin('text-xs font-black uppercase tracking-wide text-slate-600', 'text-xs font-bold uppercase tracking-wide text-carup-text-2')}>
             Does the vehicle have finance, a lease or another lender interest?
           </legend>
           <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -256,7 +257,7 @@ export function VehicleHistoryDisclosuresSection({
           {finance && finance.state !== 'none_known' && finance.state !== 'unknown' && (
             <div className="mt-3 grid gap-3 sm:grid-cols-2" data-testid="history-finance-details">
               <div>
-                <label htmlFor={`${idPrefix}-finance-type`} className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                <label htmlFor={`${idPrefix}-finance-type`} className={skin('mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500', 'mb-1 block text-[11px] font-bold uppercase tracking-wide text-carup-text-2')}>
                   Finance type (if known)
                 </label>
                 <select
@@ -267,7 +268,7 @@ export function VehicleHistoryDisclosuresSection({
                     finance_type: (e.target.value || undefined) as FinanceType | undefined,
                   })}
                   disabled={disabled}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-orange-400 focus:bg-white focus:ring-2 focus:ring-orange-100"
+                  className={skin('w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-orange-400 focus:bg-white focus:ring-2 focus:ring-orange-100', 'w-full rounded-xl border border-carup-line bg-carup-bg-surface px-3 py-2 text-sm outline-none transition focus:border-carup-action focus:bg-white focus:ring-2 focus:ring-carup-action-soft')}
                   data-testid="history-finance-type"
                 >
                   <option value="">Not specified</option>
@@ -286,7 +287,7 @@ export function VehicleHistoryDisclosuresSection({
               />
             </div>
           )}
-          <p className="mt-2 text-[11px] leading-4 text-slate-500" data-testid="history-finance-privacy-note">
+          <p className={skin('mt-2 text-[11px] leading-4 text-slate-500', 'mt-2 text-[11px] leading-4 text-carup-text-2')} data-testid="history-finance-privacy-note">
             CarUp never asks for balances, repayment amounts, rates or account numbers here — those stay
             between you and your lender. Active finance does not block listing; settlement or lender
             clearance is handled at ownership transfer.

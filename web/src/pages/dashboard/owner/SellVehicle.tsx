@@ -13,7 +13,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 import { ListingQualityPanel } from '@/components/sell/ListingQualityPanel'
 import { clearGuestSellDraft, createSellerSubmissionId, readGuestSellDraft, readGuestSellDraftWithMedia, readGuestSellStep, saveGuestSellDraft, saveGuestSellStep } from '@/lib/guestSellDraft'
-import { sellerDiscoverabilityFacets } from '@/lib/sellerListingPreview'
+import { sellerDiscoverabilityFacets, sellerDraftToCardModel } from '@/lib/sellerListingPreview'
 import { LISTING_IMAGE_LIMIT, screenListingImages } from '@/lib/listingMediaIntake'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
@@ -22,6 +22,10 @@ import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS,
 import type { Vehicle } from '@/types'
 import { ZIMBABWE_REGISTRATION_OPTIONS, normalizeSellerRegistrationStatus, registrationLabel } from '@/lib/zimbabweRegistration'
 import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
+import { SellerStudioFrame } from '@/components/sell/SellerStudioFrame'
+import { ShowroomListingCard } from '@/components/showroom/ShowroomListingCard'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { sellerReadiness } from '@/lib/sellerReadiness'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { readOwnerTrustClaim, statedCount } from './ownerStatedValues'
@@ -34,6 +38,7 @@ import {
   type FinanceDisclosure,
   type InsuranceDisclosure,
 } from '@/lib/vehicleHistoryDisclosures'
+import { skin } from '@/lib/unifiedSkin'
 
 const YEARS = vehicleYearOptions()
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
@@ -158,6 +163,14 @@ const LISTING_CURRENCIES = [
   { code: 'ZiG', label: 'ZiG — Zimbabwe Gold' },
 ]
 
+/** RX04-D — one line under each Studio step title, saying what the step is for. */
+const ACCOUNT_STEP_NOTES = [
+  'Identify the car once. CarUp checks whether it already has a Passport.',
+  'Price, place and the facts buyers filter by.',
+  'Photos, cover and extras. Listing photos are not evidence.',
+  'Check everything, then save a private draft.',
+]
+
 function StepIndicator({ step, total }: { step: number; total: number }) {
   return (
     <div className="flex items-center gap-2 mb-8">
@@ -195,6 +208,7 @@ const INITIAL = {
 export default function SellVehicle() {
   const { createVehicleListing, updateSellerDraft, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles } = useCarUpApi()
   const navigate = useNavigate()
+  const unified = isUnifiedUiEnabled()
   const [searchParams] = useSearchParams()
   const resumeVin = String(searchParams.get('vin') || '').trim().toUpperCase()
   const requestedStage = searchParams.get('stage')
@@ -251,6 +265,10 @@ export default function SellVehicle() {
   const [serverStageSource, setServerStageSource] = useState<string | null>(null)
   const [serverDraftError, setServerDraftError] = useState<string | null>(null)
   const [serverAutosaveState, setServerAutosaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  // RX04-D — WHY the last autosave was refused when the server said so (409: the listing is no longer
+  // an unpublished draft). Recorded beside the unchanged state machine so the Studio can name the real
+  // conflict; null for every other outcome.
+  const [serverAutosaveConflict, setServerAutosaveConflict] = useState<string | null>(null)
   // A late response for revision N must never mark revision N+1 as saved.
   const serverAutosaveRevision = useRef(0)
   const modelOptions = modelsForMake(form.make).map(item => item.name)
@@ -491,14 +509,20 @@ export default function SellVehicle() {
         .then((result) => {
           // A slow older PATCH cannot turn a newer dirty form back into a green "saved" claim.
           if (revision !== serverAutosaveRevision.current) return
+          setServerAutosaveConflict(null)
           if (!result?.success || !autosaveReceiptMatches(payload, result.draft)) {
             setServerAutosaveState('error')
             return
           }
           setServerAutosaveState('saved')
         })
-        .catch(() => {
-          if (revision === serverAutosaveRevision.current) setServerAutosaveState('error')
+        .catch((failure: unknown) => {
+          if (revision !== serverAutosaveRevision.current) return
+          const refused = failure as { status?: number; data?: { publication_status?: string | null; status?: string | null } } | null
+          setServerAutosaveConflict(refused?.status === 409
+            ? String(refused.data?.status === 'sold' ? 'sold' : refused.data?.publication_status || 'not_a_draft')
+            : null)
+          setServerAutosaveState('error')
         })
     }, 1200)
 
@@ -935,10 +959,10 @@ export default function SellVehicle() {
     return (
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="flex items-start gap-3">
-          <CheckCircle className="w-6 h-6 text-green-600 mt-0.5 shrink-0" />
+          <CheckCircle className={skin('w-6 h-6 text-green-600 mt-0.5 shrink-0', 'w-6 h-6 text-status-success mt-0.5 shrink-0')} />
           <div>
             <h1 className="text-2xl font-bold">Draft saved</h1>
-            <p className="text-gray-500">
+            <p className={skin('text-gray-500', 'text-carup-text-2')}>
               Your vehicle has been registered as a draft. Complete the document requirements below to publish your listing.
             </p>
           </div>
@@ -951,9 +975,9 @@ export default function SellVehicle() {
             here: a seller-facing copy of a Trust position is how a score drifts from its own
             calculation_version. */}
         {Object.keys(guestHistoryPlan).length > 0 && (
-          <div className="rounded-xl border border-orange-200 bg-orange-50 p-4" data-testid="post-save-evidence-plan">
-            <p className="text-sm font-semibold text-orange-950">Your evidence preparation came with you</p>
-            <p className="mt-1 text-xs text-orange-900/70">
+          <div className={skin('rounded-xl border border-orange-200 bg-orange-50 p-4', 'rounded-xl border border-carup-line-strong bg-carup-action-soft p-4')} data-testid="post-save-evidence-plan">
+            <p className={skin('text-sm font-semibold text-orange-950', 'text-sm font-semibold text-carup-text')}>Your evidence preparation came with you</p>
+            <p className={skin('mt-1 text-xs text-orange-900/70', 'mt-1 text-xs text-carup-text-2')}>
               {Object.values(guestHistoryPlan).filter(value => value === 'now').length} categories were marked as records you have now.
               Upload the actual documents/evidence below; the checklist itself never counts as proof.
             </p>
@@ -969,9 +993,9 @@ export default function SellVehicle() {
             discoverabilityFacets: sellerDiscoverabilityFacets(form),
           }}
         />
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4" data-testid="canonical-trust-pointer">
-          <p className="text-sm font-semibold text-slate-800">Canonical Trust is measured separately</p>
-          <p className="mt-1 text-xs text-slate-600">
+        <div className={skin('rounded-xl border border-slate-200 bg-slate-50 p-4', 'rounded-xl border border-carup-line bg-carup-bg-surface p-4')} data-testid="canonical-trust-pointer">
+          <p className={skin('text-sm font-semibold text-slate-800', 'text-sm font-semibold text-carup-text')}>Canonical Trust is measured separately</p>
+          <p className={skin('mt-1 text-xs text-slate-600', 'mt-1 text-xs text-carup-text-2')}>
             Neither block above is a Trust score. CarUp publishes what it has actually verified on
             the vehicle&rsquo;s Passport, and only once evidence has been reviewed.
           </p>
@@ -980,7 +1004,7 @@ export default function SellVehicle() {
             <Button asChild size="sm" variant="outline">
               <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(savedVin)}`}>Edit this draft</Link>
             </Button>
-            <Link to={`/dashboard/garage/${encodeURIComponent(savedVin)}`} className="inline-flex items-center px-2 text-xs font-semibold text-orange-600 hover:underline">
+            <Link to={`/dashboard/garage/${encodeURIComponent(savedVin)}`} className={skin('inline-flex items-center px-2 text-xs font-semibold text-orange-600 hover:underline', 'inline-flex items-center px-2 text-xs font-semibold text-carup-action hover:underline')}>
               Open Vehicle Passport
             </Link>
           </div>
@@ -994,9 +1018,9 @@ export default function SellVehicle() {
       <div className="max-w-3xl mx-auto">
         <Card className="border-0 card-shadow">
           <CardContent className="p-8 text-center">
-            <Loader2 className="mx-auto h-7 w-7 animate-spin text-orange-500" />
-            <p className="mt-3 font-semibold text-slate-900">Loading your Seller listing…</p>
-            <p className="mt-1 text-sm text-slate-500">CarUp is restoring the vehicle and listing facts already attached to this Passport.</p>
+            <Loader2 className={skin('mx-auto h-7 w-7 animate-spin text-orange-500', 'mx-auto h-7 w-7 animate-spin text-carup-action')} />
+            <p className={skin('mt-3 font-semibold text-slate-900', 'mt-3 font-semibold text-carup-text')}>Loading your Seller listing…</p>
+            <p className={skin('mt-1 text-sm text-slate-500', 'mt-1 text-sm text-carup-text-2')}>CarUp is restoring the vehicle and listing facts already attached to this Passport.</p>
           </CardContent>
         </Card>
       </div>
@@ -1006,10 +1030,10 @@ export default function SellVehicle() {
   if (serverDraftError && isCompleteVin(resumeVin) && !guestDraft) {
     return (
       <div className="max-w-3xl mx-auto">
-        <Card className="border-amber-200 bg-amber-50">
+        <Card className={skin('border-amber-200 bg-amber-50', 'border-status-warning bg-status-warning-soft')}>
           <CardContent className="p-6">
             <h1 className="text-lg font-semibold">Seller listing unavailable</h1>
-            <p className="mt-2 text-sm text-slate-700">{serverDraftError}</p>
+            <p className={skin('mt-2 text-sm text-slate-700', 'mt-2 text-sm text-carup-text-2')}>{serverDraftError}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button asChild><Link to="/dashboard/listings">Open My Listings</Link></Button>
               <Button asChild variant="outline"><Link to="/dashboard/garage">Back to My Garage</Link></Button>
@@ -1025,12 +1049,777 @@ export default function SellVehicle() {
       <div className="max-w-3xl mx-auto">
         <Card className="border-0 card-shadow">
           <CardContent className="p-8 text-center" data-testid="seller-guest-media-restoring">
-            <Loader2 className="mx-auto h-7 w-7 animate-spin text-orange-500" />
-            <p className="mt-3 font-semibold text-slate-900">Restoring your complete Seller draft…</p>
-            <p className="mt-1 text-sm text-slate-500">Vehicle details, photo labels and your chosen cover are being recovered from this browser.</p>
+            <Loader2 className={skin('mx-auto h-7 w-7 animate-spin text-orange-500', 'mx-auto h-7 w-7 animate-spin text-carup-action')} />
+            <p className={skin('mt-3 font-semibold text-slate-900', 'mt-3 font-semibold text-carup-text')}>Restoring your complete Seller draft…</p>
+            <p className={skin('mt-1 text-sm text-slate-500', 'mt-1 text-sm text-carup-text-2')}>Vehicle details, photo labels and your chosen cover are being recovered from this browser.</p>
           </CardContent>
         </Card>
       </div>
+    )
+  }
+
+  // RX04-D — the step content is ONE element shared by both presentations (same fields, handlers,
+  // checks and test ids); only the frame around it differs.
+  const stepBody = (
+    <>
+      {/* STEP 0: Vehicle Details */}
+      {step === 0 && (
+        <>
+          {canonicalLocked && (
+            <div className={skin('border-l-2 border-sky-500 bg-sky-50 p-4 text-sm text-slate-700', 'border-l-2 border-status-info bg-status-info-soft p-4 text-sm text-carup-text-2')} data-testid="seller-canonical-fields-locked">
+              <p className={skin('font-black text-slate-950', 'font-bold text-carup-text')}>Vehicle Passport facts are read-only here.</p>
+              <p className="mt-1 leading-5">Make, model, year, VIN, colour, identifiers and recorded specification facts come from the existing Passport. Correct those through governed Vehicle Passport/evidence workflows; Seller Studio edits only listing assertions.</p>
+            </div>
+          )}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Make *</label>
+              <Input list="carup-seller-makes" value={form.make} onChange={e => set('make', e.target.value)} placeholder="e.g. Toyota" className={errors.make ? skin('border-red-400', 'border-status-danger') : ''} data-testid="vehicle-make-input" disabled={canonicalLocked} />
+              <datalist id="carup-seller-makes">{VEHICLE_MAKES.map(make => <option key={make} value={make} />)}</datalist>
+              {errors.make && <p className={skin('text-xs text-red-500 mt-1', 'text-xs text-status-danger mt-1')}>{errors.make}</p>}
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Model *</label>
+              <Input list="carup-seller-models" value={form.model} onChange={e => set('model', e.target.value)} placeholder="e.g. Hilux" className={errors.model ? skin('border-red-400', 'border-status-danger') : ''} data-testid="vehicle-model-input" disabled={canonicalLocked} />
+              <datalist id="carup-seller-models">{modelOptions.map(model => <option key={model} value={model} />)}</datalist>
+              {errors.model && <p className={skin('text-xs text-red-500 mt-1', 'text-xs text-status-danger mt-1')}>{errors.model}</p>}
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Year *</label>
+              <Select value={form.year} onValueChange={v => set('year', v)} disabled={canonicalLocked}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Color *</label>
+              <Input list="carup-seller-colours" value={form.color} onChange={e => set('color', e.target.value)} placeholder="e.g. Pearl White" className={errors.color ? skin('border-red-400', 'border-status-danger') : ''} disabled={canonicalLocked} />
+              <datalist id="carup-seller-colours">{VEHICLE_COLORS.map(colour => <option key={colour} value={colour} />)}</datalist>
+              {errors.color && <p className={skin('text-xs text-red-500 mt-1', 'text-xs text-status-danger mt-1')}>{errors.color}</p>}
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">VIN / Vehicle Identifier *</label>
+            <div className="relative">
+              <Input
+                value={form.vin}
+                onChange={e => set('vin', e.target.value.toUpperCase())}
+                placeholder="VIN or documented chassis/frame ID"
+                minLength={12}
+                maxLength={17}
+                className={`font-mono pr-10 ${errors.vin ? skin('border-red-400', 'border-status-danger') : vinValid === true ? skin('border-green-400', 'border-status-success') : ''}`}
+                data-testid="vehicle-vin-input"
+                disabled={canonicalLocked}
+              />
+              {vinValid === true && <CheckCircle className={skin('absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500', 'absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-status-success')} />}
+              {vinValid === false && <AlertCircle className={skin('absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500', 'absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-status-danger')} />}
+            </div>
+            <p className={skin('text-xs text-gray-400 mt-1', 'text-xs text-carup-text-3 mt-1')}>{form.vin.length}/17 characters · minimum 12. Japanese chassis/frame identifiers are accepted when documented.</p>
+            {errors.vin && <p className={skin('text-xs text-red-500', 'text-xs text-status-danger')}>{errors.vin}</p>}
+            <VehicleIdentificationNotice
+              result={identification}
+              checking={identifying}
+              confirmed={form.existingPassportConfirmed}
+              onConfirm={() => {
+                const found = identification.passportVehicle
+                setForm(previous => ({
+                  ...previous,
+                  existingPassportConfirmed: true,
+                  make: previous.make.trim() || found?.make || '',
+                  model: previous.model.trim() || found?.model || '',
+                  year: previous.year || (found?.year ? String(found.year) : ''),
+                }))
+                setAuthorityState('idle')
+                setAuthorityClaimType(null)
+              }}
+              onUseDifferentVin={() => set('vin', '')}
+            />
+            {identification.state === 'passport_exists' && form.existingPassportConfirmed && !governedScopeEstablished && (
+              <div className={skin('mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4', 'mt-3 rounded-xl border border-carup-line bg-carup-bg-surface p-4')} data-testid="seller-existing-passport-authority">
+                <p className={skin('text-sm font-semibold text-slate-900', 'text-sm font-semibold text-carup-text')}>What is your authority to sell this vehicle?</p>
+                <p className={skin('mt-1 text-xs leading-5 text-slate-600', 'mt-1 text-xs leading-5 text-carup-text-2')}>
+                  CarUp reuses the existing Passport. This choice never grants ownership or Dealer privileges.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant={authorityClaimType === 'owner' ? 'default' : 'outline'} disabled={authorityState === 'checking'} onClick={() => resolveExistingPassportAuthority('owner')}>
+                    I own this vehicle
+                  </Button>
+                  <Button type="button" size="sm" variant={authorityClaimType === 'authorised_seller' ? 'default' : 'outline'} disabled={authorityState === 'checking'} onClick={() => resolveExistingPassportAuthority('authorised_seller')}>
+                    I am authorised to sell it
+                  </Button>
+                </div>
+                {authorityState === 'checking' && (
+                  <p className={skin('mt-3 flex items-center gap-2 text-xs text-slate-600', 'mt-3 flex items-center gap-2 text-xs text-carup-text-2')}><Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking the governed relationship…</p>
+                )}
+                {authorityState === 'recognized' && (
+                  <p className={skin('mt-3 text-xs font-semibold text-emerald-700', 'mt-3 text-xs font-semibold text-status-success')}>Relationship recognized. Your listing will attach to this existing Passport.</p>
+                )}
+                {authorityState === 'evidence_required' && (
+                  <div className={skin('mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900', 'mt-3 rounded-lg border border-status-warning bg-status-warning-soft p-3 text-xs text-carup-text')}>
+                    <p className="font-semibold">Seller-authority evidence required.</p>
+                    <p className="mt-1">Your claim is recorded. The Passport is not reassigned until governed review supports it.</p>
+                    <Button asChild size="sm" variant="outline" className="mt-2">
+                      <Link to={`/dashboard/garage/${encodeURIComponent(form.vin)}?upload=1`}>Upload evidence to this Passport</Link>
+                    </Button>
+                  </div>
+                )}
+                {authorityState === 'error' && (
+                  <p className={skin('mt-3 text-xs font-semibold text-red-600', 'mt-3 text-xs font-semibold text-status-danger')}>The authority request could not be recorded. Try the choice again.</p>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Engine Number</label>
+              <Input value={form.engineNumber} onChange={e => set('engineNumber', e.target.value.toUpperCase())} placeholder="e.g. 1GD-789012" className="font-mono" disabled={canonicalLocked} />
+              <p className={skin('text-xs text-gray-400 mt-1', 'text-xs text-carup-text-3 mt-1')}>Required to publish your listing</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Chassis Number</label>
+              <Input value={form.chassisNumber} onChange={e => set('chassisNumber', e.target.value.toUpperCase())} placeholder="e.g. ZW1234567890" className="font-mono" disabled={canonicalLocked} />
+              <p className={skin('text-xs text-gray-400 mt-1', 'text-xs text-carup-text-3 mt-1')}>Required to publish your listing</p>
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">Zimbabwe registration stage</label>
+            <Select value={form.registrationStatus} onValueChange={v => set('registrationStatus', v)} disabled={registrationStageLocked}>
+              <SelectTrigger data-testid="registration-status-select"><SelectValue placeholder="Choose the vehicle's current stage" /></SelectTrigger>
+              <SelectContent>
+                {ZIMBABWE_REGISTRATION_OPTIONS.map(option => (
+                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className={skin('text-xs text-gray-500 mt-1', 'text-xs text-carup-text-2 mt-1')}>
+              A permanent import can be listed while local registration is still progressing. The stage remains visible to buyers and is separate from the vehicle's Trust score.
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">
+                Zimbabwe Number Plate {form.registrationStatus === 'locally_registered' ? '(required for this stage)' : '(if issued)'}
+              </label>
+              <Input value={form.plateNumber} onChange={e => set('plateNumber', e.target.value.toUpperCase())} placeholder="e.g. ABC 1234" className="font-mono" disabled={canonicalLocked} />
+            </div>
+            {form.registrationStatus === 'temporary_foreign_tip' && (
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Temporary Import Permit No.</label>
+                <Input value={form.tempPlateId} onChange={e => set('tempPlateId', e.target.value.toUpperCase())} placeholder="e.g. TIP-2026-00123" className="font-mono" disabled={registrationStageLocked} />
+                <p className={skin('text-xs text-amber-700 mt-1', 'text-xs text-status-warning mt-1')}>
+                  TIP is a temporary foreign-vehicle admission, not a substitute for a Zimbabwe plate. Ordinary sale publication requires review.
+                </p>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* STEP 1: Location & Pricing */}
+      {step === 1 && (
+        <>
+          {canonicalLocked && (
+            <div className={skin('border-l-2 border-sky-500 bg-sky-50 p-4 text-xs leading-5 text-slate-700', 'border-l-2 border-status-info bg-status-info-soft p-4 text-xs leading-5 text-carup-text-2')}>
+              Recorded mileage/fuel/transmission/drivetrain are Passport facts and remain read-only. Condition, body style, price, location, privacy and Seller description below are Seller listing assertions.
+            </div>
+          )}
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Mileage (km) *</label>
+              <Input type="number" value={form.mileage} onChange={e => set('mileage', e.target.value)} placeholder="e.g. 45000" className={errors.mileage ? skin('border-red-400', 'border-status-danger') : ''} disabled={canonicalLocked} />
+              {errors.mileage && <p className={skin('text-xs text-red-500 mt-1', 'text-xs text-status-danger mt-1')}>{errors.mileage}</p>}
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Condition *</label>
+              <Select value={form.condition} onValueChange={v => set('condition', v)}>
+                <SelectTrigger className={errors.condition ? skin('border-red-400', 'border-status-danger') : ''}><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {SELLER_CONDITIONS.map(condition => <SelectItem key={condition} value={condition}>{condition}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Body style *</label>
+              <Select value={form.category} onValueChange={v => set('category', v)}>
+                <SelectTrigger className={errors.category ? skin('border-red-400', 'border-status-danger') : ''}><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {BODY_STYLES.map(bodyStyle => <SelectItem key={bodyStyle} value={bodyStyle}>{bodyStyle}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Fuel Type *</label>
+              <Select value={form.fuelType} onValueChange={v => set('fuelType', v)} disabled={canonicalLocked}>
+                <SelectTrigger className={errors.fuelType ? skin('border-red-400', 'border-status-danger') : ''}><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {FUEL_TYPES.map(fuel => <SelectItem key={fuel} value={fuel}>{fuel}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Transmission *</label>
+              <Select value={form.transmission} onValueChange={v => set('transmission', v)} disabled={canonicalLocked}>
+                <SelectTrigger className={errors.transmission ? skin('border-red-400', 'border-status-danger') : ''}><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {TRANSMISSIONS.map(transmission => <SelectItem key={transmission} value={transmission}>{transmission}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Drivetrain</label>
+              <Select value={form.drivetrain} onValueChange={v => set('drivetrain', v)} disabled={canonicalLocked}>
+                <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                <SelectContent>
+                  {DRIVETRAINS.map(drivetrain => <SelectItem key={drivetrain} value={drivetrain}>{drivetrain}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Currency *</label>
+              <Select value={form.currency} onValueChange={v => set('currency', v)}>
+                <SelectTrigger className={errors.currency ? skin('border-red-400', 'border-status-danger') : ''} data-testid="vehicle-currency-input"><SelectValue placeholder="Select currency" /></SelectTrigger>
+                <SelectContent>{LISTING_CURRENCIES.map(c => <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>)}</SelectContent>
+              </Select>
+              {errors.currency && <p className={skin('text-xs text-red-500 mt-1', 'text-xs text-status-danger mt-1')}>{errors.currency}</p>}
+            </div>
+            <div>
+              {/* The label states the amount only. It read "Price (USD)" while the payload
+                  hardcoded 'USD' — the sole place the seller was told which currency this
+                  figure would be published in, and they had no say in it. */}
+              <label className="text-sm font-medium mb-1.5 block">
+                Price *{form.currency && <span className={skin('text-gray-400 font-normal', 'text-carup-text-3 font-normal')}> ({form.currency})</span>}
+              </label>
+              <Input type="number" value={form.price} onChange={e => set('price', e.target.value)} placeholder="e.g. 25000" className={errors.price ? skin('border-red-400', 'border-status-danger') : ''} />
+              {errors.price && <p className={skin('text-xs text-red-500 mt-1', 'text-xs text-status-danger mt-1')}>{errors.price}</p>}
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Location *</label>
+              <Select value={form.location} onValueChange={v => set('location', v)}>
+                <SelectTrigger className={errors.location ? skin('border-red-400', 'border-status-danger') : ''}><SelectValue placeholder="City" /></SelectTrigger>
+                <SelectContent>{zimbabweLocations.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Province</label>
+              <Select value={form.province} onValueChange={v => set('province', v)}>
+                <SelectTrigger><SelectValue placeholder="Province" /></SelectTrigger>
+                <SelectContent>{zimbabweProvinces.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+
+          {/* S3 — WHAT THIS SELLER AGREES TO PUBLISH.
+              The backend has always governed both of these fail-closed, but neither was a
+              seller's decision: location was published because they typed it into a listing
+              form, and public identity could not be switched on at all. Both now default to
+              the private answer, so publishing is something a seller chooses. */}
+          <div className={skin('rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4', 'rounded-xl border border-carup-line bg-carup-bg-surface p-4 space-y-4')} data-testid="seller-privacy-controls">
+            <div>
+              <p className="text-sm font-semibold">What buyers can see about you</p>
+              <p className={skin('text-xs text-gray-500 mt-0.5', 'text-xs text-carup-text-2 mt-0.5')}>
+                These are your choices. CarUp keeps everything else private until you change them.
+              </p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block" htmlFor="listing-location-visibility">Location on the public listing</label>
+              <Select value={form.locationVisibility} onValueChange={v => set('locationVisibility', v)}>
+                <SelectTrigger id="listing-location-visibility" data-testid="listing-location-visibility">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="withheld">Keep my location private until I reply to a buyer</SelectItem>
+                  <SelectItem value="province_only">Show my province only, not my city</SelectItem>
+                  <SelectItem value="public">Show my city and province on the listing</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className={skin('text-xs text-gray-500 mt-1', 'text-xs text-carup-text-2 mt-1')}>
+                {form.locationVisibility === 'public'
+                  ? 'Buyers will see your city and province, and can filter for it.'
+                  : form.locationVisibility === 'province_only'
+                    ? 'Buyers will see your province but not your city. Province-level searches will still find this listing.'
+                    : 'Buyers will not see where the vehicle is. Location filters will not match this listing.'}
+              </p>
+            </div>
+            <div>
+              <label className="flex items-start gap-2.5 text-sm">
+                <input
+                  type="checkbox"
+                  className={skin('mt-0.5 h-4 w-4 rounded border-gray-300', 'mt-0.5 h-4 w-4 rounded border-carup-line-strong')}
+                  checked={form.publicSellerDisplay}
+                  onChange={e => set('publicSellerDisplay', e.target.checked)}
+                  data-testid="public-seller-display-toggle"
+                />
+                <span>
+                  <span className="font-medium">Show my seller name on the listing</span>
+                  <span className={skin('block text-xs text-gray-500 mt-0.5', 'block text-xs text-carup-text-2 mt-0.5')}>
+                    Leave this off to stay anonymous. Buyers can still contact you through CarUp either way.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">
+              Description * <span className={skin('text-gray-400 font-normal', 'text-carup-text-3 font-normal')}>({form.description.length}/500 — min 50)</span>
+            </label>
+            <textarea
+              value={form.description}
+              onChange={e => set('description', e.target.value)}
+              rows={5}
+              maxLength={500}
+              placeholder="Describe the vehicle's condition, history, special features..."
+              className={`${skin('w-full rounded-md border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400', 'w-full rounded-md border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-carup-focus')} ${errors.description ? skin('border-red-400', 'border-status-danger') : skin('border-gray-200', 'border-carup-line')}`}
+              data-testid="seller-description-input"
+            />
+            {errors.description && <p className={skin('text-xs text-red-500', 'text-xs text-status-danger')}>{errors.description}</p>}
+          </div>
+
+          <VehicleHistoryDisclosuresSection
+            accident={form.accidentDisclosure}
+            insurance={form.insuranceDisclosure}
+            finance={form.financeDisclosure}
+            onAccidentChange={value => set('accidentDisclosure', value)}
+            onInsuranceChange={value => set('insuranceDisclosure', value)}
+            onFinanceChange={value => set('financeDisclosure', value)}
+            idPrefix="seller-studio"
+          />
+        </>
+      )}
+
+      {/* STEP 2: Images & Features */}
+      {step === 2 && (
+        <>
+          <div>
+            <label className="text-sm font-medium mb-2 block">Vehicle Images ({form.images.length}/15)</label>
+            {/* S4 — GUIDANCE, NOT A GATE. These are the shots buyers ask for; none is required,
+                and CarUp does not claim a photo was taken because it was suggested. Damage and
+                odometer are named explicitly because a listing that omits them invites the
+                question anyway, and answering it up front is the seller's advantage. */}
+            <div className={skin('mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3', 'mb-3 rounded-xl border border-carup-line bg-carup-bg-surface p-3')} data-testid="listing-media-guidance">
+              <p className={skin('text-xs font-semibold text-slate-700', 'text-xs font-semibold text-carup-text-2')}>Photos buyers look for</p>
+              <p className={skin('mt-0.5 text-[11px] text-slate-500', 'mt-0.5 text-[11px] text-carup-text-2')}>
+                All optional. A listing that shows the odometer and any known damage gets fewer
+                &ldquo;can you send more photos?&rdquo; replies.
+              </p>
+              <ul className="mt-2 flex flex-wrap gap-1.5">
+                {LISTING_PHOTO_SEQUENCE.map(shot => (
+                  <li key={shot} className={skin('rounded-full bg-white px-2 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200', 'rounded-full bg-carup-bg-raised px-2 py-0.5 text-[11px] text-carup-text-2 ring-1 ring-carup-line')}>{shot}</li>
+                ))}
+              </ul>
+            </div>
+            <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${form.images.length >= LISTING_IMAGE_LIMIT ? skin('border-gray-200 bg-gray-50', 'border-carup-line bg-carup-bg-surface') : skin('border-orange-200 hover:border-orange-400 hover:bg-orange-50', 'border-carup-line-strong hover:border-carup-action hover:bg-carup-action-soft')}`}>
+              <Upload className={skin('w-8 h-8 text-orange-400 mx-auto mb-2', 'w-8 h-8 text-carup-action mx-auto mb-2')} />
+              <p className={skin('text-sm text-gray-600 font-medium', 'text-sm text-carup-text-2 font-medium')}>Click to upload photos</p>
+              <p className={skin('text-xs text-gray-400 mt-1', 'text-xs text-carup-text-3 mt-1')}>JPG, PNG up to 15 images</p>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleImageUpload}
+                disabled={form.images.length >= LISTING_IMAGE_LIMIT}
+              />
+            </label>
+            {form.images.length > 0 && (
+              <div className="mt-3" data-testid="listing-media-grid">
+                {/* THE COVER IS A CHOICE, NOT AN INDEX. This badge used to sit on whichever
+                    photo happened to be first while the payload sent bare URL strings — so the
+                    seller was shown a cover selection that was never made, never sent and never
+                    stored. The server's own contract says a bare URL claims nothing and calls
+                    electing `idx === 0` a fabrication; painting it here was the same fabrication
+                    with fewer steps. */}
+                <p className={skin('text-xs font-medium text-gray-600 mb-2', 'text-xs font-medium text-carup-text-2 mb-2')} data-testid="listing-media-cover-state">
+                  {coverImageIndex === null
+                    ? 'No cover photo chosen. Pick the photo buyers should see first — otherwise CarUp will not claim one for you.'
+                    : `Photo ${coverImageIndex + 1} is your cover photo.`}
+                </p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {form.images.map((img, i) => (
+                    <div key={i} className="space-y-1.5">
+                      <div className="relative aspect-square rounded-lg overflow-hidden group">
+                      <img src={img} alt={form.imageLabels[i] || `Listing photo ${i + 1}`} className="w-full h-full object-cover" />
+                      {form.imageLabels[i] && (
+                        <Badge className={skin('absolute bottom-1 right-1 max-w-[70%] truncate bg-slate-950/80 text-[9px] text-white', 'absolute bottom-1 right-1 max-w-[70%] truncate bg-black/70 text-[9px] text-white')}>
+                          {form.imageLabels[i]}
+                        </Badge>
+                      )}
+                      {coverImageIndex === i && (
+                        <Badge
+                          className={skin('absolute bottom-1 left-1 text-[9px] bg-orange-500 text-white', 'absolute bottom-1 left-1 text-[9px] bg-carup-action text-carup-action-on')}
+                          data-testid={`listing-media-cover-badge-${i}`}
+                        >
+                          Cover
+                        </Badge>
+                      )}
+                      {coverImageIndex !== i && (
+                        <button
+                          type="button"
+                          onClick={() => setCoverImageIndex(i)}
+                          className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                          data-testid={`listing-media-choose-cover-${i}`}
+                          aria-label={`Make photo ${i + 1} the cover photo`}
+                        >
+                          Make cover
+                        </button>
+                      )}
+                      <div className="absolute inset-x-1 top-1 flex justify-start gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        {i > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => moveImage(i, i - 1)}
+                            className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                            data-testid={`listing-media-move-earlier-${i}`}
+                            aria-label={`Move photo ${i + 1} earlier`}
+                          >
+                            ←
+                          </button>
+                        )}
+                        {i < form.images.length - 1 && (
+                          <button
+                            type="button"
+                            onClick={() => moveImage(i, i + 1)}
+                            className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                            data-testid={`listing-media-move-later-${i}`}
+                            aria-label={`Move photo ${i + 1} later`}
+                          >
+                            →
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Removing the chosen cover CLEARS the choice. Letting the badge slide
+                          // onto whatever takes this index would re-invent a selection the
+                          // seller never made.
+                          setCoverImageIndex(current => {
+                            if (current === null) return null
+                            if (current === i) return null
+                            return current > i ? current - 1 : current
+                          })
+                          setForm(previous => ({
+                            ...previous,
+                            images: previous.images.filter((_, j) => j !== i),
+                            imageLabels: previous.imageLabels.filter((_, j) => j !== i),
+                          }))
+                        }}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                        data-testid={`listing-media-remove-${i}`}
+                        aria-label={`Remove listing photo ${i + 1}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                      </div>
+                      <Select value={form.imageLabels[i] || ''} onValueChange={value => setImageLabel(i, value)}>
+                        <SelectTrigger className="h-8 text-[10px]" aria-label={`Photo ${i + 1} angle or view`}>
+                          <SelectValue placeholder="Label angle / view" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {LISTING_PHOTO_SEQUENCE.map(label => <SelectItem key={label} value={label}>{label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <Separator />
+          <div>
+            <label className="text-sm font-medium mb-2 block">Features & Extras</label>
+            <div className="flex gap-2">
+              <Input
+                value={form.featureInput}
+                onChange={e => set('featureInput', e.target.value)}
+                placeholder="e.g. Sunroof, Leather Seats..."
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addFeature() } }}
+              />
+              <Button variant="outline" onClick={addFeature}>Add</Button>
+            </div>
+            <p className={skin('text-xs text-gray-400 mt-1', 'text-xs text-carup-text-3 mt-1')}>Press Enter or comma to add. Click a tag to remove.</p>
+            <div className="flex flex-wrap gap-2 mt-3">
+              {form.features.map(f => (
+                <Badge
+                  key={f}
+                  variant="secondary"
+                  className={skin('cursor-pointer hover:bg-red-50 hover:text-red-600 gap-1', 'cursor-pointer hover:bg-status-danger-soft hover:text-status-danger gap-1')}
+                  onClick={() => set('features', form.features.filter(x => x !== f))}
+                >
+                  {f} <X className="w-3 h-3" />
+                </Badge>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* STEP 3: Review & Save Draft */}
+      {step === 3 && (
+        <div className="space-y-4">
+          <div className="grid sm:grid-cols-2 gap-4 text-sm">
+            {[
+              ['Make & Model', `${form.year} ${form.make} ${form.model}`],
+              ['VIN', form.vin],
+              ['Color', form.color],
+              ['Engine No.', form.engineNumber || '—'],
+              ['Chassis No.', form.chassisNumber || '—'],
+              ['Registration Stage', registrationLabel(form.registrationStatus)],
+              ['Zimbabwe Plate / TIP', form.plateNumber || (form.registrationStatus === 'temporary_foreign_tip' ? form.tempPlateId : '') || 'Not issued / not recorded'],
+              ['Mileage', `${parseInt(form.mileage || '0').toLocaleString()} km`],
+              ['Condition', form.condition],
+              ['Fuel / Trans', `${form.fuelType} / ${form.transmission}`],
+              ['Drivetrain', form.drivetrain || 'Not recorded'],
+              ['Location', form.location],
+              // Was `$… USD` regardless of anything the seller had entered. The review screen is
+              // the last thing they read before asserting "all information provided is accurate",
+              // so it shows the currency they chose and no other.
+              ['Asking Price', `${form.currency} ${parseFloat(form.price || '0').toLocaleString()}`.trim()],
+            ].map(([label, value]) => (
+              <div key={label} className={skin('flex justify-between py-2 border-b border-gray-100', 'flex justify-between py-2 border-b border-carup-line')}>
+                <span className={skin('text-gray-500', 'text-carup-text-2')}>{label}</span>
+                <span className="font-medium text-right">{value}</span>
+              </div>
+            ))}
+          </div>
+          <div>
+            <p className={skin('text-sm text-gray-500 mb-1', 'text-sm text-carup-text-2 mb-1')}>Description</p>
+            <p className={skin('text-sm bg-gray-50 rounded-lg p-3', 'text-sm bg-carup-bg-surface rounded-lg p-3')}>{form.description}</p>
+          </div>
+          {form.features.length > 0 && (
+            <div>
+              <p className={skin('text-sm text-gray-500 mb-2', 'text-sm text-carup-text-2 mb-2')}>Features</p>
+              <div className="flex flex-wrap gap-2">
+                {form.features.map(f => <Badge key={f} variant="secondary">{f}</Badge>)}
+              </div>
+            </div>
+          )}
+          {form.images.length > 0 && (
+            <div>
+              <p className={skin('text-sm text-gray-500 mb-2', 'text-sm text-carup-text-2 mb-2')}>{form.images.length} image(s) attached</p>
+              <div className="flex gap-2 flex-wrap">
+                {form.images.slice(0, 4).map((img, i) => (
+                  <img key={i} src={img} alt="" className="w-16 h-12 rounded-lg object-cover" />
+                ))}
+                {form.images.length > 4 && <div className={skin('w-16 h-12 rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500', 'w-16 h-12 rounded-lg bg-carup-bg-surface-2 flex items-center justify-center text-xs text-carup-text-2')}>+{form.images.length - 4}</div>}
+              </div>
+            </div>
+          )}
+
+          {serverDraftLoaded && isCompleteVin(form.vin) && (
+            <div className={skin('border-y border-slate-200 py-4', 'border-y border-carup-line py-4')} data-testid="seller-studio-publication-readiness">
+              <p className={skin('mb-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400', 'mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-carup-text-3')}>Governed publication readiness</p>
+              <VehicleCompletenessPanel vin={form.vin.toUpperCase()} />
+            </div>
+          )}
+
+          {/* Publication requirements notice */}
+          {missingIdentityFields.length > 0 && (
+            <div className={skin('bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm', 'bg-status-warning-soft border border-status-warning rounded-lg p-4 text-sm')}>
+              <div className="flex items-start gap-2">
+                <FileWarning className={skin('w-4 h-4 text-amber-600 mt-0.5 shrink-0', 'w-4 h-4 text-status-warning mt-0.5 shrink-0')} />
+                <div>
+                  <p className={skin('font-semibold text-amber-800 mb-1', 'font-semibold text-status-warning mb-1')}>Missing identity fields — listing will be saved as draft</p>
+                  <p className={skin('text-amber-700 mb-2', 'text-status-warning mb-2')}>The following fields are required before your listing can be published:</p>
+                  <ul className={skin('list-disc list-inside text-amber-700 space-y-0.5', 'list-disc list-inside text-status-warning space-y-0.5')}>
+                    {missingIdentityFields.map(f => <li key={f}>{f}</li>)}
+                  </ul>
+                  <p className={skin('text-amber-600 mt-2', 'text-status-warning mt-2')}>
+                    This does not block draft saving. You can fill a missing identity value now or on the resumed draft; CarUp will not silently overwrite an identity value already recorded. You must also upload an ownership/registration document before publication.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className={skin('bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800', 'bg-status-info-soft border border-status-info rounded-lg p-4 text-sm text-status-info')}>
+            <p className="font-semibold mb-1">By saving, you confirm:</p>
+            <p>✓ You are the legal owner or authorised seller</p>
+            <p>✓ All information provided is accurate</p>
+            <p>✓ The vehicle complies with CarUp listing standards</p>
+          </div>
+        </div>
+      )}
+    </>
+  )
+
+  if (unified) {
+    const vehicleName = [form.year, form.make, form.model].filter(Boolean).join(' ')
+    const nextBusy = step === 0 && !governedScopeEstablished && (identifying || authorityState === 'checking')
+    const identityBlocker = !isCompleteVin(form.vin) || governedScopeEstablished
+      ? null
+      : identifying
+        ? 'Wait for the CarUp Passport check to finish'
+        : identification.state !== 'passport_exists'
+          ? null
+          : !form.existingPassportConfirmed
+            ? 'Confirm that this is the existing CarUp vehicle'
+            : authorityState === 'idle'
+              ? 'Choose whether you own this vehicle or are authorised to sell it'
+              : authorityState === 'checking'
+                ? 'Wait for the seller-authority check to finish'
+                : authorityState === 'evidence_required'
+                  ? 'Upload seller-authority evidence and wait for governed review'
+                  : null
+    const readiness = sellerReadiness({
+      ...form,
+      coverChosen: coverImageIndex !== null,
+      discoverabilityFacets: sellerDiscoverabilityFacets(form),
+      identityBlocker,
+    }, 'account')
+    const remoteMediaOnly = form.images.length > 0 && !form.images.some(src => /^(data:image\/|blob:)/i.test(src))
+    return (
+      <SellerStudioFrame
+        testId="seller-studio"
+        heroTestId="seller-studio-stage-hero"
+        eyebrow="Private draft · not public"
+        title={vehicleName || (resumeVin ? 'Continue your listing' : 'List your car')}
+        description={canonicalLocked
+          ? 'This Passport’s identity and specification are locked. Your price, words, privacy choices and photos stay editable.'
+          : 'Build the listing one step at a time. Nothing is public until CarUp’s publication requirements are met.'}
+        meta={(
+          <>
+            <span className="font-mono text-carup-text">{form.vin || resumeVin || 'VIN not entered yet'}</span>
+            {serverDraftLoaded && (
+              <span
+                className={serverAutosaveState === 'error' ? 'font-semibold text-status-warning' : ''}
+                data-testid="seller-server-autosave-state"
+                role="status"
+                aria-live="polite"
+              >
+                {serverAutosaveState === 'saving'
+                  ? 'Saving commercial draft changes to your account…'
+                  : serverAutosaveState === 'saved'
+                    ? 'Commercial draft changes saved to your account.'
+                    : serverAutosaveState === 'error' && serverAutosaveConflict
+                      ? 'Not autosaved: this listing is no longer an unpublished draft.'
+                      : serverAutosaveState === 'error'
+                        ? 'Account autosave is unavailable right now. Your browser recovery copy is still being kept.'
+                        : 'Account draft loaded. Changes will autosave after you pause.'}
+              </span>
+            )}
+            {!serverDraftLoaded && <span>Browser recovery copy kept while you work</span>}
+          </>
+        )}
+        headerAction={(
+          <Link to="/dashboard/listings" className="text-xs font-semibold text-carup-action underline-offset-2 hover:underline">
+            My listings
+          </Link>
+        )}
+        steps={STEPS.map((label, index) => ({ label, note: ACCOUNT_STEP_NOTES[index] }))}
+        step={step}
+        onStepSelect={index => { if (index < step) setStep(index) }}
+        notices={(
+          <>
+            {serverAutosaveState === 'error' && serverAutosaveConflict && (
+              <div className="rounded-card border border-status-warning bg-status-warning-soft p-4 text-sm text-carup-text" role="alert" data-testid="seller-autosave-conflict" data-publication-status={serverAutosaveConflict}>
+                <p className="font-semibold">
+                  {serverAutosaveConflict === 'sold'
+                    ? 'This vehicle is recorded as sold.'
+                    : `This listing is ${serverAutosaveConflict.replace(/_/g, ' ')}, not an unpublished draft.`}
+                </p>
+                <p className="mt-1 text-carup-text-2">
+                  CarUp autosaves only unpublished drafts, so changes made here are not being saved to your account. Your browser recovery copy is still kept. Manage the live listing from My Listings.
+                </p>
+                <Link to="/dashboard/listings" className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-carup-action underline-offset-2 hover:underline">Open My Listings</Link>
+              </div>
+            )}
+            {serverDraftLoaded && (
+              <div className="rounded-card border border-status-success bg-status-success-soft p-4 text-sm text-carup-text" data-testid="seller-server-draft-loaded">
+                <p className="font-semibold">Existing listing loaded.</p>
+                <p className="mt-1 text-carup-text-2">CarUp reused this VIN’s Vehicle Passport and restored the listing facts already saved to your account. Edit only what has changed.</p>
+              </div>
+            )}
+            {guestDraftLoaded && (
+              <div className="rounded-card border border-carup-line-strong bg-carup-action-soft p-4 text-sm text-carup-text" data-testid="seller-guest-draft-loaded">
+                <p className="font-semibold">Your guest draft came with you.</p>
+                <p className="mt-1 text-carup-text-2">Review the details below. Nothing is published until CarUp’s publication requirements are completed.</p>
+                {Object.keys(guestHistoryPlan).length > 0 && (
+                  <p className="mt-2 text-xs text-carup-text-2" data-testid="seller-guest-evidence-plan">
+                    Evidence preparation carried over: {Object.values(guestHistoryPlan).filter(value => value === 'now').length} categories marked ready now · {Object.values(guestHistoryPlan).filter(value => value === 'later').length} to add later.
+                    These are reminders, not verified claims.
+                  </p>
+                )}
+              </div>
+            )}
+          </>
+        )}
+        readiness={readiness}
+        preview={(
+          <>
+            <ShowroomListingCard
+              vehicle={{ ...sellerDraftToCardModel({ ...form, coverImageIndex }), bodyStyle: form.category || null }}
+              href="#"
+              ctaLabel="Draft buyer preview"
+              dataTestId="seller-studio-preview-card"
+              showMissingMileage
+              allowLocalDraftMedia
+              previewMode
+            />
+            {remoteMediaOnly && (
+              <p className="mt-3 text-xs leading-5 text-carup-text-2">
+                Photos saved to your account follow CarUp’s public media rules, so this private preview shows the studio plate instead.
+              </p>
+            )}
+            {isCompleteVin(form.vin) && (
+              <Link
+                to={`/marketplace/${encodeURIComponent(form.vin)}?mode=seller_preview`}
+                className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-carup-bg-raised px-4 text-sm font-semibold text-carup-text ring-1 ring-carup-line hover:bg-carup-bg-surface-2"
+                data-testid="seller-buyer-preview"
+              >
+                <Eye className="h-4 w-4" aria-hidden="true" /> Open the full buyer page
+              </Link>
+            )}
+          </>
+        )}
+        publishNote={(
+          <>
+            Publication needs reviewed ownership evidence. After you save, My Listings shows exactly which documents are still required.
+            {' '}<span data-testid="seller-studio-evidence-state">Evidence: {verifiedDocumentCopy}.</span>
+          </>
+        )}
+        context={(
+          <section className="rounded-card border border-carup-line bg-carup-bg-raised p-5 text-sm" aria-labelledby="seller-context-title" data-testid="seller-studio-context">
+            <h2 id="seller-context-title" className="text-sm font-semibold text-carup-text">Kept separate</h2>
+            <dl className="mt-3 space-y-2.5">
+              <div className="flex justify-between gap-3">
+                <dt className="text-carup-text-2">CarUp Trust</dt>
+                <dd className="text-right font-medium text-carup-text" data-testid="seller-studio-trust-state">
+                  {studioTrust
+                    ? (studioTrust.score !== null ? `${studioTrust.score} / 100 · ${studioTrust.headline}` : studioTrust.headline)
+                    : 'Not loaded for this draft yet'}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-carup-text-2">Location shown</dt>
+                <dd className="text-right font-medium text-carup-text">{form.locationVisibility === 'public' ? 'Public' : form.locationVisibility === 'province_only' ? 'Province only' : 'Withheld'}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-carup-text-2">Your name shown</dt>
+                <dd className="text-right font-medium text-carup-text">{form.publicSellerDisplay ? 'Yes, you opted in' : 'Withheld'}</dd>
+              </div>
+            </dl>
+            <p className="mt-3 text-xs leading-5 text-carup-text-2">Listing photos and your descriptions are seller statements. They never count as verified evidence.</p>
+          </section>
+        )}
+        back={step > 0 ? { label: 'Back', onClick: () => setStep(s => Math.max(s - 1, 0)) } : undefined}
+        primary={step < STEPS.length - 1
+          ? {
+              label: nextBusy ? 'Checking vehicle…' : 'Next',
+              onClick: nextStep,
+              disabled: nextBusy,
+              busy: nextBusy,
+            }
+          : {
+              label: submitting ? 'Saving…' : 'Save as draft',
+              onClick: handleSubmit,
+              disabled: submitting,
+              busy: submitting,
+              testId: 'submit-vehicle-button',
+              forward: false,
+            }}
+      >
+        {stepBody}
+      </SellerStudioFrame>
     )
   }
 
@@ -1166,584 +1955,7 @@ export default function SellVehicle() {
           <CardTitle className="text-lg">{STEPS[step]}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-
-          {/* STEP 0: Vehicle Details */}
-          {step === 0 && (
-            <>
-              {canonicalLocked && (
-                <div className="border-l-2 border-sky-500 bg-sky-50 p-4 text-sm text-slate-700" data-testid="seller-canonical-fields-locked">
-                  <p className="font-black text-slate-950">Vehicle Passport facts are read-only here.</p>
-                  <p className="mt-1 leading-5">Make, model, year, VIN, colour, identifiers and recorded specification facts come from the existing Passport. Correct those through governed Vehicle Passport/evidence workflows; Seller Studio edits only listing assertions.</p>
-                </div>
-              )}
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Make *</label>
-                  <Input list="carup-seller-makes" value={form.make} onChange={e => set('make', e.target.value)} placeholder="e.g. Toyota" className={errors.make ? 'border-red-400' : ''} data-testid="vehicle-make-input" disabled={canonicalLocked} />
-                  <datalist id="carup-seller-makes">{VEHICLE_MAKES.map(make => <option key={make} value={make} />)}</datalist>
-                  {errors.make && <p className="text-xs text-red-500 mt-1">{errors.make}</p>}
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Model *</label>
-                  <Input list="carup-seller-models" value={form.model} onChange={e => set('model', e.target.value)} placeholder="e.g. Hilux" className={errors.model ? 'border-red-400' : ''} data-testid="vehicle-model-input" disabled={canonicalLocked} />
-                  <datalist id="carup-seller-models">{modelOptions.map(model => <option key={model} value={model} />)}</datalist>
-                  {errors.model && <p className="text-xs text-red-500 mt-1">{errors.model}</p>}
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Year *</label>
-                  <Select value={form.year} onValueChange={v => set('year', v)} disabled={canonicalLocked}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Color *</label>
-                  <Input list="carup-seller-colours" value={form.color} onChange={e => set('color', e.target.value)} placeholder="e.g. Pearl White" className={errors.color ? 'border-red-400' : ''} disabled={canonicalLocked} />
-                  <datalist id="carup-seller-colours">{VEHICLE_COLORS.map(colour => <option key={colour} value={colour} />)}</datalist>
-                  {errors.color && <p className="text-xs text-red-500 mt-1">{errors.color}</p>}
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">VIN / Vehicle Identifier *</label>
-                <div className="relative">
-                  <Input
-                    value={form.vin}
-                    onChange={e => set('vin', e.target.value.toUpperCase())}
-                    placeholder="VIN or documented chassis/frame ID"
-                    minLength={12}
-                    maxLength={17}
-                    className={`font-mono pr-10 ${errors.vin ? 'border-red-400' : vinValid === true ? 'border-green-400' : ''}`}
-                    data-testid="vehicle-vin-input"
-                    disabled={canonicalLocked}
-                  />
-                  {vinValid === true && <CheckCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />}
-                  {vinValid === false && <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />}
-                </div>
-                <p className="text-xs text-gray-400 mt-1">{form.vin.length}/17 characters · minimum 12. Japanese chassis/frame identifiers are accepted when documented.</p>
-                {errors.vin && <p className="text-xs text-red-500">{errors.vin}</p>}
-                <VehicleIdentificationNotice
-                  result={identification}
-                  checking={identifying}
-                  confirmed={form.existingPassportConfirmed}
-                  onConfirm={() => {
-                    const found = identification.passportVehicle
-                    setForm(previous => ({
-                      ...previous,
-                      existingPassportConfirmed: true,
-                      make: previous.make.trim() || found?.make || '',
-                      model: previous.model.trim() || found?.model || '',
-                      year: previous.year || (found?.year ? String(found.year) : ''),
-                    }))
-                    setAuthorityState('idle')
-                    setAuthorityClaimType(null)
-                  }}
-                  onUseDifferentVin={() => set('vin', '')}
-                />
-                {identification.state === 'passport_exists' && form.existingPassportConfirmed && !governedScopeEstablished && (
-                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4" data-testid="seller-existing-passport-authority">
-                    <p className="text-sm font-semibold text-slate-900">What is your authority to sell this vehicle?</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">
-                      CarUp reuses the existing Passport. This choice never grants ownership or Dealer privileges.
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" variant={authorityClaimType === 'owner' ? 'default' : 'outline'} disabled={authorityState === 'checking'} onClick={() => resolveExistingPassportAuthority('owner')}>
-                        I own this vehicle
-                      </Button>
-                      <Button type="button" size="sm" variant={authorityClaimType === 'authorised_seller' ? 'default' : 'outline'} disabled={authorityState === 'checking'} onClick={() => resolveExistingPassportAuthority('authorised_seller')}>
-                        I am authorised to sell it
-                      </Button>
-                    </div>
-                    {authorityState === 'checking' && (
-                      <p className="mt-3 flex items-center gap-2 text-xs text-slate-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking the governed relationship…</p>
-                    )}
-                    {authorityState === 'recognized' && (
-                      <p className="mt-3 text-xs font-semibold text-emerald-700">Relationship recognized. Your listing will attach to this existing Passport.</p>
-                    )}
-                    {authorityState === 'evidence_required' && (
-                      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                        <p className="font-semibold">Seller-authority evidence required.</p>
-                        <p className="mt-1">Your claim is recorded. The Passport is not reassigned until governed review supports it.</p>
-                        <Button asChild size="sm" variant="outline" className="mt-2">
-                          <Link to={`/dashboard/garage/${encodeURIComponent(form.vin)}?upload=1`}>Upload evidence to this Passport</Link>
-                        </Button>
-                      </div>
-                    )}
-                    {authorityState === 'error' && (
-                      <p className="mt-3 text-xs font-semibold text-red-600">The authority request could not be recorded. Try the choice again.</p>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Engine Number</label>
-                  <Input value={form.engineNumber} onChange={e => set('engineNumber', e.target.value.toUpperCase())} placeholder="e.g. 1GD-789012" className="font-mono" disabled={canonicalLocked} />
-                  <p className="text-xs text-gray-400 mt-1">Required to publish your listing</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Chassis Number</label>
-                  <Input value={form.chassisNumber} onChange={e => set('chassisNumber', e.target.value.toUpperCase())} placeholder="e.g. ZW1234567890" className="font-mono" disabled={canonicalLocked} />
-                  <p className="text-xs text-gray-400 mt-1">Required to publish your listing</p>
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">Zimbabwe registration stage</label>
-                <Select value={form.registrationStatus} onValueChange={v => set('registrationStatus', v)} disabled={registrationStageLocked}>
-                  <SelectTrigger data-testid="registration-status-select"><SelectValue placeholder="Choose the vehicle's current stage" /></SelectTrigger>
-                  <SelectContent>
-                    {ZIMBABWE_REGISTRATION_OPTIONS.map(option => (
-                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-gray-500 mt-1">
-                  A permanent import can be listed while local registration is still progressing. The stage remains visible to buyers and is separate from the vehicle's Trust score.
-                </p>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">
-                    Zimbabwe Number Plate {form.registrationStatus === 'locally_registered' ? '(required for this stage)' : '(if issued)'}
-                  </label>
-                  <Input value={form.plateNumber} onChange={e => set('plateNumber', e.target.value.toUpperCase())} placeholder="e.g. ABC 1234" className="font-mono" disabled={canonicalLocked} />
-                </div>
-                {form.registrationStatus === 'temporary_foreign_tip' && (
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Temporary Import Permit No.</label>
-                    <Input value={form.tempPlateId} onChange={e => set('tempPlateId', e.target.value.toUpperCase())} placeholder="e.g. TIP-2026-00123" className="font-mono" disabled={registrationStageLocked} />
-                    <p className="text-xs text-amber-700 mt-1">
-                      TIP is a temporary foreign-vehicle admission, not a substitute for a Zimbabwe plate. Ordinary sale publication requires review.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* STEP 1: Location & Pricing */}
-          {step === 1 && (
-            <>
-              {canonicalLocked && (
-                <div className="border-l-2 border-sky-500 bg-sky-50 p-4 text-xs leading-5 text-slate-700">
-                  Recorded mileage/fuel/transmission/drivetrain are Passport facts and remain read-only. Condition, body style, price, location, privacy and Seller description below are Seller listing assertions.
-                </div>
-              )}
-              <div className="grid sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Mileage (km) *</label>
-                  <Input type="number" value={form.mileage} onChange={e => set('mileage', e.target.value)} placeholder="e.g. 45000" className={errors.mileage ? 'border-red-400' : ''} disabled={canonicalLocked} />
-                  {errors.mileage && <p className="text-xs text-red-500 mt-1">{errors.mileage}</p>}
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Condition *</label>
-                  <Select value={form.condition} onValueChange={v => set('condition', v)}>
-                    <SelectTrigger className={errors.condition ? 'border-red-400' : ''}><SelectValue placeholder="Select" /></SelectTrigger>
-                    <SelectContent>
-                      {SELLER_CONDITIONS.map(condition => <SelectItem key={condition} value={condition}>{condition}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Body style *</label>
-                  <Select value={form.category} onValueChange={v => set('category', v)}>
-                    <SelectTrigger className={errors.category ? 'border-red-400' : ''}><SelectValue placeholder="Select" /></SelectTrigger>
-                    <SelectContent>
-                      {BODY_STYLES.map(bodyStyle => <SelectItem key={bodyStyle} value={bodyStyle}>{bodyStyle}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Fuel Type *</label>
-                  <Select value={form.fuelType} onValueChange={v => set('fuelType', v)} disabled={canonicalLocked}>
-                    <SelectTrigger className={errors.fuelType ? 'border-red-400' : ''}><SelectValue placeholder="Select" /></SelectTrigger>
-                    <SelectContent>
-                      {FUEL_TYPES.map(fuel => <SelectItem key={fuel} value={fuel}>{fuel}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Transmission *</label>
-                  <Select value={form.transmission} onValueChange={v => set('transmission', v)} disabled={canonicalLocked}>
-                    <SelectTrigger className={errors.transmission ? 'border-red-400' : ''}><SelectValue placeholder="Select" /></SelectTrigger>
-                    <SelectContent>
-                      {TRANSMISSIONS.map(transmission => <SelectItem key={transmission} value={transmission}>{transmission}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Drivetrain</label>
-                  <Select value={form.drivetrain} onValueChange={v => set('drivetrain', v)} disabled={canonicalLocked}>
-                    <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
-                    <SelectContent>
-                      {DRIVETRAINS.map(drivetrain => <SelectItem key={drivetrain} value={drivetrain}>{drivetrain}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Currency *</label>
-                  <Select value={form.currency} onValueChange={v => set('currency', v)}>
-                    <SelectTrigger className={errors.currency ? 'border-red-400' : ''} data-testid="vehicle-currency-input"><SelectValue placeholder="Select currency" /></SelectTrigger>
-                    <SelectContent>{LISTING_CURRENCIES.map(c => <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                  {errors.currency && <p className="text-xs text-red-500 mt-1">{errors.currency}</p>}
-                </div>
-                <div>
-                  {/* The label states the amount only. It read "Price (USD)" while the payload
-                      hardcoded 'USD' — the sole place the seller was told which currency this
-                      figure would be published in, and they had no say in it. */}
-                  <label className="text-sm font-medium mb-1.5 block">
-                    Price *{form.currency && <span className="text-gray-400 font-normal"> ({form.currency})</span>}
-                  </label>
-                  <Input type="number" value={form.price} onChange={e => set('price', e.target.value)} placeholder="e.g. 25000" className={errors.price ? 'border-red-400' : ''} />
-                  {errors.price && <p className="text-xs text-red-500 mt-1">{errors.price}</p>}
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Location *</label>
-                  <Select value={form.location} onValueChange={v => set('location', v)}>
-                    <SelectTrigger className={errors.location ? 'border-red-400' : ''}><SelectValue placeholder="City" /></SelectTrigger>
-                    <SelectContent>{zimbabweLocations.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Province</label>
-                  <Select value={form.province} onValueChange={v => set('province', v)}>
-                    <SelectTrigger><SelectValue placeholder="Province" /></SelectTrigger>
-                    <SelectContent>{zimbabweProvinces.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-
-              {/* S3 — WHAT THIS SELLER AGREES TO PUBLISH.
-                  The backend has always governed both of these fail-closed, but neither was a
-                  seller's decision: location was published because they typed it into a listing
-                  form, and public identity could not be switched on at all. Both now default to
-                  the private answer, so publishing is something a seller chooses. */}
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4" data-testid="seller-privacy-controls">
-                <div>
-                  <p className="text-sm font-semibold">What buyers can see about you</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    These are your choices. CarUp keeps everything else private until you change them.
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block" htmlFor="listing-location-visibility">Location on the public listing</label>
-                  <Select value={form.locationVisibility} onValueChange={v => set('locationVisibility', v)}>
-                    <SelectTrigger id="listing-location-visibility" data-testid="listing-location-visibility">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="withheld">Keep my location private until I reply to a buyer</SelectItem>
-                      <SelectItem value="province_only">Show my province only, not my city</SelectItem>
-                      <SelectItem value="public">Show my city and province on the listing</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {form.locationVisibility === 'public'
-                      ? 'Buyers will see your city and province, and can filter for it.'
-                      : form.locationVisibility === 'province_only'
-                        ? 'Buyers will see your province but not your city. Province-level searches will still find this listing.'
-                        : 'Buyers will not see where the vehicle is. Location filters will not match this listing.'}
-                  </p>
-                </div>
-                <div>
-                  <label className="flex items-start gap-2.5 text-sm">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 h-4 w-4 rounded border-gray-300"
-                      checked={form.publicSellerDisplay}
-                      onChange={e => set('publicSellerDisplay', e.target.checked)}
-                      data-testid="public-seller-display-toggle"
-                    />
-                    <span>
-                      <span className="font-medium">Show my seller name on the listing</span>
-                      <span className="block text-xs text-gray-500 mt-0.5">
-                        Leave this off to stay anonymous. Buyers can still contact you through CarUp either way.
-                      </span>
-                    </span>
-                  </label>
-                </div>
-              </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">
-                  Description * <span className="text-gray-400 font-normal">({form.description.length}/500 — min 50)</span>
-                </label>
-                <textarea
-                  value={form.description}
-                  onChange={e => set('description', e.target.value)}
-                  rows={5}
-                  maxLength={500}
-                  placeholder="Describe the vehicle's condition, history, special features..."
-                  className={`w-full rounded-md border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400 ${errors.description ? 'border-red-400' : 'border-gray-200'}`}
-                  data-testid="seller-description-input"
-                />
-                {errors.description && <p className="text-xs text-red-500">{errors.description}</p>}
-              </div>
-
-              <VehicleHistoryDisclosuresSection
-                accident={form.accidentDisclosure}
-                insurance={form.insuranceDisclosure}
-                finance={form.financeDisclosure}
-                onAccidentChange={value => set('accidentDisclosure', value)}
-                onInsuranceChange={value => set('insuranceDisclosure', value)}
-                onFinanceChange={value => set('financeDisclosure', value)}
-                idPrefix="seller-studio"
-              />
-            </>
-          )}
-
-          {/* STEP 2: Images & Features */}
-          {step === 2 && (
-            <>
-              <div>
-                <label className="text-sm font-medium mb-2 block">Vehicle Images ({form.images.length}/15)</label>
-                {/* S4 — GUIDANCE, NOT A GATE. These are the shots buyers ask for; none is required,
-                    and CarUp does not claim a photo was taken because it was suggested. Damage and
-                    odometer are named explicitly because a listing that omits them invites the
-                    question anyway, and answering it up front is the seller's advantage. */}
-                <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3" data-testid="listing-media-guidance">
-                  <p className="text-xs font-semibold text-slate-700">Photos buyers look for</p>
-                  <p className="mt-0.5 text-[11px] text-slate-500">
-                    All optional. A listing that shows the odometer and any known damage gets fewer
-                    &ldquo;can you send more photos?&rdquo; replies.
-                  </p>
-                  <ul className="mt-2 flex flex-wrap gap-1.5">
-                    {LISTING_PHOTO_SEQUENCE.map(shot => (
-                      <li key={shot} className="rounded-full bg-white px-2 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200">{shot}</li>
-                    ))}
-                  </ul>
-                </div>
-                <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${form.images.length >= LISTING_IMAGE_LIMIT ? 'border-gray-200 bg-gray-50' : 'border-orange-200 hover:border-orange-400 hover:bg-orange-50'}`}>
-                  <Upload className="w-8 h-8 text-orange-400 mx-auto mb-2" />
-                  <p className="text-sm text-gray-600 font-medium">Click to upload photos</p>
-                  <p className="text-xs text-gray-400 mt-1">JPG, PNG up to 15 images</p>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={handleImageUpload}
-                    disabled={form.images.length >= LISTING_IMAGE_LIMIT}
-                  />
-                </label>
-                {form.images.length > 0 && (
-                  <div className="mt-3" data-testid="listing-media-grid">
-                    {/* THE COVER IS A CHOICE, NOT AN INDEX. This badge used to sit on whichever
-                        photo happened to be first while the payload sent bare URL strings — so the
-                        seller was shown a cover selection that was never made, never sent and never
-                        stored. The server's own contract says a bare URL claims nothing and calls
-                        electing `idx === 0` a fabrication; painting it here was the same fabrication
-                        with fewer steps. */}
-                    <p className="text-xs font-medium text-gray-600 mb-2" data-testid="listing-media-cover-state">
-                      {coverImageIndex === null
-                        ? 'No cover photo chosen. Pick the photo buyers should see first — otherwise CarUp will not claim one for you.'
-                        : `Photo ${coverImageIndex + 1} is your cover photo.`}
-                    </p>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      {form.images.map((img, i) => (
-                        <div key={i} className="space-y-1.5">
-                          <div className="relative aspect-square rounded-lg overflow-hidden group">
-                          <img src={img} alt={form.imageLabels[i] || `Listing photo ${i + 1}`} className="w-full h-full object-cover" />
-                          {form.imageLabels[i] && (
-                            <Badge className="absolute bottom-1 right-1 max-w-[70%] truncate bg-slate-950/80 text-[9px] text-white">
-                              {form.imageLabels[i]}
-                            </Badge>
-                          )}
-                          {coverImageIndex === i && (
-                            <Badge
-                              className="absolute bottom-1 left-1 text-[9px] bg-orange-500 text-white"
-                              data-testid={`listing-media-cover-badge-${i}`}
-                            >
-                              Cover
-                            </Badge>
-                          )}
-                          {coverImageIndex !== i && (
-                            <button
-                              type="button"
-                              onClick={() => setCoverImageIndex(i)}
-                              className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-                              data-testid={`listing-media-choose-cover-${i}`}
-                              aria-label={`Make photo ${i + 1} the cover photo`}
-                            >
-                              Make cover
-                            </button>
-                          )}
-                          <div className="absolute inset-x-1 top-1 flex justify-start gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                            {i > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => moveImage(i, i - 1)}
-                                className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white"
-                                data-testid={`listing-media-move-earlier-${i}`}
-                                aria-label={`Move photo ${i + 1} earlier`}
-                              >
-                                ←
-                              </button>
-                            )}
-                            {i < form.images.length - 1 && (
-                              <button
-                                type="button"
-                                onClick={() => moveImage(i, i + 1)}
-                                className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white"
-                                data-testid={`listing-media-move-later-${i}`}
-                                aria-label={`Move photo ${i + 1} later`}
-                              >
-                                →
-                              </button>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              // Removing the chosen cover CLEARS the choice. Letting the badge slide
-                              // onto whatever takes this index would re-invent a selection the
-                              // seller never made.
-                              setCoverImageIndex(current => {
-                                if (current === null) return null
-                                if (current === i) return null
-                                return current > i ? current - 1 : current
-                              })
-                              setForm(previous => ({
-                                ...previous,
-                                images: previous.images.filter((_, j) => j !== i),
-                                imageLabels: previous.imageLabels.filter((_, j) => j !== i),
-                              }))
-                            }}
-                            className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-                            data-testid={`listing-media-remove-${i}`}
-                            aria-label={`Remove listing photo ${i + 1}`}
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                          </div>
-                          <Select value={form.imageLabels[i] || ''} onValueChange={value => setImageLabel(i, value)}>
-                            <SelectTrigger className="h-8 text-[10px]" aria-label={`Photo ${i + 1} angle or view`}>
-                              <SelectValue placeholder="Label angle / view" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {LISTING_PHOTO_SEQUENCE.map(label => <SelectItem key={label} value={label}>{label}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <Separator />
-              <div>
-                <label className="text-sm font-medium mb-2 block">Features & Extras</label>
-                <div className="flex gap-2">
-                  <Input
-                    value={form.featureInput}
-                    onChange={e => set('featureInput', e.target.value)}
-                    placeholder="e.g. Sunroof, Leather Seats..."
-                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addFeature() } }}
-                  />
-                  <Button variant="outline" onClick={addFeature}>Add</Button>
-                </div>
-                <p className="text-xs text-gray-400 mt-1">Press Enter or comma to add. Click a tag to remove.</p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {form.features.map(f => (
-                    <Badge
-                      key={f}
-                      variant="secondary"
-                      className="cursor-pointer hover:bg-red-50 hover:text-red-600 gap-1"
-                      onClick={() => set('features', form.features.filter(x => x !== f))}
-                    >
-                      {f} <X className="w-3 h-3" />
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* STEP 3: Review & Save Draft */}
-          {step === 3 && (
-            <div className="space-y-4">
-              <div className="grid sm:grid-cols-2 gap-4 text-sm">
-                {[
-                  ['Make & Model', `${form.year} ${form.make} ${form.model}`],
-                  ['VIN', form.vin],
-                  ['Color', form.color],
-                  ['Engine No.', form.engineNumber || '—'],
-                  ['Chassis No.', form.chassisNumber || '—'],
-                  ['Registration Stage', registrationLabel(form.registrationStatus)],
-                  ['Zimbabwe Plate / TIP', form.plateNumber || (form.registrationStatus === 'temporary_foreign_tip' ? form.tempPlateId : '') || 'Not issued / not recorded'],
-                  ['Mileage', `${parseInt(form.mileage || '0').toLocaleString()} km`],
-                  ['Condition', form.condition],
-                  ['Fuel / Trans', `${form.fuelType} / ${form.transmission}`],
-                  ['Drivetrain', form.drivetrain || 'Not recorded'],
-                  ['Location', form.location],
-                  // Was `$… USD` regardless of anything the seller had entered. The review screen is
-                  // the last thing they read before asserting "all information provided is accurate",
-                  // so it shows the currency they chose and no other.
-                  ['Asking Price', `${form.currency} ${parseFloat(form.price || '0').toLocaleString()}`.trim()],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-gray-500">{label}</span>
-                    <span className="font-medium text-right">{value}</span>
-                  </div>
-                ))}
-              </div>
-              <div>
-                <p className="text-sm text-gray-500 mb-1">Description</p>
-                <p className="text-sm bg-gray-50 rounded-lg p-3">{form.description}</p>
-              </div>
-              {form.features.length > 0 && (
-                <div>
-                  <p className="text-sm text-gray-500 mb-2">Features</p>
-                  <div className="flex flex-wrap gap-2">
-                    {form.features.map(f => <Badge key={f} variant="secondary">{f}</Badge>)}
-                  </div>
-                </div>
-              )}
-              {form.images.length > 0 && (
-                <div>
-                  <p className="text-sm text-gray-500 mb-2">{form.images.length} image(s) attached</p>
-                  <div className="flex gap-2 flex-wrap">
-                    {form.images.slice(0, 4).map((img, i) => (
-                      <img key={i} src={img} alt="" className="w-16 h-12 rounded-lg object-cover" />
-                    ))}
-                    {form.images.length > 4 && <div className="w-16 h-12 rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-500">+{form.images.length - 4}</div>}
-                  </div>
-                </div>
-              )}
-
-              {serverDraftLoaded && isCompleteVin(form.vin) && (
-                <div className="border-y border-slate-200 py-4" data-testid="seller-studio-publication-readiness">
-                  <p className="mb-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Governed publication readiness</p>
-                  <VehicleCompletenessPanel vin={form.vin.toUpperCase()} />
-                </div>
-              )}
-
-              {/* Publication requirements notice */}
-              {missingIdentityFields.length > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm">
-                  <div className="flex items-start gap-2">
-                    <FileWarning className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="font-semibold text-amber-800 mb-1">Missing identity fields — listing will be saved as draft</p>
-                      <p className="text-amber-700 mb-2">The following fields are required before your listing can be published:</p>
-                      <ul className="list-disc list-inside text-amber-700 space-y-0.5">
-                        {missingIdentityFields.map(f => <li key={f}>{f}</li>)}
-                      </ul>
-                      <p className="text-amber-600 mt-2">
-                        This does not block draft saving. You can fill a missing identity value now or on the resumed draft; CarUp will not silently overwrite an identity value already recorded. You must also upload an ownership/registration document before publication.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
-                <p className="font-semibold mb-1">By saving, you confirm:</p>
-                <p>✓ You are the legal owner or authorised seller</p>
-                <p>✓ All information provided is accurate</p>
-                <p>✓ The vehicle complies with CarUp listing standards</p>
-              </div>
-            </div>
-          )}
+          {stepBody}
 
           {/* Navigation */}
           <div className="flex justify-between pt-4">

@@ -644,7 +644,7 @@ describe('R3-C2 — sign-out uses the existing AuthContext logout', () => {
 
 /* ── R4-1: seller route ownership ─────────────────────────────────────────── */
 
-describe('R4-1 — the seller claim flow never enters the unified personal shell', () => {
+describe('R4-1 / RX04-D — the seller claim flow never enters the unified personal shell', () => {
   // Mirrors the real wiring: legacy DashboardLayout renders its own chrome +
   // Outlet, so the seller flow keeps its FULL assigned composition.
   const legacyOwnerDashboard = (
@@ -654,7 +654,7 @@ describe('R4-1 — the seller claim flow never enters the unified personal shell
     </div>
   )
 
-  it('/dashboard/sell-vehicle keeps its legacy composition when opted in — NO WorkspaceShell chrome', async () => {
+  it('/dashboard/sell-vehicle renders its register-assigned FocusedShell (seller-claim) — NO WorkspaceShell chrome', async () => {
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner'))
     const { UnifiedRouteShell } = await loadSwitch()
@@ -667,12 +667,51 @@ describe('R4-1 — the seller claim flow never enters the unified personal shell
         </Routes>
       </MemoryRouter>,
     )
-    // The assigned legacy composition renders the flow untouched…
-    expect(screen.getByTestId('legacy-owner-dashboard')).toBeInTheDocument()
+    // RX04-D: the real flow renders inside the Seller Studio focused chrome (R076)…
     expect(screen.getByTestId('seller-flow-body')).toBeInTheDocument()
-    // …and the unified workspace chrome does NOT take it over.
+    expect(screen.getByTestId('shell-focused-task')).toHaveTextContent('Seller Studio')
+    expect(screen.getByTestId('shell-focused-exit')).toBeInTheDocument()
+    // …and neither the unified workspace chrome nor the legacy dashboard chrome takes it over.
     expect(container.querySelector('[data-testid="shell-ws-rail"]')).toBeNull()
-    expect(screen.queryByText('legacy owner dashboard layout')).toBeInTheDocument()
+    expect(screen.queryByTestId('legacy-owner-dashboard')).toBeNull()
+  })
+
+  it('/dashboard/sell-vehicle keeps the centralized guard: a guest is sent to /login?returnTo=…', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => unauthenticatedAuth)
+    const { UnifiedRouteShell } = await loadSwitch()
+    render(
+      <MemoryRouter initialEntries={['/dashboard/sell-vehicle']}>
+        <Routes>
+          <Route path="/login" element={<LoginProbe />} />
+          <Route element={<UnifiedRouteShell family="workspace-personal" legacy={legacyOwnerDashboard} />}>
+            <Route path="/dashboard/sell-vehicle" element={<div data-testid="seller-flow-body">seller claim flow</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('returnto')).toHaveTextContent('/dashboard/sell-vehicle')
+    expect(screen.queryByTestId('seller-flow-body')).toBeNull()
+  })
+
+  it('guest /sell renders the same Seller Studio chrome with a lifecycle-only boundary (no sign-in needed to start)', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => unauthenticatedAuth)
+    const { UnifiedRouteShell } = await loadSwitch()
+    render(
+      <MemoryRouter initialEntries={['/sell']}>
+        <Routes>
+          <Route path="/login" element={<LoginProbe />} />
+          <Route element={<UnifiedRouteShell family="public" legacy={<div data-testid="legacy-main">legacy main <Outlet /></div>} />}>
+            <Route path="/sell" element={<div data-testid="guest-sell-body">guest sell</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('guest-sell-body')).toBeInTheDocument()
+    expect(screen.getByTestId('shell-focused-task')).toHaveTextContent('Seller Studio')
+    expect(screen.queryByTestId('legacy-main')).toBeNull()
+    expect(screen.queryByTestId('returnto')).toBeNull()
   })
 
   it('approved personal-slice routes still render the unified workspace chrome when opted in', async () => {

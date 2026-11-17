@@ -97,3 +97,7 @@
   background: #fff8ec;
   padding: 1.25rem;
 }
+
+/* RX04-D Seller Studio: a form select fills its field the way a text input does (the shared trigger is
+   content-width by default, which left a column of narrow "Select" buttons on phones). */
+.seller-studio-fields [data-slot='select-trigger'] { width: 100%; }

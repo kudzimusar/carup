@@ -78,6 +78,9 @@ export function FocusedShell({
       </AuthStage>
     )
   }
+  // RX04-D — register R003/R076 "FocusedShell (seller-claim)": the same reduced chrome, a wide
+  // working column, and the page owns its heading (the Seller Studio names the vehicle itself).
+  const studio = mode === 'seller-claim'
   return (
     <div className="flex min-h-screen flex-col bg-carup-bg text-carup-text">
       <a
@@ -101,6 +104,11 @@ export function FocusedShell({
           </button>
         )}
         <BrandMark slot="focused-header" tone="light" compact />
+        {studio && (
+          <span className="border-l border-carup-line pl-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-carup-text-2" data-testid="shell-focused-task">
+            {title}
+          </span>
+        )}
         <span className="ml-auto">
           <button
             type="button"
@@ -118,13 +126,15 @@ export function FocusedShell({
         id="shell-focused-main"
         ref={mainRef}
         tabIndex={-1}
-        className="mx-auto w-full max-w-[480px] flex-1 px-4 py-8 outline-none"
+        className={studio
+          ? 'mx-auto w-full max-w-[1280px] flex-1 px-4 pb-10 pt-5 outline-none sm:px-6 lg:pt-8'
+          : 'mx-auto w-full max-w-[480px] flex-1 px-4 py-8 outline-none'}
       >
-        {stepLabel && (
+        {!studio && stepLabel && (
           <p className="text-xs font-medium uppercase tracking-wider text-carup-text-3">{stepLabel}</p>
         )}
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">{title}</h1>
-        {typeof progress === 'number' && (
+        {!studio && <h1 className="mt-1 text-2xl font-semibold tracking-tight">{title}</h1>}
+        {!studio && typeof progress === 'number' && (
           <div
             role="progressbar"
             aria-valuemin={0}
