@@ -244,3 +244,16 @@ describe('RX03-P1A-R2 — phone contact bar', () => {
     expect(screen.queryByTestId('vehicle-detail-primary-actions')).toBeNull()
   })
 })
+
+describe('RX07-WEB-PERF-01-A — no duplicate read storms', () => {
+  it('asks for findings, conflicts and the report ONCE when the vehicle loads with the URL VIN', async () => {
+    renderAt(`/marketplace/${VIN}`)
+    await screen.findByTestId('vehicle-detail-intelligence-hero', {}, { timeout: 15_000 })
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(fetchTemporalFindings).toHaveBeenCalledTimes(1)
+    expect(fetchDisclosureConflicts).toHaveBeenCalledTimes(1)
+    expect(fetchVehicleReport).toHaveBeenCalledTimes(1)
+    expect(fetchTemporalFindings).toHaveBeenCalledWith(VIN)
+    expect(fetchVehicleReport).toHaveBeenCalledWith(VIN)
+  })
+})

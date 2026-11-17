@@ -1272,11 +1272,15 @@ export default function ShowroomVehicleDetail() {
   // Vehicle Life Intelligence (M3): reviewer-confirmed, public-safe temporal
   // comparisons and disclosure conflicts. Buyers typically see empty/governed
   // results — that is correct and expected; the UI handles empty gracefully.
+  // RX07-WEB-PERF-01-A: the subject these read-only lookups are about. Depending on the resolved
+  // string (not on `vehicle?.vin` and `id` separately) stops every lookup from running twice when the
+  // vehicle loads with the same VIN as the URL; a genuinely different subject still refetches.
+  const readSubject = vehicle?.vin || id
   const [temporalFindings, setTemporalFindings] = useState<TemporalFinding[]>([])
   const [disclosureConflicts, setDisclosureConflicts] = useState<DisclosureConflict[]>([])
 
   useEffect(() => {
-    const vin = vehicle?.vin || id
+    const vin = readSubject
     if (!vin) return
     let mounted = true
     Promise.allSettled([fetchTemporalFindings(vin), fetchDisclosureConflicts(vin)]).then(([findings, conflicts]) => {
@@ -1285,7 +1289,7 @@ export default function ShowroomVehicleDetail() {
       setDisclosureConflicts(conflicts.status === 'fulfilled' ? conflicts.value.conflicts || [] : [])
     })
     return () => { mounted = false }
-  }, [vehicle?.vin, id, fetchTemporalFindings, fetchDisclosureConflicts])
+  }, [readSubject, fetchTemporalFindings, fetchDisclosureConflicts])
 
   // The trust DECISION (ADR-001) supplies reason codes — `dimensions[].reason_codes` — and nothing
   // else. The trust CLAIM comes from the canonical projection resolved below. The route requires a
@@ -1296,7 +1300,7 @@ export default function ShowroomVehicleDetail() {
   const [trustDecisionLoading, setTrustDecisionLoading] = useState(true)
 
   useEffect(() => {
-    const vin = vehicle?.vin || id
+    const vin = readSubject
     if (!vin || authLoading) return
     let mounted = true
     if (!isAuthenticated) {
@@ -1318,7 +1322,7 @@ export default function ShowroomVehicleDetail() {
       .catch(() => { if (mounted) { setTrustDecision(null); setRouteTrust(null) } })
       .finally(() => { if (mounted) setTrustDecisionLoading(false) })
     return () => { mounted = false }
-  }, [vehicle?.vin, id, authLoading, isAuthenticated, fetchVehicleTrustDecision])
+  }, [readSubject, authLoading, isAuthenticated, fetchVehicleTrustDecision])
 
   // Vehicle History Report (M4): full public-safe buyer report. Audience is derived
   // server-side from role; buyers get verified, public-safe data only. Loaded lazily
@@ -1333,7 +1337,7 @@ export default function ShowroomVehicleDetail() {
   // (react-hooks/set-state-in-effect): reportLoading is initialised true and all state
   // updates happen in async continuations; error is cleared on a successful load.
   useEffect(() => {
-    const vin = vehicle?.vin || id
+    const vin = readSubject
     if (!vin) return
     let mounted = true
     fetchVehicleReport(vin)
@@ -1341,7 +1345,7 @@ export default function ShowroomVehicleDetail() {
       .catch((err) => { if (mounted) setReportError(err instanceof Error ? err.message : 'Report unavailable') })
       .finally(() => { if (mounted) setReportLoading(false) })
     return () => { mounted = false }
-  }, [vehicle?.vin, id, fetchVehicleReport])
+  }, [readSubject, fetchVehicleReport])
 
   const handleGenerateReportVersion = useCallback(async () => {
     const vin = vehicle?.vin || id
