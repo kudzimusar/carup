@@ -37,13 +37,42 @@ const REQUIRED_DOCUMENT_TYPES: Record<string, string[]> = {
 }
 
 /** The state of one required row from the order's real documents (never assumed). */
-function requiredDocumentState(name: string, documents: DiasporaTradeDocument[]): 'Pending' | 'Uploaded' | 'Verified' | 'Rejected' {
+type RequiredDocumentState = 'Pending' | 'Uploaded' | 'Verified' | 'Rejected' | 'Flagged' | 'Review needed'
+
+/**
+ * RX03-P2-R5 TRADE-01 — the state of one required row from the order's REAL documents.
+ *
+ * Backend lifecycle (services/diaspora/diasporaDocumentService.js): every upload INSERTS a new
+ * row and a review updates that row's verification_status (MISSING, UPLOADED, OCR_EXTRACTED,
+ * PENDING_REVIEW, VERIFIED, REJECTED, FLAGGED); rows can be soft-deleted. So per document type
+ * the LATEST live submission is authoritative — a later rejection is never hidden by an earlier
+ * verification. Same-type submissions that cannot be ordered (no created_at) and disagree are
+ * "Review needed", never success. A requirement is Verified only when nothing it depends on is
+ * rejected, flagged, ambiguous or still awaiting review.
+ */
+function requiredDocumentState(name: string, documents: DiasporaTradeDocument[]): RequiredDocumentState {
   const types = REQUIRED_DOCUMENT_TYPES[name] ?? []
-  const matches = documents.filter(d => types.includes(String(d.document_type || '').toLowerCase()))
-  if (matches.length === 0) return 'Pending'
-  const statuses = matches.map(d => String(d.verification_status || 'UPLOADED').toUpperCase())
-  if (statuses.includes('VERIFIED')) return 'Verified'
-  if (statuses.every(st => st === 'REJECTED')) return 'Rejected'
+  const live = documents.filter(d => !(d as { deleted_at?: string | null }).deleted_at
+    && types.includes(String(d.document_type || '').toLowerCase()))
+  if (live.length === 0) return 'Pending'
+  const status = (d: DiasporaTradeDocument) => String(d.verification_status || 'UPLOADED').toUpperCase()
+  const perType: string[] = []
+  for (const type of types) {
+    const ofType = live.filter(d => String(d.document_type || '').toLowerCase() === type)
+    if (ofType.length === 0) continue
+    const distinct = new Set(ofType.map(status))
+    if (distinct.size > 1 && ofType.some(d => !d.created_at || Number.isNaN(Date.parse(d.created_at)))) {
+      perType.push('AMBIGUOUS')
+      continue
+    }
+    const latest = [...ofType].sort((a, b) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''))[0]
+    perType.push(status(latest))
+  }
+  if (perType.includes('REJECTED')) return 'Rejected'
+  if (perType.includes('FLAGGED')) return 'Flagged'
+  if (perType.includes('AMBIGUOUS')) return 'Review needed'
+  if (perType.some(st => st === 'MISSING') && !perType.some(st => st !== 'MISSING')) return 'Pending'
+  if (perType.some(st => st === 'VERIFIED') && perType.every(st => st === 'VERIFIED' || st === 'MISSING')) return 'Verified'
   return 'Uploaded'
 }
 
@@ -154,7 +183,7 @@ function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocume
               <Badge
                 variant="outline"
                 data-testid={`diaspora-document-status-${index}`}
-                className={state === 'Verified' ? 'border-green-200 text-green-800' : state === 'Rejected' ? 'border-red-200 text-red-800' : state === 'Uploaded' ? 'border-amber-200 text-amber-900' : ''}
+                className={state === 'Verified' ? 'border-green-200 text-green-800' : state === 'Rejected' || state === 'Flagged' ? 'border-red-200 text-red-800' : state === 'Uploaded' || state === 'Review needed' ? 'border-amber-200 text-amber-900' : ''}
               >
                 {state}
               </Badge>
@@ -610,14 +639,20 @@ function OrderSummary({ order }: { order: DiasporaImportOrder }) {
 function StatusTimeline({ currentStatus }: { currentStatus?: string }) {
   // RX03-P2-R4: a milestone is reached when the order's real lifecycle position is at or past it.
   // (Statuses between milestones, e.g. QUOTE_ISSUED or DUTY_PAID, used to collapse to step one.)
+  // RX03-P2-R5 TRADE-01: only a recognised lifecycle position lights milestones. Terminal, on-hold
+  // and unrecognised statuses light nothing (their position is unknown) and say so.
   const rank = orderRank(currentStatus || 'IMPORT_REQUESTED')
+  const outcome = statusOutcome(currentStatus)
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-status-timeline">
       <h2 className="text-base font-semibold text-gray-900">Status timeline</h2>
+      {outcome && (
+        <p className="mt-2 rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-700" data-testid="diaspora-status-outcome">{outcome.timeline}</p>
+      )}
       <div className="mt-4 grid gap-3">
-        {timelineSteps.map((step, index) => {
-          const active = rank < 0 ? index === 0 : orderRank(step) <= rank
+        {timelineSteps.map((step) => {
+          const active = !outcome && rank >= 0 && orderRank(step) <= rank
           return (
             <div key={step} className="flex items-center gap-3" data-testid="diaspora-timeline-item">
               <span className={`flex h-7 w-7 items-center justify-center rounded-full ${active ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
@@ -637,32 +672,64 @@ function StatusTimeline({ currentStatus }: { currentStatus?: string }) {
 type NextStep = { title: string; detail: string; cta?: { label: string; to: string } }
 
 /** The one next step for this order, derived only from its real status and documents. */
+/** Statuses whose position on the shipment path is not a progress point (backend constants). */
+function statusOutcome(status?: string | null): { title: string; detail: string; timeline: string } | null {
+  const st = String(status || '')
+  if (st === 'CANCELLED') return { title: 'This import order was cancelled', detail: 'No further documents, booking or shipment steps apply to a cancelled order.', timeline: 'Cancelled — progress is no longer tracked for this order.' }
+  if (st === 'DISPUTED') return { title: 'This import order is in dispute', detail: 'CarUp is handling the dispute. No shipment progress is shown while it is open.', timeline: 'In dispute — progress is paused while the dispute is open.' }
+  if (st === 'FLAGGED_FOR_REVIEW') return { title: 'This order is on hold for CarUp review', detail: 'A CarUp reviewer is checking this order. Nothing moves forward until the review is recorded.', timeline: 'On hold for review — the current milestone is not shown until the review is recorded.' }
+  if (!st || orderRank(st) < 0) return { title: 'Order status unavailable', detail: `CarUp does not recognise this order's current status${st ? ` (“${labelize(st)}”)` : ''}, so no progress or next step is shown.`, timeline: 'Status unavailable — no milestone is shown for an unrecognised status.' }
+  return null
+}
+
+/** The one next step for this order, derived only from its real status and documents. */
 function nextStepFor(order: DiasporaImportOrder): NextStep {
+  const outcome = statusOutcome(order.status)
+  if (outcome) return { title: outcome.title, detail: outcome.detail }
   const documents = order.diaspora_trade_documents || []
-  const missing = requiredDocuments.filter(name => requiredDocumentState(name, documents) === 'Pending')
-  const awaitingReview = requiredDocuments.filter(name => requiredDocumentState(name, documents) === 'Uploaded')
+  const states = requiredDocuments.map(name => [name, requiredDocumentState(name, documents)] as const)
+  const named = (wanted: RequiredDocumentState[]) => states.filter(([, st]) => wanted.includes(st)).map(([name]) => name.toLowerCase())
+  const rejected = named(['Rejected', 'Flagged'])
+  const missing = named(['Pending'])
+  const ambiguous = named(['Review needed'])
+  const awaitingReview = named(['Uploaded'])
   const rank = orderRank(order.status)
   const base = `/diaspora/imports/${order.id}`
+  // A rejected or flagged document is consequential: it leads, and missing documents never hide it.
+  if (rejected.length > 0) {
+    return {
+      title: rejected.length === 1 ? 'A required document was rejected' : 'Required documents were rejected',
+      detail: `Rejected or flagged: ${rejected.join(', ')}. Upload a replacement for review.${missing.length ? ` Still missing: ${missing.join(', ')}.` : ''}`,
+      cta: { label: 'Open documents', to: `${base}/documents` },
+    }
+  }
+  if (ambiguous.length > 0) {
+    return { title: 'CarUp needs to confirm your documents', detail: `The records for ${ambiguous.join(', ')} disagree, so they are not treated as verified. CarUp will confirm which submission stands.`, cta: { label: 'View documents', to: `${base}/documents` } }
+  }
   if (rank >= orderRank('CONTAINER_BOOKED')) {
     return { title: 'Follow your shipment', detail: `${labelize(order.status)}. Shipment milestones are recorded by CarUp as logistics confirm them.`, cta: { label: 'Open shipment', to: `${base}/shipment` } }
   }
   if (missing.length > 0) {
     return {
       title: 'Add your trade documents',
-      detail: `${missing.length} of ${requiredDocuments.length} required documents are not uploaded yet: ${missing.join(', ').toLowerCase()}.`,
+      detail: `${missing.length} of ${requiredDocuments.length} required documents are not uploaded yet: ${missing.join(', ')}.`,
       cta: { label: 'Add documents', to: `${base}/documents` },
     }
   }
   if (awaitingReview.length > 0) {
     return { title: 'Your documents are with CarUp for review', detail: 'Nothing is verified until a reviewer has checked each original. You will see each result here.', cta: { label: 'View documents', to: `${base}/documents` } }
   }
-  return { title: 'Waiting for a container booking', detail: 'Required documents are verified. CarUp books a container slot next; nothing is scheduled until a booking is recorded.', cta: { label: 'View shipment', to: `${base}/shipment` } }
+  if (states.every(([, st]) => st === 'Verified')) {
+    return { title: 'Waiting for a container booking', detail: 'Required documents are verified. CarUp books a container slot next; nothing is scheduled until a booking is recorded.', cta: { label: 'View shipment', to: `${base}/shipment` } }
+  }
+  return { title: 'Document status unavailable', detail: 'CarUp could not establish the state of every required document, so none is treated as verified.' }
 }
 
 function ImportOrderOverview({ order, reload }: { order: DiasporaImportOrder; reload: () => Promise<void> }) {
   const step = nextStepFor(order)
   const documents = order.diaspora_trade_documents || []
-  const booked = orderRank(order.status) >= orderRank('CONTAINER_BOOKED')
+  const outcome = statusOutcome(order.status)
+  const booked = !outcome && orderRank(order.status) >= orderRank('CONTAINER_BOOKED')
   const fact = (label: string, value: string, testId: string) => (
     <div className="min-w-0" data-testid={testId}>
       <dt className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">{label}</dt>
@@ -695,12 +762,14 @@ function ImportOrderOverview({ order, reload }: { order: DiasporaImportOrder; re
           <section className="rounded-lg border border-gray-200 bg-white p-5" aria-labelledby="trade-shipment-state" data-testid="trade-shipment-state">
             <div className="flex items-center justify-between gap-3">
               <h2 id="trade-shipment-state" className="text-base font-semibold text-gray-900">Shipment</h2>
-              <Badge variant="outline" className={booked ? 'border-green-200 text-green-800' : ''}>{booked ? 'Scheduled' : 'Not scheduled'}</Badge>
+              <Badge variant="outline" className={booked ? 'border-green-200 text-green-800' : ''}>{outcome ? 'Not shown' : booked ? 'Scheduled' : 'Not scheduled'}</Badge>
             </div>
             <p className="mt-2 text-sm text-gray-600">
-              {booked
-                ? `This order is at “${labelize(order.status)}”. The shipment page shows each recorded milestone.`
-                : 'No container is booked for this order yet. A booking is only shown once CarUp records it.'}
+              {outcome
+                ? outcome.timeline
+                : booked
+                  ? `This order is at “${labelize(order.status)}”. The shipment page shows each recorded milestone.`
+                  : 'No container is booked for this order yet. A booking is only shown once CarUp records it.'}
             </p>
             <Link to={`/diaspora/imports/${order.id}/shipment`} className="mt-3 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-orange-700 hover:underline" data-testid="diaspora-open-shipment-button">
               Shipment details <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -760,6 +829,7 @@ function ImportOrderListUnified({ orders, loading, error }: { orders: DiasporaIm
           {orders.map(order => {
             const docs = order.diaspora_trade_documents
             const pending = docs ? requiredDocuments.filter(name => requiredDocumentState(name, docs) === 'Pending').length : null
+            const rejectedCount = docs ? requiredDocuments.filter(name => ['Rejected', 'Flagged'].includes(requiredDocumentState(name, docs))).length : 0
             return (
               <li key={order.id}>
                 <Link to={`/diaspora/imports/${order.id}`} className="flex h-full flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 transition hover:border-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600" data-testid="diaspora-import-row">
@@ -771,7 +841,9 @@ function ImportOrderListUnified({ orders, loading, error }: { orders: DiasporaIm
                     <StatusBadge status={order.status} />
                   </div>
                   <p className="text-sm text-gray-700">{labelize(order.order_type)} · {[order.origin_country, order.destination_country].filter(Boolean).join(' → ')}</p>
-                  {pending !== null && <p className="text-xs text-gray-600">{pending === 0 ? 'All required documents uploaded' : `${pending} required document${pending === 1 ? '' : 's'} still to upload`}</p>}
+                  {rejectedCount > 0
+                    ? <p className="text-xs font-semibold text-red-800">{rejectedCount} required document{rejectedCount === 1 ? '' : 's'} rejected — action needed</p>
+                    : pending !== null && <p className="text-xs text-gray-600">{pending === 0 ? 'All required documents uploaded' : `${pending} required document${pending === 1 ? '' : 's'} still to upload`}</p>}
                   <span className="mt-auto inline-flex items-center gap-1 text-sm font-semibold text-orange-700">Open order <ArrowRight className="h-4 w-4" aria-hidden="true" /></span>
                 </Link>
               </li>
@@ -1406,6 +1478,8 @@ const ORDER_LIFECYCLE = [
   'IMPORT_REQUESTED', 'QUOTE_ISSUED', 'SELLER_ASSIGNED', 'DOCUMENTS_PENDING', 'DOCUMENTS_VERIFIED',
   'CONTAINER_BOOKED', 'READY_FOR_LOADING', 'LOADED', 'SHIPPED', 'ARRIVED_AT_BORDER', 'CUSTOMS_IN_PROGRESS',
   'DUTY_PENDING', 'DUTY_PAID', 'RELEASED', 'REGISTRATION_PENDING', 'ROADWORTHINESS_PENDING', 'INSURANCE_PENDING', 'ZIMBABWE_READY',
+  // RX03-P2-R5: the two backend statuses after ZIMBABWE_READY (constants/diaspora/diasporaStatuses.js).
+  'LOCAL_LISTING_ENABLED', 'COMPLETED',
 ]
 function orderRank(status?: string | null) {
   const i = ORDER_LIFECYCLE.indexOf(status || '')
