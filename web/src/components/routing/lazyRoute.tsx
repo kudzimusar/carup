@@ -23,6 +23,30 @@ import { LazyRouteBoundary } from './LazyRouteBoundary'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Importer = () => Promise<{ default: ComponentType<any> }>
 
+/**
+ * Browsers cache a FAILED module fetch in their module map: re-importing the same URL fails again
+ * without touching the network (verified in Chromium for abort, HTTP 503 and offline). Retrying in
+ * place therefore re-imports the failed chunk under a one-off query string. Only a same-origin URL
+ * under /assets/ (build) or /src/ (dev), taken from the browser's own error message, is accepted.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function retryUrlFrom(error: unknown, attempt: number, origin = typeof location === 'undefined' ? '' : location.origin): string | null {
+  const message = error && typeof error === 'object' ? String((error as { message?: unknown }).message ?? '') : ''
+  const match = message.match(/https?:\/\/[^\s'"]+?\.(?:js|mjs|tsx?|jsx)(?:\?[^\s'"]*)?/)
+  if (!match || !origin) return null
+  try {
+    const url = new URL(match[0])
+    if (url.origin !== origin || !/^\/(assets|src)\//.test(url.pathname)) return null
+    url.searchParams.set('carup-retry', String(attempt))
+    return url.href
+  } catch {
+    return null
+  }
+}
+
+type UrlImporter = (url: string) => Promise<{ default: ComponentType<object> }>
+const importByUrl: UrlImporter = (url) => import(/* @vite-ignore */ url)
+
 export interface LazyRouteComponent<P = object> {
   (props: P): ReactNode
   /** Start (or join) the chunk download without rendering. Never rejects. */
@@ -32,16 +56,20 @@ export interface LazyRouteComponent<P = object> {
 
 // A factory that returns components, not a component itself.
 // eslint-disable-next-line react-refresh/only-export-components, @typescript-eslint/no-explicit-any
-export function lazyRoute<P extends object = any>(importer: Importer, name?: string): LazyRouteComponent<P> {
+export function lazyRoute<P extends object = any>(importer: Importer, name?: string, options: { importUrl?: UrlImporter } = {}): LazyRouteComponent<P> {
   type Module = { default: ComponentType<P> }
   let pending: Promise<Module> | null = null
   let failed = false
+  let lastError: unknown = null
+  let attempts = 0
   let loaded: ComponentType<P> | null = null
   const load = (): Promise<Module> => {
     if (!pending) {
-      pending = (importer() as Promise<Module>).then(
+      const retryUrl = attempts > 0 ? retryUrlFrom(lastError, attempts) : null
+      const source = retryUrl ? (options.importUrl ?? importByUrl)(retryUrl) : importer()
+      pending = (source as Promise<Module>).then(
         (module) => { loaded = module.default; return module },
-        (error: unknown) => { failed = true; throw error },
+        (error: unknown) => { failed = true; lastError = error; throw error },
       )
     }
     return pending
@@ -53,6 +81,7 @@ export function lazyRoute<P extends object = any>(importer: Importer, name?: str
   const reset = () => {
     if (!failed) return
     failed = false
+    attempts += 1
     pending = null
     Lazy = lazy(load)
   }

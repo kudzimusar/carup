@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, Link } from 'react-router-dom'
-import { lazyRoute } from './lazyRoute'
+import { lazyRoute, retryUrlFrom } from './lazyRoute'
 
 const chunkError = () => Object.assign(new TypeError('Failed to fetch dynamically imported module: /assets/Page-x.js'), {})
 const Page = ({ label = 'Loaded page' }: { label?: string }) => <h1>{label}</h1>
@@ -101,5 +101,35 @@ describe('lazyRoute', () => {
     expect(await screen.findByRole('heading', { name: 'Other page' })).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByTestId('lazy-route-error')).toBeNull())
     restore()
+  })
+
+  it('Chromium caches a failed module fetch: Retry re-imports the SAME chunk under a one-off query', async () => {
+    const restore = silenceBoundaryLogs()
+    const failure = new TypeError(`Failed to fetch dynamically imported module: ${location.origin}/assets/About-DGp4KbwT.js`)
+    const importer = vi.fn(async () => { throw failure })
+    const importUrl = vi.fn(async (url: string) => ({ default: () => <h1>{`Recovered via ${new URL(url).search}`}</h1> }))
+    const Lazy = lazyRoute(importer, 'About', { importUrl })
+    render(<MemoryRouter><Lazy /></MemoryRouter>)
+    await screen.findByTestId('lazy-route-error')
+    await userEvent.click(screen.getByTestId('lazy-route-retry'))
+    expect(await screen.findByRole('heading', { name: 'Recovered via ?carup-retry=1' })).toBeInTheDocument()
+    expect(importer).toHaveBeenCalledTimes(1)
+    expect(importUrl).toHaveBeenCalledWith(`${location.origin}/assets/About-DGp4KbwT.js?carup-retry=1`)
+    restore()
+  })
+})
+
+describe('retryUrlFrom', () => {
+  const origin = 'https://carup.example'
+  const err = (u: string) => new TypeError(`Failed to fetch dynamically imported module: ${u}`)
+  it('accepts only a same-origin build or dev module named by the browser', () => {
+    expect(retryUrlFrom(err(`${origin}/assets/About-x1.js`), 1, origin)).toBe(`${origin}/assets/About-x1.js?carup-retry=1`)
+    expect(retryUrlFrom(err(`${origin}/src/pages/About.tsx?t=123`), 2, origin)).toBe(`${origin}/src/pages/About.tsx?t=123&carup-retry=2`)
+  })
+  it('refuses other origins, other paths and messages without a module URL', () => {
+    expect(retryUrlFrom(err('https://evil.example/assets/x.js'), 1, origin)).toBeNull()
+    expect(retryUrlFrom(err(`${origin}/api/x.js`), 1, origin)).toBeNull()
+    expect(retryUrlFrom(new Error('Something else broke'), 1, origin)).toBeNull()
+    expect(retryUrlFrom(null, 1, origin)).toBeNull()
   })
 })
