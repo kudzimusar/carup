@@ -90,16 +90,19 @@ export function verifyFaceBytes(slug, entry, buf) {
 export async function buildFace(slug, entry) {
   const buf = await resolveSource(entry);
   verifyFaceBytes(slug, entry, buf);
-  const b64 = buf.toString('base64');
+  // RX07-WEB-PERF-01-A: reference a sibling woff2 file instead of a base64 data-URI. Vite emits it
+  // as a hashed, immutable, self-hosted asset (still zero third-party requests), so ~160 kB of
+  // incompressible font data no longer sits inside the render-blocking stylesheet, and only the
+  // faces a page actually uses are fetched (font-display: swap keeps text visible meanwhile).
   const css =
     `@font-face {\n` +
     `  font-family: "${entry.family}";\n` +
     `  font-style: normal;\n` +
     `  font-weight: ${entry.weight};\n` +
     `  font-display: swap;\n` +
-    `  src: url(data:font/woff2;base64,${b64}) format("woff2");\n` +
+    `  src: url("./${slug}.woff2") format("woff2");\n` +
     `}\n`;
-  return { slug, css, bytes: buf.length, sha256: createHash('sha256').update(buf).digest('hex') };
+  return { slug, css, woff2: buf, bytes: buf.length, sha256: createHash('sha256').update(buf).digest('hex') };
 }
 
 export async function ensureAll(manifest = loadManifest(), outDir = OUT_DIR) {
@@ -107,6 +110,7 @@ export async function ensureAll(manifest = loadManifest(), outDir = OUT_DIR) {
   const results = [];
   for (const [slug, entry] of Object.entries(manifest)) {
     const face = await buildFace(slug, entry);
+    writeFileSync(join(outDir, `${slug}.woff2`), face.woff2);
     writeFileSync(join(outDir, `${slug}.css`), face.css);
     results.push(face);
   }

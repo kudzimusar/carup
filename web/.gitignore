@@ -4,4 +4,5 @@
 # RX-02A S1-1: generated font faces (built from pinned @fontsource packages by scripts/ensure-fonts.mjs)
 src/styles/fonts/inter-latin-*.css
 src/styles/fonts/jetbrains-mono-latin-*.css
+src/styles/fonts/*.woff2
 .font-cache/
