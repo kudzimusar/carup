@@ -1,0 +1,15 @@
+/* RX05-E — motion for the original CarUp scenes. Purposeful and slow; off for reduced motion. */
+@keyframes carup-spot-breathe { 0%, 100% { opacity: 0.85; } 50% { opacity: 1; } }
+.carup-spot { animation: carup-spot-breathe 6s ease-in-out infinite; }
+
+/* A single highlight travelling along the route: 18 units of 100 visible at a time. */
+@keyframes carup-route-sweep { from { stroke-dashoffset: 118; } to { stroke-dashoffset: 0; } }
+.carup-route-sweep { stroke-dasharray: 18 100; animation: carup-route-sweep 7s linear infinite; }
+
+@keyframes carup-pulse { 0% { transform: scale(0.7); opacity: 0.6; } 100% { transform: scale(1.4); opacity: 0; } }
+.carup-pulse { transform-box: fill-box; transform-origin: center; animation: carup-pulse 2.4s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .carup-spot, .carup-pulse { animation: none; }
+  .carup-route-sweep { animation: none; stroke-dasharray: none; stroke-opacity: 0.85; }
+}

@@ -18,6 +18,11 @@ import { NotFoundPage } from './components/routing/FeatureStatePages'
 const ComponentCatalogue = import.meta.env.DEV
   ? lazyRoute(() => import('./pages/dev/ComponentCatalogue'), 'ComponentCatalogue')
   : null
+
+// RX05 (DEV only, same gate as ComponentCatalogue): media scenes and the RX-06 Trade north-star.
+const Rx05DesignStudio = import.meta.env.DEV
+  ? lazyRoute(() => import('./pages/dev/Rx05DesignStudio'), 'Rx05DesignStudio')
+  : null
 import { AuthBootstrapLoading } from './components/routing/RegistryRouteBoundary'
 import LazyRouteBoundary from './components/routing/LazyRouteBoundary'
 import { lazyRoute } from './components/routing/lazyRoute'
@@ -530,6 +535,7 @@ export default function App() {
 
         {/* RX-02A S1-3: component catalogue (isolated renderer, §10.3). Dev build only. */}
         {import.meta.env.DEV && ComponentCatalogue && <Route path="/dev/component-catalogue" element={<ComponentCatalogue />} />}
+        {import.meta.env.DEV && Rx05DesignStudio && <Route path="/dev/rx05-design" element={<Rx05DesignStudio />} />}
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
         <Route path="*" element={<NotFoundPage />} />
