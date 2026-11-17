@@ -11,7 +11,7 @@ import VehicleHistoryReport from '@/components/VehicleHistoryReport'
 import { VehicleHistoryObligationsSections } from '@/components/vehicle/VehicleHistoryObligationsSections'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { StoryChapterHeading, VehicleStoryOverview, type StoryChapter } from '@/components/showroom/VehicleStory'
 import { Input } from '@/components/ui/input'
 import {
   Car, CheckCircle, Shield, ShieldCheck, Gauge, Fuel, Settings2, MapPin, Calendar,
@@ -1929,10 +1929,76 @@ export default function ShowroomVehicleDetail() {
   const showTrustSection = Boolean(plateAdvisory || detail || publicTrust || passport?.chainVerification)
   const dossierItems = [
     { id: 'vd-overview', label: 'Overview' },
+    { id: 'vd-story', label: 'Story' },
     ...(showTrustSection ? [{ id: 'vd-trust', label: 'Trust' }] : []),
     { id: 'vd-history', label: 'History' },
     { id: 'vd-evidence', label: 'Evidence' },
     { id: 'vd-seller', label: 'Seller' },
+  ]
+
+  // ── RX04-B / I-02 Vehicle Story: one chapter per kind of knowledge, each from a read above. ──
+  const storyVehicleName = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'vehicle'
+  const disclosureBlock = passport?.history_disclosures ?? null
+  const answeredDisclosures = disclosureBlock
+    ? (['accident', 'insurance', 'finance'] as const).filter(key => (disclosureBlock as unknown as Record<string, unknown>)[key] != null).length
+    : null
+  const governedFinance = passport?.finance_obligation ?? null
+  const historyCount = lifecycleLoaded ? lifecycleEvents.length : timeline.length
+  const verifiedSourceCount = verificationSources.filter(source => source.status === 'verified').length
+  const reviewedEvidenceCount = verifiedEvidence.state === 'published' ? verifiedEvidence.items.length : 0
+  const storyChapters: StoryChapter[] = [
+    {
+      key: 'identity', title: 'Identity', anchor: 'vd-overview',
+      provenance: passport?.identity ? 'governed' : passport ? 'none' : 'loading',
+      summary: [
+        `VIN ${vehicle.vin}`,
+        identity?.plateNumber ? 'plate recorded' : identifiersRedacted ? 'plate withheld from this view' : 'no plate recorded',
+        passport?.identity?.registrationStatus ? `registration ${String(passport.identity.registrationStatus).toLowerCase()}` : null,
+      ].filter(Boolean).join(' · '),
+    },
+    {
+      key: 'history', title: 'History', anchor: 'vd-story-history',
+      provenance: historyCount > 0 ? 'governed' : passport ? 'none' : 'loading',
+      summary: historyCount > 0 ? `${historyCount} recorded event${historyCount === 1 ? '' : 's'} in this car’s life` : 'No lifecycle events recorded yet.',
+    },
+    {
+      key: 'evidence', title: 'Condition evidence', anchor: 'vd-evidence',
+      provenance: reviewedEvidenceCount > 0 ? 'reviewed' : 'none',
+      summary: reviewedEvidenceCount > 0
+        ? `${reviewedEvidenceCount} record${reviewedEvidenceCount === 1 ? '' : 's'} reviewed by CarUp`
+        : verifiedEvidence.state === 'none' ? 'No reviewed evidence on record.' : 'Evidence could not be read for this view.',
+    },
+    {
+      key: 'ownership', title: 'Ownership & obligations', anchor: 'vd-story-ownership',
+      provenance: governedFinance && governedFinance.obligations.length > 0 ? 'governed' : answeredDisclosures ? 'seller' : 'none',
+      summary: governedFinance && governedFinance.obligations.length > 0
+        ? `${governedFinance.obligations.length} governed finance record${governedFinance.obligations.length === 1 ? '' : 's'} on file`
+        : answeredDisclosures
+          ? `The seller answered ${answeredDisclosures} of 3 history questions`
+          : disclosureBlock ? 'The seller has not answered the accident, insurance or finance questions.' : 'Not read for this view.',
+    },
+    {
+      key: 'service', title: 'Service', anchor: 'vd-story-market',
+      provenance: serviceRecordCount === null ? 'none' : 'governed',
+      summary: serviceRecordCount === null
+        ? 'No service-record count is recorded.'
+        : serviceRecordCount > 0 ? `${serviceRecordCount} mechanic-signed service record${serviceRecordCount === 1 ? '' : 's'}` : 'No mechanic-signed service records submitted yet.',
+    },
+    {
+      key: 'documents', title: 'Documents & sources', anchor: 'vd-story-verification',
+      provenance: verificationSources.length > 0 ? 'governed' : 'none',
+      summary: verificationSources.length > 0 ? `${verifiedSourceCount} of ${verificationSources.length} sources verified` : 'Verification sources could not be loaded.',
+    },
+    {
+      key: 'trust', title: 'CarUp Trust', anchor: showTrustSection ? 'vd-trust' : 'vd-story-market',
+      provenance: trust.score !== null ? 'governed' : 'none',
+      summary: trust.score !== null ? `${trust.score}/100 · ${trust.headline}` : trust.headline,
+    },
+    {
+      key: 'marketplace', title: 'On the Marketplace', anchor: 'vd-overview',
+      provenance: governedPrice(vehicle.price, vehicle.currency) === 'Price not recorded' ? 'none' : 'seller',
+      summary: `Asking ${governedPrice(vehicle.price, vehicle.currency)}${sellerDescription ? ' · described by the seller' : ''}`,
+    },
   ]
 
   const stepPhoto = (delta: -1 | 1) => {
@@ -2587,6 +2653,8 @@ export default function ShowroomVehicleDetail() {
               className="mb-2 bg-white lg:sticky lg:top-16 lg:z-20 lg:-mx-2 lg:border-b lg:border-slate-200 lg:px-2 lg:py-3"
             />
 
+            <VehicleStoryOverview chapters={storyChapters} vehicleName={storyVehicleName} />
+
             {showTrustSection && (
               <DossierSection id="vd-trust" eyebrow="Trust" title="Trust, safety and cost">
                 <div className="space-y-8">
@@ -2729,33 +2797,19 @@ export default function ShowroomVehicleDetail() {
                     obligations. Renders the seller_stated history_disclosures block — identical in
                     Buyer Preview and public mode (K20) — with "Not recorded" as the honest state for
                     every unanswered topic. Governed evidence stays in its own sections above/below. */}
-                <VehicleHistoryObligationsSections
-                  disclosures={passport?.history_disclosures ?? null}
-                  financeObligation={passport?.finance_obligation ?? null}
-                />
+                <div id="vd-story-ownership" className="scroll-mt-28">
+                  <VehicleHistoryObligationsSections
+                    disclosures={passport?.history_disclosures ?? null}
+                    financeObligation={passport?.finance_obligation ?? null}
+                  />
+                </div>
 
-                {/* ── Tabs ─────────────────────────────────────────────────── */}
-                <Tabs defaultValue="history" className="gap-5">
-                  <TabsList className="carup-rail -mx-4 flex h-auto w-auto scroll-px-4 justify-start gap-2 overflow-x-auto rounded-none bg-transparent px-4 py-1 sm:-mx-6 sm:scroll-px-6 sm:px-6 md:mx-0 md:scroll-px-0 md:px-0">
-                    {[
-                      ['history', 'Vehicle History'],
-                      ['report', 'History Report'],
-                      ['evidence', 'Evidence Vault'],
-                      ['verification', 'Verification'],
-                      ['market', 'Market Analysis'],
-                    ].map(([value, label]) => (
-                      <TabsTrigger
-                        key={value}
-                        value={value}
-                        className={`h-11 flex-none rounded-full border-0 bg-white px-4 text-[14px] font-medium text-slate-600 shadow-none ring-1 ring-inset ring-slate-200 hover:text-[#09122A] data-[state=active]:bg-[#F6F4F0] data-[state=active]:font-semibold data-[state=active]:text-[#09122A] data-[state=active]:shadow-none data-[state=active]:ring-2 data-[state=active]:ring-[#09122A] ${focusRing}`}
-                      >
-                        {label}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
+                {/* RX04-B — the story reads in order: no tab hides a chapter. */}
+                <div className="space-y-6">
 
                   {/* ── History tab: canonical lifecycle first, legacy audit timeline as compatibility fallback ── */}
-                  <TabsContent value="history" className="mt-2" data-testid="history-tab-content">
+                  <StoryChapterHeading id="vd-story-history" index={1} title="Vehicle history" provenance={historyCount > 0 ? 'governed' : 'none'} note="Recorded lifecycle events, newest first. A recorded event is not by itself a verification." />
+                  <div data-testid="history-tab-content">
                     {lifecycleLoaded ? (
                       lifecycleEvents.length === 0 ? (
                         <div className="rounded-2xl bg-slate-50 px-6 py-10 text-center text-slate-600" data-testid="history-empty-state">
@@ -2845,10 +2899,11 @@ export default function ShowroomVehicleDetail() {
                         })}
                       </div>
                     )}
-                  </TabsContent>
+                  </div>
 
                   {/* ── Vehicle History Report tab (M4): full buyer report ── */}
-                  <TabsContent value="report" className="mt-2" data-testid="history-report-tab-content">
+                  <StoryChapterHeading id="vd-story-report" index={2} title="History report" note="The buyer report CarUp assembles from public-safe records." />
+                  <div data-testid="history-report-tab-content">
                     {/* Owner/dealer/admin actions: snapshot a version + create an expiring share link.
                         Backend role-gates the writes; UI keeps them unobtrusive for privileged roles. */}
                     {canManageReport && (
@@ -2913,10 +2968,11 @@ export default function ShowroomVehicleDetail() {
                         <p className="mt-1 text-[13px]">{reportError || 'The report could not be loaded for this vehicle.'}</p>
                       </div>
                     )}
-                  </TabsContent>
+                  </div>
 
                   {/* ── Evidence tab: buyer-facing visual proof timeline ── */}
-                  <TabsContent value="evidence" className="mt-2" data-testid="evidence-timeline-tab-content">
+                  <StoryChapterHeading id="vd-story-evidence" index={3} title="Evidence over the car’s life" provenance={reviewedEvidenceCount > 0 ? 'reviewed' : 'none'} note="Reviewed, public-safe evidence by life stage, component changes, disclosure review and corrections." />
+                  <div data-testid="evidence-timeline-tab-content">
                     {/* Vehicle life-stage timeline (M1): groups verified, public-safe evidence by the eight life stages. */}
                     {publicEvidence.length > 0 && (
                       <div className="mb-8">
@@ -2954,10 +3010,11 @@ export default function ShowroomVehicleDetail() {
                     <div className="mt-10" data-testid="dispute-panel-section">
                       <DisputePanel vin={vehicle?.vin || id || ''} />
                     </div>
-                  </TabsContent>
+                  </div>
 
                   {/* ── Verification tab: real trust metrics ── */}
-                  <TabsContent value="verification" className="mt-2" data-testid="verification-tab-content">
+                  <StoryChapterHeading id="vd-story-verification" index={4} title="Documents and sources" provenance={verificationSources.length > 0 ? 'governed' : 'none'} note="Each source CarUp checks, and what it returned." />
+                  <div data-testid="verification-tab-content">
                     {verificationSources.length === 0 ? (
                       <div className="rounded-2xl bg-slate-50 px-6 py-10 text-center text-slate-600">
                         <HelpCircle className="mx-auto mb-3 h-9 w-9 text-slate-400" aria-hidden="true" />
@@ -2991,10 +3048,11 @@ export default function ShowroomVehicleDetail() {
                         })}
                       </div>
                     )}
-                  </TabsContent>
+                  </div>
 
                   {/* ── Market Analysis tab ── */}
-                  <TabsContent value="market" className="mt-2">
+                  <StoryChapterHeading id="vd-story-market" index={5} title="Price, Trust and service in one view" />
+                  <div data-testid="market-tab-content">
                     <div className="grid gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-200 sm:grid-cols-3">
                       <div className="bg-white p-5">
                         <p className="text-[12px] text-slate-500">Listed Price</p>
@@ -3046,8 +3104,8 @@ export default function ShowroomVehicleDetail() {
                         events into a trust claim. Each signal is shown separately in the trust breakdown.
                       </p>
                     </div>
-                  </TabsContent>
-                </Tabs>
+                  </div>
+                </div>
               </div>
             </DossierSection>
 

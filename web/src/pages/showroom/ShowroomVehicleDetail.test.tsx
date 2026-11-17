@@ -180,11 +180,29 @@ describe('RX03-P1A-R2 — one decision rail', () => {
     renderAt(`/marketplace/${VIN}`)
     const nav = await screen.findByTestId('vehicle-detail-dossier-nav', {}, { timeout: 15_000 })
     const links = within(nav).getAllByRole('link')
-    expect(links.map((a) => a.textContent)).toEqual(['Overview', 'Trust', 'History', 'Evidence', 'Seller'])
+    expect(links.map((a) => a.textContent)).toEqual(['Overview', 'Story', 'Trust', 'History', 'Evidence', 'Seller'])
     for (const a of links) {
       const id = a.getAttribute('href')!.slice(1)
       expect(document.getElementById(id), `#${id} must exist`).not.toBeNull()
     }
+  })
+
+  it('RX04-B Vehicle Story: every chapter points at content that exists, no tab hides a chapter, and evidence is only "reviewed" when reviewed records exist', async () => {
+    renderAt(`/marketplace/${VIN}`)
+    const story = await screen.findByTestId('vehicle-story', {}, { timeout: 15_000 })
+    const chapters = within(story).getAllByRole('link')
+    expect(chapters).toHaveLength(8)
+    for (const a of chapters) {
+      const id = a.getAttribute('href')!.slice(1)
+      expect(document.getElementById(id), `#${id} must exist`).not.toBeNull()
+    }
+    expect(screen.queryByRole('tablist')).toBeNull()
+    for (const id of ['history-tab-content', 'history-report-tab-content', 'evidence-timeline-tab-content', 'verification-tab-content', 'market-tab-content']) {
+      expect(screen.getByTestId(id)).toBeInTheDocument()
+    }
+    const evidence = screen.getByTestId('vehicle-story-chapter-evidence')
+    const reviewed = screen.queryAllByTestId('verified-evidence-item').length
+    expect(evidence.getAttribute('data-provenance')).toBe(reviewed > 0 ? 'reviewed' : 'none')
   })
 
   it('steps the photo stage from the keyboard when the stage has focus', async () => {
