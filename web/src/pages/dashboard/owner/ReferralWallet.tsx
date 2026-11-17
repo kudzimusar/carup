@@ -8,6 +8,8 @@ import { Gift, Wallet, Share2, Copy, ShieldAlert, CheckCircle2, XCircle, HelpCir
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { ReferralWalletTransaction, OwnerReferralDispute } from '@/types/referral'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { ReferralWalletView } from '@/components/owner/assist/ReferralWalletView'
 
 /**
  * Owner "Refer & Earn" surface (Phase B). Owner-scoped, read-mostly:
@@ -125,6 +127,10 @@ export default function ReferralWallet() {
   const [disputeMsg, setDisputeMsg] = useState<string | null>(null)
   const [disputes, setDisputes] = useState<OwnerReferralDispute[]>([])
   const [disputesUnreadable, setDisputesUnreadable] = useState(false)
+  // RX04-C2 (unified view only): the wallet row's own currency, so balances render in the currency the
+  // server recorded rather than an assumed "$". The accepted view keeps its formatting.
+  const [walletCurrency, setWalletCurrency] = useState<string | null>(null)
+  const unified = isUnifiedUiEnabled()
 
   const loadWallet = useCallback(async () => {
     if (!userId) return
@@ -143,6 +149,7 @@ export default function ReferralWallet() {
       )
       setApproved(buckets.length > 0 ? buckets.reduce((a, b) => a + b, 0) : undefined)
       setSettled(w?.paid_or_applied_balance)
+      setWalletCurrency(typeof w?.currency === 'string' && w.currency.trim() ? w.currency : null)
       setTransactions(res.transactions ?? [])
     } catch (err) {
       setWalletError(err instanceof Error ? err.message : 'Could not load your referral wallet.')
@@ -281,6 +288,41 @@ export default function ReferralWallet() {
     }
     return map
   }, [disputes])
+
+  if (unified) {
+    return (
+      <ReferralWalletView
+        loading={loading}
+        walletError={walletError}
+        pending={pending}
+        approved={approved}
+        settled={settled}
+        walletCurrency={walletCurrency}
+        transactions={transactions}
+        disputesUnreadable={disputesUnreadable}
+        disputeByTxId={disputeByTxId}
+        disputeLabel={disputeStatusLabel}
+        explainFor={explainFor}
+        explainText={explainText}
+        code={code}
+        validateMsg={validateMsg}
+        shareLink={shareLink}
+        shareMsg={shareMsg}
+        disputeTxId={disputeTxId}
+        disputeReason={disputeReason}
+        disputeMsg={disputeMsg}
+        onRetryWallet={() => void loadWallet()}
+        onExplain={(txId) => void onExplain(txId)}
+        onCode={setCode}
+        onValidate={() => void onValidate()}
+        onShare={() => void onShare()}
+        onCopy={onCopy}
+        onDisputeTx={setDisputeTxId}
+        onDisputeReason={setDisputeReason}
+        onDispute={() => void onDispute()}
+      />
+    )
+  }
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">

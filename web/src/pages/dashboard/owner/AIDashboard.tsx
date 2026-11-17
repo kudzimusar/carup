@@ -26,6 +26,8 @@ import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Bot, CheckCircle2, Info, AlertCircle } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { GutuAssistView } from '@/components/owner/assist/GutuAssistView'
 
 interface ContextFact {
   key: string
@@ -49,6 +51,9 @@ export default function AIDashboard() {
   const { fetchAssistantContext } = useCarUpApi()
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [payload, setPayload] = useState<ContextPayload | null>(null)
+  // RX04-C2: Try again for the unified view; the accepted view keeps its single read.
+  const [attempt, setAttempt] = useState(0)
+  const unified = isUnifiedUiEnabled()
 
   useEffect(() => {
     let cancelled = false
@@ -79,11 +84,15 @@ export default function AIDashboard() {
       () => { if (!cancelled) setState('failed') },
     )
     return () => { cancelled = true }
-  }, [fetchAssistantContext])
+  }, [fetchAssistantContext, attempt])
 
   const facts = payload?.facts ?? []
   const known = facts.filter((f) => f.available)
   const notHeld = facts.filter((f) => !f.available)
+
+  if (unified) {
+    return <GutuAssistView state={state} payload={payload} known={known} notHeld={notHeld} onRetry={() => setAttempt((n) => n + 1)} />
+  }
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">

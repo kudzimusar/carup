@@ -16,6 +16,8 @@ import {
 } from '@/hooks/useCommunicationProductApi'
 import { CommunicationMessagePartView } from '@/components/communications/CommunicationMessagePartView'
 import { CommunicationMultimodalComposer } from '@/components/communications/CommunicationMultimodalComposer'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { CommunicationsView, type CommunicationSideRead } from '@/components/owner/assist/CommunicationsView'
 
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThreads']>>['threads'][number]
 type ThreadDetail = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThread']>>
@@ -108,6 +110,12 @@ export default function Communications() {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<ConversationFilter>('all')
   const [status, setStatus] = useState<string | null>(null)
+  // RX04-C2 (unified view only): read outcomes the accepted view never needed, so loading, empty and a
+  // failed read stay distinct there. Nothing here changes what is read, sent or marked.
+  const [initialReadDone, setInitialReadDone] = useState(false)
+  const [failedReads, setFailedReads] = useState<CommunicationSideRead[]>([])
+  const [threadReadFailedId, setThreadReadFailedId] = useState<string | null>(null)
+  const unified = isUnifiedUiEnabled()
 
   const unreadCount = useMemo(
     () => threads.reduce((total, thread) => total + Number(thread.unread_count || 0), 0),
@@ -154,18 +162,20 @@ export default function Communications() {
   }, [fetchCommunicationThreads])
 
   const loadSideData = useCallback(async () => {
+    const failed: CommunicationSideRead[] = []
     const [notificationRes, accountActivityRes, prefRes, analyticsRes] = await Promise.all([
-      fetchCommunicationNotifications().catch(() => ({ notifications: [] })),
-      fetchCommunicationAccountActivity().catch(() => ({ activity: [] })),
-      fetchCommunicationPreferences().catch(() => ({ preferences: null })),
-      fetchAnalytics().catch(() => ({ analytics: null })),
+      fetchCommunicationNotifications().catch(() => { failed.push('notifications'); return { notifications: [] } }),
+      fetchCommunicationAccountActivity().catch(() => { failed.push('activity'); return { activity: [] } }),
+      fetchCommunicationPreferences().catch(() => { failed.push('preferences'); return { preferences: null } }),
+      fetchAnalytics().catch(() => { failed.push('analytics'); return { analytics: null } }),
     ])
     setNotifications(notificationRes.notifications || [])
     setAccountActivity(accountActivityRes.activity || [])
     setPreferences(prefRes.preferences || null)
     setAnalytics(analyticsRes.analytics)
-    const health = await fetchAiHealth().catch(() => ({ ai: { available: false } }))
+    const health = await fetchAiHealth().catch(() => { failed.push('ai'); return { ai: { available: false } } })
     setAiAvailable(Boolean(health.ai?.available))
+    setFailedReads(failed)
   }, [fetchAnalytics, fetchAiHealth, fetchCommunicationAccountActivity, fetchCommunicationNotifications, fetchCommunicationPreferences])
 
   const refreshActiveConversation = useCallback(async () => {
@@ -177,13 +187,14 @@ export default function Communications() {
 
   useEffect(() => {
     let active = true
+    const failed: CommunicationSideRead[] = []
     Promise.all([
       fetchCommunicationThreads().catch(() => null),
-      fetchCommunicationNotifications().catch(() => ({ notifications: [] })),
-      fetchCommunicationAccountActivity().catch(() => ({ activity: [] })),
-      fetchCommunicationPreferences().catch(() => ({ preferences: null })),
-      fetchAnalytics().catch(() => ({ analytics: null })),
-      fetchAiHealth().catch(() => ({ ai: { available: false } })),
+      fetchCommunicationNotifications().catch(() => { failed.push('notifications'); return { notifications: [] } }),
+      fetchCommunicationAccountActivity().catch(() => { failed.push('activity'); return { activity: [] } }),
+      fetchCommunicationPreferences().catch(() => { failed.push('preferences'); return { preferences: null } }),
+      fetchAnalytics().catch(() => { failed.push('analytics'); return { analytics: null } }),
+      fetchAiHealth().catch(() => { failed.push('ai'); return { ai: { available: false } } }),
     ]).then(([threadRes, notificationRes, accountActivityRes, prefRes, analyticsRes, health]) => {
       if (!active) return
       setThreadsUnavailable(threadRes === null)
@@ -197,6 +208,8 @@ export default function Communications() {
       setPreferences(prefRes.preferences || null)
       setAnalytics(analyticsRes.analytics)
       setAiAvailable(Boolean(health.ai?.available))
+      setFailedReads(failed)
+      setInitialReadDone(true)
     })
     return () => { active = false }
   }, [fetchAiHealth, fetchAnalytics, fetchCommunicationAccountActivity, fetchCommunicationNotifications, fetchCommunicationPreferences, fetchCommunicationThreads])
@@ -209,6 +222,7 @@ export default function Communications() {
         if (!active) return
         setDetail(result as ConversationDetail)
         setAiResult(null)
+        setThreadReadFailedId(null)
         // Persist the read receipt before clearing the badge. Zeroing unread_count locally made the
         // conversation look read while last_read_at never moved, so the count came straight back on
         // the next load — and a failed mutation would have claimed a read state the server never had.
@@ -222,7 +236,11 @@ export default function Communications() {
           // Leave the unread badge alone: it is the honest state until the server agrees.
         }
       })
-      .catch(() => { if (active) setDetail(null) })
+      .catch(() => {
+        if (!active) return
+        setDetail(null)
+        setThreadReadFailedId(activeId)
+      })
     return () => { active = false }
   }, [activeId, fetchCommunicationThread, markCommunicationThreadRead])
 
@@ -295,6 +313,57 @@ export default function Communications() {
     const saved = await updateCommunicationPreferences(preferences || {})
     setPreferences(saved.preferences)
     setStatus('Preferences saved')
+  }
+
+  if (unified) {
+    return (
+      <CommunicationsView
+        initialReadDone={initialReadDone}
+        threadsUnavailable={threadsUnavailable}
+        threads={threads}
+        filteredThreads={filteredThreads}
+        unreadCount={unreadCount}
+        activeId={activeId}
+        detail={detail}
+        threadReadFailedId={threadReadFailedId}
+        notifications={notifications}
+        accountActivity={accountActivity}
+        preferences={preferences}
+        analytics={analytics}
+        failedReads={failedReads}
+        aiAvailable={aiAvailable}
+        aiResult={aiResult}
+        aiBusy={aiBusy}
+        targetLanguage={targetLanguage}
+        canTranslate={Boolean(latestMessage?.id)}
+        message={message}
+        search={search}
+        filter={filter}
+        status={status}
+        threadLabel={threadLabel}
+        participants={participantLabel(detail)}
+        onSearch={setSearch}
+        onFilter={setFilter}
+        onSelectThread={selectThread}
+        onMessage={setMessage}
+        onTargetLanguage={setTargetLanguage}
+        onReply={() => void submitReply()}
+        onRunAi={(kind) => void runAi(kind)}
+        onDerived={setAiResult}
+        onStatus={setStatus}
+        onComposerSent={async () => {
+          await refreshActiveConversation()
+          setMessage('')
+          setAiResult(null)
+        }}
+        onRetryThreads={() => void loadThreads()}
+        onRetrySideData={() => void loadSideData()}
+        onResendVerification={() => void requestAnotherVerificationEmail()}
+        onPreferenceChange={(key, checked) => setPreferences((prev) => ({ ...(prev || {}), [key]: checked }))}
+        onSavePreferences={savePreferences}
+        onMarkNotificationRead={markCommunicationNotificationRead}
+      />
+    )
   }
 
   return (
