@@ -25,6 +25,7 @@ import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader
 import { SellerStudioFrame } from '@/components/sell/SellerStudioFrame'
 import { ShowroomListingCard } from '@/components/showroom/ShowroomListingCard'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { publicationGapName } from '@/lib/publicationRefusal'
 import { sellerReadiness } from '@/lib/sellerReadiness'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
@@ -206,7 +207,7 @@ const INITIAL = {
 }
 
 export default function SellVehicle() {
-  const { createVehicleListing, updateSellerDraft, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles } = useCarUpApi()
+  const { createVehicleListing, updateSellerDraft, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles, fetchVehicleCompleteness } = useCarUpApi()
   const navigate = useNavigate()
   const unified = isUnifiedUiEnabled()
   const [searchParams] = useSearchParams()
@@ -654,6 +655,31 @@ export default function SellVehicle() {
   const governedScopeEstablished = serverDraftLoaded
     && String(serverVehicle?.vin || '').trim().toUpperCase() === form.vin.trim().toUpperCase()
     && authorityState === 'recognized'
+
+  // RX04-D / I-04 — "To publish" from the real contract: for a draft that already exists on the
+  // server, the completeness evaluator's blocking and in-review requirements. Unified presentation
+  // only (the legacy page never showed them here). Keyed by VIN so an answer for one car can never
+  // be shown for another; a failed read is said, never shown as "nothing required".
+  const completenessVin = unified && serverDraftLoaded && isCompleteVin(form.vin) ? form.vin.trim().toUpperCase() : null
+  const [studioCompleteness, setStudioCompleteness] = useState<{ vin: string; ok: boolean; blocking: string[]; pending: string[]; publishable: boolean } | null>(null)
+  useEffect(() => {
+    if (!completenessVin) return
+    let active = true
+    fetchVehicleCompleteness(completenessVin)
+      .then(data => {
+        if (!active) return
+        setStudioCompleteness({
+          vin: completenessVin,
+          ok: true,
+          blocking: (data?.blocking_gaps ?? []).map(publicationGapName),
+          pending: (data?.pending_gaps ?? []).map(publicationGapName),
+          publishable: data?.is_publishable === true,
+        })
+      })
+      .catch(() => { if (active) setStudioCompleteness({ vin: completenessVin, ok: false, blocking: [], pending: [], publishable: false }) })
+    return () => { active = false }
+  }, [completenessVin, fetchVehicleCompleteness])
+  const publication = completenessVin && studioCompleteness?.vin === completenessVin ? studioCompleteness : null
 
   const validateStep = () => {
     const e: Record<string, string> = {}
@@ -1772,10 +1798,29 @@ export default function SellVehicle() {
           </>
         )}
         publishNote={(
-          <>
-            Publication needs reviewed ownership evidence. After you save, My Listings shows exactly which documents are still required.
-            {' '}<span data-testid="seller-studio-evidence-state">Evidence: {verifiedDocumentCopy}.</span>
-          </>
+          <div data-testid="seller-studio-publication" data-state={!completenessVin ? 'after-save' : !publication ? 'loading' : !publication.ok ? 'unavailable' : publication.publishable ? 'publishable' : 'blocked'}>
+            {!completenessVin ? (
+              <p>Publication needs reviewed ownership evidence. After you save, CarUp lists exactly which documents are still required.</p>
+            ) : !publication ? (
+              <p>Reading this draft’s publication requirements…</p>
+            ) : !publication.ok ? (
+              <p>The publication requirements could not be read just now. This is not “nothing required”.</p>
+            ) : publication.publishable ? (
+              <p className="font-semibold text-status-success">CarUp’s publication requirements are met. Publish it from My Listings.</p>
+            ) : (
+              <>
+                {publication.blocking.length > 0 && (
+                  <>
+                    <p className="font-semibold text-carup-text">Still required ({publication.blocking.length})</p>
+                    <ul className="mt-1 list-inside list-disc space-y-0.5">{publication.blocking.map(name => <li key={name}>{name}</li>)}</ul>
+                  </>
+                )}
+                {publication.pending.length > 0 && <p className="mt-2">Under review: {publication.pending.join(', ')}.</p>}
+                <Link to="/dashboard/listings" className="mt-2 inline-flex min-h-11 items-center font-semibold text-carup-action underline-offset-2 hover:underline">Open My Listings</Link>
+              </>
+            )}
+            <p className="mt-2" data-testid="seller-studio-evidence-state">Evidence: {verifiedDocumentCopy}.</p>
+          </div>
         )}
         context={(
           <section className="rounded-card border border-carup-line bg-carup-bg-raised p-5 text-sm" aria-labelledby="seller-context-title" data-testid="seller-studio-context">
