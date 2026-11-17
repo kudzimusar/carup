@@ -2432,7 +2432,7 @@ export default function ShowroomVehicleDetail() {
                   </Button>
                 </div>
               ) : detail ? (
-                <div className="mt-6 border-t border-slate-200 pt-5" data-testid="vehicle-detail-buyer-actions">
+                <div id="vd-ask" className="mt-6 scroll-mt-24 border-t border-slate-200 pt-5" data-testid="vehicle-detail-buyer-actions">
                   <p className={`${eyebrow} text-slate-500`}>More ways to proceed</p>
                   <div className="mt-3 space-y-4">
                     {sellerContactNumber && sellerWhatsAppLink ? (

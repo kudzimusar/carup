@@ -7,9 +7,9 @@
  * Phones: a swipeable vehicle strip, then each signal as a short list — never a sideways-scrolling
  * table. A failed read is an error with Retry, never "nothing to compare". Missing facts stay missing.
  */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CircleHelp, MessageSquare, X } from 'lucide-react'
 import { ShowroomListingImage } from '@/components/showroom/ShowroomListingImage'
 import { VehicleSilhouette } from '@/components/showroom/VehicleSilhouette'
 import { DataState, MoneyDisplay, TrustLens } from '@/components/truth'
@@ -29,6 +29,14 @@ export interface CompareVehicle {
   primary_image_state?: string | null
   trust_summary?: { trust_badges: string[]; risk_status: string; partsentry_public_status: string; evidence_status: string }
   pricing_summary?: { estimated_total?: number | null; currency?: string | null }
+  /** Backend verification projection (compareListings passes the detail's summary through). */
+  verification_summary?: {
+    seller_verified?: boolean
+    identity_status?: 'unverified' | 'pending_review' | 'verified' | 'rejected' | string
+    vehicle_evidence_verified?: boolean
+    inspection_available?: boolean
+    inspection_verified?: boolean
+  } | null
 }
 
 export interface ShowroomCompareViewProps {
@@ -68,16 +76,39 @@ function trustCell(v: CompareVehicle) {
   )
 }
 
-interface Signal { label: string; render: (v: CompareVehicle) => ReactNode; strong?: boolean; /** Value is too wide to share a phone row with the car's name. */ stacked?: boolean }
-interface SignalGroup { title: string; signals: Signal[] }
+/** Where a row's values come from, in CarUp's own provenance words. */
+type RowSource = 'seller' | 'governed' | 'estimate'
+const SOURCE_LABEL: Record<RowSource, string> = { seller: 'Seller-stated', governed: 'Governed record', estimate: 'Estimate' }
+
+interface Signal {
+  label: string
+  render: (v: CompareVehicle) => ReactNode
+  /** Comparable value for "where do they differ" (null = not recorded). */
+  key: (v: CompareVehicle) => string | null
+  source: RowSource
+  strong?: boolean
+  /** Value is too wide to share a phone row with the car's name. */
+  stacked?: boolean
+}
+interface SignalGroup { title: string; note: string; signals: Signal[] }
+
+function inspectionText(v: CompareVehicle): string | null {
+  const vs = v.verification_summary
+  if (!vs) return null
+  if (vs.inspection_verified) return 'Verified inspection'
+  if (vs.inspection_available) return 'Inspection on file — not verified'
+  return 'No inspection on record'
+}
 
 const GROUPS: SignalGroup[] = [
   {
-    title: 'Price',
+    title: 'Commercial',
+    note: 'What the seller is asking, and CarUp’s all-in estimate where one exists.',
     signals: [
-      { label: 'Asking price', strong: true, render: v => <MoneyDisplay amount={v.price} currency={v.currency} /> },
+      { label: 'Asking price', strong: true, source: 'seller', key: v => (v.price == null ? null : `${v.price} ${v.currency ?? ''}`), render: v => <MoneyDisplay amount={v.price} currency={v.currency} /> },
       {
-        label: 'All-in estimate',
+        label: 'All-in estimate', source: 'estimate',
+        key: v => (typeof v.pricing_summary?.estimated_total === 'number' ? String(v.pricing_summary.estimated_total) : null),
         render: v => typeof v.pricing_summary?.estimated_total === 'number'
           ? <MoneyDisplay amount={v.pricing_summary.estimated_total} currency={v.pricing_summary.currency ?? v.currency} source="estimate" />
           : <NotRecorded>Not available</NotRecorded>,
@@ -85,21 +116,31 @@ const GROUPS: SignalGroup[] = [
     ],
   },
   {
-    title: 'Vehicle',
+    title: 'The car',
+    note: 'Identity and use, as listed.',
     signals: [
-      { label: 'Year', render: v => v.year ?? <NotRecorded /> },
-      { label: 'Mileage', render: v => typeof v.mileage === 'number' ? <span className="tabular-nums">{v.mileage.toLocaleString()} km</span> : <NotRecorded /> },
-      { label: 'Condition', render: v => titleCase(v.condition_category) ?? <NotRecorded /> },
+      { label: 'Year', source: 'seller', key: v => (v.year == null ? null : String(v.year)), render: v => v.year ?? <NotRecorded /> },
+      { label: 'Mileage', source: 'seller', key: v => (typeof v.mileage === 'number' ? String(v.mileage) : null), render: v => typeof v.mileage === 'number' ? <span className="tabular-nums">{v.mileage.toLocaleString()} km</span> : <NotRecorded /> },
+      { label: 'Condition', source: 'seller', key: v => v.condition_category ?? null, render: v => titleCase(v.condition_category) ?? <NotRecorded /> },
     ],
   },
   {
-    title: 'CarUp Trust',
+    title: 'Evidence',
+    note: 'What CarUp has checked. “Not verified” is not a finding against the car — it means no reviewed record yet.',
     signals: [
-      { label: 'Trust evaluation', strong: true, stacked: true, render: trustCell },
-      { label: 'Confidence', render: v => titleCase(v.trust?.confidence) ?? <NotRecorded /> },
+      { label: 'CarUp Trust', strong: true, stacked: true, source: 'governed', key: v => (v.trust?.evaluation_state === 'evaluated' && typeof v.trust.score === 'number' ? `${v.trust.score}` : 'not-evaluated'), render: trustCell },
+      { label: 'Confidence', source: 'governed', key: v => v.trust?.confidence ?? null, render: v => titleCase(v.trust?.confidence) ?? <NotRecorded /> },
+      { label: 'Identity', source: 'governed', key: v => v.verification_summary?.identity_status ?? null, render: v => titleCase(v.verification_summary?.identity_status) ?? <NotRecorded /> },
       {
-        label: 'Published badges',
-        stacked: true,
+        label: 'Reviewed evidence', source: 'governed',
+        key: v => (v.verification_summary ? String(Boolean(v.verification_summary.vehicle_evidence_verified)) : null),
+        render: v => !v.verification_summary ? <NotRecorded /> : v.verification_summary.vehicle_evidence_verified ? 'On file' : <NotRecorded>Not verified</NotRecorded>,
+      },
+      { label: 'Inspection', source: 'governed', key: inspectionText, render: v => inspectionText(v) ?? <NotRecorded /> },
+      { label: 'Evidence status', source: 'governed', key: v => v.trust_summary?.evidence_status ?? null, render: v => titleCase(v.trust_summary?.evidence_status) ?? <NotRecorded /> },
+      {
+        label: 'Published badges', stacked: true, source: 'governed',
+        key: v => (v.trust_summary?.trust_badges?.length ? [...v.trust_summary.trust_badges].sort().join(',') : null),
         render: v => v.trust_summary?.trust_badges?.length
           ? (
             <span className="flex flex-wrap gap-1.5">
@@ -110,12 +151,42 @@ const GROUPS: SignalGroup[] = [
           )
           : <NotRecorded>None published</NotRecorded>,
       },
-      { label: 'Evidence', render: v => titleCase(v.trust_summary?.evidence_status) ?? <NotRecorded /> },
-      { label: 'PartSentry', render: v => titleCase(v.trust_summary?.partsentry_public_status) ?? <NotRecorded /> },
-      { label: 'Risk', render: v => titleCase(v.trust_summary?.risk_status) ?? <NotRecorded /> },
+      { label: 'PartSentry', source: 'governed', key: v => v.trust_summary?.partsentry_public_status ?? null, render: v => titleCase(v.trust_summary?.partsentry_public_status) ?? <NotRecorded /> },
+      { label: 'Risk', source: 'governed', key: v => v.trust_summary?.risk_status ?? null, render: v => titleCase(v.trust_summary?.risk_status) ?? <NotRecorded /> },
+    ],
+  },
+  {
+    title: 'Seller',
+    note: 'Who is selling, as far as CarUp has verified.',
+    signals: [
+      {
+        label: 'Seller verification', source: 'governed',
+        key: v => (v.verification_summary ? String(Boolean(v.verification_summary.seller_verified)) : null),
+        render: v => !v.verification_summary ? <NotRecorded /> : v.verification_summary.seller_verified ? 'Verified seller' : <NotRecorded>Not verified</NotRecorded>,
+      },
     ],
   },
 ]
+
+/** Rows where the cars' recorded values differ (an unrecorded value counts as its own value). */
+function differs(signal: Signal, entries: CompareVehicle[]) {
+  if (entries.length < 2) return false
+  const values = entries.map(v => signal.key(v) ?? '∅')
+  return values.some(value => value !== values[0])
+}
+
+/** What a buyer still does not know about one car — each a question worth asking the seller. */
+function unknownsFor(v: CompareVehicle): string[] {
+  const out: string[] = []
+  if (v.price == null) out.push('What is the asking price?')
+  if (typeof v.mileage !== 'number') out.push('What does the odometer read?')
+  if (!v.condition_category || v.condition_category === 'unknown') out.push('What condition is the car in?')
+  if (!(v.trust?.evaluation_state === 'evaluated' && typeof v.trust.score === 'number')) out.push('Can you share documents so CarUp can evaluate Trust?')
+  const vs = v.verification_summary
+  if (vs && !vs.vehicle_evidence_verified) out.push('Which records (service, registration) can you provide?')
+  if (vs && !vs.inspection_verified) out.push(vs.inspection_available ? 'Can the inspection be verified?' : 'Will you allow an inspection?')
+  return out
+}
 
 function imageOf(v: CompareVehicle) {
   return canRenderMarketplacePrimaryImage(v.primary_image_state, v.primary_image_url) ? v.primary_image_url : null
@@ -169,6 +240,12 @@ function EmptyCompare() {
 export function ShowroomCompareView({ state, requestedCount, entries, onRetry, onRemove }: ShowroomCompareViewProps) {
   const count = entries.length
   const columns = { gridTemplateColumns: `minmax(10rem, 13rem) repeat(${Math.max(count, 1)}, minmax(0, 1fr))` }
+  // I-03 Buyer Decision Desk: focus on where the cars differ (local view state only).
+  const [differencesOnly, setDifferencesOnly] = useState(false)
+  const groups = GROUPS
+    .map(group => ({ ...group, signals: group.signals.filter(signal => !differencesOnly || differs(signal, entries)) }))
+    .filter(group => group.signals.length > 0)
+  const differingRows = GROUPS.reduce((n, group) => n + group.signals.filter(signal => differs(signal, entries)).length, 0)
 
   return (
     <div className="min-h-screen bg-white text-carup-raw-ink" data-testid="marketplace-compare-page" data-presentation="rx04">
@@ -181,7 +258,7 @@ export function ShowroomCompareView({ state, requestedCount, entries, onRetry, o
           {state === 'ready' && count > 1 ? `Compare ${count} vehicles` : 'Compare vehicles'}
         </h1>
         <p className="mt-3 max-w-2xl text-[15px] leading-6 text-carup-text-2">
-          Asking price, condition and CarUp Trust side by side. When a fact is not recorded it says so — nothing is filled in to make the comparison look complete.
+          Price, the car, its evidence and the seller side by side — with where each fact comes from. When a fact is not recorded it says so; nothing is filled in, and no car is scored “best”. The choice is yours.
         </p>
       </header>
 
@@ -199,6 +276,23 @@ export function ShowroomCompareView({ state, requestedCount, entries, onRetry, o
 
         {state === 'ready' && count > 0 && (
           <>
+            {count > 1 && (
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-carup-bg-surface px-4 py-3" data-testid="compare-differences-bar">
+                <p className="text-[14px] text-carup-text-2">
+                  <span className="font-semibold text-carup-raw-ink" data-testid="compare-differences-count">{differingRows}</span> of {GROUPS.reduce((n, g) => n + g.signals.length, 0)} facts differ between these cars.
+                </p>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={differencesOnly}
+                  onClick={() => setDifferencesOnly(value => !value)}
+                  className={`inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-[14px] font-semibold ring-1 transition ${FOCUS} ${differencesOnly ? 'bg-carup-raw-ink text-white ring-carup-raw-ink' : 'bg-white text-carup-raw-ink ring-carup-line'}`}
+                  data-testid="compare-differences-toggle"
+                >
+                  {differencesOnly ? 'Showing differences only' : 'Show differences only'}
+                </button>
+              </div>
+            )}
             {/* Phones and small tablets: vehicle strip + attribute-first lists. */}
             <div className="md:hidden" data-testid="compare-mobile">
               <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2" role="list" aria-label="Vehicles in this comparison">
@@ -208,13 +302,18 @@ export function ShowroomCompareView({ state, requestedCount, entries, onRetry, o
                   </div>
                 ))}
               </div>
-              {GROUPS.map(group => (
+              {groups.map(group => (
                 <section key={group.title} className="mt-8" aria-labelledby={`compare-m-${group.title}`}>
-                  <h2 id={`compare-m-${group.title}`} className="border-b border-carup-line pb-2 text-[17px] font-semibold tracking-[-0.01em]">{group.title}</h2>
+                  <h2 id={`compare-m-${group.title}`} className="text-[17px] font-semibold tracking-[-0.01em]">{group.title}</h2>
+                  <p className="mt-0.5 border-b border-carup-line pb-2 text-[13px] leading-5 text-carup-text-2">{group.note}</p>
                   <dl className="divide-y divide-carup-line">
                     {group.signals.map(signal => (
-                      <div key={signal.label} className="py-3">
-                        <dt className="text-[13px] font-medium text-carup-text-2">{signal.label}</dt>
+                      <div key={signal.label} className="py-3" data-differs={differs(signal, entries) ? 'true' : 'false'}>
+                        <dt className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-carup-text-2">
+                          {signal.label}
+                          <span className="text-[11px] font-normal text-carup-text-3">{SOURCE_LABEL[signal.source]}</span>
+                          {differs(signal, entries) && <span className="rounded-full bg-carup-action-soft px-2 py-0.5 text-[11px] font-semibold text-carup-action-hover">Differs</span>}
+                        </dt>
                         <dd className="mt-2 space-y-1.5">
                           {entries.map(v => signal.stacked ? (
                             <div key={v.vin} className="min-w-0 text-[14px]">
@@ -241,13 +340,19 @@ export function ShowroomCompareView({ state, requestedCount, entries, onRetry, o
                 <div className="self-end pb-2 text-[13px] text-carup-text-2">{count} of {Math.max(requestedCount, count)} selected</div>
                 {entries.map(v => <VehicleHead key={v.vin} v={v} onRemove={onRemove} />)}
               </div>
-              {GROUPS.map(group => (
+              {groups.map(group => (
                 <section key={group.title} aria-labelledby={`compare-d-${group.title}`}>
-                  <h2 id={`compare-d-${group.title}`} className={`${EYEBROW} pb-2 pt-8 text-carup-text-2`}>{group.title}</h2>
+                  <div className="flex flex-wrap items-baseline gap-x-3 pb-2 pt-8">
+                    <h2 id={`compare-d-${group.title}`} className={`${EYEBROW} text-carup-text-2`}>{group.title}</h2>
+                    <p className="text-[13px] text-carup-text-3">{group.note}</p>
+                  </div>
                   <div role="table" aria-label={`${group.title} comparison`} className="border-t border-carup-line">
                     {group.signals.map(signal => (
-                      <div key={signal.label} role="row" className="grid gap-x-6 border-b border-carup-line py-3.5" style={columns}>
-                        <div role="rowheader" className="text-[14px] font-medium text-carup-text-2">{signal.label}</div>
+                      <div key={signal.label} role="row" className={`grid gap-x-6 border-b border-carup-line py-3.5 ${differs(signal, entries) ? 'bg-carup-bg-surface' : ''}`} style={columns} data-differs={differs(signal, entries) ? 'true' : 'false'}>
+                        <div role="rowheader" className="text-[14px] font-medium text-carup-text-2">
+                          {signal.label}
+                          <span className="block text-[11px] font-normal text-carup-text-3">{SOURCE_LABEL[signal.source]}{differs(signal, entries) ? ' · differs' : ''}</span>
+                        </div>
                         {entries.map(v => (
                           <div key={v.vin} role="cell" className={`min-w-0 text-[14px] ${signal.strong ? 'font-semibold text-carup-raw-ink' : 'text-carup-text'}`}>
                             {signal.render(v)}
@@ -259,6 +364,40 @@ export function ShowroomCompareView({ state, requestedCount, entries, onRetry, o
                 </section>
               ))}
             </div>
+
+            {/* What is still unknown, per car — each a question worth asking before deciding. */}
+            <section className="mt-12" aria-labelledby="compare-unknowns" data-testid="compare-unknowns">
+              <h2 id="compare-unknowns" className="text-[clamp(1.25rem,2vw,1.6rem)] font-bold tracking-[-0.02em]">Unknowns and questions</h2>
+              <p className="mt-1 max-w-2xl text-[14px] leading-6 text-carup-text-2">What CarUp cannot tell you yet about each car. Ask the seller through the listing, or open the full listing for its specifications and history.</p>
+              <ul className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {entries.map(v => {
+                  const questions = unknownsFor(v)
+                  return (
+                    <li key={v.vin} className="flex flex-col rounded-2xl bg-carup-bg-surface p-4" data-testid={`compare-unknowns-${v.vin}`}>
+                      <p className="truncate text-[15px] font-semibold text-carup-raw-ink">{name(v)}</p>
+                      {questions.length === 0 ? (
+                        <p className="mt-2 text-[13px] text-carup-text-2">No gaps in the facts compared here.</p>
+                      ) : (
+                        <ul className="mt-2 space-y-1.5">
+                          {questions.map(q => (
+                            <li key={q} className="flex gap-2 text-[13px] leading-5 text-carup-text-2"><CircleHelp className="mt-0.5 h-3.5 w-3.5 shrink-0 text-carup-text-3" aria-hidden="true" />{q}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="mt-auto flex flex-wrap gap-2 pt-4">
+                        <Link to={`/marketplace/${encodeURIComponent(v.vin)}#vd-ask`} className={`inline-flex min-h-11 items-center gap-1.5 rounded-full bg-carup-raw-ink px-4 text-[13px] font-semibold text-white ${FOCUS}`} data-testid={`compare-ask-${v.vin}`}>
+                          <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" /> Ask the seller
+                        </Link>
+                        <Link to={`/marketplace/${encodeURIComponent(v.vin)}#vd-story`} className={`inline-flex min-h-11 items-center gap-1.5 rounded-full bg-white px-4 text-[13px] font-semibold text-carup-raw-ink ring-1 ring-carup-line ${FOCUS}`}>
+                          Vehicle Story <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                        </Link>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+              <p className="mt-4 text-[12px] leading-5 text-carup-text-3">Fuel, gearbox and body style are on each full listing; the comparison read does not carry them yet.</p>
+            </section>
           </>
         )}
       </main>
