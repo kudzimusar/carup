@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
@@ -43,7 +43,30 @@ function headers(token:string,id:string):AuthHeaders {
  * Claim-review workbench: no self-approval, no unconfirmed docs, reviewer password
  * mandatory for each original-evidence preview and each decision. Never stores passwords.
  */
+/** HTTP status of a refused/failed request (a session failure counts as 401). */
+/** apiClient's SessionExpiredError (matched by its name; it is raised for 401 session failures). */
+function isSessionExpired(problem:unknown):boolean{
+  return (problem as {name?:string})?.name==='SessionExpiredError'
+}
+function failureStatus(problem:unknown):number|undefined{
+  if(isSessionExpired(problem))return 401
+  return (problem as {status?:number})?.status
+}
+const isAuthorityLoss=(status:number|undefined)=>status===401||status===403
+
+/**
+ * RX03-P2-R5 REVIEW-01 — one workbench instance per actor identity (user, role, session token).
+ * When any of them changes, the previous instance — with every piece of private case state and
+ * every in-flight request callback — is discarded; nothing an earlier actor saw or typed can
+ * reach the next actor, and a late response from the former actor lands on an unmounted tree.
+ */
 export default function DealerClaimReview() {
+  const {user,token}=useAuth()
+  const actorKey=`${user?.id??'-'}|${user?.role??'-'}|${token??'-'}`
+  return <DealerClaimReviewForActor key={actorKey}/>
+}
+
+function DealerClaimReviewForActor() {
   const {user,token}=useAuth()
   const authorized=Boolean(user&&['admin','reviewer','platform_admin','super_admin'].includes(String(user.role)))
   // RX03-P2-R4: the generic /admin dashboard is for administrators only — never link a reviewer to it.
@@ -52,7 +75,7 @@ export default function DealerClaimReview() {
   const [mobileView,setMobileView]=useState<'queue'|'case'>('queue')
   const [claims,setClaims]=useState<QueueClaim[]>([])
   // RX03-P2-R4: a refused or failed queue read is never shown as an empty queue.
-  const [queueState,setQueueState]=useState<'loading'|'ready'|'forbidden'|'failed'>('loading')
+  const [queueState,setQueueState]=useState<'loading'|'ready'|'forbidden'|'expired'|'failed'>('loading')
   const [selected,setSelected]=useState<string>('')
   const [evidence,setEvidence]=useState<PrivateEvidence[]>([])
   const [error,setError]=useState('')
@@ -72,23 +95,43 @@ export default function DealerClaimReview() {
   const [quarantineReason,setQuarantineReason]=useState<QuarantineReason|''>('')
   const [quarantineNote,setQuarantineNote]=useState('')
 
+  // RX03-P2-R5 REVIEW-01 — every queue read carries a generation; only the LATEST read may change
+  // the workbench, so an older (slower) response can never overwrite a newer outcome.
+  const queueGeneration=useRef(0)
+  /** Drop every piece of private case state and every consequential input. */
+  const clearPrivateCase=useCallback(()=>{
+    setClaims([]);setSelected('');setEvidence([]);setEvidenceId('');setPreview(null);setOpened([])
+    setPassword('');setDocumentConfirmed(false);setReason('');setIssuer('');setQuarantineReason('');setQuarantineNote('')
+    setNotice('');setMobileView('queue')
+  },[])
+  /** A refused or failed authority read: fail closed, then say which. */
+  const loseAuthority=useCallback((problem:unknown,fallback:string)=>{
+    queueGeneration.current+=1
+    const status=failureStatus(problem)
+    clearPrivateCase()
+    setQueueState(status===401?'expired':status===403?'forbidden':'failed')
+    setError(dealerReviewerErrorMessage(problem,fallback))
+  },[clearPrivateCase])
   const reload=useCallback(async()=>{
     if(!authorized||!user||!token)return
+    const generation=++queueGeneration.current
     try{
       const result=await apiRequest<{claims:QueueClaim[]}>({
         baseUrl:API,path:'/admin/dealership/claims/queue',
         authHeaders:headers(token,user.id),
       })
-      setClaims(result.claims||[])
+      if(generation!==queueGeneration.current)return
+      const list=result.claims||[]
+      setClaims(list)
       setQueueState('ready')
-      setSelected(current=>current&&result.claims.some(c=>c.claim_id===current)
-        ?current:result.claims[0]?.claim_id||'')
+      setError('')
+      setSelected(current=>current&&list.some(c=>c.claim_id===current)
+        ?current:list[0]?.claim_id||'')
     }catch(problem){
-      const status=(problem as {status?:number})?.status
-      setQueueState(status===403?'forbidden':'failed')
-      setError(dealerReviewerErrorMessage(problem,'Claim-review queue unavailable'))
+      if(generation!==queueGeneration.current)return
+      loseAuthority(problem,'Claim-review queue unavailable')
     }
-  },[authorized,user,token])
+  },[authorized,user,token,loseAuthority])
   useEffect(()=>{
     // Defer request-driven state to the async phase, avoiding a redundant
     // synchronous render caused by setting loading state in an effect.
@@ -96,7 +139,8 @@ export default function DealerClaimReview() {
     void Promise.resolve().then(()=>{if(mounted)void reload()})
     return()=>{mounted=false}
   },[reload])
-  const current=claims.find(c=>c.claim_id===selected)
+  // REVIEW-01: a case exists only while the latest authoritative queue read succeeded.
+  const current=queueState==='ready'?claims.find(c=>c.claim_id===selected):undefined
   useEffect(()=>{
     if(!selected||!user||!token||!authorized)return
     let active=true
@@ -111,9 +155,14 @@ export default function DealerClaimReview() {
       if(!active)return
       setEvidence(result.evidence||[])
       setEvidenceId((result.evidence||[]).find(e=>!e.quarantined)?.evidence_id||'')
-    }).catch(problem=>{if(active)setError(dealerReviewerErrorMessage(problem,'Evidence unavailable'))})
+    }).catch(problem=>{
+      if(!active)return
+      if(isAuthorityLoss(failureStatus(problem))){loseAuthority(problem,'Evidence unavailable');return}
+      setEvidence([]);setEvidenceId('');setPreview(null)
+      setError(dealerReviewerErrorMessage(problem,'Evidence unavailable'))
+    })
     return()=>{active=false}
-  },[selected,user,token,authorized])
+  },[selected,user,token,authorized,loseAuthority])
   const currentClaimId=current?.claim_id
   const currentClaimScope=current?.claimed_scope
   useEffect(()=>{
@@ -140,7 +189,11 @@ export default function DealerClaimReview() {
       setPreview({url:result.preview.signed_url,expires:result.preview.expires_seconds,evidenceId})
       setOpened(previous=>previous.includes(evidenceId)?previous:[...previous,evidenceId])
       setNotice('Private original available temporarily. Verify the issuing authority and legal scope independently.')
-    }catch(problem){setError(dealerReviewerErrorMessage(problem,'Private evidence preview refused'))}
+    }catch(problem){
+      // A wrong step-up password is a refusal of THIS action; a lost session is a loss of authority.
+      if(isSessionExpired(problem)){loseAuthority(problem,'Private evidence preview refused');return}
+      setError(dealerReviewerErrorMessage(problem,'Private evidence preview refused'))
+    }
     finally{setBusy(false);setPassword('')}
   }
   async function decide(){
@@ -162,7 +215,11 @@ export default function DealerClaimReview() {
       setNotice(`Independent claim decision recorded: ${result.review.status}. No business-compliance or tenant activation was executed.`)
       setReason('');setIssuer('');setDocumentConfirmed(false)
       await reload()
-    }catch(problem){setError(dealerReviewerErrorMessage(problem,'Independent decision refused'))}
+    }catch(problem){
+      // A wrong step-up password is a refusal of THIS action; a lost session is a loss of authority.
+      if(isSessionExpired(problem)){loseAuthority(problem,'Independent decision refused');return}
+      setError(dealerReviewerErrorMessage(problem,'Independent decision refused'))
+    }
     finally{setBusy(false);setPassword('')}
   }
   async function quarantine(){
@@ -184,9 +241,15 @@ export default function DealerClaimReview() {
       })
       setEvidence(result.evidence||[])
       setEvidenceId((result.evidence||[]).find(e=>!e.quarantined)?.evidence_id||'')
-    }catch(problem){setError(dealerReviewerErrorMessage(problem,'Quarantine refused'))}
+    }catch(problem){
+      // A wrong step-up password is a refusal of THIS action; a lost session is a loss of authority.
+      if(isSessionExpired(problem)){loseAuthority(problem,'Quarantine refused');return}
+      setError(dealerReviewerErrorMessage(problem,'Quarantine refused'))
+    }
     finally{setBusy(false);setPassword('')}
   }
+  const queueMessage=queueState==='expired'?'Your reviewer session is no longer valid — sign in again to continue.'
+    :queueState==='forbidden'?'This session is not allowed to read the claim queue.':'The claim queue could not be loaded.'
   const selectedEvidence=evidence.find(e=>e.evidence_id===evidenceId)
   const selectedOpened=Boolean(evidenceId&&opened.includes(evidenceId))
 
@@ -223,11 +286,12 @@ export default function DealerClaimReview() {
                 </Button>
               </div>
               {queueState==='loading'&&<p className="px-4 py-4 text-sm text-carup-text-2" role="status">Loading the claim queue…</p>}
-              {(queueState==='forbidden'||queueState==='failed')&&<p className="px-4 py-4 text-sm text-status-danger" role="alert" data-testid="claim-queue-unavailable">
-                {queueState==='forbidden'?'This session is not allowed to read the claim queue.':'The claim queue could not be loaded.'} This is not an empty queue.
-              </p>}
+              {(queueState==='forbidden'||queueState==='expired'||queueState==='failed')&&<div className="px-4 py-4 text-sm text-status-danger" role="alert" data-testid="claim-queue-unavailable">
+                <p>{queueMessage} This is not an empty queue.</p>
+                <Button variant="outline" size="sm" className="mt-3 min-h-11" onClick={()=>{void reload()}}>Try again</Button>
+              </div>}
               {queueState==='ready'&&claims.length===0&&<p className="px-4 py-4 text-sm text-carup-text-2">No pending/recorded claims in this queue.</p>}
-              {claims.length>0&&<ul className="max-h-[70vh] divide-y divide-carup-line overflow-y-auto" aria-label="Claims">
+              {queueState==='ready'&&claims.length>0&&<ul className="max-h-[70vh] divide-y divide-carup-line overflow-y-auto" aria-label="Claims">
                 {claims.map(claim=>{
                   const isSelected=selected===claim.claim_id
                   return <li key={claim.claim_id}>
@@ -435,11 +499,11 @@ export default function DealerClaimReview() {
             <h2 className="font-semibold text-lg mb-3">Claim review queue</h2>
             <Button variant="outline" size="sm" onClick={()=>{void reload()}}>Refresh queue</Button>
             {queueState==='loading'&&<p className="text-gray-600 mt-4 text-sm" role="status">Loading the claim queue…</p>}
-            {(queueState==='forbidden'||queueState==='failed')&&<p className="text-red-700 mt-4 text-sm" role="alert" data-testid="claim-queue-unavailable">
-              {queueState==='forbidden'?'This session is not allowed to read the claim queue.':'The claim queue could not be loaded.'} This is not an empty queue.
+            {(queueState==='forbidden'||queueState==='expired'||queueState==='failed')&&<p className="text-red-700 mt-4 text-sm" role="alert" data-testid="claim-queue-unavailable">
+              {queueMessage} This is not an empty queue.
             </p>}
             {queueState==='ready'&&claims.length===0&&<p className="text-gray-600 mt-4 text-sm">No pending/recorded claims in this queue.</p>}
-            {claims.map(claim=><button key={claim.claim_id} type="button"
+            {queueState==='ready'&&claims.map(claim=><button key={claim.claim_id} type="button"
               className={`block w-full text-left mt-3 p-3 rounded-lg border ${selected===claim.claim_id?'border-blue-700 bg-blue-50':'border-gray-200'}`}
               onClick={()=>{
                 // UAT-R1: re-clicking the claim that is already open must not empty its document list
