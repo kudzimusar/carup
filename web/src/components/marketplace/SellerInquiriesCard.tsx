@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Mail, MessageSquare, Loader2, Phone } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { Vehicle } from '@/types'
+import { skin } from '@/lib/unifiedSkin'
 
 export interface SellerInquiry {
   id: string
@@ -63,7 +64,7 @@ export function SellerInquiryList({
     : inquiries
 
   if (sellerScopedInquiries.length === 0) {
-    return <p className="text-sm text-gray-500">No inquiries yet. They will appear here when buyers contact you about your listings.</p>
+    return <p className={skin('text-sm text-gray-500', 'text-sm text-carup-text-2')}>No inquiries yet. They will appear here when buyers contact you about your listings.</p>
   }
 
   return (
@@ -77,41 +78,41 @@ export function SellerInquiryList({
         const hasReplyChannel = Boolean(mailto || tel)
 
         return (
-          <li key={inq.id} className="rounded-lg border border-gray-100 p-3 text-sm">
+          <li key={inq.id} className={skin('rounded-lg border border-gray-100 p-3 text-sm', 'rounded-lg border border-carup-line p-3 text-sm')}>
             <div className="flex items-center justify-between gap-3">
               <span className="font-medium capitalize">{inq.inquiry_type.replace(/_/g, ' ')}</span>
               <Badge variant="secondary" className="text-[10px]">{inq.status}</Badge>
             </div>
-            <div className="mt-2 rounded-md bg-gray-50 p-2 text-xs text-gray-600">
-              <p className="font-medium text-gray-800">
+            <div className={skin('mt-2 rounded-md bg-gray-50 p-2 text-xs text-gray-600', 'mt-2 rounded-md bg-carup-bg-surface p-2 text-xs text-carup-text-2')}>
+              <p className={skin('font-medium text-gray-800', 'font-medium text-carup-text')}>
                 {vin ? (
-                  <Link className="hover:text-orange-600 hover:underline" to={`/marketplace/${encodeURIComponent(vin)}`}>
+                  <Link className={skin('hover:text-orange-600 hover:underline', 'hover:text-carup-action-hover hover:underline')} to={`/marketplace/${encodeURIComponent(vin)}`}>
                     {vehicleLabel(listing, listingId)}
                   </Link>
                 ) : (
                   vehicleLabel(listing, listingId)
                 )}
               </p>
-              {vin && <p className="mt-0.5 font-mono text-[11px] text-gray-500">VIN {vin}</p>}
+              {vin && <p className={skin('mt-0.5 font-mono text-[11px] text-gray-500', 'mt-0.5 font-mono text-[11px] text-carup-text-2')}>VIN {vin}</p>}
             </div>
-            {inq.message && <p className="mt-2 text-gray-600 line-clamp-2">{inq.message}</p>}
-            <div className="mt-2 space-y-1 text-xs text-gray-500">
-              <p><span className="text-gray-400">Buyer:</span> {inq.contact_name || 'Buyer'}</p>
+            {inq.message && <p className={skin('mt-2 text-gray-600 line-clamp-2', 'mt-2 text-carup-text-2 line-clamp-2')}>{inq.message}</p>}
+            <div className={skin('mt-2 space-y-1 text-xs text-gray-500', 'mt-2 space-y-1 text-xs text-carup-text-2')}>
+              <p><span className={skin('text-gray-400', 'text-carup-text-3')}>Buyer:</span> {inq.contact_name || 'Buyer'}</p>
               {inq.contact_email && (
                 <p className="flex items-center gap-1.5">
-                  <Mail className="h-3 w-3 text-gray-400" />
-                  {mailto ? <a className="hover:text-orange-600 hover:underline" href={mailto}>{inq.contact_email}</a> : <span>{inq.contact_email}</span>}
+                  <Mail className={skin('h-3 w-3 text-gray-400', 'h-3 w-3 text-carup-text-3')} />
+                  {mailto ? <a className={skin('hover:text-orange-600 hover:underline', 'hover:text-carup-action-hover hover:underline')} href={mailto}>{inq.contact_email}</a> : <span>{inq.contact_email}</span>}
                 </p>
               )}
               {inq.contact_phone && (
                 <p className="flex items-center gap-1.5">
-                  <Phone className="h-3 w-3 text-gray-400" />
-                  {tel ? <a className="hover:text-orange-600 hover:underline" href={tel}>{inq.contact_phone}</a> : <span>{inq.contact_phone}</span>}
+                  <Phone className={skin('h-3 w-3 text-gray-400', 'h-3 w-3 text-carup-text-3')} />
+                  {tel ? <a className={skin('hover:text-orange-600 hover:underline', 'hover:text-carup-action-hover hover:underline')} href={tel}>{inq.contact_phone}</a> : <span>{inq.contact_phone}</span>}
                 </p>
               )}
-              {!hasReplyChannel && <p className="text-amber-700">No reply channel available</p>}
+              {!hasReplyChannel && <p className={skin('text-amber-700', 'text-status-warning')}>No reply channel available</p>}
             </div>
-            <p className="mt-2 text-xs text-gray-400">
+            <p className={skin('mt-2 text-xs text-gray-400', 'mt-2 text-xs text-carup-text-3')}>
               {new Date(inq.created_at).toLocaleDateString()}
               {inq.referral_attributed ? ' · referral' : ''}
             </p>
@@ -146,18 +147,18 @@ export function SellerInquiriesCard({ ownedListings }: SellerInquiriesCardProps)
     <Card className="border-0 card-shadow" data-testid="seller-inquiries-card">
       <CardContent className="p-5">
         <div className="mb-3 flex items-center gap-2">
-          <MessageSquare className="h-4 w-4 text-orange-500" />
+          <MessageSquare className={skin('h-4 w-4 text-orange-500', 'h-4 w-4 text-carup-action')} />
           <h3 className="font-semibold">Marketplace inquiries</h3>
           {!loading && !unavailable && <Badge variant="secondary">{inquiries.length}</Badge>}
         </div>
         {unavailable ? (
-          <p role="alert" className="text-sm text-amber-900" data-testid="seller-inquiries-unavailable">
+          <p role="alert" className={skin('text-sm text-amber-900', 'text-sm text-carup-text')} data-testid="seller-inquiries-unavailable">
             Marketplace inquiries could not be loaded right now. This is not an empty inbox — please try again shortly.
           </p>
         ) : loading ? (
-          <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+          <div className={skin('flex items-center gap-2 text-sm text-gray-500', 'flex items-center gap-2 text-sm text-carup-text-2')}><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
         ) : inquiries.length === 0 ? (
-          <p className="text-sm text-gray-500">No inquiries yet. They will appear here when buyers contact you about your listings.</p>
+          <p className={skin('text-sm text-gray-500', 'text-sm text-carup-text-2')}>No inquiries yet. They will appear here when buyers contact you about your listings.</p>
         ) : (
           <SellerInquiryList inquiries={inquiries} ownedListings={ownedListings} />
         )}

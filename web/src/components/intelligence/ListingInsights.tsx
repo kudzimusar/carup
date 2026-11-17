@@ -30,6 +30,7 @@ import {
   displayTrust,
   type IntelligenceEnvelope,
 } from '@/lib/intelligenceDisplay'
+import { skin } from '@/lib/unifiedSkin'
 
 /** The discovery funnel, in the order the plan states it. */
 const FUNNEL = [
@@ -96,9 +97,9 @@ export default function ListingInsights({
 
   if (state === 'loading') {
     return (
-      <section className="rounded-xl border bg-white p-5" data-testid="listing-insights-loading">
-        <h3 className="text-sm font-semibold text-gray-700">Listing insights</h3>
-        <p className="mt-2 text-sm text-gray-500">Loading…</p>
+      <section className={skin('rounded-xl border bg-white p-5', 'rounded-xl border bg-carup-bg-raised p-5')} data-testid="listing-insights-loading">
+        <h3 className={skin('text-sm font-semibold text-gray-700', 'text-sm font-semibold text-carup-text-2')}>Listing insights</h3>
+        <p className={skin('mt-2 text-sm text-gray-500', 'mt-2 text-sm text-carup-text-2')}>Loading…</p>
       </section>
     )
   }
@@ -113,10 +114,10 @@ export default function ListingInsights({
 
   if (state === 'failed' && !completeness) {
     return (
-      <section className="rounded-xl border bg-white p-5" data-testid="listing-insights-unavailable">
-        <h3 className="text-sm font-semibold text-gray-700">Listing insights</h3>
-        <p className="mt-2 flex items-start gap-2 text-sm text-gray-600">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />
+      <section className={skin('rounded-xl border bg-white p-5', 'rounded-xl border bg-carup-bg-raised p-5')} data-testid="listing-insights-unavailable">
+        <h3 className={skin('text-sm font-semibold text-gray-700', 'text-sm font-semibold text-carup-text-2')}>Listing insights</h3>
+        <p className={skin('mt-2 flex items-start gap-2 text-sm text-gray-600', 'mt-2 flex items-start gap-2 text-sm text-carup-text-2')}>
+          <AlertCircle className={skin('mt-0.5 h-4 w-4 shrink-0 text-amber-500', 'mt-0.5 h-4 w-4 shrink-0 text-status-warning')} aria-hidden="true" />
           <span data-testid="listing-insights-message">
             Insights could not be loaded. These figures are NOT zero.
           </span>
@@ -128,15 +129,15 @@ export default function ListingInsights({
   return (
     <section className="space-y-4" data-testid="listing-insights">
       {/* ── Performance ─────────────────────────────────────────────────── */}
-      <div className="rounded-xl border bg-white p-5">
+      <div className={skin('rounded-xl border bg-white p-5', 'rounded-xl border bg-carup-bg-raised p-5')}>
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-700">How buyers found this listing</h3>
-          <span className="text-xs text-gray-500">Last {payload?.window_days ?? windowDays} days</span>
+          <h3 className={skin('text-sm font-semibold text-gray-700', 'text-sm font-semibold text-carup-text-2')}>How buyers found this listing</h3>
+          <span className={skin('text-xs text-gray-500', 'text-xs text-carup-text-2')}>Last {payload?.window_days ?? windowDays} days</span>
         </div>
 
         {!performanceReadable ? (
-          <p className="mt-3 flex items-start gap-2 text-sm text-gray-600" data-testid="listing-performance-unavailable">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />
+          <p className={skin('mt-3 flex items-start gap-2 text-sm text-gray-600', 'mt-3 flex items-start gap-2 text-sm text-carup-text-2')} data-testid="listing-performance-unavailable">
+            <AlertCircle className={skin('mt-0.5 h-4 w-4 shrink-0 text-amber-500', 'mt-0.5 h-4 w-4 shrink-0 text-status-warning')} aria-hidden="true" />
             <span>{envelopeMessage(payload)}</span>
           </p>
         ) : (
@@ -148,13 +149,13 @@ export default function ListingInsights({
                 return (
                   <div key={key} data-testid={`funnel-${key}`}>
                     <dd
-                      className={hasValue(metric) ? 'text-xl font-semibold text-gray-900' : 'text-sm italic text-gray-500'}
+                      className={hasValue(metric) ? skin('text-xl font-semibold text-gray-900', 'text-xl font-semibold text-carup-text') : skin('text-sm italic text-gray-500', 'text-sm italic text-carup-text-2')}
                       data-testid={`funnel-${key}-value`}
                     >
                       {displayMetric(metric)}
                     </dd>
-                    <dt className="mt-0.5 text-xs text-gray-600">{label}</dt>
-                    {qualifier && <p className="mt-0.5 text-[11px] text-gray-400">{qualifier}</p>}
+                    <dt className={skin('mt-0.5 text-xs text-gray-600', 'mt-0.5 text-xs text-carup-text-2')}>{label}</dt>
+                    {qualifier && <p className={skin('mt-0.5 text-[11px] text-gray-400', 'mt-0.5 text-[11px] text-carup-text-3')}>{qualifier}</p>}
                   </div>
                 )
               })}
@@ -166,20 +167,20 @@ export default function ListingInsights({
                 const qualifier = metricQualifier(metric)
                 return (
                   <div key={key} data-testid={`conversion-${key}`}>
-                    <p className="text-xs text-gray-600">{label}</p>
+                    <p className={skin('text-xs text-gray-600', 'text-xs text-carup-text-2')}>{label}</p>
                     <p
-                      className={hasValue(metric) ? 'text-base font-medium text-gray-900' : 'text-xs italic text-gray-500'}
+                      className={hasValue(metric) ? skin('text-base font-medium text-gray-900', 'text-base font-medium text-carup-text') : skin('text-xs italic text-gray-500', 'text-xs italic text-carup-text-2')}
                       data-testid={`conversion-${key}-value`}
                     >
                       {displayMetric(metric)}
                     </p>
-                    {qualifier && <p className="mt-0.5 text-[11px] text-gray-400">{qualifier}</p>}
+                    {qualifier && <p className={skin('mt-0.5 text-[11px] text-gray-400', 'mt-0.5 text-[11px] text-carup-text-3')}>{qualifier}</p>}
                   </div>
                 )
               })}
             </div>
 
-            <div className="mt-4 space-y-1 border-t pt-3 text-[11px] text-gray-400">
+            <div className={skin('mt-4 space-y-1 border-t pt-3 text-[11px] text-gray-400', 'mt-4 space-y-1 border-t pt-3 text-[11px] text-carup-text-3')}>
               {formatAsOf(payload?.as_of) && <p data-testid="insights-as-of">As of {formatAsOf(payload?.as_of)}</p>}
               {coverageNote(payload) && <p data-testid="insights-coverage">{coverageNote(payload)}</p>}
               {payload?.calculation_version && <p>Calculation {payload.calculation_version}</p>}
@@ -190,14 +191,14 @@ export default function ListingInsights({
 
       {/* ── Listing completeness — explicitly NOT a Trust score ─────────── */}
       {completeness && (
-        <div className="rounded-xl border bg-white p-5" data-testid="listing-completeness">
+        <div className={skin('rounded-xl border bg-white p-5', 'rounded-xl border bg-carup-bg-raised p-5')} data-testid="listing-completeness">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-700">Listing completeness</h3>
-            <span className="text-lg font-semibold text-gray-900" data-testid="completeness-percent">
+            <h3 className={skin('text-sm font-semibold text-gray-700', 'text-sm font-semibold text-carup-text-2')}>Listing completeness</h3>
+            <span className={skin('text-lg font-semibold text-gray-900', 'text-lg font-semibold text-carup-text')} data-testid="completeness-percent">
               {completeness.percent}%
             </span>
           </div>
-          <p className="mt-1 text-xs text-gray-500" data-testid="completeness-not-trust">
+          <p className={skin('mt-1 text-xs text-gray-500', 'mt-1 text-xs text-carup-text-2')} data-testid="completeness-not-trust">
             How much useful information you have supplied. This is not a Trust score.
           </p>
 
@@ -205,13 +206,13 @@ export default function ListingInsights({
             {completeness.groups.map((group) => (
               <li key={group.key} className="flex items-start gap-2 text-sm" data-testid={`completeness-group-${group.key}`}>
                 {group.complete ? (
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" aria-hidden="true" />
+                  <CheckCircle2 className={skin('mt-0.5 h-4 w-4 shrink-0 text-green-600', 'mt-0.5 h-4 w-4 shrink-0 text-status-success')} aria-hidden="true" />
                 ) : (
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />
+                  <Info className={skin('mt-0.5 h-4 w-4 shrink-0 text-amber-500', 'mt-0.5 h-4 w-4 shrink-0 text-status-warning')} aria-hidden="true" />
                 )}
-                <span className={group.complete ? 'text-gray-600' : 'text-gray-800'}>
+                <span className={group.complete ? skin('text-gray-600', 'text-carup-text-2') : skin('text-gray-800', 'text-carup-text')}>
                   <span className="font-medium">{group.label}</span>
-                  {!group.complete && group.guidance && <span className="block text-xs text-gray-600">{group.guidance}</span>}
+                  {!group.complete && group.guidance && <span className={skin('block text-xs text-gray-600', 'block text-xs text-carup-text-2')}>{group.guidance}</span>}
                 </span>
               </li>
             ))}
@@ -220,10 +221,10 @@ export default function ListingInsights({
           {/* The denominator is published: 100% never means "everything". */}
           {completeness.not_measurable?.length > 0 && (
             <div className="mt-3 border-t pt-3" data-testid="completeness-not-measurable">
-              <p className="text-[11px] font-medium text-gray-500">Not assessed</p>
+              <p className={skin('text-[11px] font-medium text-gray-500', 'text-[11px] font-medium text-carup-text-2')}>Not assessed</p>
               <ul className="mt-1 space-y-0.5">
                 {completeness.not_measurable.map((group) => (
-                  <li key={group.key} className="text-[11px] text-gray-400">{group.detail}</li>
+                  <li key={group.key} className={skin('text-[11px] text-gray-400', 'text-[11px] text-carup-text-3')}>{group.detail}</li>
                 ))}
               </ul>
             </div>
@@ -232,14 +233,14 @@ export default function ListingInsights({
           {/* Trust travels OUTSIDE the score, in its own block. */}
           <div className="mt-3 flex flex-wrap gap-4 border-t pt-3" data-testid="listing-trust-separate">
             <div>
-              <p className="text-[11px] text-gray-500">Trust evaluation</p>
-              <p className="text-sm text-gray-800" data-testid="listing-trust-state">
+              <p className={skin('text-[11px] text-gray-500', 'text-[11px] text-carup-text-2')}>Trust evaluation</p>
+              <p className={skin('text-sm text-gray-800', 'text-sm text-carup-text')} data-testid="listing-trust-state">
                 {displayTrust(completeness.displayed_separately?.trust)}
               </p>
             </div>
             <div>
-              <p className="text-[11px] text-gray-500">Publication</p>
-              <p className="text-sm text-gray-800" data-testid="listing-publication-status">
+              <p className={skin('text-[11px] text-gray-500', 'text-[11px] text-carup-text-2')}>Publication</p>
+              <p className={skin('text-sm text-gray-800', 'text-sm text-carup-text')} data-testid="listing-publication-status">
                 {completeness.displayed_separately?.transaction_readiness?.publication_status ?? 'Not recorded'}
               </p>
             </div>
@@ -249,13 +250,13 @@ export default function ListingInsights({
 
       {/* ── Lost opportunity ────────────────────────────────────────────── */}
       {lostOpportunity && lostOpportunity.dimensions.length > 0 && (
-        <div className="rounded-xl border bg-white p-5" data-testid="listing-lost-opportunity">
-          <h3 className="text-sm font-semibold text-gray-700">Searches you could not be matched to</h3>
+        <div className={skin('rounded-xl border bg-white p-5', 'rounded-xl border bg-carup-bg-raised p-5')} data-testid="listing-lost-opportunity">
+          <h3 className={skin('text-sm font-semibold text-gray-700', 'text-sm font-semibold text-carup-text-2')}>Searches you could not be matched to</h3>
           <ul className="mt-2 space-y-2">
             {lostOpportunity.dimensions.map((dimension) => (
-              <li key={dimension.filter} className="text-sm text-gray-800" data-testid={`lost-${dimension.filter}`}>
+              <li key={dimension.filter} className={skin('text-sm text-gray-800', 'text-sm text-carup-text')} data-testid={`lost-${dimension.filter}`}>
                 {dimension.message}
-                <span className="ml-1 text-xs text-gray-500">
+                <span className={skin('ml-1 text-xs text-gray-500', 'ml-1 text-xs text-carup-text-2')}>
                   ({dimension.missed_searches} {dimension.missed_searches === 1 ? 'search' : 'searches'})
                 </span>
               </li>
@@ -266,14 +267,14 @@ export default function ListingInsights({
 
       {/* ── Next best action ────────────────────────────────────────────── */}
       {actions.length > 0 && (
-        <div className="rounded-xl border bg-white p-5" data-testid="listing-next-best-actions">
-          <h3 className="text-sm font-semibold text-gray-700">What to do next</h3>
+        <div className={skin('rounded-xl border bg-white p-5', 'rounded-xl border bg-carup-bg-raised p-5')} data-testid="listing-next-best-actions">
+          <h3 className={skin('text-sm font-semibold text-gray-700', 'text-sm font-semibold text-carup-text-2')}>What to do next</h3>
           <ol className="mt-2 space-y-2">
             {actions.slice(0, 4).map((action) => (
-              <li key={action.action} className="text-sm text-gray-800" data-testid={`action-${action.action}`}>
+              <li key={action.action} className={skin('text-sm text-gray-800', 'text-sm text-carup-text')} data-testid={`action-${action.action}`}>
                 {action.message}
                 {action.basis === 'observed_missed_searches' && (
-                  <span className="ml-1 text-xs font-medium text-amber-700">Based on searches we observed</span>
+                  <span className={skin('ml-1 text-xs font-medium text-amber-700', 'ml-1 text-xs font-medium text-status-warning')}>Based on searches we observed</span>
                 )}
               </li>
             ))}

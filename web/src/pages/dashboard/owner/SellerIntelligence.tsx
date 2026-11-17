@@ -23,6 +23,9 @@ import {
 } from '@/lib/intelligenceDisplay'
 import type { Vehicle } from '@/types'
 import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { OwnerPageHeader, OWNER_FOCUS, OWNER_SECONDARY_ACTION } from '@/components/owner/OwnerPageHeader'
+import { DataState } from '@/components/truth'
 
 type SellerSeriesPoint = {
   date: string
@@ -129,6 +132,63 @@ function UntrackedPanel({ title, reason }: { title: string; reason: string }) {
   )
 }
 
+/* ── RX04-C unified presentation helpers (tokens only; same metric envelopes) ── */
+const EYEBROW = 'text-[11px] font-semibold uppercase tracking-[0.16em] text-carup-text-3'
+
+function UnifiedSignal({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="min-w-0 rounded-card bg-carup-bg-raised p-4 ring-1 ring-carup-line" data-testid={`seller-intelligence-kpi-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}>
+      <p className={EYEBROW}>{label}</p>
+      <p className="mt-1.5 break-words text-2xl font-bold tracking-[-0.02em] text-carup-text">{value}</p>
+      <p className="mt-1 text-[12px] leading-4 text-carup-text-2">{detail}</p>
+    </div>
+  )
+}
+
+function UnifiedSeries({ points }: { points: SellerSeriesPoint[] }) {
+  const max = Math.max(1, ...points.flatMap(point => [point.views, point.saves, point.inquiries]))
+  if (!points.length) {
+    return (
+      <p className="rounded-control bg-carup-bg-surface p-5 text-sm text-carup-text-2" data-testid="seller-intelligence-series-empty">
+        No computed daily rollup points are available for this window.
+      </p>
+    )
+  }
+  return (
+    <div data-testid="seller-intelligence-time-series">
+      <div className="overflow-x-auto">
+        <div className="flex items-end gap-1.5 border-b border-carup-line pb-2" style={{ minWidth: `${Math.max(280, points.length * 22)}px` }}>
+          {points.map(point => (
+            <div key={point.date} className="min-w-0 flex-1">
+              <div className="flex h-32 items-end justify-center gap-0.5" role="img" aria-label={`${point.date}: ${point.views} views, ${point.saves} saves, ${point.inquiries} inquiries`}>
+                <div className="w-1.5 rounded-t-sm bg-carup-text" style={{ height: `${Math.max(2, Math.round((point.views / max) * 100))}%` }} />
+                <div className="w-1.5 rounded-t-sm bg-carup-action" style={{ height: `${Math.max(2, Math.round((point.saves / max) * 100))}%` }} />
+                <div className="w-1.5 rounded-t-sm bg-status-info" style={{ height: `${Math.max(2, Math.round((point.inquiries / max) * 100))}%` }} />
+              </div>
+              <p className="mt-1.5 truncate text-center text-[10px] text-carup-text-3">{String(point.date).slice(5)}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-4 text-[12px] text-carup-text-2">
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-carup-text" aria-hidden="true" />Views</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-carup-action" aria-hidden="true" />Saves</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-status-info" aria-hidden="true" />Inquiries</span>
+      </div>
+    </div>
+  )
+}
+
+function UnifiedUntracked({ title, reason }: { title: string; reason: string }) {
+  return (
+    <div className="rounded-card bg-carup-bg-surface p-4" data-testid={`seller-intelligence-untracked-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}>
+      <p className={EYEBROW}>{title}</p>
+      <p className="mt-1.5 text-sm font-semibold text-carup-text">Not measured yet</p>
+      <p className="mt-1 text-[12px] leading-5 text-carup-text-2">{reason}</p>
+    </div>
+  )
+}
+
 export default function SellerIntelligence() {
   const {
     fetchSellerIntelligence,
@@ -227,6 +287,179 @@ export default function SellerIntelligence() {
 
   const unreadThreads = threads?.reduce((sum, thread) => sum + Number(thread.unread_count || 0), 0) ?? null
   const marketplaceThreads = threads?.filter(thread => Boolean(thread.marketplace_listing_id)).length ?? null
+
+  if (isUnifiedUiEnabled()) {
+    const listingRows = vehicles.map(vehicle => ({ vehicle, insight: listingInsights[vehicle.vin] }))
+    return (
+      <div className="mx-auto w-full max-w-[1320px] space-y-6" data-testid="seller-intelligence-page">
+        <OwnerPageHeader
+          title="Seller insights"
+          description="What buyers did with your listings — measured activity only. A measured zero is shown as zero; anything CarUp did not measure is said in words."
+          meta={readable
+            ? [asOf ? `As of ${asOf}` : null, coverage].filter(Boolean).join(' · ') || `${windowDays}-day window`
+            : state === 'loading' ? 'Reading your Seller metrics' : envelopeMessage(pulse)}
+          actions={(
+            <>
+              <button type="button" className={OWNER_SECONDARY_ACTION} onClick={() => setRefreshKey(key => key + 1)} data-testid="seller-intelligence-refresh">
+                <RefreshCw className="h-4 w-4" aria-hidden="true" /> Refresh
+              </button>
+              <Link to="/dashboard/listings" className={OWNER_SECONDARY_ACTION}>My listings <ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>
+            </>
+          )}
+        />
+
+        <div className="flex gap-2" role="group" aria-label="Seller insights period">
+          {WINDOWS.map(days => (
+            <button
+              key={days}
+              type="button"
+              onClick={() => setWindowDays(days)}
+              aria-pressed={windowDays === days}
+              className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm font-semibold ring-1 transition ${OWNER_FOCUS} ${windowDays === days ? 'bg-carup-text text-carup-bg-raised ring-carup-text' : 'bg-carup-bg-raised text-carup-text-2 ring-carup-line hover:text-carup-text'}`}
+            >
+              {days} days
+            </button>
+          ))}
+        </div>
+
+        {state === 'loading' && <DataState state="loading" subject="your Seller insights" />}
+        {state === 'error' && (
+          <div role="alert" className="rounded-card border border-status-warning bg-status-warning-soft p-5">
+            <p className="font-semibold text-carup-text">Seller insights could not be read.</p>
+            <p className="mt-1 text-sm text-carup-text-2">These figures are unavailable, not zero. Your listings and Seller Studio remain available.</p>
+          </div>
+        )}
+        {state === 'ready' && !readable && (
+          <div className="rounded-card bg-carup-bg-raised p-5 ring-1 ring-carup-line">
+            <p className="text-base font-semibold text-carup-text">{envelopeMessage(pulse)}</p>
+            <p className="mt-1 text-sm text-carup-text-2">CarUp will not draw a chart from absent rollups.</p>
+          </div>
+        )}
+
+        {state === 'ready' && readable && (
+          <>
+            <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6" data-testid="seller-intelligence-kpi-band" aria-label={`Last ${windowDays} days`}>
+              <UnifiedSignal label="Active listings" value={metricCopy(metrics.active_listings)} detail="Listings live in this window" />
+              <UnifiedSignal label="Listing views" value={metricCopy(metrics.views)} detail="Times a listing was opened" />
+              <UnifiedSignal label="Unique visitors" value={metricCopy(metrics.unique_viewers)} detail="Distinct viewers, not people" />
+              <UnifiedSignal label="Saves" value={metricCopy(metrics.saves)} detail="Buyers who saved a listing" />
+              <UnifiedSignal label="Inquiries" value={metricCopy(metrics.inquiries)} detail="Messages buyers started" />
+              <UnifiedSignal
+                label="Response state"
+                value={threads === null ? 'Unavailable' : `${marketplaceThreads} threads`}
+                detail={threads === null ? 'Conversations could not be read' : `${unreadThreads} unread messages`}
+              />
+            </section>
+
+            <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+              <div className="min-w-0 rounded-card bg-carup-bg-raised p-4 ring-1 ring-carup-line sm:p-5">
+                <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                  <div>
+                    <p className={EYEBROW}>Day by day</p>
+                    <h2 className="mt-1 text-[17px] font-semibold tracking-[-0.01em] text-carup-text">Views, saves and inquiries</h2>
+                  </div>
+                  {coverage && <p className="text-[12px] font-semibold text-status-warning">{coverage}</p>}
+                </div>
+                <UnifiedSeries points={series} />
+              </div>
+
+              <div className="min-w-0 rounded-card bg-carup-bg-raised p-4 ring-1 ring-carup-line sm:p-5" data-testid="seller-intelligence-funnel">
+                <p className={EYEBROW}>From discovery to contact</p>
+                <h2 className="mt-1 text-[17px] font-semibold tracking-[-0.01em] text-carup-text">How far buyers got</h2>
+                <ol className="mt-4 space-y-2">
+                  {([
+                    ['Seen in results', metrics.impressions],
+                    ['Opened the listing', metrics.views],
+                    ['Saved it', metrics.saves],
+                    ['Sent an inquiry', metrics.inquiries],
+                  ] as const).map(([label, metric], index) => (
+                    <li key={label} className="flex items-center gap-3">
+                      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-carup-bg-surface-2 text-[12px] font-semibold text-carup-text-2">{index + 1}</span>
+                      <span className="flex-1 text-sm text-carup-text-2">{label}</span>
+                      <span className="font-mono text-base font-semibold text-carup-text">{metricCopy(metric as MetricEnvelope)}</span>
+                    </li>
+                  ))}
+                </ol>
+                <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-carup-line pt-4">
+                  <div><dt className="text-[12px] text-carup-text-3">Opened → saved</dt><dd className="mt-0.5 text-base font-semibold text-carup-text">{metricCopy(conversion.view_to_save)}</dd></div>
+                  <div><dt className="text-[12px] text-carup-text-3">Opened → inquired</dt><dd className="mt-0.5 text-base font-semibold text-carup-text">{metricCopy(conversion.view_to_inquiry)}</dd></div>
+                </dl>
+              </div>
+            </section>
+
+          </>
+        )}
+
+        {/* Car-by-car reads settle independently of the overall rollup, so they stay useful when it is unavailable. */}
+        {state !== 'loading' && (
+          <>
+            <section className="space-y-3" data-testid="seller-intelligence-listing-comparison" aria-labelledby="si-listings">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <p className={EYEBROW}>Car by car</p>
+                  <h2 id="si-listings" className="mt-1 text-[17px] font-semibold tracking-[-0.01em] text-carup-text">Where attention turns into action</h2>
+                </div>
+              </div>
+              {!vehiclesRead ? (
+                <p className="rounded-card bg-carup-bg-raised p-5 text-sm text-carup-text-2 ring-1 ring-carup-line" data-testid="seller-intelligence-listings-unavailable">
+                  CarUp could not read your listings. Nothing is shown because nothing was read — it is not a statement that you have no listings.
+                </p>
+              ) : vehicles.length === 0 ? (
+                <p className="rounded-card bg-carup-bg-raised p-5 text-sm text-carup-text-2 ring-1 ring-carup-line" data-testid="seller-intelligence-no-listings">
+                  You have no listings yet. <Link to="/sell" className="font-semibold text-carup-action-hover underline-offset-2 hover:underline">Start selling</Link>
+                </p>
+              ) : (
+                <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {listingRows.map(({ vehicle, insight }) => (
+                    <li key={vehicle.vin} className="rounded-card bg-carup-bg-raised p-4 ring-1 ring-carup-line" data-testid={`seller-intelligence-listing-${vehicle.vin}`}>
+                      <p className="truncate text-[15px] font-semibold text-carup-text">{[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || vehicle.vin}</p>
+                      <p className="truncate font-mono text-[12px] text-carup-text-3">{vehicle.vin}</p>
+                      <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+                        {([['Views', insight?.metrics?.views], ['Saves', insight?.metrics?.saves], ['Inquiries', insight?.metrics?.inquiries]] as const).map(([label, metric]) => (
+                          <div key={label} className="rounded-control bg-carup-bg-surface py-2">
+                            <dt className="text-[11px] text-carup-text-3">{label}</dt>
+                            <dd className="text-sm font-semibold text-carup-text">{insight ? metricCopy(metric) : 'Unavailable'}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <dl className="mt-3 space-y-1 text-[13px]">
+                        <div className="flex justify-between gap-3"><dt className="text-carup-text-3">Listing completeness</dt><dd className="text-right text-carup-text">{insight?.completeness ? `${insight.completeness.percent}% · not Trust` : 'Unavailable'}</dd></div>
+                        <div className="flex justify-between gap-3"><dt className="text-carup-text-3">CarUp Trust</dt><dd className="text-right text-carup-text">{insight?.completeness ? displayTrust(insight.completeness.displayed_separately.trust) : 'Unavailable'}</dd></div>
+                      </dl>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-card bg-carup-bg-raised p-4 ring-1 ring-carup-line" data-testid="seller-intelligence-inquiry-distribution">
+                <p className={EYEBROW}>What buyers asked about</p>
+                {inquiryDistribution === null ? (
+                  <p className="mt-1.5 text-sm text-carup-text-2">Inquiries could not be read.</p>
+                ) : inquiryDistribution.length === 0 ? (
+                  <p className="mt-1.5 text-sm font-semibold text-carup-text">0 inquiries recorded</p>
+                ) : (
+                  <ul className="mt-2 space-y-1.5">
+                    {inquiryDistribution.map(([type, count]) => (
+                      <li key={type} className="flex justify-between gap-3 text-sm"><span className="capitalize text-carup-text-2">{type}</span><strong className="text-carup-text">{count}</strong></li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <UnifiedUntracked title="Discovery sources" reason="Seller rollups do not include where buyers came from, so CarUp does not guess it from referral URLs." />
+              <UnifiedUntracked title="Geographic interest" reason="Viewer locations are not aggregated for sellers, so none are shown." />
+              <UnifiedUntracked title="Price-change response" reason="Price changes are recorded, but their effect on buyer activity is not computed. No uplift is claimed." />
+            </section>
+
+            <p className="rounded-card bg-carup-bg-surface p-4 text-[13px] leading-5 text-carup-text-2">
+              <strong className="text-carup-text">Reading these numbers:</strong> views are not people; inquiries are not sales; listing completeness is not CarUp Trust; anything not measured stays unavailable rather than becoming zero.
+            </p>
+          </>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-9" data-testid="seller-intelligence-page">
