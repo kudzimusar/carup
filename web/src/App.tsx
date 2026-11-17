@@ -12,7 +12,12 @@ import { FeatureGovernanceLoader } from './context/FeatureGovernanceContext'
 import { NotFoundPage } from './components/routing/FeatureStatePages'
 // RX-02A S1-3: isolated component catalogue renderer (§10.3). Dev-only — the route
 // below is gated behind import.meta.env.DEV, so no production surface is added.
-const ComponentCatalogue = lazyRoute(() => import('./pages/dev/ComponentCatalogue'), 'ComponentCatalogue')
+// RX07-CERT-02 (F4): created only in a dev build. Vite replaces `import.meta.env.DEV` with `false` in a
+// production build, so the whole expression — including the dynamic import — is removed and no
+// ComponentCatalogue chunk is emitted (a hidden route alone would still ship a fetchable file).
+const ComponentCatalogue = import.meta.env.DEV
+  ? lazyRoute(() => import('./pages/dev/ComponentCatalogue'), 'ComponentCatalogue')
+  : null
 import { AuthBootstrapLoading } from './components/routing/RegistryRouteBoundary'
 import LazyRouteBoundary from './components/routing/LazyRouteBoundary'
 import { lazyRoute } from './components/routing/lazyRoute'
@@ -524,7 +529,7 @@ export default function App() {
         </Route>
 
         {/* RX-02A S1-3: component catalogue (isolated renderer, §10.3). Dev build only. */}
-        {import.meta.env.DEV && <Route path="/dev/component-catalogue" element={<ComponentCatalogue />} />}
+        {import.meta.env.DEV && ComponentCatalogue && <Route path="/dev/component-catalogue" element={<ComponentCatalogue />} />}
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
         <Route path="*" element={<NotFoundPage />} />
