@@ -1617,7 +1617,11 @@ export type EvidenceRequirementStatus =
   | 'missing'
   | 'rejected'
   | 'expired'
-  | 'not_applicable';
+  | 'not_applicable'
+  // Emitted by backend/services/evidence/completenessEvaluator.js: awaiting governed review, and a
+  // governed check that could not run ("not recorded" — never a claim of "clear").
+  | 'pending_review'
+  | 'not_available';
 
 export interface EvidenceRequirement {
   key: string;

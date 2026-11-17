@@ -210,3 +210,33 @@ describe('VehicleCompletenessPanel with the REAL {key,label} gap shape', () => {
     expect(html).not.toContain('[object Object]')
   })
 })
+
+// RX04-D: the evaluator (backend/services/evidence/completenessEvaluator.js) also emits
+// `pending_review` (seller authority, registration readiness, a recorded finance obligation) and
+// `not_available` (the governed encumbrance check could not run). A row with either status — or any
+// status this client does not know yet — must render honestly instead of crashing the post-save view.
+describe('VehicleCompletenessPanel — every status the evaluator emits renders', () => {
+  const evaluatorStatuses = {
+    vin: 'TESTVIN0000000009',
+    completeness_percent: 40,
+    is_publishable: false,
+    publication_status: 'draft',
+    blocking_gaps: [],
+    pending_gaps: [],
+    requirements: [
+      { key: 'seller_authority', label: 'Seller authority', status: 'pending_review', is_blocking: true },
+      { key: 'finance_obligation_disclosure', label: 'Governed finance/encumbrance record', status: 'not_available', is_blocking: false },
+      { key: 'future_class', label: 'A future requirement', status: 'some_future_status', is_blocking: false },
+    ],
+  } as unknown as VehicleCompleteness
+
+  it('renders pending_review as under review, not_available as not recorded, unknown statuses without inventing one', () => {
+    const html = render(evaluatorStatuses)
+    expect(html).toContain('Seller authority')
+    expect(html).toContain('Under review')
+    expect(html).toContain('Not recorded')
+    expect(html).toContain('A future requirement')
+    expect(html).toContain('Status not shown here')
+    expect(html).not.toMatch(/Verified<|Uploaded</)
+  })
+})

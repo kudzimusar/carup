@@ -48,10 +48,28 @@ const STATUS_CONFIG: Record<EvidenceRequirementStatus, { label: string; icon: Re
     icon: <CheckCircle2 className={skin('w-4 h-4 text-gray-400', 'w-4 h-4 text-carup-text-3')} />,
     className: skin('text-gray-500 bg-gray-50 border-gray-200', 'text-carup-text-2 bg-carup-bg-surface border-carup-line'),
   },
+  pending_review: {
+    label: 'Under review',
+    icon: <Clock className="w-4 h-4 text-status-warning" />,
+    className: 'text-status-warning bg-status-warning-soft border-status-warning',
+  },
+  not_available: {
+    // completenessEvaluator: the governed check could not run — "not recorded", never "clear".
+    label: 'Not recorded',
+    icon: <AlertCircle className="w-4 h-4 text-carup-text-3" />,
+    className: 'text-carup-text-2 bg-carup-bg-surface border-carup-line',
+  },
+}
+
+/** A status this client does not know yet: shown neutrally, never guessed into a known meaning. */
+const UNKNOWN_STATUS = {
+  label: 'Status not shown here',
+  icon: <AlertCircle className="w-4 h-4 text-carup-text-3" />,
+  className: 'text-carup-text-2 bg-carup-bg-surface border-carup-line',
 }
 
 function RequirementRow({ req }: { req: EvidenceRequirement }) {
-  const cfg = STATUS_CONFIG[req.status]
+  const cfg = STATUS_CONFIG[req.status] ?? UNKNOWN_STATUS
   return (
     <div className={skin('flex items-center justify-between py-2 border-b border-gray-100 last:border-0', 'flex items-center justify-between py-2 border-b border-carup-line last:border-0')} data-testid="requirement-row">
       <div className="flex items-center gap-2">
