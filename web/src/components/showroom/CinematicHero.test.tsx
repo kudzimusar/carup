@@ -130,6 +130,91 @@ describe('CinematicHero', () => {
     expect(screen.getByTestId('home-hero')).toHaveAttribute('data-hero-mode', 'reel')
   })
 
+  it('RX07: before the page has loaded, shows the poster but does not download or play the film', () => {
+    const ready = Object.getOwnPropertyDescriptor(Document.prototype, 'readyState')
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' })
+    try {
+      const { container } = renderHero({ film })
+      const video = container.querySelector('video') as HTMLVideoElement
+      expect(video).toHaveAttribute('poster', '/media/home-film/poster.jpg')
+      expect(video).toHaveAttribute('preload', 'none')
+      expect(video.autoplay).toBe(false)
+      expect(video).toHaveAttribute('data-film-deferred', 'true')
+      expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+
+      Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'complete' })
+      fireEvent(window, new Event('load'))
+      expect(video).toHaveAttribute('preload', 'metadata')
+      expect(video).toHaveAttribute('data-film-deferred', 'false')
+      expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
+    } finally {
+      Reflect.deleteProperty(document, 'readyState')
+      if (ready) Object.defineProperty(Document.prototype, 'readyState', ready)
+    }
+  })
+
+  it('RX07-CERT-02 F2: load fires BETWEEN render and the wait being installed — the film still starts', () => {
+    // First read (initial state during render) sees "loading"; every later read sees "complete", and
+    // no load event is dispatched afterwards — exactly the gap the race lived in.
+    let reads = 0
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => (reads++ === 0 ? 'loading' : 'complete') })
+    try {
+      const { container } = renderHero({ film })
+      const video = container.querySelector('video') as HTMLVideoElement
+      expect(video).toHaveAttribute('preload', 'metadata')
+      expect(video).toHaveAttribute('data-film-deferred', 'false')
+      expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
+    } finally {
+      Reflect.deleteProperty(document, 'readyState')
+    }
+  })
+
+  it('RX07-CERT-02 F2: the wait is installed BEFORE load — one start on load, none on a second load event', () => {
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' })
+    try {
+      renderHero({ film })
+      expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+      Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'complete' })
+      fireEvent(window, new Event('load'))
+      fireEvent(window, new Event('load'))
+      expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
+    } finally {
+      Reflect.deleteProperty(document, 'readyState')
+    }
+  })
+
+  it('RX07-CERT-02 F2: unmounting before load leaves no listener behind and starts nothing', () => {
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' })
+    const add = vi.spyOn(window, 'addEventListener')
+    const remove = vi.spyOn(window, 'removeEventListener')
+    try {
+      const view = renderHero({ film })
+      const added = add.mock.calls.filter(([type]) => type === 'load').map(([, fn]) => fn)
+      expect(added).toHaveLength(1)
+      view.unmount()
+      expect(remove.mock.calls.some(([type, fn]) => type === 'load' && fn === added[0])).toBe(true)
+      fireEvent(window, new Event('load'))
+      expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+    } finally {
+      add.mockRestore(); remove.mockRestore()
+      Reflect.deleteProperty(document, 'readyState')
+    }
+  })
+
+  it('RX07: reduced motion still shows only the poster before and after load (no video ever)', () => {
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => 'loading' })
+    try {
+      mockMedia({ reduce: true })
+      const { container } = renderHero({ film })
+      expect(container.querySelector('video')).toBeNull()
+      fireEvent(window, new Event('load'))
+      expect(container.querySelector('video')).toBeNull()
+      expect(screen.getByTestId('home-hero-film-poster')).toBeInTheDocument()
+    } finally {
+      Reflect.deleteProperty(document, 'readyState')
+    }
+  })
+
   it('falls back to the reel when the film cannot play', () => {
     const { container } = renderHero({ film })
     fireEvent.error(container.querySelector('video') as HTMLVideoElement)

@@ -280,3 +280,16 @@ describe('RX04 F1 — saving before the saved-list read returns', () => {
     expect(save.getAttribute('aria-pressed')).toBe('true')
   })
 })
+
+describe('RX07-WEB-PERF-01-A — no duplicate read storms', () => {
+  it('asks for findings, conflicts and the report ONCE when the vehicle loads with the URL VIN', async () => {
+    renderAt(`/marketplace/${VIN}`)
+    await screen.findByTestId('vehicle-detail-intelligence-hero', {}, { timeout: 15_000 })
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(fetchTemporalFindings).toHaveBeenCalledTimes(1)
+    expect(fetchDisclosureConflicts).toHaveBeenCalledTimes(1)
+    expect(fetchVehicleReport).toHaveBeenCalledTimes(1)
+    expect(fetchTemporalFindings).toHaveBeenCalledWith(VIN)
+    expect(fetchVehicleReport).toHaveBeenCalledWith(VIN)
+  })
+})

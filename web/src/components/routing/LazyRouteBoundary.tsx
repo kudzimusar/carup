@@ -23,7 +23,8 @@ import { Button } from '@/components/ui/button'
  * the retry shell for any caught error (so the app never white-screens), but
  * the marker keeps the intent auditable and lets the message stay accurate.
  */
-function isChunkLoadError(error: unknown): boolean {
+// eslint-disable-next-line react-refresh/only-export-components
+export function isChunkLoadError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const name = (error as { name?: string }).name ?? ''
   const message = (error as { message?: string }).message ?? ''
@@ -32,7 +33,9 @@ function isChunkLoadError(error: unknown): boolean {
     /Loading chunk [\w-]+ failed/i.test(message) ||
     /Failed to fetch dynamically imported module/i.test(message) ||
     /error loading dynamically imported module/i.test(message) ||
-    /Importing a module script failed/i.test(message)
+    /Importing a module script failed/i.test(message) ||
+    // Vite's preload helper: a chunk's split stylesheet failed to download.
+    /Unable to preload CSS for/i.test(message)
   )
 }
 
@@ -40,24 +43,53 @@ interface LazyRouteBoundaryProps {
   children: ReactNode
   /** Optional override for the retry shell title. */
   title?: string
+  /**
+   * RX07: when this value changes while the error shell is showing (e.g. the visitor navigated to
+   * another path), the boundary clears itself so one page's failure never sticks to the next.
+   */
+  resetKey?: string
+  /** RX07: runs on Retry (and on a path-change reset) before remounting, e.g. to forget a failed import. */
+  onRetry?: () => void
+  /**
+   * RX07-CERT-02 (F1): handle ONLY download failures (failed dynamic import / chunk / chunk CSS).
+   * Any other error — a page's own runtime/render failure — is re-thrown so it reaches the boundary
+   * that owned it before RX-07 (e.g. SellerRouteErrorBoundary with its draft-recovery guidance, or
+   * ShowroomRoute's boundary). Used by the per-page boundary that `lazyRoute` adds; the default
+   * (catch everything) is unchanged for the existing callers.
+   */
+  chunkErrorsOnly?: boolean
 }
 
 interface LazyRouteBoundaryState {
   hasError: boolean
+  /** The caught error, so render can tell a download failure from a page's own failure. */
+  error: unknown
   resetKey: number
+  /** RX07: consecutive failed attempts; after a failed retry a full reload is offered too. */
+  failures: number
 }
 
 export class LazyRouteBoundary extends Component<
   LazyRouteBoundaryProps,
   LazyRouteBoundaryState
 > {
-  state: LazyRouteBoundaryState = { hasError: false, resetKey: 0 }
+  state: LazyRouteBoundaryState = { hasError: false, error: null, resetKey: 0, failures: 0 }
 
-  static getDerivedStateFromError(): Partial<LazyRouteBoundaryState> {
-    return { hasError: true }
+  static getDerivedStateFromError(error: unknown): Partial<LazyRouteBoundaryState> {
+    return { hasError: true, error }
+  }
+
+  componentDidUpdate(prev: LazyRouteBoundaryProps) {
+    if (this.state.hasError && prev.resetKey !== this.props.resetKey) {
+      this.props.onRetry?.()
+      this.setState((s) => ({ hasError: false, error: null, failures: 0, resetKey: s.resetKey + 1 }))
+    }
   }
 
   componentDidCatch(error: unknown) {
+    // Not ours to handle: render() re-throws it to the boundary above, so do not count or log it here.
+    if (this.props.chunkErrorsOnly && !isChunkLoadError(error)) return
+    this.setState((s) => ({ failures: s.failures + 1 }))
     // Surface for diagnostics; chunk failures are expected-but-rare (stale
     // deploys), so log rather than swallow.
     if (isChunkLoadError(error)) {
@@ -70,10 +102,15 @@ export class LazyRouteBoundary extends Component<
   private handleRetry = () => {
     // Clear the error and bump the reset key: this remounts the Suspense child,
     // which re-attempts the deferred dynamic import.
-    this.setState((s) => ({ hasError: false, resetKey: s.resetKey + 1 }))
+    this.props.onRetry?.()
+    this.setState((s) => ({ hasError: false, error: null, resetKey: s.resetKey + 1 }))
   }
 
   render() {
+    if (this.state.hasError && this.props.chunkErrorsOnly && !isChunkLoadError(this.state.error)) {
+      // F1: a page's own failure propagates unchanged (never swallowed, never turned into a retry loop).
+      throw this.state.error
+    }
     if (this.state.hasError) {
       return (
         <div
@@ -92,9 +129,18 @@ export class LazyRouteBoundary extends Component<
             Something interrupted loading this part of the app. This is usually a
             temporary network issue or an updated version — please try again.
           </p>
-          <Button onClick={this.handleRetry} data-testid="lazy-route-retry">
-            Retry
-          </Button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button onClick={this.handleRetry} data-testid="lazy-route-retry">
+              Retry
+            </Button>
+            {this.state.failures > 1 && (
+              // A chunk that keeps failing is usually a newer deployment replacing this one's files;
+              // a reload fetches the current version. Shown only after a retry has already failed.
+              <Button variant="outline" onClick={() => window.location.reload()} data-testid="lazy-route-reload">
+                Reload page
+              </Button>
+            )}
+          </div>
         </div>
       )
     }

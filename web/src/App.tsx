@@ -12,154 +12,152 @@ import { FeatureGovernanceLoader } from './context/FeatureGovernanceContext'
 import { NotFoundPage } from './components/routing/FeatureStatePages'
 // RX-02A S1-3: isolated component catalogue renderer (§10.3). Dev-only — the route
 // below is gated behind import.meta.env.DEV, so no production surface is added.
-import ComponentCatalogue from './pages/dev/ComponentCatalogue'
+// RX07-CERT-02 (F4): created only in a dev build. Vite replaces `import.meta.env.DEV` with `false` in a
+// production build, so the whole expression — including the dynamic import — is removed and no
+// ComponentCatalogue chunk is emitted (a hidden route alone would still ship a fetchable file).
+const ComponentCatalogue = import.meta.env.DEV
+  ? lazyRoute(() => import('./pages/dev/ComponentCatalogue'), 'ComponentCatalogue')
+  : null
 import { AuthBootstrapLoading } from './components/routing/RegistryRouteBoundary'
 import LazyRouteBoundary from './components/routing/LazyRouteBoundary'
+import { lazyRoute } from './components/routing/lazyRoute'
+import { warmJourney } from './lib/routeWarmup'
 
 // Public Pages
-import Landing from './pages/Landing'
-import GuestSell from './pages/GuestSell'
-import Marketplace from './pages/Marketplace'
-import MarketplaceCompare from './pages/MarketplaceCompare'
-import MarketplaceCategoryPage from './pages/MarketplaceCategoryPage'
-import VehicleDetail from './pages/VehicleDetail'
+const Landing = lazyRoute(() => import('./pages/Landing'), 'Landing')
+const GuestSell = lazyRoute(() => import('./pages/GuestSell'), 'GuestSell')
+const Marketplace = lazyRoute(() => import('./pages/Marketplace'), 'Marketplace')
+const MarketplaceCompare = lazyRoute(() => import('./pages/MarketplaceCompare'), 'MarketplaceCompare')
+const MarketplaceCategoryPage = lazyRoute(() => import('./pages/MarketplaceCategoryPage'), 'MarketplaceCategoryPage')
+const VehicleDetail = lazyRoute(() => import('./pages/VehicleDetail'), 'VehicleDetail')
 // RX03 showroom compositions: separate lazy chunks, selected per route by <ShowroomRoute>. With the
 // showroom presentation OFF (the production default) these are never requested.
 import { ShowroomRoute } from './components/showroom/ShowroomRoute'
 import { isShowroomPagesEnabled } from './lib/presentationFlags'
-const importShowroomLanding = () => import('./pages/showroom/ShowroomLanding')
-const importShowroomMarketplace = () => import('./pages/showroom/ShowroomMarketplace')
-const importShowroomVehicleDetail = () => import('./pages/showroom/ShowroomVehicleDetail')
-const ShowroomLanding = lazy(importShowroomLanding)
-const ShowroomMarketplace = lazy(importShowroomMarketplace)
-const ShowroomVehicleDetail = lazy(importShowroomVehicleDetail)
-if (isShowroomPagesEnabled()) {
-  // Warm the three journey chunks so moving Home -> Marketplace -> Vehicle Detail does not wait.
-  Promise.all([importShowroomLanding(), importShowroomMarketplace(), importShowroomVehicleDetail()]).catch(() => {
-    /* best effort: the route's own Suspense + LazyRouteBoundary handle a real failure */
-  })
-}
-import VehicleSearch from './pages/VehicleSearch'
-import SharedReport from './pages/SharedReport'
-import DealerDirectory from './pages/DealerDirectory'
-import DealerResearchProfile from './pages/DealerResearchProfile'
-import DealerResearchCorrection from './pages/DealerResearchCorrection'
-import DealerClaimWorkspace from './pages/DealerClaimWorkspace'
-import DealerClaimReview from './pages/DealerClaimReview'
+const ShowroomLanding = lazyRoute(() => import('./pages/showroom/ShowroomLanding'), 'ShowroomLanding')
+const ShowroomMarketplace = lazyRoute(() => import('./pages/showroom/ShowroomMarketplace'), 'ShowroomMarketplace')
+const ShowroomVehicleDetail = lazyRoute(() => import('./pages/showroom/ShowroomVehicleDetail'), 'ShowroomVehicleDetail')
+const VehicleSearch = lazyRoute(() => import('./pages/VehicleSearch'), 'VehicleSearch')
+const SharedReport = lazyRoute(() => import('./pages/SharedReport'), 'SharedReport')
+const DealerDirectory = lazyRoute(() => import('./pages/DealerDirectory'), 'DealerDirectory')
+const DealerResearchProfile = lazyRoute(() => import('./pages/DealerResearchProfile'), 'DealerResearchProfile')
+const DealerResearchCorrection = lazyRoute(() => import('./pages/DealerResearchCorrection'), 'DealerResearchCorrection')
+const DealerClaimWorkspace = lazyRoute(() => import('./pages/DealerClaimWorkspace'), 'DealerClaimWorkspace')
+const DealerClaimReview = lazyRoute(() => import('./pages/DealerClaimReview'), 'DealerClaimReview')
 import DealerReviewerLayout from './components/dealer/DealerReviewerLayout'
-import DealerOperatingLifecycleReview from './pages/DealerOperatingLifecycleReview'
+const DealerOperatingLifecycleReview = lazyRoute(() => import('./pages/DealerOperatingLifecycleReview'), 'DealerOperatingLifecycleReview')
 import DealerCanonicalWorkspaceLayout from './components/dealer/DealerCanonicalWorkspaceLayout'
 import { UnifiedRouteShell } from './components/shell/UnifiedRouteShell'
 import LegacyDealerRouteGate from './components/dealer/LegacyDealerRouteGate'
-import LegacyDealerDashboard from './pages/dashboard/dealer/LegacyDealerDashboard'
-import DealerResearchReview from './pages/DealerResearchReview'
-import DealerComplianceApplicationReview from './pages/DealerComplianceApplicationReview'
-import DealerLegalActivationReview from './pages/DealerLegalActivationReview'
-import DealerFullStorefrontReview from './pages/DealerFullStorefrontReview'
-import DealerOperatingDetails from './pages/DealerOperatingDetails'
-import DealerBillingReadiness from './pages/DealerBillingReadiness'
-import DealerStaffConsole from './pages/DealerStaffConsole'
-import DealerTenantInventory from './pages/DealerTenantInventory'
-import DealerTenantInquiries from './pages/DealerTenantInquiries'
-import DealerBuyerFeedback from './pages/DealerBuyerFeedback'
-import DealerBuyerFeedbackReview from './pages/DealerBuyerFeedbackReview'
-import GarageDirectory from './pages/GarageDirectory'
-import InsuranceDirectory from './pages/InsuranceDirectory'
-import Pricing from './pages/Pricing'
-import About from './pages/About'
-import Contact from './pages/Contact'
+const LegacyDealerDashboard = lazyRoute(() => import('./pages/dashboard/dealer/LegacyDealerDashboard'), 'LegacyDealerDashboard')
+const DealerResearchReview = lazyRoute(() => import('./pages/DealerResearchReview'), 'DealerResearchReview')
+const DealerComplianceApplicationReview = lazyRoute(() => import('./pages/DealerComplianceApplicationReview'), 'DealerComplianceApplicationReview')
+const DealerLegalActivationReview = lazyRoute(() => import('./pages/DealerLegalActivationReview'), 'DealerLegalActivationReview')
+const DealerFullStorefrontReview = lazyRoute(() => import('./pages/DealerFullStorefrontReview'), 'DealerFullStorefrontReview')
+const DealerOperatingDetails = lazyRoute(() => import('./pages/DealerOperatingDetails'), 'DealerOperatingDetails')
+const DealerBillingReadiness = lazyRoute(() => import('./pages/DealerBillingReadiness'), 'DealerBillingReadiness')
+const DealerStaffConsole = lazyRoute(() => import('./pages/DealerStaffConsole'), 'DealerStaffConsole')
+const DealerTenantInventory = lazyRoute(() => import('./pages/DealerTenantInventory'), 'DealerTenantInventory')
+const DealerTenantInquiries = lazyRoute(() => import('./pages/DealerTenantInquiries'), 'DealerTenantInquiries')
+const DealerBuyerFeedback = lazyRoute(() => import('./pages/DealerBuyerFeedback'), 'DealerBuyerFeedback')
+const DealerBuyerFeedbackReview = lazyRoute(() => import('./pages/DealerBuyerFeedbackReview'), 'DealerBuyerFeedbackReview')
+const GarageDirectory = lazyRoute(() => import('./pages/GarageDirectory'), 'GarageDirectory')
+const InsuranceDirectory = lazyRoute(() => import('./pages/InsuranceDirectory'), 'InsuranceDirectory')
+const Pricing = lazyRoute(() => import('./pages/Pricing'), 'Pricing')
+const About = lazyRoute(() => import('./pages/About'), 'About')
+const Contact = lazyRoute(() => import('./pages/Contact'), 'Contact')
 import ScrollToTop from './components/layout/ScrollToTop'
 import ActivityInstrumentation from './components/intelligence/ActivityInstrumentation'
 
 // New Footer Pages
-import Careers from './pages/Careers'
-import PressKit from './pages/PressKit'
-import Blog from './pages/Blog'
-import HelpCenter from './pages/HelpCenter'
-import TrustSafety from './pages/TrustSafety'
-import PrivacyPolicy from './pages/PrivacyPolicy'
-import TermsOfService from './pages/TermsOfService'
-import Support from './pages/Support'
-import Security from './pages/Security'
-import APIDocs from './pages/APIDocs'
-import {
-  DiasporaComplianceAdmin,
-  DiasporaImportDetail,
-  DiasporaImportDocuments,
-  DiasporaImportList,
-  DiasporaImportShipment,
-  DiasporaLanding,
-  NewDiasporaImportOrder,
-} from './pages/diaspora/DiasporaTrade'
-import DiasporaOrderPassport from './pages/diaspora/DiasporaOrderPassport'
-import DiasporaStockPassport from './pages/diaspora/DiasporaStockPassport'
-import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
-import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
-import DiasporaStockManager from './pages/diaspora/DiasporaStockManager'
-import DiasporaTradeProfile from './pages/diaspora/DiasporaTradeProfile'
-import DiasporaReverseRfq from './pages/diaspora/DiasporaReverseRfq'
-import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
-import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
-import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
-import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
-import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
-import DiasporaSafeTradeDetail from './pages/diaspora/DiasporaSafeTradeDetail'
-import DiasporaTradeGraph from './pages/diaspora/DiasporaTradeGraph'
-import DiasporaSafeTradeOperations from './pages/diaspora/DiasporaSafeTradeOperations'
-import DiasporaConfirmedImport from './pages/diaspora/DiasporaConfirmedImport'
+const Careers = lazyRoute(() => import('./pages/Careers'), 'Careers')
+const PressKit = lazyRoute(() => import('./pages/PressKit'), 'PressKit')
+const Blog = lazyRoute(() => import('./pages/Blog'), 'Blog')
+const HelpCenter = lazyRoute(() => import('./pages/HelpCenter'), 'HelpCenter')
+const TrustSafety = lazyRoute(() => import('./pages/TrustSafety'), 'TrustSafety')
+const PrivacyPolicy = lazyRoute(() => import('./pages/PrivacyPolicy'), 'PrivacyPolicy')
+const TermsOfService = lazyRoute(() => import('./pages/TermsOfService'), 'TermsOfService')
+const Support = lazyRoute(() => import('./pages/Support'), 'Support')
+const Security = lazyRoute(() => import('./pages/Security'), 'Security')
+const APIDocs = lazyRoute(() => import('./pages/APIDocs'), 'APIDocs')
+// RX07: the Trade OS pages share one chunk, requested only when a Trade route is opened.
+const importDiasporaTrade = () => import('./pages/diaspora/DiasporaTrade')
+const DiasporaComplianceAdmin = lazyRoute(() => importDiasporaTrade().then(m => ({ default: m.DiasporaComplianceAdmin })), 'DiasporaComplianceAdmin')
+const DiasporaImportDetail = lazyRoute(() => importDiasporaTrade().then(m => ({ default: m.DiasporaImportDetail })), 'DiasporaImportDetail')
+const DiasporaImportDocuments = lazyRoute(() => importDiasporaTrade().then(m => ({ default: m.DiasporaImportDocuments })), 'DiasporaImportDocuments')
+const DiasporaImportList = lazyRoute(() => importDiasporaTrade().then(m => ({ default: m.DiasporaImportList })), 'DiasporaImportList')
+const DiasporaImportShipment = lazyRoute(() => importDiasporaTrade().then(m => ({ default: m.DiasporaImportShipment })), 'DiasporaImportShipment')
+const DiasporaLanding = lazyRoute(() => importDiasporaTrade().then(m => ({ default: m.DiasporaLanding })), 'DiasporaLanding')
+const NewDiasporaImportOrder = lazyRoute(() => importDiasporaTrade().then(m => ({ default: m.NewDiasporaImportOrder })), 'NewDiasporaImportOrder')
+const DiasporaOrderPassport = lazyRoute(() => import('./pages/diaspora/DiasporaOrderPassport'), 'DiasporaOrderPassport')
+const DiasporaStockPassport = lazyRoute(() => import('./pages/diaspora/DiasporaStockPassport'), 'DiasporaStockPassport')
+const DiasporaWorkbookDryRun = lazyRoute(() => import('./pages/diaspora/DiasporaWorkbookDryRun'), 'DiasporaWorkbookDryRun')
+const DiasporaWorkbookOperatorConsole = lazyRoute(() => import('./pages/diaspora/DiasporaWorkbookOperatorConsole'), 'DiasporaWorkbookOperatorConsole')
+const DiasporaStockManager = lazyRoute(() => import('./pages/diaspora/DiasporaStockManager'), 'DiasporaStockManager')
+const DiasporaTradeProfile = lazyRoute(() => import('./pages/diaspora/DiasporaTradeProfile'), 'DiasporaTradeProfile')
+const DiasporaReverseRfq = lazyRoute(() => import('./pages/diaspora/DiasporaReverseRfq'), 'DiasporaReverseRfq')
+const DiasporaAiCommandCenter = lazyRoute(() => import('./pages/diaspora/DiasporaAiCommandCenter'), 'DiasporaAiCommandCenter')
+const DiasporaContainerMarketplace = lazyRoute(() => import('./pages/diaspora/DiasporaContainerMarketplace'), 'DiasporaContainerMarketplace')
+const DiasporaDriveConnections = lazyRoute(() => import('./pages/diaspora/DiasporaDriveConnections'), 'DiasporaDriveConnections')
+const DiasporaSubscription = lazyRoute(() => import('./pages/diaspora/DiasporaSubscription'), 'DiasporaSubscription')
+const DiasporaSafeTrade = lazyRoute(() => import('./pages/diaspora/DiasporaSafeTrade'), 'DiasporaSafeTrade')
+const DiasporaSafeTradeDetail = lazyRoute(() => import('./pages/diaspora/DiasporaSafeTradeDetail'), 'DiasporaSafeTradeDetail')
+const DiasporaTradeGraph = lazyRoute(() => import('./pages/diaspora/DiasporaTradeGraph'), 'DiasporaTradeGraph')
+const DiasporaSafeTradeOperations = lazyRoute(() => import('./pages/diaspora/DiasporaSafeTradeOperations'), 'DiasporaSafeTradeOperations')
+const DiasporaConfirmedImport = lazyRoute(() => import('./pages/diaspora/DiasporaConfirmedImport'), 'DiasporaConfirmedImport')
 
 // Auth Pages
-import Login from './pages/auth/Login'
-import Register from './pages/auth/Register'
-import ForgotPassword from './pages/auth/ForgotPassword'
-import ResetPassword from './pages/auth/ResetPassword'
-import VerifyEmail from './pages/auth/VerifyEmail'
-import KYCVerification from './pages/auth/KYCVerification'
+const Login = lazyRoute(() => import('./pages/auth/Login'), 'Login')
+const Register = lazyRoute(() => import('./pages/auth/Register'), 'Register')
+const ForgotPassword = lazyRoute(() => import('./pages/auth/ForgotPassword'), 'ForgotPassword')
+const ResetPassword = lazyRoute(() => import('./pages/auth/ResetPassword'), 'ResetPassword')
+const VerifyEmail = lazyRoute(() => import('./pages/auth/VerifyEmail'), 'VerifyEmail')
+const KYCVerification = lazyRoute(() => import('./pages/auth/KYCVerification'), 'KYCVerification')
 
 // Owner Dashboard
-import OwnerDashboard from './pages/dashboard/owner/OwnerDashboard'
-import MyGarage from './pages/dashboard/owner/MyGarage'
-import EvidenceVault from './pages/dashboard/owner/EvidenceVault'
-import VehicleProfile from './pages/dashboard/owner/VehicleProfile'
-import ServiceHistory from './pages/dashboard/owner/ServiceHistory'
-import InsuranceRecords from './pages/dashboard/owner/InsuranceRecords'
-import PartSentry from './pages/dashboard/owner/PartSentry'
-import MyListings from './pages/dashboard/owner/MyListings'
-import SavedCars from './pages/dashboard/owner/SavedCars'
-import SellVehicle from './pages/dashboard/owner/SellVehicle'
+const OwnerDashboard = lazyRoute(() => import('./pages/dashboard/owner/OwnerDashboard'), 'OwnerDashboard')
+const MyGarage = lazyRoute(() => import('./pages/dashboard/owner/MyGarage'), 'MyGarage')
+const EvidenceVault = lazyRoute(() => import('./pages/dashboard/owner/EvidenceVault'), 'EvidenceVault')
+const VehicleProfile = lazyRoute(() => import('./pages/dashboard/owner/VehicleProfile'), 'VehicleProfile')
+const ServiceHistory = lazyRoute(() => import('./pages/dashboard/owner/ServiceHistory'), 'ServiceHistory')
+const InsuranceRecords = lazyRoute(() => import('./pages/dashboard/owner/InsuranceRecords'), 'InsuranceRecords')
+const PartSentry = lazyRoute(() => import('./pages/dashboard/owner/PartSentry'), 'PartSentry')
+const MyListings = lazyRoute(() => import('./pages/dashboard/owner/MyListings'), 'MyListings')
+const SavedCars = lazyRoute(() => import('./pages/dashboard/owner/SavedCars'), 'SavedCars')
+const SellVehicle = lazyRoute(() => import('./pages/dashboard/owner/SellVehicle'), 'SellVehicle')
 import { SellerRouteErrorBoundary } from './components/sell/SellerRouteErrorBoundary'
-import AIDashboard from './pages/dashboard/owner/AIDashboard'
-import ReferralWallet from './pages/dashboard/owner/ReferralWallet'
-import Communications from './pages/dashboard/owner/Communications'
-import SellerIntelligence from './pages/dashboard/owner/SellerIntelligence'
+const AIDashboard = lazyRoute(() => import('./pages/dashboard/owner/AIDashboard'), 'AIDashboard')
+const ReferralWallet = lazyRoute(() => import('./pages/dashboard/owner/ReferralWallet'), 'ReferralWallet')
+const Communications = lazyRoute(() => import('./pages/dashboard/owner/Communications'), 'Communications')
+const SellerIntelligence = lazyRoute(() => import('./pages/dashboard/owner/SellerIntelligence'), 'SellerIntelligence')
 
 // Dealer Dashboard
-import DealerDashboard from './pages/dashboard/dealer/DealerDashboard'
-import Inventory from './pages/dashboard/dealer/Inventory'
-import Leads from './pages/dashboard/dealer/Leads'
-import Promotions from './pages/dashboard/dealer/Promotions'
-import SalesAnalytics from './pages/dashboard/dealer/SalesAnalytics'
+const DealerDashboard = lazyRoute(() => import('./pages/dashboard/dealer/DealerDashboard'), 'DealerDashboard')
+const Inventory = lazyRoute(() => import('./pages/dashboard/dealer/Inventory'), 'Inventory')
+const Leads = lazyRoute(() => import('./pages/dashboard/dealer/Leads'), 'Leads')
+const Promotions = lazyRoute(() => import('./pages/dashboard/dealer/Promotions'), 'Promotions')
+const SalesAnalytics = lazyRoute(() => import('./pages/dashboard/dealer/SalesAnalytics'), 'SalesAnalytics')
 
 // Mechanic Dashboard
-import MechanicDashboard from './pages/dashboard/mechanic/MechanicDashboard'
-import WorkOrders from './pages/dashboard/mechanic/WorkOrders'
-import ServiceLogs from './pages/dashboard/mechanic/ServiceLogs'
-import PartsTracking from './pages/dashboard/mechanic/PartsTracking'
-import CustomerRecords from './pages/dashboard/mechanic/CustomerRecords'
+const MechanicDashboard = lazyRoute(() => import('./pages/dashboard/mechanic/MechanicDashboard'), 'MechanicDashboard')
+const WorkOrders = lazyRoute(() => import('./pages/dashboard/mechanic/WorkOrders'), 'WorkOrders')
+const ServiceLogs = lazyRoute(() => import('./pages/dashboard/mechanic/ServiceLogs'), 'ServiceLogs')
+const PartsTracking = lazyRoute(() => import('./pages/dashboard/mechanic/PartsTracking'), 'PartsTracking')
+const CustomerRecords = lazyRoute(() => import('./pages/dashboard/mechanic/CustomerRecords'), 'CustomerRecords')
 
 // Insurance Dashboard
-import InsuranceDashboard from './pages/dashboard/insurance/InsuranceDashboard'
-import Claims from './pages/dashboard/insurance/Claims'
-import RiskAnalysis from './pages/dashboard/insurance/RiskAnalysis'
-import FraudAlerts from './pages/dashboard/insurance/FraudAlerts'
+const InsuranceDashboard = lazyRoute(() => import('./pages/dashboard/insurance/InsuranceDashboard'), 'InsuranceDashboard')
+const Claims = lazyRoute(() => import('./pages/dashboard/insurance/Claims'), 'Claims')
+const RiskAnalysis = lazyRoute(() => import('./pages/dashboard/insurance/RiskAnalysis'), 'RiskAnalysis')
+const FraudAlerts = lazyRoute(() => import('./pages/dashboard/insurance/FraudAlerts'), 'FraudAlerts')
 
 // Government Dashboard
-import GovernmentDashboard from './pages/dashboard/government/GovernmentDashboard'
-import RegistryVerification from './pages/dashboard/government/RegistryVerification'
-import ComplianceReports from './pages/dashboard/government/ComplianceReports'
+const GovernmentDashboard = lazyRoute(() => import('./pages/dashboard/government/GovernmentDashboard'), 'GovernmentDashboard')
+const RegistryVerification = lazyRoute(() => import('./pages/dashboard/government/RegistryVerification'), 'RegistryVerification')
+const ComplianceReports = lazyRoute(() => import('./pages/dashboard/government/ComplianceReports'), 'ComplianceReports')
 
 // Admin Dashboard
-import AdminDashboard from './pages/dashboard/admin/AdminDashboard'
+const AdminDashboard = lazyRoute(() => import('./pages/dashboard/admin/AdminDashboard'), 'AdminDashboard')
 // Feature Governance Console is route-level lazy-loaded (Milestone D): it is a
 // heavy admin-only surface, so it ships as a SEPARATE chunk fetched on demand
 // rather than bloating the main entry bundle. The single dynamic import below is
@@ -180,29 +178,39 @@ function preloadFeatureGovernanceConsole() {
        (with Suspense + LazyRouteBoundary) handles errors and retries. */
   })
 }
-import UserManagement from './pages/dashboard/admin/UserManagement'
-import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
-import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
-import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
-import VehicleOperationsReview from './pages/dashboard/admin/VehicleOperationsReview'
-import FraudQueue from './pages/dashboard/admin/FraudQueue'
-import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
-import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
-import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
-import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
-import ReferralCampaigns from './pages/dashboard/admin/ReferralCampaigns'
-import ReferralCodes from './pages/dashboard/admin/ReferralCodes'
-import ReferralLocalLeads from './pages/dashboard/admin/ReferralLocalLeads'
-import ReferralImportRoutes from './pages/dashboard/admin/ReferralImportRoutes'
-import ReferralMarketing from './pages/dashboard/admin/ReferralMarketing'
-import ReferralTrustReview from './pages/dashboard/admin/ReferralTrustReview'
-import AdminCommunications from './pages/dashboard/admin/Communications'
+const UserManagement = lazyRoute(() => import('./pages/dashboard/admin/UserManagement'), 'UserManagement')
+const AIMonitoring = lazyRoute(() => import('./pages/dashboard/admin/AIMonitoring'), 'AIMonitoring')
+const MarketplaceModeration = lazyRoute(() => import('./pages/dashboard/admin/MarketplaceModeration'), 'MarketplaceModeration')
+const EvidenceReview = lazyRoute(() => import('./pages/dashboard/admin/EvidenceReview'), 'EvidenceReview')
+const VehicleOperationsReview = lazyRoute(() => import('./pages/dashboard/admin/VehicleOperationsReview'), 'VehicleOperationsReview')
+const FraudQueue = lazyRoute(() => import('./pages/dashboard/admin/FraudQueue'), 'FraudQueue')
+const DealerCompliance = lazyRoute(() => import('./pages/dashboard/admin/DealerCompliance'), 'DealerCompliance')
+const IdentityVerificationCaseManagement = lazyRoute(() => import('./pages/dashboard/admin/IdentityVerificationCaseManagement'), 'IdentityVerificationCaseManagement')
+const TrustReviewQueue = lazyRoute(() => import('./pages/dashboard/shared/TrustReviewQueue'), 'TrustReviewQueue')
+const GovernanceReviewQueue = lazyRoute(() => import('./pages/dashboard/shared/GovernanceReviewQueue'), 'GovernanceReviewQueue')
+const ReferralCampaigns = lazyRoute(() => import('./pages/dashboard/admin/ReferralCampaigns'), 'ReferralCampaigns')
+const ReferralCodes = lazyRoute(() => import('./pages/dashboard/admin/ReferralCodes'), 'ReferralCodes')
+const ReferralLocalLeads = lazyRoute(() => import('./pages/dashboard/admin/ReferralLocalLeads'), 'ReferralLocalLeads')
+const ReferralImportRoutes = lazyRoute(() => import('./pages/dashboard/admin/ReferralImportRoutes'), 'ReferralImportRoutes')
+const ReferralMarketing = lazyRoute(() => import('./pages/dashboard/admin/ReferralMarketing'), 'ReferralMarketing')
+const ReferralTrustReview = lazyRoute(() => import('./pages/dashboard/admin/ReferralTrustReview'), 'ReferralTrustReview')
+const AdminCommunications = lazyRoute(() => import('./pages/dashboard/admin/Communications'), 'AdminCommunications')
 
 // Bank Dashboard
-import BankDashboard from './pages/dashboard/bank/BankDashboard'
-import LendingQueue from './pages/dashboard/bank/LendingQueue'
-import CollateralMap from './pages/dashboard/bank/CollateralMap'
-import CreditRiskAnalysis from './pages/dashboard/bank/CreditRiskAnalysis'
+const BankDashboard = lazyRoute(() => import('./pages/dashboard/bank/BankDashboard'), 'BankDashboard')
+const LendingQueue = lazyRoute(() => import('./pages/dashboard/bank/LendingQueue'), 'LendingQueue')
+const CollateralMap = lazyRoute(() => import('./pages/dashboard/bank/CollateralMap'), 'CollateralMap')
+const CreditRiskAnalysis = lazyRoute(() => import('./pages/dashboard/bank/CreditRiskAnalysis'), 'CreditRiskAnalysis')
+
+// RX07-WEB-PERF-01-A: request the page being opened at once; the rest of the public journey only
+// after load, on idle, and never under Save-Data. The composition (accepted vs showroom) follows the
+// same build-time/presentation switch <ShowroomRoute> uses, so the flags-OFF build never fetches
+// showroom code and the showroom build never fetches the accepted page bodies it does not render.
+if (typeof window !== 'undefined') {
+  warmJourney(window.location.pathname, isShowroomPagesEnabled()
+    ? { home: ShowroomLanding.preload, marketplace: ShowroomMarketplace.preload, detail: ShowroomVehicleDetail.preload }
+    : { home: Landing.preload, marketplace: Marketplace.preload, detail: VehicleDetail.preload })
+}
 
 // Context
 interface AppContextType {
@@ -521,7 +529,7 @@ export default function App() {
         </Route>
 
         {/* RX-02A S1-3: component catalogue (isolated renderer, §10.3). Dev build only. */}
-        {import.meta.env.DEV && <Route path="/dev/component-catalogue" element={<ComponentCatalogue />} />}
+        {import.meta.env.DEV && ComponentCatalogue && <Route path="/dev/component-catalogue" element={<ComponentCatalogue />} />}
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
         <Route path="*" element={<NotFoundPage />} />

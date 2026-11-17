@@ -34,6 +34,26 @@ function useOnScreen(ref: React.RefObject<HTMLElement | null>) {
   return onScreen && pageVisible
 }
 
+/**
+ * RX07-WEB-PERF-01-A — a video's `poster` is fetched as soon as the element exists, wherever it is on
+ * the page. A section film below the fold therefore competed with the hero for a phone's bandwidth.
+ * The poster is attached only once the film is within `margin` of the viewport (and immediately where
+ * IntersectionObserver is unavailable, so nothing is ever hidden for good).
+ */
+function useNearScreen(ref: React.RefObject<HTMLElement | null>, margin = '400px 0px') {
+  const [near, setNear] = useState(() => typeof IntersectionObserver === 'undefined')
+  useEffect(() => {
+    const node = ref.current
+    if (near || !node || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) setNear(true)
+    }, { rootMargin: margin })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [ref, margin, near])
+  return near
+}
+
 function usePortrait(query = '(max-width: 767px) and (orientation: portrait)') {
   const [match, setMatch] = useState(() =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches)
@@ -70,6 +90,7 @@ export function EditorialFilm({
   const videoRef = useRef<HTMLVideoElement>(null)
   const { reducedMotion, saveData } = useMotionBudget()
   const onScreen = useOnScreen(ref)
+  const near = useNearScreen(ref)
   const portrait = usePortrait()
   const [paused, setPaused] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -102,12 +123,12 @@ export function EditorialFilm({
       data-film-review={film.review ?? 'approved'}
     >
       {stillOnly ? (
-        <img src={rendition.poster.src} alt="" className="absolute inset-0 h-full w-full object-cover" data-testid={`${testId}-poster`} />
+        <img src={rendition.poster.src} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" data-testid={`${testId}-poster`} />
       ) : (
         <video
           ref={videoRef}
           className="absolute inset-0 h-full w-full object-cover"
-          poster={rendition.poster.src}
+          poster={near ? rendition.poster.src : undefined}
           muted
           playsInline
           loop
