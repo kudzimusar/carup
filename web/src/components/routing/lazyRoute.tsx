@@ -116,11 +116,13 @@ export function RouteChunkLoading() {
 /**
  * The single wrapper every lazy route element uses: chunk-failure boundary → Suspense → page.
  * The boundary resets when the path changes, so a failure on one page never sticks to the next.
+ * It handles download failures ONLY (`chunkErrorsOnly`); a page's own runtime error propagates to
+ * whatever boundary owned it before RX-07 (Seller recovery, ShowroomRoute, …).
  */
 export function RouteChunk({ children, fallback, onRetry }: { children: ReactNode; fallback?: ReactNode; onRetry?: () => void }) {
   const { pathname } = useLocation()
   return (
-    <LazyRouteBoundary resetKey={pathname} onRetry={onRetry}>
+    <LazyRouteBoundary resetKey={pathname} onRetry={onRetry} chunkErrorsOnly>
       <Suspense fallback={fallback ?? <RouteChunkLoading />}>{children}</Suspense>
     </LazyRouteBoundary>
   )
