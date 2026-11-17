@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { useHonourBottomBarClaim } from '@/lib/bottomBarClaim'
 
@@ -260,5 +260,23 @@ describe('RX03-P1A-R2 — phone contact bar', () => {
     await screen.findByTestId('seller-preview-sidebar-disabled', {}, { timeout: 15_000 })
     expect(screen.queryByTestId('vehicle-detail-contact-bar')).toBeNull()
     expect(screen.queryByTestId('vehicle-detail-primary-actions')).toBeNull()
+  })
+})
+
+describe('RX04 F1 — saving before the saved-list read returns', () => {
+  it('a late initial saved-list read never undoes the buyer\'s own Save', async () => {
+    auth.user = { role: 'buyer' }
+    auth.isAuthenticated = true
+    let resolveSaved: (value: { listings: Array<{ vin: string }> }) => void = () => {}
+    fetchSavedMarketplaceListings.mockReturnValue(new Promise(resolve => { resolveSaved = resolve }))
+    saveMarketplaceListing.mockResolvedValue({ saved: true })
+    renderAt(`/marketplace/${VIN}`)
+    const save = await screen.findByRole('button', { name: /save this vehicle/i }, { timeout: 15_000 })
+    fireEvent.click(save)
+    await waitFor(() => expect(saveMarketplaceListing).toHaveBeenCalled())
+    // The read that started before the click answers "not saved" afterwards.
+    resolveSaved({ listings: [] })
+    await new Promise(r => setTimeout(r, 0))
+    expect(save.getAttribute('aria-pressed')).toBe('true')
   })
 })

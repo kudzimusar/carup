@@ -1551,13 +1551,17 @@ export default function ShowroomVehicleDetail() {
 
   // Saved state is SERVER-backed + account-scoped for authenticated users (existing /marketplace/saved
   // API), so it survives refresh and never leaks across accounts. Guests keep the browser-local list.
+  // RX04 F1: once the buyer has pressed Save/Unsave for this car, a slower initial read must not
+  // overwrite their choice (it reflected the server BEFORE the click).
+  const favTouchedRef = useRef(false)
   useEffect(() => {
     if (!isAuthenticated) return
     const vin = vehicle?.vin || id
     if (!vin) return
     let active = true
+    favTouchedRef.current = false
     fetchSavedMarketplaceListings()
-      .then(res => { if (active) setIsFav((res.listings || []).some(l => l.vin === vin)) })
+      .then(res => { if (active && !favTouchedRef.current) setIsFav((res.listings || []).some(l => l.vin === vin)) })
       .catch(() => { /* server unavailable — keep current */ })
     return () => { active = false }
   }, [isAuthenticated, vehicle?.vin, id, fetchSavedMarketplaceListings])
@@ -1569,6 +1573,7 @@ export default function ShowroomVehicleDetail() {
       // Server-backed + account-scoped. Optimistic toggle, rolled back on error. No localStorage write.
       const vin = vehicle.vin || id || ''
       if (!vin) return
+      favTouchedRef.current = true
       const previous = isFav
       setIsFav(!previous)
       try {
