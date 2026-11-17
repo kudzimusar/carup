@@ -57,3 +57,66 @@ describe('RX03-P2-R4 — colour reaches the Marketplace colour filter', () => {
     expect(parseCarRequest('other options please').color).toBeUndefined()
   })
 })
+
+/* ── RX03-P2-R5 GUTU-01 — budgets are read from MONEY, not from the first number in the sentence ── */
+describe('GUTU-01 — numeric budget extraction', () => {
+  async function filtersFor(sentence: string) {
+    const { parseCarRequest, marketplaceHrefFor } = await import('./askCarUp')
+    const { paramsToState, stateToApiFilters } = await import('./marketplaceParams')
+    const href = marketplaceHrefFor(parseCarRequest(sentence))
+    const query = new URLSearchParams(href.split('?')[1] ?? '')
+    return { href, query, api: stateToApiFilters(paramsToState(query)) as Record<string, unknown> }
+  }
+  it.each([
+    ['Show me a 7 seater under $15k', 15000],
+    ['2018 Toyota Hilux under $25,000', 25000],
+    ['Automatic diesel pickup under $25,000', 25000],
+    ['Red Toyota SUV under $15k', 15000],
+    ['A 4x4 with 3 rows of seats, max USD 18,500', 18500],
+    ['family car up to US$12k please', 12000],
+    ['5 door hatchback below 9000 dollars', 9000],
+    ['UNDER $15K for a 7-SEATER', 15000],
+    ['about $8.5k, 4 doors', 8500],
+  ])('%s → maxPrice %i (URL and API filter)', async (sentence, max) => {
+    const { query, api } = await filtersFor(sentence)
+    expect(query.get('maxPrice')).toBe(String(max))
+    expect(api.maxPrice).toBe(max)
+    expect(query.get('minPrice')).toBeNull()
+  })
+  it.each([
+    ['Toyota 2018'],
+    ['7 seats, automatic, diesel'],
+    ['Mazda 3 or a BMW 320i'],
+    ['Land Cruiser 200 with 150000 km'],
+    ['under $ please'],
+    ['budget 15'],
+    ['$15kk'],
+  ])('%s → no invented budget', async sentence => {
+    const { query, api } = await filtersFor(sentence)
+    expect(query.get('maxPrice')).toBeNull()
+    expect(query.get('minPrice')).toBeNull()
+    expect(api.maxPrice).toBeUndefined()
+  })
+  it('a model year is a year constraint (the Marketplace supports year), never a budget', async () => {
+    const a = await filtersFor('2018 Toyota Hilux under $25,000')
+    expect(a.query.get('year')).toBe('2018')
+    expect(a.query.get('make')).toBe('Toyota')
+    expect(a.query.get('model')).toBe('Hilux')
+    const b = await filtersFor('Toyota 2018')
+    expect(b.query.get('year')).toBe('2018')
+  })
+  it('minimum and range budgets use the Marketplace minPrice/maxPrice filters', async () => {
+    const atLeast = await filtersFor('an SUV for at least $20k')
+    expect(atLeast.query.get('minPrice')).toBe('20000')
+    expect(atLeast.query.get('maxPrice')).toBeNull()
+    const range = await filtersFor('a sedan between $8,000 and $12k')
+    expect(range.query.get('minPrice')).toBe('8000')
+    expect(range.query.get('maxPrice')).toBe('12000')
+  })
+  it('keeps colour and body style alongside the budget', async () => {
+    const { query } = await filtersFor('Red Toyota SUV under $15k')
+    expect(query.get('color')).toBe('Red')
+    expect(query.get('bodyStyle')).toBe('SUV')
+    expect(query.get('make')).toBe('Toyota')
+  })
+})

@@ -3,7 +3,7 @@
  * Marketplace filters CarUp already supports. Deterministic and local: it never invents a filter the
  * Marketplace cannot apply, and anything it does not recognise stays with the AI as context only.
  */
-import { VEHICLE_COLORS, VEHICLE_TAXONOMY, canonicalMake, canonicalModel, makeTaxon, resolveColor, resolveFuelType, resolveTransmission } from '@/data/vehicleTaxonomy'
+import { VEHICLE_COLORS, VEHICLE_TAXONOMY, canonicalMake, canonicalModel, isValidVehicleYear, makeTaxon, resolveColor, resolveFuelType, resolveTransmission } from '@/data/vehicleTaxonomy'
 
 export interface CarRequest {
   make?: string
@@ -13,6 +13,9 @@ export interface CarRequest {
   transmission?: string
   /** Canonical taxonomy colour (the Marketplace `color` filter). */
   color?: string
+  /** Model year (the Marketplace `year` filter) — never read as money. */
+  year?: number
+  minPrice?: number
   maxPrice?: number
   location?: string
   /** Purpose words passed to the assistant as context; never applied as a filter. */
@@ -55,16 +58,71 @@ function canonicalFacet(kind: 'fuel' | 'transmission', label: string): string | 
   return resolved.state === 'canonical' || resolved.state === 'alias_match' ? String(resolved.value) : undefined
 }
 
-/** Budget only when the sentence says it is money: a currency mark, k/thousand, or a ceiling word. */
-function readBudget(text: string): number | undefined {
-  const match = text.match(/(?:\b(under|below|less than|max(?:imum)?|up to|budget(?: of| is)?|around|about|for)\s+)?(?:us\s?)?(\$|usd\s?)?\s?(\d{1,3}(?:[,\s]\d{3})+|\d+(?:\.\d+)?)\s?(k|thousand)?\b/i)
-  if (!match) return undefined
-  const [, ceiling, currency, rawNumber, thousands] = match
-  if (!ceiling && !currency && !thousands) return undefined
-  let value = Number(rawNumber.replace(/[,\s]/g, ''))
-  if (thousands) value *= 1000
-  if (!currency && !thousands && value >= 1950 && value <= 2035) return undefined // a model year, not money
-  return Number.isFinite(value) && value >= 500 ? Math.round(value) : undefined
+/**
+ * RX03-P2-R5 GUTU-01 — read budgets from MONEY, not from the first number in the sentence.
+ *
+ * Every number is classified on its own. A number is money only with monetary context: a currency
+ * mark or code before it ($, US$, USD), a currency word after it (dollars, usd), a thousands
+ * suffix (k, thousand), or a budget word before it (under, max, at least, between ...) AND a value
+ * of at least 500 that is not a model year. Seat/door counts, mileages, engine sizes, model numbers
+ * ("Mazda 3", "320i", "Land Cruiser 200") and years are never budgets. Nothing is converted
+ * between currencies: the Marketplace price filters are USD, so only USD/$ amounts are read.
+ */
+const MAX_WORDS = /(?:under|below|less than|no more than|not more than|max(?:imum)?|up to|within|budget(?: of| is)?|around|about|for)\s*$/
+const MIN_WORDS = /(?:at least|over|above|more than|from|min(?:imum)?|starting at)\s*$/
+const UNIT_AFTER = /^\s?-?\s?(?:seat|seater|door|km|kms|kilomet|mile|cc|litre|liter|l\b|hp|kw|ton|tonne|year|yr|row|owner|speed|wheel|x\d)/
+const MONEY_NUMBER = /(us\s?\$|\$|usd\s?)?(\d{1,3}(?:[, \u00a0]\d{3})+(?!\d)|\d+(?:\.\d+)?)(\s?(?:k|thousand))?(?![\w$])(\s?(?:dollars?|usd)\b)?/gi
+
+interface MoneyMention { value: number; bound: 'max' | 'min' | 'budget'; index: number; end: number }
+
+function moneyMentions(input: string): MoneyMention[] {
+  const lower = input.toLowerCase()
+  const out: MoneyMention[] = []
+  for (const m of lower.matchAll(MONEY_NUMBER)) {
+    const [whole, currencyBefore, rawNumber, thousands, currencyAfter] = m
+    const index = m.index ?? 0
+    const before = lower.slice(Math.max(0, index - 24), index)
+    const after = lower.slice(index + whole.length, index + whole.length + 14)
+    if (/[\w.]$/.test(before)) continue // part of a word or model code (e.g. "x5", "a4")
+    if (!currencyAfter && !thousands && UNIT_AFTER.test(after)) continue
+    let value = Number(rawNumber.replace(/[, \u00a0]/g, ''))
+    if (thousands) value *= 1000
+    if (!Number.isFinite(value)) continue
+    const currency = Boolean(currencyBefore || currencyAfter)
+    const bound: MoneyMention['bound'] = MIN_WORDS.test(before) ? 'min' : MAX_WORDS.test(before) ? 'max' : 'budget'
+    const yearLike = !currency && !thousands && value >= 1950 && value <= 2035
+    const monetary = currency || Boolean(thousands) || (bound !== 'budget' && value >= 500 && !yearLike)
+    if (!monetary || yearLike || value < 500) continue
+    out.push({ value: Math.round(value), bound, index, end: index + whole.length })
+  }
+  return out
+}
+
+/** Budget bounds the sentence states in money; `between A and B` gives both. */
+function readBudget(input: string): { minPrice?: number; maxPrice?: number } {
+  const mentions = moneyMentions(input)
+  if (mentions.length === 0) return {}
+  const lower = input.toLowerCase()
+  for (let i = 0; i + 1 < mentions.length; i++) {
+    const a = mentions[i], b = mentions[i + 1]
+    if (/between\s*$/.test(lower.slice(Math.max(0, a.index - 12), a.index)) && /^\s*(?:and|to|-)\s*$/.test(lower.slice(a.end, b.index))) {
+      return { minPrice: Math.min(a.value, b.value), maxPrice: Math.max(a.value, b.value) }
+    }
+  }
+  const min = mentions.find(m => m.bound === 'min')
+  const max = mentions.find(m => m.bound === 'max') ?? mentions.find(m => m.bound === 'budget')
+  return { minPrice: min?.value, maxPrice: max && max !== min ? max.value : undefined }
+}
+
+/** A stand-alone model year (the Marketplace `year` filter), never one used as money. */
+function readYear(input: string, money: MoneyMention[]): number | undefined {
+  for (const m of input.matchAll(/(?<![\d$.,])\b(19[5-9]\d|20[0-3]\d)\b(?![\d,]|\s?k\b)/gi)) {
+    const index = m.index ?? 0
+    if (money.some(x => index >= x.index && index < x.end)) continue
+    const year = Number(m[1])
+    if (isValidVehicleYear(year)) return year
+  }
+  return undefined
 }
 
 export function parseCarRequest(input: string): CarRequest {
@@ -103,7 +161,12 @@ export function parseCarRequest(input: string): CarRequest {
   }
   const place = PLACES.find(name => word(name).test(text))
   if (place) request.location = place
-  request.maxPrice = readBudget(input)
+  const money = moneyMentions(input)
+  const budget = readBudget(input)
+  if (budget.maxPrice) request.maxPrice = budget.maxPrice
+  if (budget.minPrice) request.minPrice = budget.minPrice
+  const year = readYear(input, money)
+  if (year !== undefined) request.year = year
   for (const [pattern, label] of PURPOSES) if (pattern.test(text)) request.purposes.push(label)
   return request
 }
@@ -117,6 +180,8 @@ export function marketplaceHrefFor(request: CarRequest): string {
   if (request.fuel) params.set('fuel', request.fuel)
   if (request.transmission) params.set('transmission', request.transmission)
   if (request.color) params.set('color', request.color)
+  if (request.year) params.set('year', String(request.year))
+  if (request.minPrice) params.set('minPrice', String(request.minPrice))
   if (request.maxPrice) params.set('maxPrice', String(request.maxPrice))
   if (request.location) params.set('location', request.location)
   const query = params.toString()
@@ -132,6 +197,8 @@ export function understoodChips(request: CarRequest): UnderstoodChip[] {
   if (request.fuel) chips.push({ key: 'fuel', label: request.fuel })
   if (request.transmission) chips.push({ key: 'transmission', label: request.transmission })
   if (request.color) chips.push({ key: 'color', label: request.color })
+  if (request.year) chips.push({ key: 'year', label: String(request.year) })
+  if (request.minPrice) chips.push({ key: 'minPrice', label: `From $${request.minPrice.toLocaleString('en-US')}` })
   if (request.maxPrice) chips.push({ key: 'maxPrice', label: `Up to $${request.maxPrice.toLocaleString('en-US')}` })
   if (request.location) chips.push({ key: 'location', label: request.location })
   for (const purpose of request.purposes) chips.push({ key: 'purpose', label: `For ${purpose}` })
