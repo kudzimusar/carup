@@ -159,7 +159,11 @@ describe('App wiring', () => {
 
   it('loads the showroom pages only through dynamic imports (separate chunks)', () => {
     expect(app).not.toMatch(/^import .* from '\.\/pages\/showroom\//m)
-    expect(app).toContain("lazy(importShowroomLanding)")
+    // RX07-WEB-PERF-01-A: the pages moved from React.lazy to the retryable `lazyRoute`; the property
+    // under test (each showroom page is its own dynamically imported chunk) now holds for all three.
+    for (const page of ['ShowroomLanding', 'ShowroomMarketplace', 'ShowroomVehicleDetail']) {
+      expect(app).toContain(`lazyRoute(() => import('./pages/showroom/${page}')`)
+    }
   })
 
   it('leaves the unified-shell production fail-closed flag untouched', () => {
