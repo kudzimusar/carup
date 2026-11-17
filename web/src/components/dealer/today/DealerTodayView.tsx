@@ -345,18 +345,16 @@ function Pulse({ metrics }: { metrics: Partial<Record<string, TodayMetric>> }) {
           const prev = m.previous_30_days
           const trend = typeof last === 'number' && typeof prev === 'number' ? last - prev : null
           return (
-            <div key={key} className="py-2 first:pt-0 last:pb-0">
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="text-sm text-carup-text-2">{label}</dt>
-                <dd className="text-lg font-bold tabular-nums text-carup-text">{value}</dd>
-              </div>
+            <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-2 first:pt-0 last:pb-0">
+              <dt className="text-sm text-carup-text-2">{label}</dt>
+              <dd className="text-lg font-bold tabular-nums text-carup-text">{value}</dd>
               {trend !== null && (
-                <p className="mt-0.5 flex items-center gap-1 text-xs text-carup-text-3">
+                <dd className="col-span-2 mt-0.5 flex items-center gap-1 text-xs text-carup-text-3">
                   {trend > 0 ? <TrendingUp className="h-3.5 w-3.5 text-status-success" aria-hidden="true" /> : trend < 0 ? <TrendingDown className="h-3.5 w-3.5 text-status-danger" aria-hidden="true" /> : <Minus className="h-3.5 w-3.5" aria-hidden="true" />}
                   {last} in the last 30 days · {prev} in the 30 before
-                </p>
+                </dd>
               )}
-              {m.scope && <p className="mt-0.5 text-xs leading-5 text-carup-text-3">{m.scope}</p>}
+              {m.scope && <dd className="col-span-2 mt-0.5 text-xs leading-5 text-carup-text-3">{m.scope}</dd>}
             </div>
           )
         })}
