@@ -371,7 +371,7 @@ export default function GuestSell() {
 
   const resolveSellerIntent = (intent: SellerEntryIntent) => {
     setSellerIntent(intent)
-    if (intent === 'known_vehicle' || intent === 'new_vehicle') {
+    if (intent === 'known_vehicle' || intent === 'new_vehicle' || intent === 'vin_first') {
       // Choosing a different vehicle identity is explicit. Reset the in-memory working form while
       // leaving the saved browser draft untouched until this new path itself makes progress; the
       // seller can still return to the chooser and recover the prior draft instead of losing it
@@ -845,7 +845,7 @@ export default function GuestSell() {
       discoverabilityFacets: discoverability,
       identityBlocker,
     }, 'guest')
-    const intentLabel = sellerIntent === 'known_vehicle' ? 'Car already on CarUp' : sellerIntent === 'new_vehicle' ? 'Car new to CarUp' : 'Resumed draft'
+    const intentLabel = sellerIntent === 'known_vehicle' ? 'Car already on CarUp' : sellerIntent === 'new_vehicle' ? 'Car new to CarUp' : sellerIntent === 'vin_first' ? 'New listing' : 'Resumed draft'
     return (
       <div data-testid="guest-sell-page">
         <SellerStudioFrame

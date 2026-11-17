@@ -8,8 +8,11 @@ import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { Vehicle } from '@/types'
 import { skin } from '@/lib/unifiedSkin'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { SellStart } from './SellStart'
 
-export type SellerEntryIntent = 'resume_draft' | 'garage_vehicle' | 'known_vehicle' | 'new_vehicle'
+/** `vin_first` (RX04-D): start with the VIN and let the Passport check classify the car. */
+export type SellerEntryIntent = 'resume_draft' | 'garage_vehicle' | 'known_vehicle' | 'new_vehicle' | 'vin_first'
 
 function vehicleAction(vehicle: Vehicle) {
   const status = String(vehicle.status || '').toLowerCase()
@@ -92,6 +95,19 @@ export function SellIntentRouter({
       })
     return () => { active = false }
   }, [fetchOwnedVehicles, isAuthenticated])
+
+  if (isUnifiedUiEnabled()) {
+    return (
+      <SellStart
+        isAuthenticated={isAuthenticated}
+        garageState={garageState}
+        garageVehicles={garageVehicles}
+        hasLocalDraft={hasLocalDraft}
+        onResolve={onResolve}
+        vehicleAction={vehicleAction}
+      />
+    )
+  }
 
   return (
     <div className={skin('min-h-screen bg-[#f6f7f9] text-slate-950', 'text-carup-text')} data-testid="sell-intent-router">
