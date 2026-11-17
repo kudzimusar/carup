@@ -6,6 +6,8 @@ import { ListingImage } from '@/components/marketplace/ListingImage'
 import { Loader2, ArrowLeft, ShieldCheck } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
+import { isShowroomPagesEnabled } from '@/lib/presentationFlags'
+import { ShowroomCompareView } from './showroom/ShowroomCompareView'
 
 interface CompareEntry {
   vin: string
@@ -54,10 +56,14 @@ function trustLabel(entry: CompareEntry) {
 }
 
 export default function MarketplaceCompare() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { compareMarketplaceListings } = useCarUpApi()
   const [entries, setEntries] = useState<CompareEntry[]>([])
   const [loading, setLoading] = useState(true)
+  // RX04-B: the showroom view distinguishes a failed read from "nothing to compare". The accepted
+  // (flags-OFF) view below still renders exactly what it rendered before.
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
 
   const vins = (searchParams.get('vins') || '').split(',').map((v) => v.trim()).filter(Boolean)
 
@@ -68,13 +74,32 @@ export default function MarketplaceCompare() {
       return
     }
     setLoading(true)
+    setFailed(false)
     compareMarketplaceListings(vins)
       .then((res) => { if (!cancelled) setEntries((res.listings as CompareEntry[]) || []) })
-      .catch(() => { if (!cancelled) setEntries([]) })
+      .catch(() => { if (!cancelled) { setEntries([]); setFailed(true) } })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams.get('vins')])
+  }, [searchParams.get('vins'), attempt])
+
+  if (isShowroomPagesEnabled()) {
+    return (
+      <ShowroomCompareView
+        state={loading ? 'loading' : failed ? 'error' : 'ready'}
+        requestedCount={vins.length}
+        entries={entries}
+        onRetry={() => setAttempt((n) => n + 1)}
+        onRemove={(vin) => {
+          const next = vins.filter((v) => v !== vin)
+          const params = new URLSearchParams(searchParams)
+          if (next.length) params.set('vins', next.join(','))
+          else params.delete('vins')
+          setSearchParams(params)
+        }}
+      />
+    )
+  }
 
   const rows: { label: string; render: (e: CompareEntry) => React.ReactNode }[] = [
     { label: 'Price', render: (e) => money(e.price, e.currency) },

@@ -25,6 +25,10 @@ import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceList
 import { marketplaceListingToCardModel } from '@/lib/marketplaceCardModel'
 import type { MarketplaceListingSummary, Vehicle } from '@/types'
 import { VEHICLE_MAKES } from '@/data/vehicleTaxonomy'
+import { isShowroomPagesEnabled } from '@/lib/presentationFlags'
+import { ShowroomListingCard } from '@/components/showroom/ShowroomListingCard'
+import { listingToShowroomCardModel } from '@/lib/showroomCardModel'
+import { DataState } from '@/components/truth'
 
 function labelize(slug: string): string {
   return slug
@@ -154,6 +158,142 @@ export default function VehicleSearch() {
       .sort()
       .map(slug => ({ slug, label: labelize(slug) }))
   }, [categoryOptions, listings])
+
+  if (isShowroomPagesEnabled()) {
+    const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus focus-visible:ring-offset-2'
+    const EYEBROW = 'text-[11px] font-semibold uppercase tracking-[0.18em]'
+    const TRIGGER = 'h-14 rounded-xl border-carup-line bg-white px-4 text-left text-[15px] text-carup-raw-ink shadow-none focus:ring-2 focus:ring-carup-focus'
+    const vehicleName = (v: Vehicle) => [v.year, v.make, v.model].filter(Boolean).join(' ') || v.vin
+    return (
+      <div className="min-h-screen bg-white text-carup-raw-ink" data-testid="vehicle-search-page" data-presentation="rx04">
+        <header className="section-padding mx-auto max-w-[1440px] pb-6 pt-6 sm:pt-10">
+          <p className={`${EYEBROW} text-carup-action`}>Search and verify</p>
+          <h1 className="mt-2 max-w-3xl text-[clamp(1.75rem,3.4vw,3rem)] font-bold leading-[1.04] tracking-[-0.03em]">
+            Find a car, or check one by its VIN
+          </h1>
+          <p className="mt-3 max-w-2xl text-[15px] leading-6 text-carup-text-2">
+            Search published cars by make and model, or enter an exact VIN to look for its public Vehicle Passport. Plate, chassis and temporary-ID lookups need a signed-in account.
+          </p>
+        </header>
+
+        <main className="section-padding mx-auto max-w-[1440px] pb-16">
+          <section className="rounded-3xl bg-carup-bg-surface p-3 sm:p-4" data-testid="vehicle-search-command" aria-label="Search">
+            <p className="sr-only" data-testid="vehicle-search-scope">Exact VIN lookup, or browse by make/model and listing category.</p>
+            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_14rem_15rem]">
+              <label className="relative block">
+                <span className="sr-only">VIN, make or model</span>
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-carup-text-2" aria-hidden="true" />
+                <Input
+                  placeholder="Exact VIN, or a make and model"
+                  value={query}
+                  onChange={event => setQuery(event.target.value)}
+                  className="h-14 rounded-xl border-carup-line bg-white pl-12 text-[16px] text-carup-raw-ink shadow-none"
+                  data-testid="vehicle-search-input"
+                />
+              </label>
+              <Select value={make} onValueChange={setMake}>
+                <SelectTrigger className={TRIGGER} aria-label="Make">
+                  <SelectValue placeholder="Make" />
+                </SelectTrigger>
+                <SelectContent>{makes.map(m => <SelectItem key={m} value={m}>{m === 'All' ? 'Any make' : m}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger className={TRIGGER} aria-label="Listing category">
+                  <SelectValue placeholder="Listing category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">Any category</SelectItem>
+                  {categories.map(c => <SelectItem key={c.slug} value={c.slug}>{c.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </section>
+
+          <ul className="mt-4 grid gap-3 text-[13px] leading-5 text-carup-text-2 sm:grid-cols-3" data-testid="vehicle-search-policy">
+            <li className="flex gap-2"><FileSearch className="mt-0.5 h-4 w-4 shrink-0 text-carup-action" aria-hidden="true" /><span><strong className="font-semibold text-carup-raw-ink">Exact VIN</strong> — public Passport lookup.</span></li>
+            <li className="flex gap-2"><Lock className="mt-0.5 h-4 w-4 shrink-0 text-carup-action" aria-hidden="true" /><span><strong className="font-semibold text-carup-raw-ink">Plate or chassis</strong> — sign in to look these up.</span></li>
+            <li className="flex gap-2"><Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-carup-action" aria-hidden="true" /><span><strong className="font-semibold text-carup-raw-ink">Published cars</strong> — kept separate from private identifiers.</span></li>
+          </ul>
+          <p className="mt-3 max-w-4xl text-[13px] leading-5 text-carup-text-3" data-testid="vehicle-search-lookup-policy">
+            Signed out, plate, chassis and temporary-ID searches give the same answer whether or not a matching vehicle exists, so an empty result is never proof that an identifier is unknown.
+          </p>
+
+          {passportMatch && passportListed && (
+            <Link
+              to={`/marketplace/listing/${encodeURIComponent(passportMatch.vin)}`}
+              className={`group mt-8 grid gap-4 rounded-2xl bg-carup-raw-ink p-5 text-white sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center ${FOCUS}`}
+              data-testid="vehicle-search-passport-match"
+            >
+              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-carup-raw-orange-signal text-carup-raw-ink" aria-hidden="true"><ShieldCheck className="h-6 w-6" /></span>
+              <span className="min-w-0">
+                <span className={`${EYEBROW} block text-white/70`}>Public Passport match</span>
+                <span className="mt-1 block truncate text-[20px] font-semibold tracking-[-0.015em]">{vehicleName(passportMatch)}</span>
+                <span className="mt-1 block truncate font-mono text-[12px] text-white/70">VIN {passportMatch.vin}</span>
+              </span>
+              <span className="inline-flex items-center gap-2 text-[15px] font-semibold">Open Passport <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" /></span>
+            </Link>
+          )}
+
+          {passportMatch && !passportListed && (
+            <div className="mt-8 flex items-start gap-3 rounded-2xl border border-carup-line px-5 py-4" data-testid="vehicle-search-passport-history-only">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-carup-text-2" aria-hidden="true" />
+              <div>
+                <p className="font-semibold">Vehicle history record found: {vehicleName(passportMatch)}</p>
+                <p className="mt-1 font-mono text-[12px] text-carup-text-2">VIN {passportMatch.vin} · not currently listed on the Marketplace</p>
+              </div>
+            </div>
+          )}
+
+          {loadError && (
+            <div className="mt-8" data-testid="vehicle-search-error">
+              <DataState state="error" subject="Marketplace results" description="Live Marketplace results could not be loaded. CarUp has not substituted any inventory." />
+            </div>
+          )}
+
+          <div className="mt-10 flex flex-wrap items-end justify-between gap-3 border-b border-carup-line pb-4">
+            <h2 className="text-[clamp(1.35rem,2.2vw,1.85rem)] font-bold tracking-[-0.025em]">Cars you can look at now</h2>
+            {!loading && (
+              <p className="text-[14px] text-carup-text-2">
+                <span className="font-semibold tabular-nums text-carup-raw-ink">{listings.length}</span> {listings.length === 1 ? 'car' : 'cars'} found
+              </p>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="mt-8" data-testid="vehicle-search-loading"><DataState state="loading" subject="Search results" /></div>
+          ) : (
+            <>
+              <span className="sr-only">{listings.length} vehicles found</span>
+              {listings.length === 0 && !loadError && (
+                <section className="mt-8 grid items-center gap-6 rounded-3xl bg-carup-bg-surface px-6 py-10 sm:px-10 md:grid-cols-[auto_1fr]" data-testid="vehicle-search-empty">
+                  <CarFront className="h-12 w-12 text-carup-text-3" aria-hidden="true" />
+                  <div>
+                    <h3 className="text-[19px] font-semibold tracking-[-0.015em]">No published listings match this search.</h3>
+                    <p className="mt-1.5 max-w-xl text-[15px] leading-6 text-carup-text-2">
+                      Try a broader make or model, or sign in to look up a plate or chassis number. CarUp will not fill the gap with demo inventory.
+                    </p>
+                  </div>
+                </section>
+              )}
+              {listings.length > 0 && (
+                <div className="mt-8 grid grid-cols-1 gap-x-6 gap-y-12 md:grid-cols-2 xl:grid-cols-3 xl:gap-x-8">
+                  {listings.map(listing => (
+                    <ShowroomListingCard
+                      key={listing.vin}
+                      vehicle={listingToShowroomCardModel(listing)}
+                      href={`/marketplace/listing/${encodeURIComponent(listing.vin)}`}
+                      dataTestId="vehicle-search-result"
+                      ctaLabel="Open listing & Passport"
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-white text-slate-950" data-testid="vehicle-search-page">

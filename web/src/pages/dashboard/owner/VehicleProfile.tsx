@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,10 @@ import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { statedMileage, statedPrice, statedDate } from './ownerStatedValues'
 import { evidenceClassificationLabel, satisfiesOwnershipRegistration } from '@/lib/evidenceClassification'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { DataState, MoneyDisplay } from '@/components/truth'
+import { OWNER_FOCUS, OWNER_PRIMARY_ACTION, OWNER_SECONDARY_ACTION } from '@/components/owner/OwnerPageHeader'
+import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 
 // ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
 /**
@@ -102,6 +106,25 @@ const TRUST_CONFIDENCE_LABELS: Record<string, string> = {
   not_evaluated: 'Confidence not assessed',
 }
 
+/* RX04-C — Vehicle Passport section primitives (unified presentation). */
+function PassportSection({ id, title, count, action, children }: { id: string; title: string; count: number; action?: ReactNode; children: ReactNode }) {
+  return (
+    <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-24 rounded-2xl bg-carup-bg-raised p-5 ring-1 ring-carup-line sm:p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 id={`${id}-title`} className="text-[17px] font-semibold tracking-[-0.01em] text-carup-text">
+          {title} <span className="ml-1 text-[13px] font-medium tabular-nums text-carup-text-3">{count}</span>
+        </h2>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function PassportEmpty({ children }: { children: ReactNode }) {
+  return <p className="rounded-xl bg-carup-bg-surface px-4 py-3.5 text-[14px] text-carup-text-2">{children}</p>
+}
+
 export default function VehicleProfile() {
   const { id } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -163,6 +186,27 @@ export default function VehicleProfile() {
     return () => { mounted = false }
   }, [fetchEvidenceTaxonomy, fetchEvidenceSources])
 
+
+  const unified = isUnifiedUiEnabled()
+  const retryAll = () => {
+    setPassportLoadState('loading')
+    setEvidenceLoadState('loading')
+    loadPassport()
+    loadEvidence()
+  }
+  if (unified && !passportData) {
+    return (
+      <main className="mx-auto w-full max-w-[1320px] space-y-4" aria-labelledby="passport-state-title" data-presentation="rx04">
+        <Link to="/dashboard/garage" className={`inline-flex min-h-11 items-center gap-2 rounded-full text-[14px] font-semibold text-carup-text-2 hover:text-carup-text ${OWNER_FOCUS}`}>
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" /> My garage
+        </Link>
+        <h1 id="passport-state-title" className="sr-only">Vehicle Passport</h1>
+        {passportLoadState === 'error'
+          ? <DataState state="error" subject="Vehicle Passport" description="CarUp could not load this Passport. This does not mean the vehicle has no records." action={{ label: 'Retry Passport', onClick: retryAll }} />
+          : <DataState state="loading" subject="Vehicle Passport" />}
+      </main>
+    )
+  }
 
   if (!passportData && passportLoadState === 'error') {
     return (
@@ -337,6 +381,289 @@ export default function VehicleProfile() {
         + 'higher score. This is a measured result, not a missing one.'
       : 'Published by CarUp’s trust authority under its current calculation rules.')
     : (TRUST_STATE_DETAIL[trustState] ?? TRUST_STATE_DETAIL.unavailable)
+
+  if (unified) {
+    const name = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle details not recorded'
+    const statusTone = (status: unknown) => {
+      const v = String(status ?? '')
+      if (v === 'verified') return 'bg-status-success-soft text-status-success'
+      if (v === 'rejected') return 'bg-status-danger-soft text-status-danger'
+      return 'bg-status-warning-soft text-status-warning'
+    }
+    const statusLabel = (status: unknown) => {
+      const v = String(status ?? '')
+      if (v === 'verified') return 'Verified'
+      if (v === 'rejected') return 'Rejected'
+      if (v === 'pending') return 'Pending review'
+      return v ? v.replace(/_/g, ' ') : 'Status not recorded'
+    }
+    const SECTIONS = [
+      { id: 'passport-documents', label: 'Documents', count: vehicle.documents.length },
+      { id: 'passport-service', label: 'Service', count: vehicle.serviceHistory.length },
+      { id: 'passport-insurance', label: 'Insurance', count: vehicle.insuranceRecords.length },
+      { id: 'passport-parts', label: 'Parts', count: vehicle.partsHistory.length },
+      { id: 'passport-evidence', label: 'Evidence & timeline', count: evidenceList.length },
+    ]
+    const serviceCostTotal = vehicle.serviceHistory.reduce((a, s) => a + (s.cost ?? 0), 0)
+    const anyServiceCost = vehicle.serviceHistory.some(s => s.cost !== null)
+    const uploadButton = (label = 'Upload evidence') => (
+      <button type="button" onClick={() => setIsUploadModalOpen(true)} className={OWNER_SECONDARY_ACTION}>
+        <Upload className="h-4 w-4" aria-hidden="true" /> {label}
+      </button>
+    )
+
+    return (
+      <main className="mx-auto w-full max-w-[1320px] space-y-6" aria-labelledby="vehicle-passport-title" data-presentation="rx04" data-testid="vehicle-passport-unified">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Link to="/dashboard/garage" className={`inline-flex min-h-11 items-center gap-2 rounded-full text-[14px] font-semibold text-carup-text-2 hover:text-carup-text ${OWNER_FOCUS}`}>
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> My garage
+          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/dashboard/listings" className={OWNER_SECONDARY_ACTION}>My listings</Link>
+            <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`} className={OWNER_PRIMARY_ACTION}>Edit or continue listing</Link>
+          </div>
+        </div>
+
+        <section className="grid overflow-hidden rounded-3xl bg-carup-bg-raised ring-1 ring-carup-line lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+          <div className="relative bg-carup-bg-surface">
+            <OwnerListingMedia
+              media={(passportData as { listing_media?: unknown }).listing_media}
+              alt={`${name} listing photo`}
+              className="aspect-[16/10] h-full w-full lg:aspect-auto lg:min-h-[22rem]"
+              imgClassName="h-full w-full object-cover"
+            />
+          </div>
+          <div className="flex min-w-0 flex-col gap-5 p-5 sm:p-7">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-carup-action">Vehicle Passport</p>
+              <h1 id="vehicle-passport-title" className="mt-1 text-[clamp(1.5rem,2.6vw,2.1rem)] font-bold leading-tight tracking-[-0.025em] text-carup-text">{name}</h1>
+              <p className="mt-1 font-mono text-[12px] text-carup-text-3">VIN {vehicle.vin}</p>
+            </div>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-carup-line py-4 text-[14px]">
+              {[
+                { label: 'Mileage', value: statedMileage(vehicle.mileage) },
+                { label: 'Colour', value: vehicle.color ?? 'Not recorded' },
+                { label: 'Engine number', value: vehicle.engineNumber ?? 'Not recorded' },
+                { label: 'Owned since', value: vehicle.purchaseDate ?? 'Not recorded' },
+              ].map(f => (
+                <div key={f.label} className="min-w-0">
+                  <dt className="text-[12px] text-carup-text-3">{f.label}</dt>
+                  <dd className="truncate font-medium text-carup-text">{f.value}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <div data-testid="owner-trust" aria-labelledby="owner-trust-heading">
+              <div className="flex items-baseline justify-between gap-3">
+                <span id="owner-trust-heading" className="text-[14px] font-semibold text-carup-text">CarUp Trust</span>
+                {trustScore !== null
+                  ? <span className="text-[20px] font-semibold tabular-nums text-carup-text" data-testid="owner-trust-score">{trustScore} / 100</span>
+                  : <span className="text-[14px] font-semibold text-carup-text-2" data-testid="owner-trust-state">{trustHeadline}</span>}
+              </div>
+              {trustScore !== null ? (
+                <>
+                  <Progress value={trustScore} className="mt-2 h-2" aria-label="CarUp Trust score" />
+                  <p className="mt-1.5 text-[13px] text-carup-text-2" data-testid="owner-trust-band">
+                    {trustHeadline} · {TRUST_CONFIDENCE_LABELS[publicTrust?.confidence ?? ''] ?? 'Confidence not assessed'}
+                    {publicTrust?.calculation_version ? ` · calculation version ${publicTrust.calculation_version}` : ''}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1.5 text-[13px] text-carup-text-2" data-testid="owner-trust-detail">{trustDetail}</p>
+              )}
+              {(publicTrust?.known_limitations.length ?? 0) > 0 && (
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px] text-carup-text-2" data-testid="owner-trust-limitations">
+                  {publicTrust?.known_limitations.map((limitation, i) => <li key={i}>{limitation}</li>)}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2" data-testid="vehicle-claim-badges">
+              {hasVerifiedLogbook && <span className="inline-flex items-center gap-1 rounded-full bg-status-success-soft px-2.5 py-1 text-[12px] font-semibold text-status-success" data-testid="badge-logbook-verified"><CheckCircle className="h-3.5 w-3.5" aria-hidden="true" /> Logbook verified</span>}
+              {hasActiveInsurance && <span className="inline-flex items-center gap-1 rounded-full bg-status-info-soft px-2.5 py-1 text-[12px] font-semibold text-status-info" data-testid="badge-insurance-active"><Shield className="h-3.5 w-3.5" aria-hidden="true" /> Insurance active</span>}
+              {hasPartSentryActivity && <span className="inline-flex items-center gap-1 rounded-full bg-status-neutral-soft px-2.5 py-1 text-[12px] font-semibold text-status-neutral" data-testid="badge-partsentry-active"><Star className="h-3.5 w-3.5" aria-hidden="true" /> PartSentry active</span>}
+              {passportData?.chainVerification?.verified && (passportData.chainVerification.count ?? 0) > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-carup-action-soft px-2.5 py-1 text-[12px] font-semibold text-carup-action-hover" data-testid="badge-ledger-synced"><CheckCircle className="h-3.5 w-3.5" aria-hidden="true" /> Ledger synced</span>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <nav aria-label="Passport sections" className="sticky top-0 z-10 -mx-1 flex gap-2 overflow-x-auto bg-carup-bg px-1 py-2">
+          {SECTIONS.map(sec => (
+            <a key={sec.id} href={`#${sec.id}`} className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full bg-carup-bg-raised px-4 text-[14px] font-semibold text-carup-text ring-1 ring-carup-line hover:ring-carup-text-3 ${OWNER_FOCUS}`}>
+              {sec.label} <span className="tabular-nums text-carup-text-3">{sec.count}</span>
+            </a>
+          ))}
+        </nav>
+
+        {evidenceLoadState === 'error' && (
+          <div data-testid="passport-evidence-unavailable">
+            <DataState state="error" subject="Evidence" description="Evidence records could not be loaded. This is not a statement that no evidence exists." action={{ label: 'Retry evidence', onClick: loadEvidence }} />
+          </div>
+        )}
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="min-w-0 space-y-6">
+            <PassportSection id="passport-documents" title="Documents" count={vehicle.documents.length} action={uploadButton('Upload document')}>
+              {evidenceLoadState === 'ready' && vehicle.documents.length === 0 && <PassportEmpty>No document records are available to CarUp for this vehicle.</PassportEmpty>}
+              <ul className="divide-y divide-carup-line">
+                {vehicle.documents.map(doc => (
+                  <li key={doc.id} className="flex items-center gap-3 py-3">
+                    <FileText className="h-5 w-5 shrink-0 text-carup-action" aria-hidden="true" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[14px] font-medium text-carup-text">{doc.title}</p>
+                      <p className="text-[12px] text-carup-text-3">{doc.date}</p>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${statusTone(doc.status)}`}>{statusLabel(doc.status)}</span>
+                  </li>
+                ))}
+              </ul>
+            </PassportSection>
+
+            <PassportSection id="passport-service" title="Service history" count={vehicle.serviceHistory.length}>
+              {vehicle.serviceHistory.length === 0 && <PassportEmpty>No service records are available to CarUp for this vehicle.</PassportEmpty>}
+              <ol className="relative space-y-4 border-l border-carup-line pl-5">
+                {vehicle.serviceHistory.map(sv => (
+                  <li key={sv.id} className="relative">
+                    <span className="absolute -left-[1.6rem] top-1.5 h-2.5 w-2.5 rounded-full bg-carup-action" aria-hidden="true" />
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="text-[14px] font-semibold text-carup-text">{sv.serviceType}</p>
+                      {sv.cost !== null ? <MoneyDisplay amount={sv.cost} currency={null} /> : <span className="text-[13px] text-carup-text-3">Cost not recorded</span>}
+                    </div>
+                    <p className="text-[13px] text-carup-text-2">{sv.garage ?? 'Garage not recorded'} · {sv.date} · {statedMileage(sv.mileage)}</p>
+                    {sv.description && <p className="mt-1 text-[13px] text-carup-text-2">{sv.description}</p>}
+                  </li>
+                ))}
+              </ol>
+            </PassportSection>
+
+            <PassportSection id="passport-insurance" title="Insurance" count={vehicle.insuranceRecords.length}>
+              {vehicle.insuranceRecords.length === 0 && <PassportEmpty>No insurance records are available to CarUp for this vehicle.</PassportEmpty>}
+              <ul className="space-y-3">
+                {vehicle.insuranceRecords.map(ir => (
+                  <li key={ir.id} className="rounded-xl bg-carup-bg-surface p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-2 text-[14px] font-semibold text-carup-text" data-testid="insurance-record-insurer"><Shield className="h-4 w-4 text-status-info" aria-hidden="true" />{ir.insurer || 'Insurer not recorded'}</span>
+                      <span className="rounded-full bg-carup-bg-raised px-2.5 py-0.5 text-[12px] font-semibold text-carup-text-2">{ir.status}</span>
+                    </div>
+                    <p className="mt-1.5 text-[13px] text-carup-text-2" data-testid="insurance-record-policy">Policy: {ir.policyNumber || 'not recorded'}</p>
+                    <p className="text-[13px] text-carup-text-2" data-testid="insurance-record-dates">{ir.startDate}{ir.expiryDate ? ` to ${ir.expiryDate}` : ' — end date not recorded'}</p>
+                    <p className="mt-2 text-[12px] text-carup-text-3">Cover type and premium are not held by CarUp for this record. Their absence here is not a statement about the policy.</p>
+                  </li>
+                ))}
+              </ul>
+            </PassportSection>
+
+            <PassportSection id="passport-parts" title="Parts" count={vehicle.partsHistory.length}>
+              {vehicle.partsHistory.length === 0 && <PassportEmpty>No parts records are available to CarUp for this vehicle.</PassportEmpty>}
+              <ul className="divide-y divide-carup-line">
+                {vehicle.partsHistory.map(part => (
+                  <li key={part.id} className="flex flex-wrap items-baseline justify-between gap-2 py-3">
+                    <div className="min-w-0">
+                      <p className="text-[14px] font-medium text-carup-text">{part.name}</p>
+                      <p className="text-[12px] text-carup-text-3">{[part.manufacturer, part.type ?? 'Type not recorded', part.installedDate].filter(Boolean).join(' · ')}</p>
+                    </div>
+                    {part.cost !== null ? <MoneyDisplay amount={part.cost} currency={null} /> : <span className="text-[13px] text-carup-text-3">Cost not recorded</span>}
+                  </li>
+                ))}
+              </ul>
+            </PassportSection>
+
+            <PassportSection id="passport-evidence" title="Evidence and life timeline" count={evidenceList.length} action={uploadButton()}>
+              <p className="mb-4 text-[13px] text-carup-text-2">Photographs and documents that support this car’s condition and identity.</p>
+              {evidenceList.length > 0 && (
+                <div className="mb-5">
+                  <h3 className="mb-3 text-[14px] font-semibold text-carup-text">Vehicle life timeline</h3>
+                  <VehicleLifeStageTimeline evidence={evidenceList} taxonomy={evidenceTaxonomy} sources={evidenceSources} />
+                </div>
+              )}
+              {evidenceLoadState === 'error' ? (
+                <PassportEmpty>Evidence is temporarily unavailable. No absence conclusion is being made.</PassportEmpty>
+              ) : evidenceList.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-carup-line-strong px-5 py-8 text-center">
+                  <FileText className="mx-auto h-10 w-10 text-carup-text-3" aria-hidden="true" />
+                  <h3 className="mt-3 text-[15px] font-semibold text-carup-text">No evidence records available to CarUp</h3>
+                  <p className="mx-auto mt-1 max-w-sm text-[13px] text-carup-text-2">This does not prove that no evidence exists. Add photographs or documents such as odometer captures, damage records or registration certificates.</p>
+                  <div className="mt-4 flex justify-center">{uploadButton()}</div>
+                </div>
+              ) : (
+                <ul className="grid gap-3 md:grid-cols-2">
+                  {evidenceList.map(item => (
+                    <li key={item.id} className="flex gap-3 rounded-xl bg-carup-bg-surface p-3">
+                      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-carup-bg-surface-2">
+                        {!documentTypes.includes(item.evidence_type) && item.file_url
+                          ? <img src={item.file_url} alt={`${evidenceClassificationLabel(item)} evidence preview`} className="h-full w-full object-cover" loading="lazy" />
+                          : <span className="flex h-full w-full items-center justify-center text-carup-text-3"><FileText className="h-6 w-6" aria-hidden="true" /></span>}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[14px] font-medium text-carup-text">{evidenceClassificationLabel(item)}</p>
+                        {item.verification_notes && <p className="mt-0.5 line-clamp-2 text-[12px] italic text-carup-text-2">“{item.verification_notes}”</p>}
+                        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] font-semibold">
+                          {['verified', 'rejected', 'pending'].includes(String(item.verification_status)) && <span className={`rounded-full px-2 py-0.5 ${statusTone(item.verification_status)}`}>{statusLabel(item.verification_status)}</span>}
+                          {item.visibility_level === 'public_safe' && <span className="inline-flex items-center gap-1 rounded-full bg-status-info-soft px-2 py-0.5 text-status-info"><Eye className="h-3 w-3" aria-hidden="true" /> Public</span>}
+                          {item.visibility_level === 'restricted' && <span className="inline-flex items-center gap-1 rounded-full bg-status-warning-soft px-2 py-0.5 text-status-warning"><EyeOff className="h-3 w-3" aria-hidden="true" /> Restricted</span>}
+                          {item.visibility_level === 'private' && <span className="inline-flex items-center gap-1 rounded-full bg-carup-bg-raised px-2 py-0.5 text-carup-text-2"><Lock className="h-3 w-3" aria-hidden="true" /> Private</span>}
+                          {item.linked_registry_event_id && <span className="rounded-full bg-carup-bg-raised px-2 py-0.5 text-carup-text-2">Linked</span>}
+                        </div>
+                        <p className="mt-1 text-[11px] text-carup-text-3">Uploaded {statedDate(item.uploaded_at) ?? 'date not recorded'}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </PassportSection>
+          </div>
+
+          <aside className="space-y-4 xl:sticky xl:top-16 xl:self-start">
+            <section className="rounded-2xl bg-carup-bg-raised p-5 ring-1 ring-carup-line" aria-labelledby="passport-summary-title">
+              <h2 id="passport-summary-title" className="text-[15px] font-semibold text-carup-text">Summary</h2>
+              <dl className="mt-3 space-y-2 text-[14px]">
+                <div className="flex justify-between gap-3"><dt className="text-carup-text-2">Recorded price</dt><dd className="text-right">{statedPrice(vehicle.price)}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-carup-text-2">Services</dt><dd className="tabular-nums">{vehicle.serviceHistory.length}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-carup-text-2">Parts</dt><dd className="tabular-nums">{vehicle.partsHistory.length}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-carup-text-2">Recorded service cost</dt><dd className="text-right">{anyServiceCost ? <MoneyDisplay amount={serviceCostTotal} currency={null} /> : 'Not recorded'}</dd></div>
+              </dl>
+            </section>
+            <section className="rounded-2xl bg-carup-bg-raised p-5 ring-1 ring-carup-line" aria-labelledby="passport-next-title">
+              <h2 id="passport-next-title" className="text-[15px] font-semibold text-carup-text">For this car</h2>
+              <ul className="mt-2 space-y-1 text-[14px]">
+                {[
+                  { label: 'Ask Gutu AI about it', href: '/dashboard/ai' },
+                  { label: 'Service history across your cars', href: '/dashboard/service-history' },
+                  { label: 'Insurance records', href: '/dashboard/insurance' },
+                  { label: 'PartSentry parts', href: '/dashboard/partsentry' },
+                  { label: 'All your evidence', href: '/dashboard/evidence' },
+                ].map(l => (
+                  <li key={l.href}><Link to={l.href} className={`flex min-h-10 items-center justify-between rounded-md text-carup-text hover:text-carup-action-hover ${OWNER_FOCUS}`}>{l.label}<ArrowLeft className="h-3.5 w-3.5 rotate-180 text-carup-text-3" aria-hidden="true" /></Link></li>
+                ))}
+              </ul>
+            </section>
+          </aside>
+        </div>
+
+        <EvidenceUploadModal
+          isOpen={isUploadModalOpen}
+          onClose={() => {
+            setIsUploadModalOpen(false)
+            if (searchParams.get('upload') === '1') {
+              const next = new URLSearchParams(searchParams)
+              next.delete('upload')
+              setSearchParams(next, { replace: true })
+            }
+          }}
+          vin={vehicle.vin}
+          timelineEvents={passportData.timeline || []}
+          onSuccess={() => {
+            setEvidenceLoadState('loading')
+            setPassportLoadState('loading')
+            loadEvidence()
+            loadPassport()
+          }}
+        />
+      </main>
+    )
+  }
 
   return (
     <main className="space-y-6 max-w-7xl mx-auto px-3 sm:px-0" aria-labelledby="vehicle-passport-title">

@@ -11,7 +11,7 @@
  */
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Bookmark, Car, FileText, Gauge, ImageOff, MessageSquare, Shield, Wrench } from 'lucide-react'
+import { ArrowRight, BadgeCheck, Bookmark, Car, FileText, Gauge, Gift, ImageOff, LineChart, ListChecks, Mail, MessageSquare, Search, Shield, Tag, Wrench } from 'lucide-react'
 import MarketplacePulse from '@/components/intelligence/MarketplacePulse'
 import NextBestActions from '@/components/intelligence/NextBestActions'
 import PeriodicReport from '@/components/intelligence/PeriodicReport'
@@ -33,13 +33,43 @@ export interface MyCarUpHomeProps {
 
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus focus-visible:ring-offset-2'
 
-const DESTINATIONS: Array<{ label: string; detail: string; href: string; icon: typeof Car }> = [
-  { label: 'My garage', detail: 'Every vehicle and its Passport', href: '/dashboard/garage', icon: Car },
-  { label: 'Saved cars', detail: 'Cars you are considering', href: '/dashboard/saved', icon: Bookmark },
-  { label: 'Service history', detail: 'Work recorded on your cars', href: '/dashboard/service-history', icon: Wrench },
-  { label: 'Insurance', detail: 'Policies and records', href: '/dashboard/insurance', icon: Shield },
-  { label: 'PartSentry', detail: 'Parts provenance', href: '/dashboard/partsentry', icon: FileText },
-  { label: 'Gutu AI', detail: 'Ask about your cars', href: '/dashboard/ai', icon: MessageSquare },
+// RX04-C: a complete directory — every My CarUp capability is one tap from home, grouped by what
+// the owner is doing (the legacy dashboard left several of these reachable only from a desktop rail).
+const DESTINATION_GROUPS: Array<{ title: string; items: Array<{ label: string; detail: string; href: string; icon: typeof Car }> }> = [
+  {
+    title: 'Your cars',
+    items: [
+      { label: 'My garage', detail: 'Every vehicle and its Passport', href: '/dashboard/garage', icon: Car },
+      { label: 'Evidence', detail: 'Documents behind each car', href: '/dashboard/evidence', icon: FileText },
+      { label: 'Service history', detail: 'Work recorded on your cars', href: '/dashboard/service-history', icon: Wrench },
+      { label: 'Insurance', detail: 'Policies and records', href: '/dashboard/insurance', icon: Shield },
+      { label: 'PartSentry', detail: 'Parts provenance', href: '/dashboard/partsentry', icon: Gauge },
+    ],
+  },
+  {
+    title: 'Buying',
+    items: [
+      { label: 'Saved cars', detail: 'Cars you are considering', href: '/dashboard/saved', icon: Bookmark },
+      { label: 'Verify a VIN', detail: 'Look up a public Passport', href: '/search', icon: Search },
+    ],
+  },
+  {
+    title: 'Selling',
+    items: [
+      { label: 'Sell a car', detail: 'Seller Studio, with your draft', href: '/dashboard/sell-vehicle', icon: Tag },
+      { label: 'My listings', detail: 'What is live and what is pending', href: '/dashboard/listings', icon: ListChecks },
+      { label: 'Seller insights', detail: 'How your listings are doing', href: '/dashboard/intelligence', icon: LineChart },
+    ],
+  },
+  {
+    title: 'Help and account',
+    items: [
+      { label: 'Gutu AI', detail: 'Ask about your cars', href: '/dashboard/ai', icon: MessageSquare },
+      { label: 'Messages', detail: 'Enquiries and replies', href: '/dashboard/communications', icon: Mail },
+      { label: 'Referrals', detail: 'Invite people you know', href: '/dashboard/referrals', icon: Gift },
+      { label: 'Identity check', detail: 'Verify who you are', href: '/kyc', icon: BadgeCheck },
+    ],
+  },
 ]
 
 function Section({ title, action, children, testId }: { title: string; action?: ReactNode; children: ReactNode; testId?: string }) {
@@ -201,24 +231,27 @@ export function MyCarUpHome({
         )}
       </Section>
 
-      <Section title="Go to" testId="mycarup-destinations">
-        <nav aria-label="My CarUp destinations">
-          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-            {DESTINATIONS.map(d => (
-              <li key={d.href} className="min-w-0">
-                <Link
-                  to={d.href}
-                  className={`flex h-full min-h-[4.5rem] flex-col justify-between gap-2 rounded-xl bg-carup-bg-raised p-3 ring-1 ring-carup-line transition hover:ring-carup-text-3 ${FOCUS}`}
-                >
-                  <d.icon className="h-4 w-4 text-carup-action-hover" aria-hidden="true" />
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-carup-text">{d.label}</span>
-                    <span className="block truncate text-[12px] text-carup-text-3">{d.detail}</span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+      <Section title="Everything in My CarUp" testId="mycarup-destinations">
+        <nav aria-label="My CarUp destinations" className="grid gap-x-6 gap-y-5 md:grid-cols-2 xl:grid-cols-4">
+          {DESTINATION_GROUPS.map(group => (
+            <div key={group.title} className="min-w-0">
+              <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-carup-text-3">{group.title}</h3>
+              <ul className="divide-y divide-carup-line overflow-hidden rounded-xl bg-carup-bg-raised ring-1 ring-carup-line">
+                {group.items.map(d => (
+                  <li key={d.href}>
+                    <Link to={d.href} className={`group flex min-h-14 items-center gap-3 px-3 py-2.5 transition hover:bg-carup-bg-surface ${FOCUS}`}>
+                      <d.icon className="h-4 w-4 shrink-0 text-carup-action-hover" aria-hidden="true" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-carup-text">{d.label}</span>
+                        <span className="block truncate text-[12px] text-carup-text-3">{d.detail}</span>
+                      </span>
+                      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-carup-text-3 transition group-hover:translate-x-0.5" aria-hidden="true" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </nav>
       </Section>
 
