@@ -72,6 +72,12 @@ function usePageLoaded() {
   useEffect(() => {
     if (loaded) return
     const done = () => setLoaded(true)
+    // RX07-CERT-02 (F2): `load` may have fired between the render above and this effect. Re-check at
+    // the moment the listener is installed, otherwise the film would wait for an event that never comes.
+    if (document.readyState === 'complete') {
+      done()
+      return
+    }
     window.addEventListener('load', done, { once: true })
     return () => window.removeEventListener('load', done)
   }, [loaded])
