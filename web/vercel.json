@@ -1,4 +1,7 @@
 {
+  "git": {
+    "deploymentEnabled": { "feat/carup-idv-live-review-lr12": false }
+  },
   "rewrites": [
     {
       "source": "/((?!email-assets/).*)",
