@@ -42,10 +42,46 @@ for migration in \
   20261118022000_identity_review_shared_attempt_budget.sql \
   20261118023000_identity_review_refundable_budget.sql \
   20261118024000_identity_document_side_assessment.sql \
+  20261118024900_identity_biometric_legacy_reconciliation.sql \
   20261118025000_identity_biometric_contract.sql; do
+  if [[ "$migration" == 20261118024900* && -n "${CARUP_IDV_TEST_O2_X4_SQL_DIR:-}" ]]; then
+    for legacy in 20260903210000_identity_biometric_consents.sql 20260903211000_verification_assessments_biometrics.sql; do
+      awk '/^-- \+migrate Down$/{exit} {print}' "$CARUP_IDV_TEST_O2_X4_SQL_DIR/$legacy" | "${PSQL[@]}" -q
+    done
+    "${PSQL[@]}" -q <<'SQL'
+INSERT INTO users(id,name,email,role,join_date) VALUES ('test-legacy','Synthetic Legacy','legacy@example.invalid','owner','2026-01-01');
+INSERT INTO verification_sessions(id,user_id,document_type,status,version)
+VALUES ('18181818-1818-4818-8818-181818181818','test-legacy','passport','uploaded',1);
+INSERT INTO identity_biometric_consents(id,user_id,session_id,status,purposes,policy_version,consent_text_version,source,actor_kind,actor_user_id)
+VALUES ('historical-grant','test-legacy','18181818-1818-4818-8818-181818181818','granted','["liveness"]',
+ 'biometric_consent.v1','biometric_consent_text.v1','historical-fixture','user','test-legacy');
+INSERT INTO identity_biometric_consents(id,user_id,session_id,status,purposes,policy_version,consent_text_version,source,actor_kind,actor_user_id,supersedes_id)
+VALUES ('historical-withdrawal','test-legacy','18181818-1818-4818-8818-181818181818','withdrawn','["liveness"]',
+ 'biometric_consent.v1','biometric_consent_text.v1','historical-fixture','user','test-legacy','historical-grant');
+INSERT INTO verification_assessments(session_id,assessment_source,consent_id,face_match_status,liveness_status,provider_state)
+VALUES ('18181818-1818-4818-8818-181818181818','historical-fixture','historical-grant','not_run','not_run','not_configured');
+SQL
+  fi
   "${PSQL[@]}" -q -f "$script_dir/database/migrations/$migration"
 done
 # Repeat the candidate migrations to verify their idempotent installation.
+"${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118024900_identity_biometric_legacy_reconciliation.sql"
+if [[ -n "${CARUP_IDV_TEST_O2_X4_SQL_DIR:-}" ]]; then
+  "${PSQL[@]}" -q <<'SQL'
+DO $$ BEGIN
+  IF (SELECT count(*) FROM identity_biometric_consents_o2_archive) <> 2 OR NOT EXISTS (
+    SELECT 1 FROM identity_biometric_consents_o2_archive WHERE status='withdrawn' AND supersedes_id='historical-grant'
+  ) OR EXISTS (SELECT 1 FROM identity_biometric_consents) OR
+    has_table_privilege('service_role','public.identity_biometric_consents_o2_archive','SELECT') OR
+    NOT EXISTS (
+      SELECT 1 FROM verification_assessments WHERE consent_id='historical-grant' AND biometric_consent_id IS NULL
+    ) OR public.record_identity_biometric_contract('18181818-1818-4818-8818-181818181818','test-legacy','state',NULL,NULL,ARRAY[]::text[],NULL)->>'status' <> 'not_granted' THEN
+    RAISE EXCEPTION 'Historical consent or assessment custody incorrect';
+  END IF;
+END $$;
+SQL
+  echo 'PASS historical consent and withdrawal archived without creating active consent or converting legacy assessment authority'
+fi
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118025000_identity_biometric_contract.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118024000_identity_document_side_assessment.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117210000_identity_applicant_ocr_confirmation.sql"

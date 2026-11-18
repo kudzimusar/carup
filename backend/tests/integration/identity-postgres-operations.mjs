@@ -139,14 +139,16 @@ if (process.argv.includes('--local-ocr-recovery')) {
   process.exit(0);
 }
 
-if (process.argv.includes('--local-ocr')) {
+if (process.argv.includes('--local-ocr') || process.argv.includes('--qualification')) {
   const directory = process.env.CARUP_IDV_TEST_IMAGE_DIR;
   assert.ok(directory);
   async function submitImages(type, front, back) {
     const { session } = await expectJson(applicantRoot, { actor: applicant, body: { documentType: type } }, 201);
     for (const [side, file] of [['front', front], ['back', back], ['selfie', null]]) {
       if (side === 'back' && !file) continue;
-      const image = file ? 'data:image/png;base64,' + (await readFile(join(directory, file + '.png'))).toString('base64')
+      const jpeg = file?.endsWith('.jpg');
+      const image = file ? `data:image/${jpeg ? 'jpeg' : 'png'};base64,`
+        + (await readFile(join(directory, jpeg ? file : file + '.png'))).toString('base64')
         : fixtureImage(++seed);
       await expectJson(`${applicantRoot}/${session.id}/upload/${side}`, { actor: applicant, body: { image } });
     }
@@ -155,6 +157,43 @@ if (process.argv.includes('--local-ocr')) {
     const elapsed = Math.round(performance.now() - before);
     assert.equal(submitted.status, 'pending_manual_review');
     return { submitted, elapsed };
+  }
+
+  if (process.argv.includes('--qualification')) {
+    const { session } = await expectJson(applicantRoot, { actor: applicant, body: { documentType: 'national_id' } }, 201);
+    for (const side of ['front', 'selfie']) {
+      await expectJson(`${applicantRoot}/${session.id}/upload/${side}`, { actor: applicant, body: { image: fixtureImage(++seed) } });
+    }
+    const missing = await request(`${applicantRoot}/${session.id}/submit`, { actor: applicant, body: {} });
+    assert.equal(missing.status, 400);
+    assert.doesNotMatch(JSON.stringify(await missing.json()), /storage_path/);
+    console.log('PASS missing reverse refused before OCR');
+    for (const [type, front, back, expected] of [
+      ['passport', 'var-passport', null, ['Anne Marie', 'Dube-Moyo', 'MOCKA1234', '1992-08-12']],
+      ['national_id', 'var-id', 'var-id', ['TARIRO', "O'Neil", 'FX-TEST-9083', '1990-06-07']],
+      ['drivers_license', 'var-licence.jpg', 'var-licence.jpg', ['NYASHA', 'VAN DER MERWE', 'DEMO-555121', '1995-04-19']],
+    ]) {
+      // Use a distinct reverse image with the same observed number for sided cases.
+      const reverse = back ? (type === 'national_id' ? 'var-id-back' : 'var-licence-back') : null;
+      const { submitted, elapsed } = await submitImages(type, front, reverse);
+      const detail = (await readCase(first, submitted.id)).session;
+      assert.equal(detail.evidence_classification, 'uncertain');
+      assert.deepEqual(['first_name','last_name','national_id_number','date_of_birth'].map(field => submitted.ocr_result[field]), expected);
+      if (reverse) assert.equal(detail.ocr_side_assessment.comparison, 'consistent_overlap');
+      console.log(type, '4/4 expected fields; classification uncertain; latency_ms', elapsed);
+    }
+    for (const front of ['plain-paper','manipulated-passport','different-layout','missing-label','incomplete-value',
+      'invalid-calendar','rotated-passport','low-res-passport','blurred-passport','blank','non-document','non-document-coins','mrz-valid','mrz-invalid']) {
+      const { submitted } = await submitImages('passport', front);
+      const detail = (await readCase(first, submitted.id)).session;
+      assert.notEqual(detail.evidence_classification, 'valid_identity_document');
+      assert.ok(!detail.assessment.allowed_actions.includes('approve'));
+      assert.equal(submitted.ocr_side_assessment, undefined);
+      if (['missing-label','incomplete-value','different-layout'].includes(front)) assert.equal(submitted.ocr_result?.national_id_number, undefined);
+      if (['incomplete-value','invalid-calendar'].includes(front)) assert.equal(submitted.ocr_result?.date_of_birth, undefined);
+      console.log(front, 'approval refused', detail.primary_reason_code, detail.ocr_side_assessment?.structure?.frontTd3Mrz || '-');
+    }
+    process.exit(0);
   }
 
   let accepted = 0;
@@ -218,6 +257,8 @@ if (process.argv.includes('--local-ocr')) {
   const grant = { requestId: randomUUID(), revision, purposes: ['face_document_match'], notice: 'biometric_consent_text.v1' };
   assert.equal((await expectJson(bio + '/grant', { actor: applicant, body: grant })).biometric.status, 'granted');
   const assessment = { requestId: randomUUID(), revision, purposes: ['face_document_match'] };
+  assert.equal((await request(bio + '/assess', { actor: applicant, body: { ...assessment, face_match: 'match', liveness: 'passed' } })).status, 400);
+  assert.equal((await request(bio + '/result', { actor: applicant, body: { ...assessment, provider_state: 'completed' } })).status, 404);
   assert.equal((await request(bio + '/assess', { actor: applicant, body: { ...assessment, purposes: ['liveness'] } })).status, 409);
   assert.equal((await request(bio + '/assess', { actor: applicant, body: { ...assessment, revision: revision - 1 } })).status, 409);
   const receipts = await Promise.all([1, 2].map(() => expectJson(bio + '/assess', { actor: applicant, body: assessment })));

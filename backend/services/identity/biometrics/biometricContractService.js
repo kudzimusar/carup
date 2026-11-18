@@ -2,6 +2,7 @@ import { CarUpError, ConflictError, NotFoundError, ValidationError } from '../..
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const OPERATIONS = new Set(['state', 'grant', 'withdraw', 'assess']);
+const REQUEST_FIELDS = new Set(['requestId', 'revision', 'purposes', 'notice']);
 const PURPOSES = new Set(['face_document_match', 'liveness']);
 
 export async function biometricContract(client, actor, sessionId, operation, body = {}) {
@@ -9,6 +10,10 @@ export async function biometricContract(client, actor, sessionId, operation, bod
   // isolated test process may write this contract. No request runs inference.
   if (process.env.NODE_ENV !== 'test' || process.env.CARUP_IDV_TEST_BIOMETRIC_CONTRACT !== 'yes') {
     throw new CarUpError('Biometric consent and assessment are unavailable.', 503, 'BIOMETRIC_UNAVAILABLE');
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)
+    || Object.keys(body).some(field => !REQUEST_FIELDS.has(field))) {
+    throw new ValidationError('Invalid biometric contract request.');
   }
   const userId = actor?.id || actor?.userId;
   const { requestId, revision, purposes = [], notice } = body || {};

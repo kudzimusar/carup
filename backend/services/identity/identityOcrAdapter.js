@@ -3,7 +3,7 @@
 import { configuredIdentityVisionProvider } from '../ai/ocrVisionProvider.js';
 import { decodeDocumentPayload } from '../document-intelligence/documentMedia.js';
 import { DOCUMENT_SCHEMAS, FIELD_ALIASES, OCR_SCHEMA_VERSION } from '../document-intelligence/documentSchemas.js';
-import { localIdentityOcrProvider } from './localIdentityOcr.js';
+import { localIdentityOcrProvider, TD3_OBSERVATION_STATES } from './localIdentityOcr.js';
 import { combineOcrSides } from './ocrSideAssessment.js';
 import { validateDecodedEvidenceImage } from './decodeEvidenceImage.js';
 import { evidenceImageMime } from './evidenceImageFormat.js';
@@ -28,7 +28,7 @@ async function classifySide(provider, buffer, side, schema) {
 }
 
 async function extractSide(provider, docType, dataUri, side) {
-  const key = TYPES[docType];
+  const key = Object.hasOwn(TYPES, docType) ? TYPES[docType] : null;
   const schema = key && DOCUMENT_SCHEMAS[key];
   if (!schema) return { success: false, error: 'UNSUPPORTED_DOCUMENT' };
   let media;
@@ -51,7 +51,9 @@ async function extractSide(provider, docType, dataUri, side) {
   }
   if (!provider.observationsOnly && parsed.document_class_observed !== schema.documentClass) return { success: false, error: 'UNSUPPORTED_DOCUMENT', provider: provider.id, model: provider.model };
   if (typeof parsed.legible !== 'boolean') return { success: false, error: 'OCR_PROVIDER_INVALID_OUTPUT', provider: provider.id, model: provider.model };
-  if (parsed.legible === false) return { success: false, error: 'DOCUMENT_UNREADABLE', provider: provider.id, model: provider.model };
+  const structuralObservation = provider.observationsOnly && TD3_OBSERVATION_STATES.has(parsed.td3Mrz)
+    ? { td3Mrz: parsed.td3Mrz } : {};
+  if (parsed.legible === false) return { success: false, error: 'DOCUMENT_UNREADABLE', provider: provider.id, model: provider.model, ...structuralObservation };
   const extractedData = {};
   const additional = {};
   for (const [name, spec] of Object.entries(schema.fields)) {
@@ -63,7 +65,7 @@ async function extractSide(provider, docType, dataUri, side) {
   }
   if (Object.keys(additional).length) extractedData.additional_fields = additional;
   return { success: true, extractedData, provider: provider.id, model: provider.model,
-    schemaVersion: OCR_SCHEMA_VERSION, documentClass: provider.observationsOnly ? null : schema.documentClass, confidence: null };
+    ...structuralObservation, schemaVersion: OCR_SCHEMA_VERSION, documentClass: provider.observationsOnly ? null : schema.documentClass, confidence: null };
 }
 
 export function makeIdentityOcrAdapter(provider) {
@@ -72,7 +74,7 @@ export function makeIdentityOcrAdapter(provider) {
   return {
     observationsOnly: provider.observationsOnly === true,
     async classifyDocument(front, back, _selfie, docType) {
-      const schema = DOCUMENT_SCHEMAS[TYPES[docType]];
+      const schema = Object.hasOwn(TYPES, docType) ? DOCUMENT_SCHEMAS[TYPES[docType]] : null;
       if (provider.observationsOnly) {
         return { ...provenance, classification: schema ? 'uncertain' : 'unsupported_document',
           classificationConfidence: null, observationsOnly: Boolean(schema),

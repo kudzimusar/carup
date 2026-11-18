@@ -1,6 +1,7 @@
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+export const TD3_OBSERVATION_STATES = new Set(['not_applicable', 'not_observed', 'unreadable', 'checksums_pass', 'checksums_fail']);
 const WORKER = fileURLToPath(new URL('./localIdentityOcrWorker.js', import.meta.url));
 let activeWorkers = 0;
 
@@ -28,7 +29,7 @@ export async function runLocalIdentityOcr(image, docType, { start = fork, timeou
     child.once('message', message => {
       if (typeof message?.legible !== 'boolean' || !message.fields || typeof message.fields !== 'object'
         || Array.isArray(message.fields) || !Object.values(message.fields).every(value => typeof value === 'string')
-        || !Number.isFinite(message.peakRssKiB)) {
+        || !TD3_OBSERVATION_STATES.has(message.td3Mrz) || !Number.isFinite(message.peakRssKiB)) {
         finish(new Error('Local OCR returned an invalid response.'));
         return;
       }

@@ -22,6 +22,10 @@ export function combineOcrSides(front, back) {
     fieldSources,
   };
 
+  if (front.td3Mrz || back?.td3Mrz) {
+    assessment.structure = { frontTd3Mrz: front.td3Mrz ?? null, backTd3Mrz: back?.td3Mrz ?? null };
+  }
+
   if (!front.success || (back && !back.success)) {
     return { ...(!front.success ? front : back), sideAssessment: assessment };
   }
