@@ -41,10 +41,12 @@ for migration in \
   20261118021000_identity_review_step_up.sql \
   20261118022000_identity_review_shared_attempt_budget.sql \
   20261118023000_identity_review_refundable_budget.sql \
-  20261118024000_identity_document_side_assessment.sql; do
+  20261118024000_identity_document_side_assessment.sql \
+  20261118025000_identity_biometric_contract.sql; do
   "${PSQL[@]}" -q -f "$script_dir/database/migrations/$migration"
 done
 # Repeat the candidate migrations to verify their idempotent installation.
+"${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118025000_identity_biometric_contract.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118024000_identity_document_side_assessment.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117210000_identity_applicant_ocr_confirmation.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117220000_identity_atomic_submission_claim.sql"

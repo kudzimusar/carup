@@ -1,6 +1,7 @@
 import express from 'express';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { supabase } from '../db/supabase.js';
+import { biometricContract } from '../services/identity/biometrics/biometricContractService.js';
 import { confirmApplicantOcr } from '../services/identity/applicantOcrConfirmation.js';
 import {
   createVerificationSession,
@@ -47,6 +48,18 @@ router.post('/api/identity/verification-sessions/:sessionId/ocr-confirmation', a
   const confirmation = await confirmApplicantOcr(supabase, req.userContext, req.params.sessionId, req.body);
   res.json({ success: true, confirmation });
 }));
+
+router.get('/api/identity/verification-sessions/:sessionId/biometrics', authorizeSessionRole(), asyncHandler(async (req, res) => {
+  const biometric = await biometricContract(supabase, req.userContext, req.params.sessionId, 'state');
+  res.json({ success: true, biometric });
+}));
+
+for (const operation of ['grant', 'withdraw', 'assess']) {
+  router.post(`/api/identity/verification-sessions/:sessionId/biometrics/${operation}`, authorizeSessionRole(), asyncHandler(async (req, res) => {
+    const biometric = await biometricContract(supabase, req.userContext, req.params.sessionId, operation, req.body);
+    res.json({ success: true, biometric });
+  }));
+}
 
 // ENTRY PREFLIGHT: the applicant's latest session — registered BEFORE the
 // :sessionId route so "latest" is never captured as an id.

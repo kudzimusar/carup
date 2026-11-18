@@ -30,7 +30,7 @@ Object.assign(process.env, {
   SUPABASE_URL: 'http://127.0.0.1:54321',
   SUPABASE_SERVICE_ROLE_KEY: 'lr13-disposable-fixture',
   CARUP_IDENTITY_OCR_ENABLED: process.env.CARUP_IDV_TEST_OCR_UNAVAILABLE === 'yes' ? 'false' : 'true',
-  CARUP_OCR_PROVIDER: 'cloudflare',
+  CARUP_OCR_PROVIDER: process.env.CARUP_IDV_TEST_LOCAL_OCR === 'yes' ? 'local-tesseract' : 'cloudflare',
   CARUP_OCR_MODEL: '@cf/qwen/qwen3.8-27b',
   CLOUDFLARE_ACCOUNT_ID: 'lr13-fixture',
   CLOUDFLARE_API_TOKEN: 'lr13-synthetic-only',

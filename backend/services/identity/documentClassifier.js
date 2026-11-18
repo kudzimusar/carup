@@ -193,7 +193,7 @@ Classify the FIRST attached image for identity document presence.`;
 
     // In test mock mode, skip Layer 2 and allow extraction
     const mockAllowed = process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
-    if (mockAllowed) {
+    if (mockAllowed && options.allowTestMock !== false) {
       return {
         classification: EVIDENCE_CLASSIFICATION.VALID_IDENTITY_DOCUMENT,
         classificationConfidence: 1.0,
@@ -255,6 +255,7 @@ Classify the FIRST attached image for identity document presence.`;
       provider: layer2.provider,
       model: layer2.model,
       sideClassification: layer2.sideClassification,
+      observationsOnly: layer2.observationsOnly === true,
     };
   }
 

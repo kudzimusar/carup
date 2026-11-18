@@ -1,5 +1,7 @@
 /** Disposable, loopback-only operational identity route certification. */
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PNG } from 'pngjs';
 
@@ -124,6 +126,108 @@ async function finish(row, actor) {
   const readback = await expectJson(`${applicantRoot}/${row.id}`, { actor: applicant });
   assert.equal(readback.session.retry_reason, 'Retake the synthetic images.');
   stages.completed++;
+}
+
+if (process.argv.includes('--local-ocr-recovery')) {
+  const { session } = await expectJson(applicantRoot + '/latest', { actor: applicant });
+  assert.equal(session.status, 'pending_manual_review');
+  assert.equal(session.ocr_result.national_id_number, 'DEMO-445566');
+  const { session: replay } = await expectJson(`${applicantRoot}/${session.id}/submit`, { actor: applicant, body: {} });
+  assert.equal(replay.revision, session.revision);
+  assert.equal((await request(`${applicantRoot}/${session.id}/biometrics`, { actor: applicant })).status, 503);
+  console.log('PASS restart readback, idempotent submission and disabled biometric endpoint.');
+  process.exit(0);
+}
+
+if (process.argv.includes('--local-ocr')) {
+  const directory = process.env.CARUP_IDV_TEST_IMAGE_DIR;
+  assert.ok(directory);
+  async function submitImages(type, front, back) {
+    const { session } = await expectJson(applicantRoot, { actor: applicant, body: { documentType: type } }, 201);
+    for (const [side, file] of [['front', front], ['back', back], ['selfie', null]]) {
+      if (side === 'back' && !file) continue;
+      const image = file ? 'data:image/png;base64,' + (await readFile(join(directory, file + '.png'))).toString('base64')
+        : fixtureImage(++seed);
+      await expectJson(`${applicantRoot}/${session.id}/upload/${side}`, { actor: applicant, body: { image } });
+    }
+    const before = performance.now();
+    const submitted = (await expectJson(`${applicantRoot}/${session.id}/submit`, { actor: applicant, body: {} })).session;
+    const elapsed = Math.round(performance.now() - before);
+    assert.equal(submitted.status, 'pending_manual_review');
+    return { submitted, elapsed };
+  }
+
+  let accepted = 0;
+  let primaryCase;
+  for (const [type, front, back, expected] of [
+    ['passport', 'passport', null, 'EXAMPLE123'],
+    ['national_id', 'national-id', 'national-id-back', 'TEST-784223'],
+    ['drivers_license', 'licence', 'licence-back', 'DEMO-445566'],
+  ]) {
+    const { submitted, elapsed } = await submitImages(type, front, back);
+    const expectedFields = { first_name: 'AMA', last_name: 'TEST', national_id_number: expected, date_of_birth: '1992-01-01' };
+    for (const [field, value] of Object.entries(expectedFields)) {
+      assert.equal(submitted.ocr_result[field], value, `${type}.${field}`);
+      accepted++;
+    }
+    const detail = (await readCase(first, submitted.id)).session;
+    assert.equal(detail.evidence_classification, 'uncertain');
+    assert.equal(detail.extraction_trust_status, 'untrusted');
+    if (back) {
+      assert.equal(detail.ocr_side_assessment.comparison, 'consistent_overlap');
+      assert.deepEqual(detail.ocr_side_assessment.fieldSources.national_id_number, ['front', 'back']);
+    }
+    assert.equal(submitted.ocr_side_assessment, undefined);
+    console.log(type, '4/4 fields; classification uncertain; latency_ms', elapsed);
+    primaryCase = submitted;
+  }
+  console.log('Exact synthetic fields', accepted, '/ 12');
+  for (const [type, front, back, reason] of [
+    ['national_id', 'national-id', 'national-id-back-conflict', 'DOCUMENT_SIDE_MISMATCH'],
+    ['passport', 'blank', null, 'UNREADABLE_DOCUMENT'],
+    ['passport', 'non-document', null, null],
+    ['passport', 'partial-passport', null, 'REQUIRED_FIELDS_MISSING'],
+    ['passport', 'licence', null, 'OCR_RESULT_UNTRUSTED'],
+  ]) {
+    const { submitted, elapsed } = await submitImages(type, front, back);
+    const detail = (await readCase(first, submitted.id)).session;
+    assert.equal(detail.evidence_classification, 'uncertain');
+    if (reason) assert.equal(detail.primary_reason_code, reason);
+    assert.notEqual(detail.status, 'verified');
+    console.log(front, detail.primary_reason_code, 'latency_ms', elapsed);
+  }
+  const root = `${applicantRoot}/${primaryCase.id}`;
+  assert.equal((await expectJson(root + '/submit', { actor: applicant, body: {} })).session.revision, primaryCase.revision);
+  const { confirmation } = await expectJson(root + '/ocr-confirmation', { actor: applicant, body: {
+    idempotencyKey: randomUUID(), revision: primaryCase.revision,
+    fields: { first_name: 'AMA', last_name: 'TEST', national_id_number: 'DEMO-445567' },
+  } });
+  const refused = await request(`${reviewerRoot}/${primaryCase.id}/review`, {
+    actor: first, proof: await getProof(first, primaryCase.id, 'decision:approve'), key: randomUUID(),
+    body: { action: 'approve', expectedRevision: confirmation.revision },
+  });
+  assert.equal(refused.status, 403);
+  const correction = (await readCase(first, primaryCase.id)).session.applicant_confirmations[0];
+  assert.equal(correction.original_observations.national_id_number, 'DEMO-445566');
+  assert.equal(correction.applicant_fields.national_id_number, 'DEMO-445567');
+
+  const bio = root + '/biometrics';
+  assert.equal((await request(bio, { actor: unrelated })).status, 404);
+  assert.equal((await expectJson(bio, { actor: applicant })).biometric.status, 'not_granted');
+  const revision = confirmation.revision;
+  const grant = { requestId: randomUUID(), revision, purposes: ['face_document_match'], notice: 'biometric_consent_text.v1' };
+  assert.equal((await expectJson(bio + '/grant', { actor: applicant, body: grant })).biometric.status, 'granted');
+  const assessment = { requestId: randomUUID(), revision, purposes: ['face_document_match'] };
+  assert.equal((await request(bio + '/assess', { actor: applicant, body: { ...assessment, purposes: ['liveness'] } })).status, 409);
+  assert.equal((await request(bio + '/assess', { actor: applicant, body: { ...assessment, revision: revision - 1 } })).status, 409);
+  const receipts = await Promise.all([1, 2].map(() => expectJson(bio + '/assess', { actor: applicant, body: assessment })));
+  assert.deepEqual(receipts.map(x => x.biometric.replayed).sort(), [false, true]);
+  assert.ok(receipts.every(x => x.biometric.provider_state === 'not_configured'));
+  await expectJson(bio + '/withdraw', { actor: applicant, body: { requestId: randomUUID(), revision } });
+  assert.equal((await request(bio + '/assess', { actor: applicant, body: assessment })).status, 409);
+  assert.equal((await expectJson(bio + '/grant', { actor: applicant, body: grant })).biometric.status, 'withdrawn');
+  console.log('PASS duplicate submission, applicant correction, blocked approval, consent ownership, purpose, revision, concurrent replay and withdrawal');
+  process.exit(0);
 }
 
 if (process.argv.includes('--side-conflict')) {

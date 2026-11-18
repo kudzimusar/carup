@@ -1,0 +1,58 @@
+# LR16 identity integration and accountable decisions
+
+LR16 continues the LR15 identity session, protected evidence, reviewer step-up and atomic decision recorder on draft PR #276. Existing routes and browser/mobile shells retain authority. Dealer and vehicle autofill remain in issue #277.
+
+## Local OCR contract
+
+The backend selects local-tesseract only when CARUP_IDENTITY_OCR_ENABLED=true and CARUP_OCR_PROVIDER=local-tesseract. Unconfigured service remains off. No Cloudflare invocation is needed. The pinned CPU worker uses local English model assets, receives no inherited environment or stored credentials, and returns allowlisted labeled fields. Cloudflare configuration remains governed separately. Worker limits are two active subprocesses per backend process, an 1,800-pixel maximum working edge and a 15-second deadline. This is an opt-in development candidate. Resource requirements on the intended deployment host remain open.
+
+Valid image intake, ownership, actual upload, duplicate checks, front/reverse evidence hashes and original applicant observation custody flow through the existing service. Local OCR reads independent sides and retains field-source association. Its classification is always uncertain. Conflicts block approval, missing observations remain missing, and ordinary text on a different declared class cannot establish that class. Applicant edits are stored separately and cannot promote credibility or document classification.
+
+Owner can replay the fixture by bringing up the disposable PostgreSQL harness, using the included synthetic image directory, starting identity-postgres-web-preview.mjs with CARUP_IDV_TEST_LOCAL_OCR=yes and CARUP_IDV_TEST_BIOMETRIC_CONTRACT=yes, and running identity-postgres-operations.mjs --local-ocr. The test harness requires loopback and a database prefixed carup_idv_test_. Each synthetic selfie is a generated geometric pattern. No raw OCR transcript is retained or sent by the worker. Protected evidence and authorized sanitized fields remain subject to the existing retention direction B.
+
+## Reconcile O2-X4 at PR #208
+
+| Historical source at e65c0bb835c65abce43ea1a0407406e4bf6456bb | LR16 mapping |
+| --- | --- |
+| biometricConsentService.js and 20260903210000 | Preserve explicit versioned purposes, separate immutable grant/withdraw events and consent history. LR16 scopes events to authenticated applicant plus current case. Case lock serializes concurrent actions. Historical UUID/text ledger shapes differ. The migration stops with an explicit reconciliation error if the older ledger already exists. |
+| biometricAssessmentService.js, biometricProvider.js and 20260903211000 | Extend the same verification_assessments table. Unavailable attempt records bind case, active receipt, purpose, idempotency key and evidence revision. No score, template, provider payload or legacy threshold constants enter the candidate. Recorded unavailable attempts are append-only. |
+| identityBiometricRoutes.js | Incorporate the actions into the existing identityVerificationRoutes router. Existing applicant middleware and authenticated session authority supply the current actor. The contract is test-only until approved consent copy and qualified provider lifecycle exist. The default endpoint responds 503. |
+| Provider and consent decision/receipt | Preserve purpose agreement, withdrawal, minimization and geographic/legal review. No vendor adapter, SDK, webhook, vendor account, real processing or new test biometric collection. |
+| Reviewer integration | Reviewer proof, preview scope and receipt stay with LR15. The existing reviewer UI and applicant result distinguish unavailable face match/liveness from capture and human decision. Consent and unavailable attempt writes have their own atomic audit and generate no decision outbox event. |
+
+Routes under /api/identity/verification-sessions/:sessionId/biometrics expose state, grant, withdraw and assess in a marked disposable test process. No ordinary applicant consent collection is active. Withdrawal invalidates old attempt replay immediately. A provider-enabled continuation must verify signed delivery, validate purpose, bind the vendor reference to case, evidence revision and consent, reject late results after withdrawal or revision changes, and atomically persist minimal normalized evidence. No result may become an automatic disposition. Threshold qualification belongs to Security and Review Product.
+
+## Decision matrix
+
+Evaluate these rules cumulatively. Existing authorized rejection, resubmission and escalation remain available according to the case workflow, including final-state and scope restrictions.
+
+| Evidence condition | Current approval behavior | Later decision required |
+| --- | --- | --- |
+| Local OCR observations, invalid document or unavailable classifier/provider | Refuse. Reviewer may inspect images and request retake, escalate or reject as allowed. | Review Product and Security may separately approve a governed human-only exception. |
+| OCR approved classification, required fields, consistent overlap | Existing policy and explicit reviewer authority apply. | Sovereign fixture, storage and managed permissions still require certification. |
+| Side conflict | Refuse. Preserve evidence and reasons. | Resolve through recapture or the existing escalation route. |
+| Uncompared sides | No consistency claim. If the independent classification and existing gates pass, reviewer checks the original sides. Local OCR remains unclassified. | Decide whether specific templates must have demonstrable cross-side overlap. |
+| Confirmation required and awaiting correction | Refuse until the authenticated declaration is recorded at the current version. Corrections do not remove conflict or invalid classification. | None for inherited behavior. |
+| Account/document identity mismatch | Refuse under existing policy. | Define any exception separately with Review Product and Security. |
+| Face match or liveness checks unavailable, indeterminate or not run | No new assurance. The inherited 7C policy still governs any disposition otherwise allowed. Technical OCR failure remains blocking. | Owner and Security decide future launch requirements for each biometric operation. |
+| Future face mismatch, liveness fail, positive result or disputed result | No provider result channel exists in LR16, so these states cannot confer disposition or override a refusal. | Define reviewed routing and threshold policy before installing a vendor adapter. |
+| Human approved/rejected/retake/escalation | Authoritative only through existing permission, step-up proof and atomic revision-aware decision. Outbox is queued independently of confirmed delivery. | Independent review, managed roles, notification delivery and device gates remain. |
+
+## Provider comparison and Owner register
+
+| Candidate | Public evidence and commercial boundary | Go/no-go evidence still required |
+| --- | --- | --- |
+| Veriff | Publishes Zimbabwe support for passport, ID and licence. Documents selfie-to-document comparison, passive liveness, native/web SDKs, HMAC and server decision references. Vendor reports iBeta Level 2 testing. Essential published at USD 0.80/check and USD 49/month minimum. Free integration sandbox returns simulated decisions. Public trial descriptions differ on session limits. Self-service retention is tiered, and API deletion is advertised on Premium. | Confirm exact metal-strip ID and licence variants, low-bandwidth behavior, signed webhook and lookup parity, actual product/model and iBeta scope, processor/subprocessor locations and deletion SLA for media/derived data and backups. Trial onboarding restrictions and proprietary terms require approval. [Coverage](https://www.veriff.com/wp-content/uploads/2025/05/supported-countries.pdf) [Product](https://www.veriff.com/service-description/ver-VSD-2301) [SDK](https://devdocs.veriff.com/docs/sdks) [Webhook](https://devdocs.veriff.com/docs/webhooks-guide) [Sandbox](https://devdocs.veriff.com/docs/how-to-create-an-integration) [Plans](https://www.veriff.com/plans/self-serve) [Retention](https://www.veriff.com/privacy-notice) |
+| Sumsub | Documents portrait comparison and liveness, iOS/Android SDKs, signed webhooks and applicant-result history. Vendor reports iBeta Level 2. Basic pricing lists USD 1.35/check with USD 149 monthly minimum and a 14-day/50-check trial. Sandbox tests workflows using templates. It documents local data processing options and deletion procedures. Applicant-document deactivation retains media and extracted data. | Public coverage consulted did not establish the exact Zimbabwe variants for the intended account and SDK. Confirm country/template entitlement, region/subprocessor options, deletion requirements and completion evidence, offline-upload recovery, webhook age/order handling, independent test scope and proprietary SDK terms. [Face match](https://docs.sumsub.com/docs/face-match) [Liveness](https://docs.sumsub.com/docs/liveness) [Coverage](https://docs.sumsub.com/docs/supported-documents-and-countries) [Webhooks](https://docs.sumsub.com/docs/webhooks) [Sandbox](https://docs.sumsub.com/docs/test-in-sandbox) [Processing](https://docs.sumsub.com/docs/local-data-processing) [Deletion](https://support.sumsub.com/data-access-and-deletion/how-can-I-request-deletion-of-my-personal-data) [Plans](https://sumsub.com/pricing/) |
+| Local research track | OpenCV Zoo SFace can be a candidate for controlled 1:1 face-match research. The model directory publishes Apache 2.0 terms and a separate upstream issue asks about training-data rights. Matching alone gives no liveness claim. NIST methodology treats presentation-attack detection as its own evaluation. Local execution could avoid transmitting evidence and per-check fees. | No approved PAD candidate, operating thresholds, Zimbabwe coverage, training-rights clearance, Android/iOS rollout, or performance evidence. Requires approval for lawful test inputs, device integration, benchmarking by device/demographics, retained evidence minimization and attack-resistance evaluation. [SFace](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface) [Rights inquiry](https://github.com/opencv/opencv_zoo/issues/318) [NIST PAD](https://doi.org/10.6028/NIST.IR.8491) |
+
+No candidate selected. Veriff has the clearest documentation for the three Zimbabwe document categories. Its free sandbox can validate wiring and signed-result handling only. Sumsub remains a viable alternative after exact coverage and data terms are confirmed. The local path is a research track pending a separate qualified PAD design.
+
+| Accountable owner | Required decision |
+| --- | --- |
+| Owner and Security | Select a sandbox shortlist and authorize synthetic integration accounts and supported device targets. Set explicit spend and processing limits before provider activation. |
+| Counsel and Privacy | Approve notice, versioned scopes, retention direction B, erasure routes, backup/subprocessor deletion proof, cross-border and contracted processing geography. |
+| Review Product and Security | Approve fallback policy, required biometric pillars, independently measured operating thresholds, scoring method, uncertainty and escalation. |
+| Expo Native / Phase 7C | Own Worklets build and physical Android/iOS tests. Preserve native source ownership. No competing native build or equivalence claim. |
+| DBA, Storage and Security | Certify managed role parity, bucket access and expiry/deletion, malware scanning and governance of privileged deletion. Remote notification delivery has a separate owner gate. |
+| Independent reviewer | Review the exact new PR head. Local tests do not replace release approval. |

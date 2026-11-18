@@ -3,6 +3,7 @@
 import { configuredIdentityVisionProvider } from '../ai/ocrVisionProvider.js';
 import { decodeDocumentPayload } from '../document-intelligence/documentMedia.js';
 import { DOCUMENT_SCHEMAS, FIELD_ALIASES, OCR_SCHEMA_VERSION } from '../document-intelligence/documentSchemas.js';
+import { localIdentityOcrProvider } from './localIdentityOcr.js';
 import { combineOcrSides } from './ocrSideAssessment.js';
 import { validateDecodedEvidenceImage } from './decodeEvidenceImage.js';
 import { evidenceImageMime } from './evidenceImageFormat.js';
@@ -41,14 +42,14 @@ async function extractSide(provider, docType, dataUri, side) {
   const systemPrompt = `Transcribe only legible text actually present on the ${side} of the attached ${schema.label}. Do not guess. Return only JSON with document_class_observed, legible, and fields. Allowed fields: ${fields.join(', ')}. If it is not a ${schema.label}, set document_class_observed to non_document and fields to {}. Expected document_class_observed for this type: ${schema.documentClass}.`;
   let output;
   try {
-    output = await provider.extract({ systemPrompt, textPrompt: 'Classify the actual image and read only visible fields.', images: [{ mimeType: actualMime, base64: media.base64 }], jsonSchema: null });
+    output = await provider.extract({ systemPrompt, textPrompt: 'Classify the actual image and read only visible fields.', images: [{ mimeType: actualMime, base64: media.base64 }], docType, jsonSchema: null });
   } catch { return { success: false, error: 'OCR_PROVIDER_UNAVAILABLE', provider: provider.id, model: provider.model }; }
   let parsed;
   try { parsed = typeof output?.content === 'string' ? JSON.parse(output.content) : output?.content; } catch { return { success: false, error: 'OCR_PROVIDER_INVALID_OUTPUT', provider: provider.id, model: provider.model }; }
-  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object' || typeof parsed.document_class_observed !== 'string' || !parsed.fields || typeof parsed.fields !== 'object' || Array.isArray(parsed.fields)) {
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object' || (!provider.observationsOnly && typeof parsed.document_class_observed !== 'string') || !parsed.fields || typeof parsed.fields !== 'object' || Array.isArray(parsed.fields)) {
     return { success: false, error: 'OCR_PROVIDER_INVALID_OUTPUT', provider: provider.id, model: provider.model };
   }
-  if (parsed.document_class_observed !== schema.documentClass) return { success: false, error: 'UNSUPPORTED_DOCUMENT', provider: provider.id, model: provider.model };
+  if (!provider.observationsOnly && parsed.document_class_observed !== schema.documentClass) return { success: false, error: 'UNSUPPORTED_DOCUMENT', provider: provider.id, model: provider.model };
   if (typeof parsed.legible !== 'boolean') return { success: false, error: 'OCR_PROVIDER_INVALID_OUTPUT', provider: provider.id, model: provider.model };
   if (parsed.legible === false) return { success: false, error: 'DOCUMENT_UNREADABLE', provider: provider.id, model: provider.model };
   const extractedData = {};
@@ -62,15 +63,21 @@ async function extractSide(provider, docType, dataUri, side) {
   }
   if (Object.keys(additional).length) extractedData.additional_fields = additional;
   return { success: true, extractedData, provider: provider.id, model: provider.model,
-    schemaVersion: OCR_SCHEMA_VERSION, documentClass: schema.documentClass, confidence: null };
+    schemaVersion: OCR_SCHEMA_VERSION, documentClass: provider.observationsOnly ? null : schema.documentClass, confidence: null };
 }
 
 export function makeIdentityOcrAdapter(provider) {
   if (!provider || typeof provider.extract !== 'function') return null;
   const provenance = { provider: provider.id, model: provider.model };
   return {
+    observationsOnly: provider.observationsOnly === true,
     async classifyDocument(front, back, _selfie, docType) {
       const schema = DOCUMENT_SCHEMAS[TYPES[docType]];
+      if (provider.observationsOnly) {
+        return { ...provenance, classification: schema ? 'uncertain' : 'unsupported_document',
+          classificationConfidence: null, observationsOnly: Boolean(schema),
+          reason: 'The local engine reads text and cannot classify a document.' };
+      }
       try {
         const [frontClass, backClass] = await Promise.all([
           classifySide(provider, front, 'front', schema),
@@ -97,6 +104,9 @@ export function makeIdentityOcrAdapter(provider) {
   };
 }
 
-export function configuredIdentityOcrAdapter() {
-  return makeIdentityOcrAdapter(configuredIdentityVisionProvider());
+export function configuredIdentityOcrAdapter(env = process.env) {
+  if (env.CARUP_IDENTITY_OCR_ENABLED === 'true' && env.CARUP_OCR_PROVIDER === 'local-tesseract') {
+    return makeIdentityOcrAdapter(localIdentityOcrProvider());
+  }
+  return makeIdentityOcrAdapter(configuredIdentityVisionProvider(env));
 }

@@ -428,7 +428,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     let classificationResult = await DocumentClassifier.classify(
       { front: frontDocument.buffer, back: backBuffer, selfie: selfieBuffer },
       session.document_type,
-      { classifyDocument: ocr.classifyDocument }
+      { classifyDocument: ocr.classifyDocument, allowTestMock: !ocr.observationsOnly }
     );
 
     evidenceHashes = classificationResult.hashes;
@@ -439,7 +439,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     // -------------------------------------------------------
     // STAGE 2: Route based on classification
     // -------------------------------------------------------
-    if (!classificationResult.extractionAllowed) {
+    if (!classificationResult.extractionAllowed && !classificationResult.observationsOnly) {
       // Non-document or unreadable: route to manual review with NO identity fields
       const reasonCode = classificationResult.reasonCode || 'DOCUMENT_NOT_VISIBLE';
       const reasonConfig = getReasonConfig(reasonCode);
@@ -500,7 +500,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     }
 
     // -------------------------------------------------------
-    // STAGE 3: OCR extraction (only after classification passes)
+    // STAGE 3: Classified extraction or explicitly untrusted local observations
     // -------------------------------------------------------
     const frontDataUri = `data:${session.front_mime_type || frontDocument.mimeType || 'image/jpeg'};base64,${frontDocument.buffer.toString('base64')}`;
     const backDataUri = backDocument
@@ -508,7 +508,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     const result = await ocr.extractDocumentData(session.document_type, frontDataUri, session.user_id, { backDataUri });
     const sideAssessment = result.sideAssessment
       ? { ...result.sideAssessment, classification: classificationResult.sideClassification } : null;
-    const confidence = result.provider === 'cloudflare' ? null : result.extractedData?.confidenceScore ?? null;
+    const confidence = ['cloudflare', 'local-tesseract'].includes(result.provider) ? null : result.extractedData?.confidenceScore ?? null;
     const sanitizedResult = sanitizeOcrResult(result.extractedData || {}, session.document_type);
 
     // Determine extraction trust status
@@ -663,6 +663,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
       failureReason: result.success ? null : (result.error || 'OCR_PROVIDER_FAILED'),
       metadata: {
         schema_version: result.schemaVersion || null,
+        observations_only: classificationResult.observationsOnly === true,
         sides: sideAssessment,
         document_class: result.documentClass || null,
         identity_binding: binding.status,
