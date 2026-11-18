@@ -1,0 +1,215 @@
+name: Staging Exact-Head Release
+
+# VC-03 — the ONE workflow in this repository that may write a Vercel deployment.
+#
+# CarUp's Vercel projects are release-only (PR #218 disables automatic Git deployments). Normal
+# pull_request / push CI therefore runs on the GitHub runner against localhost and writes ZERO
+# Vercel deployments; backend/tests/vc03-release-only-ci-contract.test.js fails the build if any
+# PR/push-reachable job ever deploys, holds a Vercel token, or waits for a branch preview.
+#
+# Deployed certification is an explicit act: a person dispatches this workflow (or a certification
+# workflow that calls it) with the exact candidate SHA. It then:
+#   1. checks out exactly that SHA;
+#   2. (deploy=true only) deploys it to the two STAGING projects' production targets — never to the
+#      `carup` / `carup-backend` production projects, which this file names only to refuse them;
+#   3. verifies BOTH staging backend hosts and the staging frontend report that exact SHA before any
+#      deployed certification may proceed (deploy=false is verify-only: no deployment is written).
+#
+# Both backend hosts are checked because they are separate aliases of one project that have drifted
+# before (backend/config/buildProvenance.js): api-staging.carup.dev serves the API and webhooks, while
+# carup-backend-staging.vercel.app is the base the stable staging frontend actually calls
+# (web/src/lib/apiClient.ts DEFAULT_STAGING_API_BASE_URL).
+#
+# With Git deployments disabled, Vercel may not inject VERCEL_GIT_COMMIT_SHA into a CLI deployment,
+# so the candidate SHA is passed explicitly as CARUP_BUILD_SHA (runtime and build). The backend
+# already falls back to it (backend/config/buildProvenance.js) and the frontend build does too
+# (web/vite.config.ts), so provenance never depends on Git metadata being present.
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: 'Exact 40-character candidate commit SHA'
+        required: true
+        type: string
+      deploy:
+        description: 'Write new STAGING deployments for this SHA (false = verify-only, nothing is deployed)'
+        required: true
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      candidate_sha:
+        required: true
+        type: string
+      deploy:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      VERCEL_TOKEN:
+        required: false
+      VERCEL_ACCESS_TOKEN:
+        required: false
+    outputs:
+      candidate_sha:
+        description: 'The SHA every staging runtime was verified to serve'
+        value: ${{ jobs.release.outputs.candidate_sha }}
+
+permissions:
+  contents: read
+
+# Staging is one shared environment: two releases must never interleave.
+concurrency:
+  group: carup-staging-exact-head-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Staging exact-head release (${{ inputs.deploy && 'deploy + verify' || 'verify only' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      candidate_sha: ${{ steps.candidate.outputs.sha }}
+    env:
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      VERCEL_ORG_ID: team_InL2Jmsg4dbG0rFY8nxriTha
+      BACKEND_STAGING_PROJECT_ID: prj_ddsVeXDxxHxyMAaZxX4v5ORya27W
+      FRONTEND_STAGING_PROJECT_ID: prj_auYmL5hA2ppWA15jdTK4GAdy3AYm
+      # Named here ONLY so the guard can refuse them. No deploy step may ever target these.
+      FORBIDDEN_PRODUCTION_PROJECT_IDS: 'prj_518KPBlNsFYOkumK979jdNPKjxE4 prj_jIkUnLnMI8p0suVcOIsTd7xlbN75'
+      STAGING_WEB_URL: https://staging.carup.dev
+      STAGING_API_ORIGINS: 'https://api-staging.carup.dev https://carup-backend-staging.vercel.app'
+      PRODUCTION_API_HOST: api.carup.dev
+    steps:
+      - name: Validate the requested candidate
+        id: candidate
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::candidate_sha must be a full 40-character lowercase commit SHA (got '${CANDIDATE_SHA}')"
+            exit 1
+          fi
+          echo "sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+
+      - name: Staging-only project guard
+        run: |
+          set -euo pipefail
+          for id in "$BACKEND_STAGING_PROJECT_ID" "$FRONTEND_STAGING_PROJECT_ID"; do
+            for forbidden in $FORBIDDEN_PRODUCTION_PROJECT_IDS; do
+              if [ "$id" = "$forbidden" ]; then
+                echo "::error::refusing to deploy: $id is a PRODUCTION project"
+                exit 1
+              fi
+            done
+          done
+          test "$BACKEND_STAGING_PROJECT_ID" = "prj_ddsVeXDxxHxyMAaZxX4v5ORya27W"
+          test "$FRONTEND_STAGING_PROJECT_ID" = "prj_auYmL5hA2ppWA15jdTK4GAdy3AYm"
+          echo "Deployment targets: carup-backend-staging ($BACKEND_STAGING_PROJECT_ID), carup-staging ($FRONTEND_STAGING_PROJECT_ID). Production projects refused."
+
+      - name: Require a deployment credential
+        if: ${{ inputs.deploy }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN || secrets.VERCEL_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::deploy=true was requested but no VERCEL_TOKEN / VERCEL_ACCESS_TOKEN secret is available. Nothing was deployed."
+            exit 1
+          fi
+
+      - name: Deploy candidate to backend STAGING (carup-backend-staging)
+        if: ${{ inputs.deploy }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN || secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ env.BACKEND_STAGING_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          case " $FORBIDDEN_PRODUCTION_PROJECT_IDS " in *" $VERCEL_PROJECT_ID "*) echo '::error::production project refused'; exit 1;; esac
+          npx --yes vercel@58.1.0 deploy --prod --yes --token "$VERCEL_TOKEN" \
+            --env CARUP_BUILD_SHA="$CANDIDATE_SHA" --build-env CARUP_BUILD_SHA="$CANDIDATE_SHA" \
+            --meta carupSourceSha="$CANDIDATE_SHA" | tee backend-staging-deployment-url.txt
+
+      - name: Deploy candidate to frontend STAGING (carup-staging)
+        if: ${{ inputs.deploy }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN || secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ env.FRONTEND_STAGING_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          case " $FORBIDDEN_PRODUCTION_PROJECT_IDS " in *" $VERCEL_PROJECT_ID "*) echo '::error::production project refused'; exit 1;; esac
+          npx --yes vercel@58.1.0 deploy --prod --yes --token "$VERCEL_TOKEN" \
+            --build-env CARUP_BUILD_SHA="$CANDIDATE_SHA" \
+            --meta carupSourceSha="$CANDIDATE_SHA" | tee frontend-staging-deployment-url.txt
+
+      - name: Verify every staging runtime serves the exact candidate
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          const expected = process.env.CANDIDATE_SHA;
+          const web = process.env.STAGING_WEB_URL;
+          const apiOrigins = process.env.STAGING_API_ORIGINS.split(/\s+/).filter(Boolean);
+          const productionHost = process.env.PRODUCTION_API_HOST;
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const getJson = async (url) => {
+            try {
+              const res = await fetch(url, { cache: 'no-store' });
+              return res.ok ? await res.json() : { http_status: res.status };
+            } catch (error) {
+              return { fetch_error: error.message };
+            }
+          };
+          let last = null;
+          for (let attempt = 1; attempt <= 72; attempt += 1) {
+            const backends = {};
+            for (const origin of apiOrigins) backends[origin] = await getJson(`${origin}/api/health?attempt=${attempt}`);
+            const frontend = await getJson(`${web}/carup-provenance.json?attempt=${attempt}`);
+            const backendOk = apiOrigins.every((origin) => {
+              const health = backends[origin];
+              return health?.status === 'UP' && health?.build?.commit_sha === expected && health?.build?.provenance_available === true;
+            });
+            // A stable staging build either bakes a staging API base or leaves it to runtime host
+            // resolution (null), which maps staging.carup.dev to the staging backend. It must never
+            // point at production.
+            const base = frontend?.api_base_url ?? null;
+            const baseOk = base === null
+              || (apiOrigins.some((origin) => base.replace(/\/+$/, '').startsWith(origin)) && !base.includes(productionHost));
+            const frontendOk = frontend?.commit_sha === expected && frontend?.unpaired === false && baseOk;
+            last = { attempt, expected, frontend, backends };
+            if (backendOk && frontendOk) {
+              writeFileSync('staging-exact-head-provenance.json', JSON.stringify(last, null, 2));
+              console.log(JSON.stringify({
+                verified_sha: expected,
+                frontend_sha: frontend.commit_sha,
+                frontend_api_base_url: base,
+                backends: Object.fromEntries(apiOrigins.map((o) => [o, { sha: backends[o].build.commit_sha, deployment_id: backends[o].build.deployment_id }])),
+              }, null, 2));
+              process.exit(0);
+            }
+            console.log(`attempt ${attempt}: frontend=${frontend?.commit_sha ?? JSON.stringify(frontend)} ` +
+              apiOrigins.map((o) => `${o}=${backends[o]?.build?.commit_sha ?? JSON.stringify(backends[o])}`).join(' '));
+            await sleep(10000);
+          }
+          writeFileSync('staging-exact-head-provenance.json', JSON.stringify(last, null, 2));
+          console.error('::error::staging did not serve the exact candidate on every runtime; deployed certification must not proceed');
+          process.exit(1);
+          NODE
+
+      - name: Upload staging release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-exact-head-release-${{ inputs.candidate_sha }}
+          path: |
+            staging-exact-head-provenance.json
+            backend-staging-deployment-url.txt
+            frontend-staging-deployment-url.txt
+          if-no-files-found: warn
+          retention-days: 30

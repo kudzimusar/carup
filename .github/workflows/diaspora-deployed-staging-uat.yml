@@ -3,19 +3,13 @@ name: Diaspora Deployed Staging UAT
 # Real Chromium acceptance against the exact PR #90 Vercel staging previews.
 # This workflow never touches production. Canonical staging-alias promotion is a separate
 # release gate after this immutable candidate proves green.
+# VC-03 — HISTORICAL / INACTIVE. It certified PR #90's per-branch Vercel previews (the
+# `-pay-pass-project.vercel.app` hosts below), which no longer exist: Vercel is release-only and builds
+# no branch previews (PR #218). It is no longer triggered by pull_request. The canonical deployed
+# Diaspora acceptance is diaspora-canonical-staging-uat.yml (dispatch-only, stable staging aliases).
+# The job-level `if` below still pins it to its original branch, so a dispatch cannot run it either.
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/diaspora-deployed-staging-uat.yml'
-      - 'backend/**'
-      - 'database/**'
-      - 'docs/DIASPORA_TRADE_OS_DEPLOYED_BROWSER_UAT_REPORT.md'
-      - 'playwright.staging.config.ts'
-      - 'tests/agents/**'
-      - 'web/**'
-      - 'package.json'
-      - 'package-lock.json'
+  workflow_dispatch: {}
 
 permissions:
   contents: read

@@ -1,14 +1,22 @@
 name: Seller Phase B Baseline Visual Audit
 
 on:
-  push:
-    branches:
-      - integration/vehicle-passport-v16-cert
-    paths:
-      - 'tests/agents/39-seller-baseline-visual-audit.spec.ts'
-      - 'playwright.seller-baseline.config.ts'
-      - '.github/workflows/seller-baseline-visual-audit.yml'
-  workflow_dispatch: {}
+  # VC-03 — RELEASE-ONLY. This is DEPLOYED staging certification, so it never runs from a pull_request
+  # or push: Vercel no longer builds branch previews (PR #218), and a deployed run must name the exact
+  # candidate it certifies. Dispatch it with the candidate SHA; the staging-release job below proves
+  # (or, with deploy_staging=true, first makes) every stable staging runtime serve that SHA.
+  # Historical trigger: push to integration/vehicle-passport-v16-cert (merged via #194).
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: 'Exact 40-character candidate commit SHA to certify on staging'
+        required: true
+        type: string
+      deploy_staging:
+        description: 'Deploy the candidate to the STAGING projects first (false = staging must already serve it)'
+        required: true
+        type: boolean
+        default: false
 
 concurrency:
   group: seller-baseline-visual-audit-${{ github.ref_name }}
@@ -18,14 +26,23 @@ permissions:
   contents: read
 
 jobs:
+  staging-release:
+    name: Staging exact-head release
+    uses: ./.github/workflows/staging-exact-head-release.yml
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      deploy: ${{ inputs.deploy_staging }}
+    secrets: inherit
+
   capture-baseline:
+    needs: staging-release
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      EXPECTED_HEAD_SHA: ${{ github.sha }}
-      BASELINE_RUNTIME_SHA: ${{ github.sha }}
-      BASELINE_WEB_URL: https://carup-staging-git-integration-vehicle-passport-v16-cert-11-11.vercel.app
-      BASELINE_API_URL: https://carup-backend-staging-git-integration-vehicle-pass-35ac1d-11-11.vercel.app/api
+      EXPECTED_HEAD_SHA: ${{ needs.staging-release.outputs.candidate_sha }}
+      BASELINE_RUNTIME_SHA: ${{ needs.staging-release.outputs.candidate_sha }}
+      BASELINE_WEB_URL: https://staging.carup.dev
+      BASELINE_API_URL: https://api-staging.carup.dev/api
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
 

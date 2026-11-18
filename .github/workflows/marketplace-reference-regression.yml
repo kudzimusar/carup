@@ -1,5 +1,6 @@
 name: Marketplace Reference Regression
-# Exact-head certification gate; seller-privacy closure trigger, no runtime semantics.
+# PR: local Marketplace regression only (0 Vercel deployments).
+# Dispatch: explicit exact-head staging release + unmocked staging certification (VC-03).
 
 on:
   pull_request:
@@ -40,13 +41,24 @@ on:
       - 'web/src/data/vehicleTaxonomy.ts'
       - 'web/src/data/vehicleTaxonomy.test.ts'
       - 'web/src/lib/guestSellDraft.ts'
-      - 'web/preview-backend-pairing.json'
-      - 'web/preview-frontend-pairing.json'
       - 'web/src/lib/marketplace*.ts'
       - 'web/src/lib/marketplace*.test.ts'
       - 'web/e2e/marketplace-*.spec.ts'
       - '.github/workflows/marketplace-reference-regression.yml'
+  # VC-03: deployed certification is explicit. A dispatch names the exact candidate and runs the local
+  # regression, the staging exact-head release (verify-only unless deploy_staging) and the unmocked
+  # staging certification. pull_request runs the LOCAL regression only and writes no deployment.
   workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: 'Exact 40-character candidate commit SHA to certify on staging'
+        required: true
+        type: string
+      deploy_staging:
+        description: 'Deploy the candidate to the STAGING projects first (false = staging must already serve it)'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -57,13 +69,12 @@ concurrency:
 
 jobs:
   reference-regression:
-    name: Exact-head reference + staging certification
+    # PR LOCAL REGRESSION — GitHub runner + local Vite + localhost Playwright. No Vercel, no staging.
+    name: Local Marketplace reference regression
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      STAGING_FRONTEND_URL: https://carup-staging-git-integration-vehicle-passport-v16-cert-11-11.vercel.app
-      STAGING_BACKEND_URL: https://carup-backend-staging-git-integration-vehicle-pass-35ac1d-11-11.vercel.app
+      EXPECTED_HEAD_SHA: ${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
       NODE_ENV: test
       SUPABASE_URL: http://localhost:54321
       SUPABASE_SERVICE_ROLE_KEY: marketplace-reference-test-service-role
@@ -78,33 +89,6 @@ jobs:
 
       - name: Assert exact candidate checkout
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
-
-      - name: Resolve exact-head preview pair
-        env:
-          CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
-
-          const branch = process.env.CANDIDATE_BRANCH;
-          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {};
-          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {};
-          const frontend = frontendPairs[branch];
-          const backend = backendPairs[branch];
-
-          if (!frontend || !backend) {
-            console.error(JSON.stringify({
-              error: 'candidate preview pair is not governed',
-              branch,
-              frontend_configured: Boolean(frontend),
-              backend_configured: Boolean(backend),
-            }));
-            process.exit(1);
-          }
-
-          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_FRONTEND_URL=${frontend}\nSTAGING_BACKEND_URL=${backend}\n`);
-          console.log(JSON.stringify({ branch, frontend, backend }));
-          NODE
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -162,63 +146,63 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:5173
         run: npm --prefix web run test:qa -- e2e/marketplace-reference-ux.spec.ts
 
-      - name: Wait for exact-head staging deployment
-        run: |
-          for attempt in {1..60}; do
-            frontend_ok=0
-            backend_ok=0
+      - name: Upload local Marketplace regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-local-regression-${{ env.EXPECTED_HEAD_SHA }}
+          path: |
+            web/test-results/**
+            web/playwright-report/**
+          if-no-files-found: warn
+          retention-days: 14
 
-            if curl --fail --silent --show-error "$STAGING_FRONTEND_URL/carup-provenance.json" > /tmp/marketplace-frontend-provenance.json; then
-              if node -e '
-                const fs = require("fs");
-                const provenance = JSON.parse(fs.readFileSync("/tmp/marketplace-frontend-provenance.json", "utf8"));
-                const expected = process.env.EXPECTED_HEAD_SHA;
-                const expectedBackend = process.env.STAGING_BACKEND_URL.replace(/\/+$/, "");
-                if (
-                  provenance.commit_sha === expected
-                  && provenance.api_base_url === expectedBackend
-                  && provenance.unpaired === false
-                ) process.exit(0);
-                console.error(JSON.stringify({
-                  expected,
-                  frontend_commit_sha: provenance.commit_sha,
-                  expected_backend: expectedBackend,
-                  api_base_url: provenance.api_base_url,
-                  unpaired: provenance.unpaired,
-                }));
-                process.exit(1);
-              '; then
-                frontend_ok=1
-              fi
-            fi
+      - name: Print local Vite log on failure
+        if: failure()
+        run: cat /tmp/carup-marketplace-vite.log || true
 
-            if curl --fail --silent --show-error "$STAGING_BACKEND_URL/api/health" > /tmp/marketplace-staging-health.json; then
-              if node -e '
-                const fs = require("fs");
-                const health = JSON.parse(fs.readFileSync("/tmp/marketplace-staging-health.json", "utf8"));
-                const expected = process.env.EXPECTED_HEAD_SHA;
-                const build = health.build || {};
-                if (build.commit_sha === expected && build.provenance_available === true) process.exit(0);
-                console.error(JSON.stringify({ expected, commit_sha: build.commit_sha, provenance_available: build.provenance_available }));
-                process.exit(1);
-              '; then
-                backend_ok=1
-              fi
-            fi
+  staging-release:
+    # MANUAL EXACT-HEAD STAGING CERTIFICATION, step 1: explicit staging-only release + provenance proof.
+    name: Staging exact-head release
+    if: github.event_name == 'workflow_dispatch'
+    needs: reference-regression
+    uses: ./.github/workflows/staging-exact-head-release.yml
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      deploy: ${{ inputs.deploy_staging }}
+    secrets: inherit
 
-            if [ "$frontend_ok" -eq 1 ] && [ "$backend_ok" -eq 1 ]; then
-              cat /tmp/marketplace-frontend-provenance.json
-              cat /tmp/marketplace-staging-health.json
-              exit 0
-            fi
+  staging-certification:
+    # MANUAL EXACT-HEAD STAGING CERTIFICATION, step 2: unmocked functional + visual certification,
+    # only after every staging runtime has been proven to serve the requested SHA.
+    name: Unmocked staging certification
+    if: github.event_name == 'workflow_dispatch'
+    needs: staging-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      EXPECTED_HEAD_SHA: ${{ needs.staging-release.outputs.candidate_sha }}
+      STAGING_FRONTEND_URL: https://staging.carup.dev
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
 
-            sleep 10
-          done
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
 
-          echo "Exact-head staging did not become ready."
-          cat /tmp/marketplace-frontend-provenance.json 2>/dev/null || true
-          cat /tmp/marketplace-staging-health.json 2>/dev/null || true
-          exit 1
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install web dependencies
+        run: npm --prefix web install --no-audit --no-fund
+
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
 
       - name: Run unmocked staging functional and visual certification
         env:
@@ -236,7 +220,3 @@ jobs:
             web/playwright-report/**
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Print local Vite log on failure
-        if: failure()
-        run: cat /tmp/carup-marketplace-vite.log || true
