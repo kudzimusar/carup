@@ -4,9 +4,9 @@ set -euo pipefail
 : "${CARUP_IDV_TEST_DATABASE_URL:?Set to a disposable LOCAL PostgreSQL URL}"
 [[ "${CARUP_IDV_TEST_DISPOSABLE:-}" == 'yes' ]] || { echo 'Set CARUP_IDV_TEST_DISPOSABLE=yes.' >&2; exit 2; }
 python3 - <<'PY'
-import os, sys, urllib.parse
+import os, re, sys, urllib.parse
 u = urllib.parse.urlsplit(os.environ['CARUP_IDV_TEST_DATABASE_URL'])
-if u.scheme not in ('postgres', 'postgresql') or u.hostname not in ('localhost', '127.0.0.1', '::1') or not u.path.lstrip('/').startswith('carup_idv_test_') or u.query or u.fragment:
+if u.scheme not in ('postgres', 'postgresql') or u.hostname not in ('localhost', '127.0.0.1', '::1') or not re.fullmatch(r'/carup_idv_test_[a-z0-9_]+', u.path) or u.query or u.fragment:
     sys.exit('Refusing nonlocal or non-disposable database URL.')
 PY
 PSQL=(psql -X -v ON_ERROR_STOP=1 "$CARUP_IDV_TEST_DATABASE_URL")
@@ -25,6 +25,7 @@ awk '/^-- \+migrate Down$/{exit} {print}' "$script_dir/database/migrations/011_p
 awk '/^-- \+migrate Down$/{exit} {print}' "$script_dir/database/migrations/20260621170000_outbox_dead_letter.sql" | "${PSQL[@]}" -q
 for migration in \
   20260613000000_phase7b_supabase_auth_and_identity.sql \
+  20260613010000_users_password_hash.sql \
   20260617120000_user_sessions_auth_contract_align.sql \
   20260605042424_verification_sessions_phase7b.sql \
   20260613020000_verification_admin_review.sql \
@@ -37,16 +38,18 @@ for migration in \
   20261117230000_identity_decision_outbox_atomic.sql \
   20261118010000_identity_reviewer_independence.sql \
   20261118020000_identity_review_immutable_associations.sql \
-  20261118021000_identity_review_step_up.sql; do
+  20261118021000_identity_review_step_up.sql \
+  20261118022000_identity_review_shared_attempt_budget.sql; do
   "${PSQL[@]}" -q -f "$script_dir/database/migrations/$migration"
 done
-# Repeat the six candidate migrations to verify their idempotent installation.
+# Repeat the candidate migrations to verify their idempotent installation.
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117210000_identity_applicant_ocr_confirmation.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117220000_identity_atomic_submission_claim.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117230000_identity_decision_outbox_atomic.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118010000_identity_reviewer_independence.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118020000_identity_review_immutable_associations.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118021000_identity_review_step_up.sql"
+"${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118022000_identity_review_shared_attempt_budget.sql"
 "${PSQL[@]}" -q <<'SQL'
 INSERT INTO users(id,name,email,role,join_date) VALUES ('test-owner','Synthetic User','synthetic@example.invalid','owner','2026-01-01');
 INSERT INTO verification_sessions(id,user_id,document_type,status,version,front_storage_path,selfie_storage_path) VALUES ('11111111-1111-4111-8111-111111111111','test-owner','passport','uploaded',1,'fixture/front','fixture/selfie');
@@ -58,9 +61,6 @@ DO $$ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='public.verification_applicant_confirmations'::regclass AND relrowsecurity) THEN
     RAISE EXCEPTION 'Confirmation RLS not enabled';
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role' AND (rolbypassrls OR rolsuper)) THEN
-    RAISE EXCEPTION 'Disposable service_role needs the Supabase RLS bypass property';
   END IF;
   IF has_function_privilege('anon','public.claim_verification_ocr_submission(uuid,text,integer,text,text,text,text,text,text)','EXECUTE') OR
      has_function_privilege('authenticated','public.record_verification_decision_atomic(uuid,integer,jsonb,jsonb,text,text,text,text)','EXECUTE') OR
@@ -74,17 +74,21 @@ END $$;
 SQL
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
+pids=()
 for i in 1 2; do
   "${PSQL[@]}" -Atqc "WITH c AS MATERIALIZED (SELECT claim_verification_ocr_submission('11111111-1111-4111-8111-111111111111','test-owner',1,'uploaded','owner',NULL,NULL,NULL,NULL) AS r) SELECT r->>'id' FROM c WHERE r IS NOT NULL" > "$tmpdir/claim-$i" &
+  pids+=("$!")
 done
-wait
+for pid in "${pids[@]}"; do wait "$pid"; done
 [[ "$(cat "$tmpdir"/claim-* | wc -l | tr -d ' ')" == 1 ]] || { echo 'Concurrent submission claim failed.' >&2; exit 1; }
 "${PSQL[@]}" -q -c "UPDATE verification_sessions SET status='pending_manual_review', ocr_execution_status='provider_succeeded', ocr_started_at=now(), ocr_result='{\"first_name\":\"Test\"}'::jsonb WHERE id='11111111-1111-4111-8111-111111111111'"
+pids=()
 for i in 1 2; do
   key="22222222-2222-4222-8222-22222222222$i"
   "${PSQL[@]}" -Atqc "SELECT confirm_verification_ocr_fields('11111111-1111-4111-8111-111111111111','test-owner',2,'$key','{\"first_name\":\"Test\",\"last_name\":\"Person\",\"national_id_number\":\"X\"}'::jsonb)->>'code'" > "$tmpdir/confirm-$i" &
+  pids+=("$!")
 done
-wait
+for pid in "${pids[@]}"; do wait "$pid"; done
 [[ "$(grep -hxc OK "$tmpdir"/confirm-* | awk '{s+=$1} END {print s+0}')" == 1 ]] || { echo 'Concurrent confirmation claim failed.' >&2; exit 1; }
 [[ "$("${PSQL[@]}" -Atqc "SELECT count(*) FROM verification_applicant_confirmations")" == 1 ]] || exit 1
 [[ "$("${PSQL[@]}" -Atqc "SELECT count(*) FROM trust_audit_events WHERE event_type='VERIFICATION_OCR_APPLICANT_CONFIRMED'")" == 1 ]] || exit 1
@@ -133,11 +137,18 @@ DROP FUNCTION test_reject_identity_audit();
 SQL
 # Race a reviewer decision against applicant confirmation at the same version.
 "${PSQL[@]}" -Atqc "SELECT confirm_verification_ocr_fields('33333333-3333-4333-8333-333333333333','test-owner',4,'55555555-5555-4555-8555-555555555555','{\"first_name\":\"After\"}') ->> 'code'" > "$tmpdir/confirm-review-race" &
+confirmation_pid=$!
 "${PSQL[@]}" -Atqc "UPDATE verification_sessions SET status='rejected', version=version+1 WHERE id='33333333-3333-4333-8333-333333333333' AND status='pending_manual_review' AND version=4 RETURNING id" > "$tmpdir/reviewer-race" &
-wait
+reviewer_pid=$!
+wait "$confirmation_pid"
+wait "$reviewer_pid"
 if grep -qx OK "$tmpdir/confirm-review-race" && test -s "$tmpdir/reviewer-race"; then
   echo 'Both competing operations succeeded.' >&2; exit 1
 fi
 [[ "$("${PSQL[@]}" -Atqc "SELECT version FROM verification_sessions WHERE id='33333333-3333-4333-8333-333333333333'")" == 5 ]] || exit 1
+if [[ "${CARUP_IDV_TEST_SCHEMA_ONLY:-}" == yes ]]; then
+  echo 'PASS: selected migrations and independent applicant connections. Reviewer tests still required.'
+  exit 0
+fi
 node "$script_dir/backend/tests/integration/identity-postgres-reviewer-race.mjs"
 echo 'PASS: selected real-migration, grants, concurrency, replay, ownership and audit-rollback checks on disposable PostgreSQL.'

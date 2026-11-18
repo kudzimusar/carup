@@ -180,6 +180,7 @@ before(async () => {
 
   supabase.rpc = (name, payload) => {
     if (name === 'record_verification_decision_with_event_atomic') return mockIdentityDecision(db, payload);
+    if (name === 'claim_identity_review_attempt') return { data: true };
     if (name !== 'consume_identity_review_step_up') throw new Error('Unexpected RPC');
     const proof = (db.identity_review_step_up || []).find(row => row.reviewer_id === payload.p_reviewer_id
       && row.auth_session_id === payload.p_auth_session_id
@@ -497,6 +498,26 @@ test('unsupported review action is a 400', async () => {
 });
 
 // --- Workstream G: secure evidence previews --------------------------------
+
+test('step-up stops before proof issuance when the shared attempt authority denies or fails', async () => {
+  const originalRpc = supabase.rpc;
+  const path = `${LIST_PATH}/vs-pending/step-up`;
+  const input = { token: 'admin-token', body: { operation: 'case:detail', password: PASSWORD } };
+  try {
+    supabase.rpc = async name => {
+      assert.equal(name, 'claim_identity_review_attempt');
+      return { data: false };
+    };
+    assert.equal((await req('POST', path, input)).status, 429);
+    supabase.rpc = async () => ({ error: { message: 'internal database detail' } });
+    const error = await req('POST', path, input);
+    assert.equal(error.status, 503);
+    assert.doesNotMatch(await error.text(), /internal database detail/);
+    assert.equal((db.identity_review_step_up || []).length, 0);
+  } finally {
+    supabase.rpc = originalRpc;
+  }
+});
 
 test('unauthenticated evidence preview is rejected with 401', async () => {
   const res = await req('GET', `${LIST_PATH}/vs-pending/evidence/front/preview`);

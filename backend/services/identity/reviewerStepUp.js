@@ -36,6 +36,13 @@ export async function issueReviewerStepUp(actor, caseId, body = {}, client = sup
   if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
     throw new ForbiddenError('Enter your current account password.');
   }
+  const { data: allowed, error: budgetError } = await client.rpc('claim_identity_review_attempt', {
+    p_reviewer_id: actor.userId,
+    p_auth_session_id: String(actor.authenticatedSessionId),
+  });
+  if (budgetError || typeof allowed !== 'boolean') throw unavailable();
+  if (!allowed) throw new CarUpError('Reviewer credential verification is limited. Try again later.', 429, 'REVIEWER_STEP_UP_LIMITED');
+
   const { data: user, error: userError } = await client.from('users')
     .select('role, password_hash').eq('id', actor.userId).maybeSingle();
   if (userError) throw unavailable();

@@ -1,6 +1,5 @@
 import express from 'express';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
-import { rateLimiter } from '../middleware/securityMiddleware.js';
 import { ValidationError } from '../utils/errors.js';
 import { consumeReviewerStepUp, issueReviewerStepUp, reviewerDecisionOperation } from '../services/identity/reviewerStepUp.js';
 import {
@@ -22,11 +21,9 @@ router.use(reviewBase, (_req, res, next) => {
   next();
 });
 
-const stepUpLimit = rateLimiter({ max: 15, windowMs: 15 * 60_000, bucket: 'identity-review-step-up', keyBy: 'account', isSensitive: true, failClosed: true });
 router.post(
   reviewBase + '/:sessionId/step-up',
   authorizeSessionRole(['admin']),
-  stepUpLimit,
   asyncHandler(async (req, res) => {
     res.json(await issueReviewerStepUp(req.userContext, req.params.sessionId, req.body));
   }),

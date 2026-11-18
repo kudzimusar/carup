@@ -166,6 +166,10 @@ export default function IdentityVerificationCaseManagement() {
   const decisionIntent = useRef<{ payload: string; key: string } | null>(null)
   const [previewSide, setPreviewSide] = useState<'front' | 'back' | 'selfie' | null>(null)
   const [reviewPassword, setReviewPassword] = useState('')
+  const [decisionError, setDecisionError] = useState('')
+  const [caseChanged, setCaseChanged] = useState(false)
+  const queueTrigger = useRef<HTMLElement | null>(null)
+  const queueTitle = useRef<HTMLHeadingElement>(null)
 
   const takePassword = () => {
     const password = reviewPassword
@@ -210,7 +214,10 @@ export default function IdentityVerificationCaseManagement() {
 
   const handleTabChange = (tabId: string) => setActiveTab(tabId)
 
-  const openSession = (session: ExtendedAdminVerificationSession) => {
+  const openSession = (session: ExtendedAdminVerificationSession, trigger?: HTMLElement) => {
+    if (trigger) queueTrigger.current = trigger
+    setCaseChanged(false)
+    setDecisionError('')
     detailRequest.current++
     decisionIntent.current = null
     setSelectedSession(session)
@@ -286,6 +293,7 @@ export default function IdentityVerificationCaseManagement() {
       decisionIntent.current = { payload, key: crypto.randomUUID() }
     }
     setReviewPassword('')
+    setDecisionError('')
     setShowConfirm(true)
   }
 
@@ -315,8 +323,17 @@ export default function IdentityVerificationCaseManagement() {
       // Refetch sessions list
       fetchSessions(activeTab)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to submit decision'
-      if (request === detailRequest.current) toast.error(msg)
+      if (request !== detailRequest.current) return
+      const status = err instanceof Error && 'status' in err ? err.status : undefined
+      if (status === 409) {
+        setShowConfirm(false)
+        openSession(selectedSession)
+        setCaseChanged(true)
+      } else if (typeof status !== 'number' || status >= 500) {
+        setDecisionError('The decision could not be confirmed. Re-enter your password to retry the same decision, or reopen the case to check its status.')
+      } else {
+        setDecisionError(err instanceof Error ? err.message : 'Failed to submit decision')
+      }
     } finally {
       setSubmitting(false)
     }
@@ -350,7 +367,7 @@ export default function IdentityVerificationCaseManagement() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Identity Verification</h1>
+        <h1 ref={queueTitle} tabIndex={-1} className="text-2xl font-bold">Identity Verification</h1>
         <p className="text-gray-500">Case management and review queue</p>
         <Button variant="outline" onClick={() => fetchSessions(activeTab)} disabled={loading}>Refresh queue</Button>
       </div>
@@ -397,10 +414,10 @@ export default function IdentityVerificationCaseManagement() {
                   onKeyDown={event => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
-                      openSession(session)
+                      openSession(session, event.currentTarget)
                     }
                   }}
-                  onClick={() => openSession(session)}
+                  onClick={event => openSession(session, event.currentTarget)}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-4">
@@ -460,7 +477,12 @@ export default function IdentityVerificationCaseManagement() {
 
       {/* Session Detail Dialog */}
       <Dialog open={!!selectedSession} onOpenChange={(open) => { if (!open) closeDetail() }}>
-        <DialogContent className="w-[calc(100%-1rem)] grid-cols-[minmax(0,1fr)] max-h-[90vh] overflow-y-auto p-4 sm:max-w-4xl sm:p-6">
+        <DialogContent onCloseAutoFocus={event => {
+          event.preventDefault()
+          const trigger = queueTrigger.current
+          if (trigger?.isConnected) trigger.focus()
+          else queueTitle.current?.focus()
+        }} className="w-[calc(100%-1rem)] grid-cols-[minmax(0,1fr)] max-h-[90vh] overflow-y-auto p-4 sm:max-w-4xl sm:p-6">
           {detailLoading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
@@ -471,9 +493,12 @@ export default function IdentityVerificationCaseManagement() {
                 <DialogTitle>Open private case</DialogTitle>
                 <DialogDescription>Enter your current password to view this case.</DialogDescription>
               </DialogHeader>
-              <Label htmlFor="case-review-password">Current password</Label>
-              <Input id="case-review-password" type="password" autoComplete="current-password" value={reviewPassword} onChange={e => setReviewPassword(e.target.value)} />
-              <Button onClick={unlockDetail} disabled={!reviewPassword}>Open case</Button>
+              {caseChanged && <p role="alert">This case changed. Open it again to review the latest evidence and available actions.</p>}
+              <form className="space-y-3" onSubmit={event => { event.preventDefault(); void unlockDetail() }}>
+                <Label htmlFor="case-review-password">Current password</Label>
+                <Input id="case-review-password" type="password" autoComplete="current-password" value={reviewPassword} onChange={e => setReviewPassword(e.target.value)} />
+                <Button type="submit" disabled={!reviewPassword}>Open case</Button>
+              </form>
             </>
           ) : (
             <>
@@ -908,9 +933,11 @@ export default function IdentityVerificationCaseManagement() {
             <DialogTitle>Open private evidence</DialogTitle>
             <DialogDescription>Re-enter your password for this evidence preview.</DialogDescription>
           </DialogHeader>
-          <Label htmlFor="evidence-review-password">Current password</Label>
-          <Input id="evidence-review-password" type="password" autoComplete="current-password" value={reviewPassword} onChange={e => setReviewPassword(e.target.value)} />
-          <Button onClick={loadPreview} disabled={!reviewPassword}>Open preview</Button>
+          <form className="space-y-3" onSubmit={event => { event.preventDefault(); void loadPreview() }}>
+            <Label htmlFor="evidence-review-password">Current password</Label>
+            <Input id="evidence-review-password" type="password" autoComplete="current-password" value={reviewPassword} onChange={e => setReviewPassword(e.target.value)} />
+            <Button type="submit" disabled={!reviewPassword}>Open preview</Button>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -943,14 +970,17 @@ export default function IdentityVerificationCaseManagement() {
               <p>{applicantMessage}</p>
             </div>
           )}
-          <Label htmlFor="decision-review-password">Current password</Label>
-          <Input id="decision-review-password" type="password" autoComplete="current-password" value={reviewPassword} onChange={e => setReviewPassword(e.target.value)} />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowConfirm(false); setReviewPassword('') }}>Cancel</Button>
-            <Button onClick={submitDecision} disabled={submitting || !reviewPassword}>
-              {submitting ? <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Confirming...</> : 'Confirm'}
-            </Button>
-          </DialogFooter>
+          {decisionError && <p role="alert">{decisionError}</p>}
+          <form className="space-y-3" onSubmit={event => { event.preventDefault(); void submitDecision() }}>
+            <Label htmlFor="decision-review-password">Current password</Label>
+            <Input id="decision-review-password" type="password" autoComplete="current-password" value={reviewPassword} onChange={e => setReviewPassword(e.target.value)} />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { setShowConfirm(false); setReviewPassword('') }}>Cancel</Button>
+              <Button type="submit" disabled={submitting || !reviewPassword}>
+                {submitting ? <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Confirming...</> : 'Confirm'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

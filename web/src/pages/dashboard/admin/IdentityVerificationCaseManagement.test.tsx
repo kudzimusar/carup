@@ -359,6 +359,48 @@ describe('IdentityVerificationCaseManagement', () => {
       })
     })
 
+    it('keeps the request key when the response is lost and asks for a fresh password', async () => {
+      const fallback = globalThis.fetch
+      const keys: Array<string | null> = []
+      globalThis.fetch = vi.fn((input, init) => {
+        if (String(input).endsWith('/review')) {
+          keys.push(new Headers(init?.headers).get('x-idempotency-key'))
+          if (keys.length === 1) return Promise.reject(new TypeError('Failed to fetch'))
+        }
+        return fallback(input, init)
+      })
+      render(<IdentityVerificationCaseManagement />)
+      await openDialog()
+      await userEvent.click(screen.getByText('Approve identity'))
+      await userEvent.click(screen.getByText('Confirm Decision'))
+      await userEvent.type(screen.getByLabelText('Current password'), 'synthetic-password{Enter}')
+      expect(await screen.findByRole('alert')).toHaveTextContent('retry the same decision')
+      expect(screen.getByLabelText('Current password')).toHaveValue('')
+      await userEvent.type(screen.getByLabelText('Current password'), 'synthetic-password{Enter}')
+      expect(await screen.findByText(/Decision saved/i)).toBeInTheDocument()
+      expect(keys).toHaveLength(2)
+      expect(keys[0]).toBeTruthy()
+      expect(keys[1]).toBe(keys[0])
+    })
+
+    it('closes a stale confirmation and requires reopening the current case', async () => {
+      const fallback = globalThis.fetch
+      globalThis.fetch = vi.fn((input, init) => {
+        if (String(input).endsWith('/review')) {
+          return Promise.resolve(new Response(JSON.stringify({ error: 'Case changed' }), { status: 409 }))
+        }
+        return fallback(input, init)
+      })
+      render(<IdentityVerificationCaseManagement />)
+      await openDialog()
+      await userEvent.click(screen.getByText('Approve identity'))
+      await userEvent.click(screen.getByText('Confirm Decision'))
+      await userEvent.type(screen.getByLabelText('Current password'), 'synthetic-password{Enter}')
+      expect(await screen.findByRole('alert')).toHaveTextContent('Open it again')
+      expect(screen.getByRole('button', { name: 'Open case', exact: true })).toBeDisabled()
+      expect(screen.queryByText('Approve identity')).not.toBeInTheDocument()
+    })
+
     it('submits an approve decision through the confirmation dialog and shows success panel', async () => {
       render(<IdentityVerificationCaseManagement />)
       await openDialog()
