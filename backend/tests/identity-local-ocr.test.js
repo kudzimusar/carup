@@ -42,6 +42,11 @@ test('ICAO TD3 structural observations validate checksums without conferring ide
   const upper = 'P<UTOERIKSSON<<ANNA<MARIA'.padEnd(44, '<');
   const lower = 'L898902C36UTO7408122F1204159ZE184226B<<<<<10';
   assert.equal(inspectTd3Structure(upper + '\n' + lower), 'checksums_pass');
+  const spacedRow = line => line.split('').join(' ');
+  assert.equal(inspectTd3Structure(spacedRow(upper) + '\r\n' + spacedRow(lower)), 'checksums_pass');
+  assert.equal(inspectTd3Structure(spacedRow(upper) + '\n' + spacedRow('I' + lower.slice(1))), 'checksums_fail');
+  assert.equal(inspectTd3Structure('P<UTO' + '<'.repeat(39) + '\n' + lower), 'unreadable');
+  assert.equal(inspectTd3Structure(upper + '\n' + lower.slice(0, 22) + '\n' + lower.slice(22)), 'unreadable');
   assert.equal(inspectTd3Structure(upper + '\n' + lower.slice(0, 9) + '2' + lower.slice(10)), 'checksums_fail');
   assert.equal(inspectTd3Structure(upper + '\n' + lower.slice(1)), 'unreadable');
   assert.equal(inspectTd3Structure('PASSPORT NUMBER: EXAMPLE'), 'not_observed');

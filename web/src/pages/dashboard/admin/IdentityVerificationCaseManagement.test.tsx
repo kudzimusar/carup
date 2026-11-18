@@ -252,6 +252,31 @@ describe('IdentityVerificationCaseManagement', () => {
       expect(screen.getByText('Approve')).toBeInTheDocument()
     })
 
+    it('labels test evidence only after step-up and preserves unperformed checks', async () => {
+      globalThis.fetch = vi.fn((url: string) => {
+        if (url.endsWith('/step-up')) return Promise.resolve(jsonResponse({ proof: 'synthetic-proof' }))
+        if (url.includes('/security/csrf-token')) return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
+        if (url.includes(SESSION_ID_1)) return Promise.resolve(jsonResponse({ success: true, session: {
+          ...sessionDetail,
+          biometric_checks: { face_match: 'not_performed', liveness: 'not_performed', provider_state: 'not_configured' },
+          biometric_test_simulations: [
+            { purpose: 'face_document_match', evidence_revision: 3, test_decision: 'approved', provenance: 'TEST_SIMULATED' },
+            { purpose: 'liveness', evidence_revision: 4, test_decision: 'approved', provenance: 'unknown' },
+          ],
+        } }))
+        return Promise.resolve(jsonResponse({ success: true, sessions: defaultSessions }))
+      })
+      render(<IdentityVerificationCaseManagement />)
+      await waitForSessions()
+      expect(screen.queryByText('Simulated provider tests')).not.toBeInTheDocument()
+      await unlockCase()
+      expect(await screen.findByText('Simulated provider tests')).toBeInTheDocument()
+      expect(screen.getByText(/Simulated result: Approved · Evidence revision 3/)).toBeInTheDocument()
+      expect(screen.queryByText(/Evidence revision 4/)).not.toBeInTheDocument()
+      expect(screen.getByText('Face matching: Not Performed')).toBeInTheDocument()
+      expect(screen.getByText('Liveness: Not Performed')).toBeInTheDocument()
+    })
+
     it('shows identity binding match information', async () => {
       render(<IdentityVerificationCaseManagement />)
       await waitForSessions()

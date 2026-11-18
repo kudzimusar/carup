@@ -58,7 +58,10 @@ globalThis.fetch = (input, init) => {
       if (!/^[a-f0-9-]{36}$/u.test(body?.verification?.vendorData) || Object.keys(body.verification).length !== 1) {
         throw new Error('Non-synthetic Veriff fixture payload refused.');
       }
-      return Promise.resolve(signedVeriffFixture({ id: randomUUID(), vendorData: body.verification.vendorData }));
+      return readFile(process.env.CARUP_IDV_TEST_VERIFF_LOOKUP_FILE, 'utf8').then(content => {
+        if (JSON.parse(content).createUnavailable === true) return new Response(null, { status: 503 });
+        return signedVeriffFixture({ id: randomUUID(), vendorData: body.verification.vendorData });
+      });
     }
     if (init.method === 'GET' && /^\/v1\/sessions\/[a-f0-9-]{36}\/decision$/u.test(target.pathname)) {
       const sessionId = target.pathname.split('/')[3];

@@ -10,12 +10,19 @@ function digitMatches(value, printed) {
   return String(sum % 10) === printed;
 }
 
-export function inspectTd3Structure(text) {
-  const lines = text.split(/\r?\n/u).map(line => line.trim());
+export function observedTd3Rows(text) {
+  // The OCR engine may insert horizontal spacing between printed glyphs.
+  // Preserve line boundaries and every non-spacing character as read.
+  const lines = text.split(/\r?\n/u).map(line => line.trim().replace(/[ \t]/gu, ''));
   const upperIndex = lines.findIndex(line => /^P[A-Z<][A-Z]{3}[A-Z<]{15,}/u.test(line));
-  if (upperIndex < 0) return 'not_observed';
-  const lower = lines.slice(upperIndex + 1).find(Boolean) || '';
-  if (!/^P[A-Z<][A-Z]{3}[A-Z<]{39}$/u.test(lines[upperIndex])
+  return upperIndex < 0 ? null : [lines[upperIndex], lines.slice(upperIndex + 1).find(Boolean) || ''];
+}
+
+export function inspectTd3Structure(text) {
+  const rows = observedTd3Rows(text);
+  if (!rows) return 'not_observed';
+  const [upper, lower] = rows;
+  if (!/^P[A-Z<][A-Z]{3}[A-Z][A-Z<]{38}$/u.test(upper)
     || !/^[A-Z0-9<]{9}\d[A-Z<]{3}\d{7}[MF<]\d{7}[A-Z0-9<]{14}[\d<]\d$/u.test(lower)) {
     return 'unreadable';
   }

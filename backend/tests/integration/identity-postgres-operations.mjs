@@ -195,6 +195,24 @@ if (process.argv.includes('--veriff-test') || process.argv.includes('--veriff-te
     has_column_privilege('service_role','public.identity_veriff_test_attempts','session_id','UPDATE') AS can_rebind`);
   assert.deepEqual(permissions, { worker: true, browser: false, anonymous: false, can_rebind: false });
 
+  const lookupFile = process.env.CARUP_IDV_TEST_VERIFF_LOOKUP_FILE;
+  const ambiguous = await createCase();
+  await grant(ambiguous, ['liveness']);
+  const ambiguousRequest = randomUUID();
+  await writeFile(lookupFile, JSON.stringify({ createUnavailable: true }));
+  assert.equal((await start(ambiguous, 'liveness', ambiguousRequest)).status, 503);
+  const reserved = await stored(ambiguous, ambiguousRequest);
+  assert.equal(reserved.provider_session, null);
+  await writeFile(lookupFile, '{}');
+  const repeat = await start(ambiguous, 'liveness', ambiguousRequest);
+  assert.equal(repeat.status, 200);
+  assert.equal((await repeat.json()).biometric.state, 'registration_pending');
+  assert.equal((await stored(ambiguous, ambiguousRequest)).id, reserved.id);
+  assert.equal((await start(ambiguous, 'liveness')).status, 409);
+  assert.equal((await expectJson(recoveryPath(ambiguous.id, ambiguousRequest), { actor: applicant, body: {} })).biometric.state, 'registration_pending');
+  await outcome({ ...decision(reserved), id: randomUUID() }, 'ignored');
+  console.log('PASS ambiguous provider create retains one unbound reservation and refuses duplicate create or attachment');
+
   const session = await createCase();
   const { id, revision } = session;
   const startPath = root(id) + '/veriff-test/start';
@@ -257,7 +275,6 @@ if (process.argv.includes('--veriff-test') || process.argv.includes('--veriff-te
   const liveReq = randomUUID();
   assert.equal((await start(session, 'liveness', liveReq)).status, 200);
   const live = await stored(session, liveReq);
-  const lookupFile = process.env.CARUP_IDV_TEST_VERIFF_LOOKUP_FILE;
   await writeFile(lookupFile, JSON.stringify({ [live.provider_session]: 'unavailable' }));
   assert.equal((await request(recoveryPath(id, liveReq), { actor: applicant, body: {} })).status, 503);
   await writeFile(lookupFile, '{}');

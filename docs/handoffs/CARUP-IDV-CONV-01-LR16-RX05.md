@@ -1,4 +1,4 @@
-# LR16–LR18 identity integration and accountable decisions
+# LR16–LR19 identity integration and accountable decisions
 
 LR16 continues the LR15 identity session, protected evidence, reviewer step-up and atomic decision recorder on draft PR #276. Existing routes and browser/mobile shells retain authority. Dealer and vehicle autofill remain in issue #277.
 
@@ -110,3 +110,28 @@ Public Veriff demo and API documentation describe non-billed test integrations, 
 Standalone backend installs now lock the OCR dependencies. The package probe verifies the English model and WASM by digest and runs the worker from an isolated artifact, including capacity, decoded pixels, timeout and restart recovery. Mac execution passed. A Linux x64/glibc install selected an ELF Sharp native binary and bundled the language and WASM assets. Actual Linux process execution and Vercel builder output remain to be qualified in a disposable runtime. Keep the provider opt-in. The 4.5 MB Function envelope constrains base64 images to about 3.37 MB before JSON overhead. Larger images require a separately governed private upload path or validated pre-upload reduction. [Vercel limits](https://vercel.com/docs/functions/limitations)
 
 Synthetic TD3 reads across multiple fonts, layouts, scales and crop settings still contain letter/digit substitutions, filler errors and truncation. Text-based check-digit verification passes known structural tests. Do not use plausible strings, replace ambiguous characters, or elevate this to exact MRZ or authority. Operational passport classification stays uncertain. Preserve the existing OCR and strict manual-review policy while the approved evaluation corpus and legal, storage, managed-role, delivery, devices, independent review and CI gates remain open.
+
+## LR19 qualification and runtime closure
+
+| Surface | LR19 behavior |
+| --- | --- |
+| TD3 structure | Horizontal OCR spacing is normalized without changing glyphs or joining lines. An all-filler name field is unreadable. Isolated-row recognition improved some fixture fields but did not qualify a complete MRZ. It remains an offline experiment. Local classification is still uncertain and unqualified for approval. |
+| Reviewer test receipts | After case-detail step-up, the existing review dialog lists metadata labeled Simulated provider tests only for `TEST_SIMULATED` provenance. Both biometric outcomes remain not performed. Queue and applicant payloads omit the protected test history. No new action or source of identity decisions is introduced. |
+| Uncertain provider create | The local failure fixture leaves one unbound reservation. Retry with the same request returns registration pending, a concurrent new request for the same scope returns conflict, and a callback before a provider binding is ignored. Recovery never invents a vendor attempt. |
+| OCR function trace | The standalone backend Vercel configuration explicitly includes the pinned English model and WASM files in the backend Express function. The branch stays deployment-disabled. Offline artifact closure covers bytes and checksums. Linux execution, actual Vercel project settings and cost require separate confirmation. |
+| Intake strategy | The published 4.5 MB Vercel envelope leaves about 3.37 MB of raw image capacity before JSON overhead. For a future contained rollout, cap each normalized encoded capture to a conservative 3,000,000 raw bytes before base64, check the complete request size, and preserve separate MIME, decoded pixels, single-frame and evidence ownership checks. Test all media formats and installed client errors around the limit. Keep the current API policy until authorized. Any direct-to-bucket alternative needs private ownership, scoped expiry and post-upload validation. |
+
+### Veriff CarUp-tenant decision register
+
+The authorized account owner should send the following questions through the existing Veriff support or account channel. Record the reply, tenant and integration product in the private register.
+
+| Gate | Publicly documented | Confirmed for CarUp | Exact written answer required |
+| --- | --- | --- | --- |
+| Spend and isolation | Demo integrations are separate from the live trial. Public test integrations do not count toward paid usage. | Unverified | Identify the test-only integration. Confirm no card, trial activation, subscription, minimum commitment, automatic upgrade or charges for creation, forced results, callback and lookup. |
+| Synthetic manual decisions | The public test integration supports forced test outcomes. | Unverified | Confirm a metadata-only synthetic create with a single random reference. Confirm manual approve and decline, inclusion of provider attempt/session IDs and timestamps, and delivery and lookup without documents, photos, faces or biometric input. |
+| Signed delivery and product schema | Standard documentation specifies raw-body HMAC and the client header. Essential Full Auto documents a different decision contract. | Unverified | Provide the exact test API base, product and schema/version, signed create/lookup response shape, callback header and decision fields, and whether the existing verified HTTPS path can be used without paid activation. Provide example signatures only through the private credential channel. |
+| Zimbabwe document scope | Public categories list passport, national ID and driving licence. | Unverified | List supported passport generations, metal-strip and other national IDs, physical licence variants, the required sides for each, and their product entitlement. Identify missing variants explicitly. |
+
+Status `VENDOR_PREFLIGHT_BLOCKED`. Account, public webhook and external vendor API execution require affirmative written confirmation across this register. No external contact through an unverified recipient is part of the adapter or runtime. The signed offline fixtures cover simulated wiring only.
+
+[Veriff demo mode](https://support.veriff.com/s/article/How-does-Veriff-Station-work-in-demo-mode) · [Test integrations](https://devdocs.veriff.com/docs/how-to-create-an-integration) · [Product schemas](https://devdocs.veriff.com/docs/self-serve-documentation) · [Coverage](https://www.veriff.com/supported-countries) · [Vercel limits](https://vercel.com/docs/functions/limitations)

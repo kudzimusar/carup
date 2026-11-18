@@ -148,6 +148,7 @@ export default function IdentityVerificationCaseManagement() {
   const [loadError, setLoadError] = useState(false)
   const [selectedSession, setSelectedSession] = useState<ExtendedAdminVerificationSession | null>(null)
   const [sessionDetail, setSessionDetail] = useState<ExtendedAdminVerificationSession | null>(null)
+  const testSimulations = sessionDetail?.biometric_test_simulations?.filter(item => item.provenance === 'TEST_SIMULATED') ?? []
   const [detailLoading, setDetailLoading] = useState(false)
   const [previews, setPreviews] = useState<Record<string, EvidencePreview>>({})
   const [previewsLoading, setPreviewsLoading] = useState<Record<string, boolean>>({})
@@ -677,6 +678,19 @@ export default function IdentityVerificationCaseManagement() {
                     </div>
                     <p>Face matching: {humanize(sessionDetail.biometric_checks?.face_match || 'not_performed')}</p>
                     <p>Liveness: {humanize(sessionDetail.biometric_checks?.liveness || 'not_performed')}</p>
+                    {testSimulations.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="font-medium">Simulated provider tests</p>
+                        <ul className="list-disc ps-5">
+                          {testSimulations.map((item, index) => (
+                            <li key={`${item.purpose}-${item.evidence_revision}-${index}`}>
+                              {humanize(item.purpose)} · Simulated result: {humanize(item.test_decision || 'pending')}
+                              {' · Evidence revision '}{item.evidence_revision}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     {sessionDetail.ocr_side_assessment && (
                       <dl className="space-y-1">
                         <dt>Front evidence</dt>
