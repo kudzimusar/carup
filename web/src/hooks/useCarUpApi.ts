@@ -6,16 +6,17 @@ import {
   fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
   fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
   fetchEvidencePreview as fetchEvidencePreviewRequest,
+  issueVerificationReviewStepUp as issueVerificationReviewStepUpRequest,
   reviewVerificationSession as reviewVerificationSessionRequest,
   type VerificationAdminClientConfig,
 } from '@/lib/verificationAdminApi'
 import type {
   AdminVerificationSession,
+  VerificationSessionStatus,
   DecisionAction,
   DecisionResponse,
   EvidencePreview,
   VerificationReviewRequest,
-  VerificationSessionStatus,
 } from '@shared/types'
 import type { 
   User, 
@@ -480,6 +481,16 @@ export function useCarUpApi() {
     }
   }, [user, token])
 
+  const fetchApplicantVerificationStatus = useCallback(async (signal?: AbortSignal) => {
+    const data = await request<{ session: {
+      status: VerificationSessionStatus | 'captured' | 'uploaded' | 'ocr_pending'
+      workflow_phase: string | null
+      applicant_message: string | null
+      retry_reason: string | null
+    } | null }>('/identity/verification-sessions/latest', { signal })
+    return data.session
+  }, [request])
+
   // Identity-verification admin review (Phase 7C). Built from the same auth
   // identity as `request` and delegated to the dedicated, unit-tested client
   // module so the page never issues raw fetches.
@@ -501,15 +512,21 @@ export function useCarUpApi() {
     [verificationClientConfig],
   )
 
+  const issueVerificationReviewStepUp = useCallback(
+    (sessionId: string, operation: string, password: string) =>
+      issueVerificationReviewStepUpRequest(verificationClientConfig, sessionId, operation, password),
+    [verificationClientConfig],
+  )
+
   const fetchVerificationSessionDetail = useCallback(
-    (sessionId: string): Promise<AdminVerificationSession> =>
-      fetchVerificationSessionDetailRequest(verificationClientConfig, sessionId),
+    (sessionId: string, stepUpProof?: string): Promise<AdminVerificationSession> =>
+      fetchVerificationSessionDetailRequest(verificationClientConfig, sessionId, stepUpProof),
     [verificationClientConfig],
   )
 
   const fetchEvidencePreview = useCallback(
-    (sessionId: string, side: 'front' | 'back' | 'selfie'): Promise<EvidencePreview> =>
-      fetchEvidencePreviewRequest(verificationClientConfig, sessionId, side),
+    (sessionId: string, side: 'front' | 'back' | 'selfie', stepUpProof?: string): Promise<EvidencePreview> =>
+      fetchEvidencePreviewRequest(verificationClientConfig, sessionId, side, stepUpProof),
     [verificationClientConfig],
   )
 
@@ -524,8 +541,8 @@ export function useCarUpApi() {
   const reviewVerificationCase = useCallback(
     (
       sessionId: string,
-      body: { action: string; reasonCode?: string | null; internalNote?: string | null; applicantMessage?: string | null },
-      opts?: { idempotencyKey?: string },
+      body: { action: string; expectedRevision?: number; reasonCode?: string | null; internalNote?: string | null; applicantMessage?: string | null },
+      opts?: { idempotencyKey?: string; stepUpProof?: string },
     ): Promise<DecisionResponse> =>
       reviewVerificationSessionRequest(verificationClientConfig, sessionId, body, opts),
     [verificationClientConfig],
@@ -2832,9 +2849,11 @@ export function useCarUpApi() {
     fetchVehiclePassport,
     fetchVehicleEvidenceTimeline,
     fetchEvidenceReviewQueue,
+    fetchApplicantVerificationStatus,
     fetchVerificationReviewQueue,
     fetchVerificationSessionDetail,
     fetchEvidencePreview,
+    issueVerificationReviewStepUp,
     reviewVerificationSession,
     reviewVerificationCase,
     fetchTrustReviewQueue,

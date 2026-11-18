@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -138,6 +139,7 @@ export default function IdentityVerificationCaseManagement() {
     fetchVerificationReviewQueue,
     fetchVerificationSessionDetail,
     fetchEvidencePreview,
+    issueVerificationReviewStepUp,
     reviewVerificationCase,
   } = useCarUpApi()
   const [activeTab, setActiveTab] = useState('reviewer_action_required')
@@ -159,17 +161,30 @@ export default function IdentityVerificationCaseManagement() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [successPanel, setSuccessPanel] = useState<DecisionResponse | null>(null)
 
-  const fetchedRef = useRef(false)
+  const queueRequest = useRef(0)
+  const detailRequest = useRef(0)
+  const decisionIntent = useRef<{ payload: string; key: string } | null>(null)
+  const [previewSide, setPreviewSide] = useState<'front' | 'back' | 'selfie' | null>(null)
+  const [reviewPassword, setReviewPassword] = useState('')
+
+  const takePassword = () => {
+    const password = reviewPassword
+    setReviewPassword('')
+    return password
+  }
 
   const fetchSessions = useCallback(async (tabId: string) => {
+    const request = ++queueRequest.current
     setLoading(true)
     try {
       const tab = OPERATIONAL_TABS.find(t => t.id === tabId)
       const filter = tab?.phase ? { workflow_phase: tab.phase } : tab?.status ? { status: tab.status } : undefined
       const data = await fetchVerificationReviewQueue(filter)
+      if (request !== queueRequest.current) return
       setSessions((data || []) as ExtendedAdminVerificationSession[])
       setLoadError(false)
     } catch {
+      if (request !== queueRequest.current) return
       toast.error('Failed to load verification sessions')
       // Retain the ERROR state: a failed load must never render as an empty
       // queue with zero counts (round-4 staging regression showed "0" cases
@@ -177,54 +192,82 @@ export default function IdentityVerificationCaseManagement() {
       setSessions([])
       setLoadError(true)
     } finally {
-      setLoading(false)
+      if (request === queueRequest.current) setLoading(false)
     }
   }, [fetchVerificationReviewQueue])
 
+  const fetchSessionsRef = useRef(fetchSessions)
+  useEffect(() => { fetchSessionsRef.current = fetchSessions }, [fetchSessions])
+
   useEffect(() => {
-    if (!fetchedRef.current) {
-      fetchedRef.current = true
-      fetchSessions(activeTab)
-    }
-  }, [activeTab, fetchSessions])
+    if (selectedSession) return
+    void fetchSessionsRef.current(activeTab)
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void fetchSessionsRef.current(activeTab)
+    }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [activeTab, selectedSession])
 
-  const handleTabChange = (tabId: string) => {
-    setActiveTab(tabId)
-    fetchedRef.current = false
-  }
+  const handleTabChange = (tabId: string) => setActiveTab(tabId)
 
-  const openSession = async (session: ExtendedAdminVerificationSession) => {
+  const openSession = (session: ExtendedAdminVerificationSession) => {
+    detailRequest.current++
+    decisionIntent.current = null
     setSelectedSession(session)
-    setDetailLoading(true)
+    setDetailLoading(false)
     setSessionDetail(null)
     setPreviews({})
+    setPreviewsLoading({})
+    setPreviewSide(null)
+    setReviewPassword('')
     setDisposition(null)
     setReasonCode('')
     setInternalNote('')
     setApplicantMessage('')
     setSuccessPanel(null)
+  }
 
+  const unlockDetail = async () => {
+    if (!selectedSession || !reviewPassword || detailLoading) return
+    const password = takePassword()
+    const request = ++detailRequest.current
+    setDetailLoading(true)
     try {
-      const detail = await fetchVerificationSessionDetail(session.id)
-      setSessionDetail(detail as ExtendedAdminVerificationSession)
-    } catch {
-      toast.error('Failed to load session detail')
+      const proof = await issueVerificationReviewStepUp(selectedSession.id, 'case:detail', password)
+      const detail = await fetchVerificationSessionDetail(selectedSession.id, proof)
+      if (request === detailRequest.current) setSessionDetail(detail as ExtendedAdminVerificationSession)
+    } catch (error) {
+      if (request === detailRequest.current) toast.error(error instanceof Error ? error.message : 'Failed to open case')
     } finally {
-      setDetailLoading(false)
+      if (request === detailRequest.current) setDetailLoading(false)
     }
   }
 
-  const loadPreview = async (side: 'front' | 'back' | 'selfie') => {
-    if (!selectedSession) return
-    if (previews[side]) return
+  const loadPreview = async () => {
+    if (!selectedSession || !previewSide || !reviewPassword) return
+    const side = previewSide
+    const request = detailRequest.current
+    const password = takePassword()
+    setPreviewSide(null)
     setPreviewsLoading(prev => ({ ...prev, [side]: true }))
     try {
-      const preview = await fetchEvidencePreview(selectedSession.id, side)
+      const proof = await issueVerificationReviewStepUp(selectedSession.id, `preview:${side}`, password)
+      const preview = await fetchEvidencePreview(selectedSession.id, side, proof)
+      if (request !== detailRequest.current) return
       setPreviews(prev => ({ ...prev, [side]: preview }))
-    } catch {
-      toast.error(`Failed to load ${side} preview`)
+      window.setTimeout(() => {
+        if (request !== detailRequest.current) return
+        setPreviews(prev => {
+          if (prev[side] !== preview) return prev
+          const current = { ...prev }
+          delete current[side]
+          return current
+        })
+      }, preview.expiresInSeconds * 1000)
+    } catch (error) {
+      if (request === detailRequest.current) toast.error(error instanceof Error ? error.message : 'Failed to load preview')
     } finally {
-      setPreviewsLoading(prev => ({ ...prev, [side]: false }))
+      if (request === detailRequest.current) setPreviewsLoading(prev => ({ ...prev, [side]: false }))
     }
   }
 
@@ -238,23 +281,34 @@ export default function IdentityVerificationCaseManagement() {
       toast.error('A reason code is required for this action.')
       return
     }
+    const payload = JSON.stringify([disposition, reasonCode, internalNote, applicantMessage])
+    if (decisionIntent.current?.payload !== payload) {
+      decisionIntent.current = { payload, key: crypto.randomUUID() }
+    }
+    setReviewPassword('')
     setShowConfirm(true)
   }
 
   const submitDecision = async () => {
-    if (!selectedSession || !disposition) return
+    if (!selectedSession || !disposition || !sessionDetail?.revision || !reviewPassword || submitting) return
+    const password = takePassword()
+    const request = detailRequest.current
     setSubmitting(true)
     try {
+      const proof = await issueVerificationReviewStepUp(selectedSession.id, `decision:${disposition}`, password)
       const result = await reviewVerificationCase(
         selectedSession.id,
         {
           action: disposition,
+          expectedRevision: sessionDetail.revision,
           reasonCode: reasonCode || null,
           internalNote: internalNote || null,
           applicantMessage: applicantMessage || null,
         },
-        { idempotencyKey: crypto.randomUUID() },
+        { idempotencyKey: decisionIntent.current?.key, stepUpProof: proof },
       )
+      if (request !== detailRequest.current) return
+      setPreviews({})
       setSuccessPanel(result)
       setShowConfirm(false)
       toast.success('Decision saved')
@@ -262,17 +316,27 @@ export default function IdentityVerificationCaseManagement() {
       fetchSessions(activeTab)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to submit decision'
-      toast.error(msg)
+      if (request === detailRequest.current) toast.error(msg)
     } finally {
       setSubmitting(false)
     }
   }
 
   const closeDetail = () => {
+    detailRequest.current++
+    setPreviews({})
+    setPreviewsLoading({})
+    setPreviewSide(null)
+    setReviewPassword('')
+    setShowConfirm(false)
     setSelectedSession(null)
     setSessionDetail(null)
     setSuccessPanel(null)
   }
+
+  const displayedPhase = successPanel
+    ? successPanel.session.workflow_phase || successPanel.decision.resulting_phase
+    : sessionDetail?.workflow_phase
 
   const filteredReasonCodes = disposition
     ? REASON_CODE_OPTIONS.filter(rc => rc.disposition.includes(disposition))
@@ -288,25 +352,15 @@ export default function IdentityVerificationCaseManagement() {
       <div>
         <h1 className="text-2xl font-bold">Identity Verification</h1>
         <p className="text-gray-500">Case management and review queue</p>
+        <Button variant="outline" onClick={() => fetchSessions(activeTab)} disabled={loading}>Refresh queue</Button>
       </div>
 
       {/* Operational Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="w-full flex-wrap">
+        <TabsList className="h-auto w-full flex-wrap justify-start gap-1">
           {OPERATIONAL_TABS.map(tab => (
             <TabsTrigger key={tab.id} value={tab.id} className="text-xs">
               {tab.label}
-              {!loading && tab.id !== 'all' && (
-                <span className="ml-1.5 text-gray-400">
-                  {loadError
-                    ? '(—)'
-                    : `(${sessions.filter(s => {
-                        if (tab.phase) return s.workflow_phase === tab.phase
-                        if (tab.status) return s.status === tab.status
-                        return true
-                      }).length})`}
-                </span>
-              )}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -322,7 +376,7 @@ export default function IdentityVerificationCaseManagement() {
               <Card>
                 <CardContent className="py-12 text-center">
                   <p className="text-red-600 font-medium mb-1">Could not load verification sessions.</p>
-                  <p className="text-gray-500 text-sm mb-4">Queue counts are unavailable until this succeeds — they are NOT zero.</p>
+                  <p className="text-gray-500 text-sm mb-4">Retry to retrieve the current queue.</p>
                   <Button variant="outline" onClick={() => fetchSessions(activeTab)}>Retry</Button>
                 </CardContent>
               </Card>
@@ -337,12 +391,21 @@ export default function IdentityVerificationCaseManagement() {
                 <Card
                   key={session.id}
                   className="cursor-pointer hover:shadow-md transition-shadow"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open verification case ${session.id}`}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      openSession(session)
+                    }
+                  }}
                   onClick={() => openSession(session)}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
                           <span className="text-sm text-gray-500 font-mono">{session.id.slice(0, 12)}...</span>
                           <Badge className={workflowPhaseColor(session.workflow_phase)}>
                             {WORKFLOW_PHASE_META[session.workflow_phase || '']?.label || humanize(session.workflow_phase || session.status)}
@@ -354,11 +417,6 @@ export default function IdentityVerificationCaseManagement() {
                           )}
                         </div>
                         <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-                          <span>
-                            {session.applicant_name
-                              ? `${session.applicant_name}${session.applicant_email ? ` · ${session.applicant_email}` : ''}`
-                              : `User: ${session.user_id.slice(0, 8)}...`}
-                          </span>
                           <span>Type: {humanize(session.document_type)}</span>
                           {session.submitted_at && (
                             <span>Submitted: {new Date(session.submitted_at).toLocaleString()}</span>
@@ -402,19 +460,29 @@ export default function IdentityVerificationCaseManagement() {
 
       {/* Session Detail Dialog */}
       <Dialog open={!!selectedSession} onOpenChange={(open) => { if (!open) closeDetail() }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100%-1rem)] grid-cols-[minmax(0,1fr)] max-h-[90vh] overflow-y-auto p-4 sm:max-w-4xl sm:p-6">
           {detailLoading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
             </div>
-          ) : sessionDetail ? (
+          ) : !sessionDetail ? (
             <>
               <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
+                <DialogTitle>Open private case</DialogTitle>
+                <DialogDescription>Enter your current password to view this case.</DialogDescription>
+              </DialogHeader>
+              <Label htmlFor="case-review-password">Current password</Label>
+              <Input id="case-review-password" type="password" autoComplete="current-password" value={reviewPassword} onChange={e => setReviewPassword(e.target.value)} />
+              <Button onClick={unlockDetail} disabled={!reviewPassword}>Open case</Button>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex flex-wrap items-center gap-2 pr-6">
                   Case {sessionDetail.id.slice(0, 12)}...
-                  {sessionDetail.workflow_phase && (
-                    <Badge className={workflowPhaseColor(sessionDetail.workflow_phase)}>
-                      {WORKFLOW_PHASE_META[sessionDetail.workflow_phase]?.label}
+                  {displayedPhase && (
+                    <Badge className={workflowPhaseColor(displayedPhase)}>
+                      {WORKFLOW_PHASE_META[displayedPhase]?.label}
                     </Badge>
                   )}
                 </DialogTitle>
@@ -440,10 +508,10 @@ export default function IdentityVerificationCaseManagement() {
                           ? WORKFLOW_PHASE_META[successPanel.decision.resulting_phase]?.label || successPanel.decision.resulting_phase
                           : 'No change'}
                         </p>
-                        {successPanel.decision.applicant_message && (
-                          <p>Applicant notified: Yes (message queued)</p>
+                        {['approve', 'reject', 'request_resubmission'].includes(successPanel.decision.action) && (
+                          <p>Applicant notification queued. Delivery is unconfirmed.</p>
                         )}
-                        <p className="text-xs text-green-600 mt-1 font-mono">
+                        <p className="mt-1 break-words font-mono text-xs text-green-600">
                           Decision ID: {successPanel.decision.id} |
                           Audit: {successPanel.decision.audit_event_type} |
                           Reviewer: {successPanel.decision.reviewer_id.slice(0, 8)}... |
@@ -455,6 +523,7 @@ export default function IdentityVerificationCaseManagement() {
                 </Card>
               )}
 
+              {!successPanel && <>
               {/* Section 1 — Decision Summary */}
               <Card>
                 <CardHeader className="pb-2">
@@ -519,7 +588,7 @@ export default function IdentityVerificationCaseManagement() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => loadPreview(side)}
+                                onClick={() => { setReviewPassword(''); setPreviewSide(side) }}
                                 disabled={previewsLoading[side]}
                                 className="w-full"
                               >
@@ -687,7 +756,6 @@ export default function IdentityVerificationCaseManagement() {
               )}
 
               {/* Decision Form */}
-              {!successPanel && (
                 <Card className="border-amber-200">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium">Case Disposition</CardTitle>
@@ -794,7 +862,7 @@ export default function IdentityVerificationCaseManagement() {
                     )}
 
                     {/* Action Buttons */}
-                    <div className="flex items-center justify-between pt-2 border-t">
+                    <div className="flex flex-col items-start gap-2 border-t pt-2 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-xs text-gray-400">
                         {disposition === 'add_internal_note'
                           ? 'Internal note will be saved. Case status did not change.'
@@ -803,7 +871,7 @@ export default function IdentityVerificationCaseManagement() {
                             : 'Select a disposition above to proceed.'
                         }
                       </p>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <Button variant="outline" onClick={closeDetail}>
                           Cancel
                         </Button>
@@ -821,7 +889,7 @@ export default function IdentityVerificationCaseManagement() {
                     </div>
                   </CardContent>
                 </Card>
-              )}
+              </>}
 
               {/* Success panel actions */}
               {successPanel && (
@@ -830,14 +898,24 @@ export default function IdentityVerificationCaseManagement() {
                 </div>
               )}
             </>
-          ) : (
-            <div className="py-8 text-center text-gray-500">Session not found.</div>
           )}
         </DialogContent>
       </Dialog>
 
+      <Dialog open={previewSide !== null} onOpenChange={open => { if (!open) { setPreviewSide(null); setReviewPassword('') } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Open private evidence</DialogTitle>
+            <DialogDescription>Re-enter your password for this evidence preview.</DialogDescription>
+          </DialogHeader>
+          <Label htmlFor="evidence-review-password">Current password</Label>
+          <Input id="evidence-review-password" type="password" autoComplete="current-password" value={reviewPassword} onChange={e => setReviewPassword(e.target.value)} />
+          <Button onClick={loadPreview} disabled={!reviewPassword}>Open preview</Button>
+        </DialogContent>
+      </Dialog>
+
       {/* Confirmation Dialog */}
-      <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
+      <Dialog open={showConfirm} onOpenChange={open => { setShowConfirm(open); if (!open) setReviewPassword('') }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Confirm {humanize(disposition || '')}</DialogTitle>
@@ -865,9 +943,11 @@ export default function IdentityVerificationCaseManagement() {
               <p>{applicantMessage}</p>
             </div>
           )}
+          <Label htmlFor="decision-review-password">Current password</Label>
+          <Input id="decision-review-password" type="password" autoComplete="current-password" value={reviewPassword} onChange={e => setReviewPassword(e.target.value)} />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowConfirm(false)}>Cancel</Button>
-            <Button onClick={submitDecision} disabled={submitting}>
+            <Button variant="outline" onClick={() => { setShowConfirm(false); setReviewPassword('') }}>Cancel</Button>
+            <Button onClick={submitDecision} disabled={submitting || !reviewPassword}>
               {submitting ? <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Confirming...</> : 'Confirm'}
             </Button>
           </DialogFooter>

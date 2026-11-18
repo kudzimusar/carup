@@ -57,6 +57,31 @@ try {
   if (!(await db.query("SELECT to_regclass('public.verification_applicant_confirmations') AS table_name")).rows[0].table_name) throw new Error('Run the disposable migration harness first.');
   await db.query("INSERT INTO users(id,name,email,role,join_date) VALUES ('test-reviewer','Synthetic Reviewer','reviewer@example.invalid','admin','2026-01-01') ON CONFLICT (id) DO NOTHING");
   await db.query("INSERT INTO verification_sessions(id,user_id,document_type,status,version,ocr_started_at,ocr_result,ocr_execution_status,workflow_phase,front_storage_path,selfie_storage_path) VALUES ($1,'test-owner','passport','pending_manual_review',1,now(),'{\"first_name\":\"Synthetic\"}','provider_succeeded','reviewer_action_required','fixture/front','fixture/selfie')",[session]);
+  const authSessionId = 'b2101b60-5ee8-4121-9648-d6ca0d491419';
+  const digest = 'b'.repeat(64);
+  await db.query("INSERT INTO user_sessions (id,user_id,token,expires_at,is_valid) VALUES ($1,'test-reviewer','synthetic-review-test',now() + interval '1 hour',true)", [authSessionId]);
+  await db.query("INSERT INTO identity_review_step_up SELECT 'test-reviewer',$1,$2,'case:detail',$3,now() + interval '2 minutes',NULL",
+    [authSessionId, session, digest]);
+  const consume = sql => sql.query(
+    "SELECT consume_identity_review_step_up('test-reviewer',$1,$2,'case:detail',$3) AS consumed",
+    [authSessionId, session, digest],
+  );
+  await db.query('SET ROLE authenticated');
+  try { await assert.rejects(() => consume(db), /permission denied/i); }
+  finally { await db.query('RESET ROLE'); }
+  await db.query('SET ROLE service_role');
+  await competitor.query('SET ROLE service_role');
+  try {
+    const results = await Promise.all([consume(db), consume(competitor)]);
+    assert.equal(results.filter(result => result.rows[0].consumed).length, 1);
+    await assert.rejects(() => db.query("UPDATE verification_sessions SET user_id='test-reviewer' WHERE id=$1", [session]),
+      /cannot be rewritten/i);
+  } finally {
+    await db.query('RESET ROLE');
+    await competitor.query('RESET ROLE');
+  }
+  assert.equal((await db.query('SELECT user_id FROM verification_sessions WHERE id=$1', [session])).rows[0].user_id, 'test-owner');
+  console.log('PASS independent-connection proof consumption, RPC role denial and applicant immutability');
   let confirmation;
   const interleave=async()=>{confirmation=(await competitor.query("SELECT confirm_verification_ocr_fields($1,'test-owner',1,$2,'{\"first_name\":\"Synthetic\"}'::jsonb) AS result",[session,token])).rows[0].result};
   await assert.rejects(()=>reviewVerificationSession(client(interleave),{id:'test-reviewer',role:'admin'},session,{action:'reject',reasonCode:'NON_DOCUMENT',applicantMessage:'Synthetic message'}),/changed|cannot be applied/i);

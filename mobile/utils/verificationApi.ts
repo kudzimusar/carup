@@ -7,6 +7,7 @@ export interface VerificationSession {
   double_sided: boolean;
   status: 'draft' | 'captured' | 'uploaded' | 'ocr_pending' | 'ocr_failed' | 'pending_manual_review' | 'retry_requested' | 'verified' | 'rejected';
   revision?: number | null;
+  workflow_phase?: string | null;
   ocr_execution_status?: string | null;
   ocr_confirmation_completed?: boolean;
   confirmation_fields?: Array<{ name: string; label: string; required: boolean; source: 'top' | 'additional' }>;
@@ -309,9 +310,11 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       status: 'needs_review',
       sessionId: session.id,
       ocrResult: session.ocr_result,
-      processingError: 'Verification needs manual review before it can be marked verified.',
+      processingError: session.workflow_phase === 'escalated'
+        ? 'Your case is awaiting specialist review. You do not need to resubmit unless asked.'
+        : 'Verification needs manual review before it can be marked verified.',
       sessionStatus: session.status,
-      needsConfirmation: session.ocr_execution_status === 'provider_succeeded' && Boolean(session.ocr_result && Object.keys(session.ocr_result).length) && !session.ocr_confirmation_completed,
+      needsConfirmation: session.workflow_phase !== 'escalated' && session.ocr_execution_status === 'provider_succeeded' && Boolean(session.ocr_result && Object.keys(session.ocr_result).length) && !session.ocr_confirmation_completed,
     };
   }
 

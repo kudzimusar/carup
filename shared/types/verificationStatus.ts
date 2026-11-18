@@ -166,6 +166,7 @@ export interface IdentityBinding {
  */
 export interface AdminVerificationSession {
   id: string;
+  revision?: number | null;
   user_id: string;
   document_type: string;
   double_sided: boolean;

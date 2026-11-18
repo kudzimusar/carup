@@ -1,23 +1,4 @@
-/**
- * Round-4 staging regression — the admin queue join.
- *
- * verification_sessions carries TWO foreign keys to users
- * (user_id → applicant, reviewed_by → reviewer), so a bare `users(...)`
- * embed is ambiguous and PostgREST answers 500 — the web admin showed
- * "Failed to load verification sessions" with false zero counts.
- *
- * Contracts under test:
- *  1. the list SELECT names the applicant relationship EXPLICITLY via the
- *     user_id FK (constraint name confirmed on staging:
- *     verification_sessions_user_id_fkey) and never uses a bare users();
- *  2. applicant_name/email map from the `applicant` embed — never from a
- *     reviewer join;
- *  3. workflow_phase filters (reviewer_action_required, resolved_rejected)
- *     reach the query;
- *  4. an empty result resolves to [] (a 200, not an error);
- *  5. a database/PostgREST error THROWS — it must never be swallowed into an
- *     empty list that the UI would render as zero cases.
- */
+/** Verify the reviewer queue returns operational metadata only. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -42,15 +23,13 @@ function makeCapturingClient({ rows = [], error = null } = {}) {
   return { captured, client: { from: () => query } };
 }
 
-test('list SELECT embeds the applicant via the user_id FK — never a bare users()', async () => {
+test('list SELECT does not query applicant details or OCR fields', async () => {
   const { captured, client } = makeCapturingClient();
   await listVerificationSessionsForReview(client, admin, {});
-  assert.ok(captured.select.includes('applicant:users!verification_sessions_user_id_fkey'), captured.select);
-  assert.equal(/[^!:\w]users\(/.test(captured.select), false, `ambiguous users() embed present: ${captured.select}`);
-  assert.equal(captured.select.includes('reviewed_by_fkey'), false, 'must not join through reviewed_by');
+  assert.doesNotMatch(captured.select, /users!|users\(|ocr_result|review_notes/);
 });
 
-test('applicant_name/email come from the applicant embed, not a reviewer join', async () => {
+test('queue strips applicant and reviewer personal information even if returned by the database', async () => {
   const { client } = makeCapturingClient({
     rows: [{
       id: 'vs-1', user_id: 'u-app', status: 'pending_manual_review',
@@ -61,8 +40,10 @@ test('applicant_name/email come from the applicant embed, not a reviewer join', 
     }],
   });
   const [row] = await listVerificationSessionsForReview(client, admin, {});
-  assert.equal(row.applicant_name, 'Applicant Person');
-  assert.equal(row.applicant_email, 'applicant@example.test');
+  assert.equal(row.id, 'vs-1');
+  for (const field of ['applicant_name','applicant_email','user_id','ocr_result','review_notes','front_storage_path']) {
+    assert.equal(Object.hasOwn(row, field), false, field);
+  }
 });
 
 test('workflow_phase filters reach the query (both failing staging URLs)', async () => {

@@ -782,17 +782,12 @@ async function fetchSessionForReview(client, sessionId) {
 export async function listVerificationSessionsForReview(client = supabase, actor = {}, filters = {}) {
   assertAdminReviewer(actor);
 
-  // Join the APPLICANT so admin cards can show who the case belongs to.
-  // verification_sessions has TWO FKs to users (user_id and reviewed_by), so a
-  // bare `users(...)` embed is AMBIGUOUS and PostgREST returns 500 (round-4
-  // staging regression). The relationship is named explicitly via the
-  // user_id FK — constraint name confirmed against the live staging schema:
-  //   verification_sessions_user_id_fkey  (never the reviewed_by join).
-  // Mocks that ignore select args simply yield no `applicant` object and the
-  // serializer falls back to null.
-  let query = client
-    .from('verification_sessions')
-    .select('*, applicant:users!verification_sessions_user_id_fkey(name, email)');
+  let query = client.from('verification_sessions').select([
+    'id', 'document_type', 'status', 'workflow_phase', 'created_at', 'updated_at',
+    'submitted_at', 'primary_reason_code', 'evidence_classification',
+    'ocr_execution_status', 'extraction_trust_status', 'identity_binding_status',
+    'final_disposition', 'front_storage_path', 'back_storage_path', 'selfie_storage_path',
+  ].join(','));
 
   // Support both legacy status and workflow phase filters
   if (filters.workflow_phase !== undefined && filters.workflow_phase !== null && filters.workflow_phase !== '') {
@@ -809,7 +804,14 @@ export async function listVerificationSessionsForReview(client = supabase, actor
 
   const { data, error } = await query;
   if (error) throw new Error('Verification service operation failed.');
-  return (data || []).map(sanitizeReviewSession);
+  return (data || []).map(row => {
+    const { id, document_type, status, workflow_phase, created_at, updated_at, submitted_at,
+      primary_reason_code, evidence_classification, ocr_execution_status, extraction_trust_status,
+      identity_binding_status, final_disposition, uploaded_sides } = sanitizeReviewSession(row);
+    return { id, document_type, status, workflow_phase, created_at, updated_at, submitted_at,
+      primary_reason_code, evidence_classification, ocr_execution_status, extraction_trust_status,
+      identity_binding_status, final_disposition, uploaded_sides };
+  });
 }
 
 export async function getVerificationSessionForReview(client = supabase, actor = {}, sessionId) {
@@ -910,6 +912,7 @@ export async function reviewVerificationSession(client = supabase, actor = {}, s
     reviewerId,
     reviewerRole: actor.role,
     currentWorkflowPhase,
+    expectedRevision: payload.expectedRevision,
     req: options.req,
   });
   return { ...result, session: sanitizeReviewSession(result.session) };

@@ -16,19 +16,20 @@ const load = suffix => import(pathToFileURL(path.join(dist, suffix)).href);
 const { PGlite } = await load('index.js');
 const { pgcrypto } = await load('contrib/pgcrypto.js');
 const { uuid_ossp } = await load('contrib/uuid_ossp.js');
-const { reviewVerificationSession, submitVerificationSession, uploadVerificationSessionImage } = await import('../../services/identity/verificationSessionService.js');
+const { createVerificationSession, getVerificationSession, getVerificationSessionForReview, listVerificationSessionsForReview, reviewVerificationSession, submitVerificationSession, uploadVerificationSessionImage } = await import('../../services/identity/verificationSessionService.js');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const db = new PGlite({ extensions: { pgcrypto, 'uuid-ossp': uuid_ossp } });
 let failed = false;
 async function check(name, fn) { try { await fn(); console.log(`PASS ${name}`); } catch (e) { failed = true; console.error(`FAIL ${name}: ${e.message}`); } }
-const sqlFiles = ['supabase_schema.sql','011_phase6_schema.sql','20260621170000_outbox_dead_letter.sql','20260613000000_phase7b_supabase_auth_and_identity.sql','20260605042424_verification_sessions_phase7b.sql','20260613020000_verification_admin_review.sql','20260618030000_verification_ocr_provenance.sql','20260618040000_verification_case_management.sql','20260618050000_verification_evidence_trust_columns.sql','20260603233640_governance_foundation_trust_audit_events.sql','20261117210000_identity_applicant_ocr_confirmation.sql','20261117220000_identity_atomic_submission_claim.sql','20261117230000_identity_decision_outbox_atomic.sql','20261118010000_identity_reviewer_independence.sql'];
+const sqlFiles = ['supabase_schema.sql','011_phase6_schema.sql','20260621170000_outbox_dead_letter.sql','20260613000000_phase7b_supabase_auth_and_identity.sql','20260617120000_user_sessions_auth_contract_align.sql','20260605042424_verification_sessions_phase7b.sql','20260613020000_verification_admin_review.sql','20260618030000_verification_ocr_provenance.sql','20260618040000_verification_case_management.sql','20260618050000_verification_evidence_trust_columns.sql','20260603233640_governance_foundation_trust_audit_events.sql','20261117210000_identity_applicant_ocr_confirmation.sql','20261117220000_identity_atomic_submission_claim.sql','20261117230000_identity_decision_outbox_atomic.sql','20261118010000_identity_reviewer_independence.sql','20261118020000_identity_review_immutable_associations.sql','20261118021000_identity_review_step_up.sql'];
 const session='11111111-1111-4111-8111-111111111111', second='33333333-3333-4333-8333-333333333333', third='44444444-4444-4444-8444-444444444444';
 const token='22222222-2222-4222-8222-222222222222';
 const fields={first_name:'Synthetic',last_name:'Example',national_id_number:'TEST'};
 const confirm = (id,user,version,key,value=fields) => db.query('SELECT confirm_verification_ocr_fields($1,$2,$3,$4,$5::jsonb) AS result',[id,user,version,key,JSON.stringify(value)]).then(r=>r.rows[0].result);
 function identifier(v) { if (!/^[a-z_][a-z0-9_]*$/.test(v)) throw new Error('Unsafe identifier'); return '"'+v+'"'; }
 class Query {
-  constructor(table, hook) { this.table=table; this.hook=hook; this.filters=[]; this.mode='select'; this.payload=null; this.limitN=null; }
+  constructor(table, hook) { this.table=table; this.hook=hook; this.filters=[]; this.mode='select'; this.payload=null; this.limitN=null; this.orderBy=null; }
+  order(field, { ascending = true } = {}) { this.orderBy = [field, ascending]; return this; }
   select() { return this; } eq(k,v) { this.filters.push([k,v]); return this; } limit(n) { this.limitN=n; return this; }
   update(p) { this.mode='update'; this.payload=p; return this; } insert(p) { this.mode='insert'; this.payload=p; return this; }
   async execute() {
@@ -38,7 +39,7 @@ class Query {
       else {
         const where=()=>this.filters.map(([k,v])=>{params.push(v);return `${identifier(k)} = $${params.length}`}).join(' AND ') || 'TRUE';
         if(this.mode==='update') { const keys=Object.keys(this.payload);params=keys.map(k=>this.payload[k]);const sets=keys.map((k,i)=>`${identifier(k)}=$${i+1}`).join(',');sql=`UPDATE ${table} SET ${sets} WHERE ${where()} RETURNING *`; }
-        else sql=`SELECT * FROM ${table} WHERE ${where()}${this.limitN ? ` LIMIT ${Number(this.limitN)}` : ''}`;
+        else sql=`SELECT * FROM ${table} WHERE ${where()}${this.orderBy ? ` ORDER BY ${identifier(this.orderBy[0])} ${this.orderBy[1] ? 'ASC' : 'DESC'}` : ''}${this.limitN ? ` LIMIT ${Number(this.limitN)}` : ''}`;
       }
       const result=await db.query(sql,params);
       if(this.mode==='insert' && this.table==='verification_decisions' && this.hook) await this.hook();
@@ -69,8 +70,8 @@ const client = hook => ({
 try {
  await db.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS; CREATE SCHEMA storage; CREATE TABLE storage.buckets(id text PRIMARY KEY, name text NOT NULL, public boolean);');
  await check('selected actual CarUp migration chain',async()=>{for(const file of sqlFiles){let sql=fs.readFileSync(path.join(root,'database/migrations',file),'utf8');if(file==='supabase_schema.sql')sql=sql.split('-- SEED DATA')[0];if(file==='011_phase6_schema.sql' || file==='20260621170000_outbox_dead_letter.sql')sql=sql.split('-- +migrate Down')[0];await db.exec(sql)}});
- await check('candidate migration repeatability',async()=>{for(const file of sqlFiles.slice(-4))await db.exec(fs.readFileSync(path.join(root,'database/migrations',file),'utf8'))});
- await db.exec("INSERT INTO users(id,name,email,role,join_date) VALUES ('test-owner','Synthetic','owner@example.invalid','owner','2026-01-01'),('test-reviewer','Synthetic Reviewer','reviewer@example.invalid','admin','2026-01-01');");
+ await check('candidate migration repeatability',async()=>{for(const file of sqlFiles.slice(-6))await db.exec(fs.readFileSync(path.join(root,'database/migrations',file),'utf8'))});
+ await db.exec("INSERT INTO users(id,name,email,role,join_date) VALUES ('test-owner','Synthetic Example','owner@example.invalid','owner','2026-01-01'),('test-reviewer','Synthetic Reviewer','reviewer@example.invalid','admin','2026-01-01');");
  await check('RPC grants and RLS',async()=>{const r=await db.query("SELECT has_function_privilege('anon','public.confirm_verification_ocr_fields(uuid,text,integer,uuid,jsonb)','EXECUTE') AS anon,has_function_privilege('authenticated','public.confirm_verification_ocr_fields(uuid,text,integer,uuid,jsonb)','EXECUTE') AS authenticated,has_function_privilege('service_role','public.confirm_verification_ocr_fields(uuid,text,integer,uuid,jsonb)','EXECUTE') AS service,relrowsecurity AS rls FROM pg_class WHERE oid='public.verification_applicant_confirmations'::regclass");assert.deepEqual(r.rows[0],{anon:false,authenticated:false,service:true,rls:true})});
  await check('only service role can call event-producing decision RPC; legacy entry point fails closed',async()=>{
    const r=await db.query("SELECT has_function_privilege('service_role','public.record_verification_decision_atomic(uuid,integer,jsonb,jsonb,text,text,text,text)','EXECUTE') AS legacy,has_function_privilege('anon','public.record_verification_decision_with_event_atomic(uuid,integer,jsonb,jsonb,text,text,text,text)','EXECUTE') AS anon,has_function_privilege('authenticated','public.record_verification_decision_with_event_atomic(uuid,integer,jsonb,jsonb,text,text,text,text)','EXECUTE') AS authenticated,has_function_privilege('service_role','public.record_verification_decision_with_event_atomic(uuid,integer,jsonb,jsonb,text,text,text,text)','EXECUTE') AS service");
@@ -94,6 +95,57 @@ try {
    } finally { await db.exec('RESET ROLE'); }
    assert.equal((await db.query('SELECT count(*)::int AS n FROM verification_decisions WHERE session_id=$1',[session])).rows[0].n,0);
    assert.equal((await db.query('SELECT version FROM verification_sessions WHERE id=$1',[session])).rows[0].version,1);
+ });
+ await check('decision, applicant and audit associations cannot be rewritten', async () => {
+   await db.query("INSERT INTO verification_decisions(id,session_id,decision,reviewer_id) VALUES ('immutable', $1, 'add_internal_note', 'test-reviewer')", [session]);
+   await db.query("INSERT INTO trust_audit_events(event_type,actor_user_id,new_value) VALUES ('VERIFICATION_TEST_INVARIANT','test-reviewer',jsonb_build_object('session_id',$1::text))", [session]);
+   for (const role of ['anon', 'authenticated', 'service_role', 'owner']) {
+     if (role !== 'owner') await db.exec('SET ROLE ' + role);
+     try {
+       const refused = role === 'owner' ? /cannot be rewritten/i : /permission denied|cannot be rewritten/i;
+       await assert.rejects(() => db.query("UPDATE verification_decisions SET reviewer_id='test-owner' WHERE id='immutable'"), refused);
+       await assert.rejects(() => db.query("UPDATE verification_decisions SET session_id=$1 WHERE id='immutable'", [second]), refused);
+       await assert.rejects(() => db.query("UPDATE verification_sessions SET user_id='test-reviewer' WHERE id=$1", [session]), refused);
+       await assert.rejects(() => db.query("UPDATE trust_audit_events SET new_value='{}' WHERE event_type='VERIFICATION_TEST_INVARIANT'"), refused);
+       await assert.rejects(() => db.query("UPDATE trust_audit_events SET event_type='OTHER' WHERE event_type='VERIFICATION_TEST_INVARIANT'"), refused);
+     } finally { if (role !== 'owner') await db.exec('RESET ROLE'); }
+   }
+   await db.exec('SET ROLE service_role');
+   try {
+     assert.equal((await db.query("UPDATE verification_sessions SET status='pending_manual_review' WHERE id=$1 RETURNING id", [session])).rows.length, 1);
+   } finally { await db.exec('RESET ROLE'); }
+   assert.deepEqual((await db.query("SELECT session_id,reviewer_id FROM verification_decisions WHERE id='immutable'")).rows[0],
+     { session_id: session, reviewer_id: 'test-reviewer' });
+   assert.equal((await db.query("SELECT user_id FROM verification_sessions WHERE id=$1", [session])).rows[0].user_id, 'test-owner');
+   assert.equal((await db.query("SELECT new_value FROM trust_audit_events WHERE event_type='VERIFICATION_TEST_INVARIANT'")).rows[0].new_value.session_id, session);
+ });
+
+ await check('database step-up scope, single-use, expiry and live session binding', async () => {
+   const authId = '8352b5ed-8f11-4a25-9ab1-515ecf46fcf4';
+   const digest = 'a'.repeat(64);
+   await db.query("INSERT INTO user_sessions (id,user_id,token,expires_at,is_valid) VALUES ($1,'test-reviewer','synthetic-auth',now() + interval '1 hour',true)", [authId]);
+   await db.query("INSERT INTO identity_review_step_up SELECT 'test-reviewer',$1,$2,'preview:front',$3, now() + interval '2 minutes', NULL", [authId, session, digest]);
+   const run = async (args) => (await db.query('SELECT consume_identity_review_step_up($1,$2,$3,$4,$5) AS used', args)).rows[0].used;
+   const valid = ['test-reviewer', authId, session, 'preview:front', digest];
+   await db.exec('SET ROLE authenticated');
+   try { await assert.rejects(() => run(valid), /permission denied/i); }
+   finally { await db.exec('RESET ROLE'); }
+   await db.exec('SET ROLE service_role');
+   try {
+     for (const [index, value] of [[0,'test-owner'],[1,'other-auth'],[2,second],[3,'preview:selfie'],[4,'b'.repeat(64)]]) {
+       const wrong = [...valid]; wrong[index] = value;
+       assert.equal(await run(wrong), false);
+     }
+     assert.equal(await run(valid), true);
+     assert.equal(await run(valid), false);
+     await db.query("UPDATE identity_review_step_up SET consumed_at=NULL, expires_at=now() - interval '1 minute'");
+     assert.equal(await run(valid), false);
+     await db.query("UPDATE identity_review_step_up SET expires_at=now() + interval '2 minutes'");
+   } finally { await db.exec('RESET ROLE'); }
+   await db.query("UPDATE user_sessions SET is_valid=false WHERE id=$1", [authId]);
+   await db.exec('SET ROLE service_role');
+   try { assert.equal(await run(valid), false); }
+   finally { await db.exec('RESET ROLE'); }
  });
  await check('service-role confirmation, replay, changed payload and ownership',async()=>{
    await db.exec('SET ROLE service_role');
@@ -201,6 +253,66 @@ try {
  });
  const submission='55555555-5555-4555-8555-555555555555';
  await db.query("INSERT INTO verification_sessions(id,user_id,document_type,status,version,front_storage_path,selfie_storage_path) VALUES ($1,'test-owner','passport','uploaded',1,'private/front','private/selfie')",[submission]);
+ await check('one persisted applicant case crosses upload, queue, confirmation, resubmission and approval', async () => {
+   const applicant = { id: 'test-owner', role: 'owner' };
+   const reviewer = { id: 'test-reviewer', role: 'admin' };
+   let imageNumber = 0;
+   const objects = new Map();
+   const fixtureStorage = {
+     uploadToStorage: async (_bucket, key, buffer) => objects.set(key, buffer),
+     downloadFromStorage: async (_bucket, key) => ({ buffer: objects.get(key), mimeType: 'image/jpeg' }),
+   };
+   const fixtureOcr = {
+     classifyDocument: async () => ({
+       classification: 'valid_identity_document', classificationConfidence: 0.9, provider: 'synthetic',
+     }),
+     extractDocumentData: async () => ({
+       success: true, confidenceScore: null, provider: 'synthetic',
+       extractedData: { first_name: 'Synthetic', last_name: 'Example', national_id_number: 'TEST-0123456', country: 'ZW' },
+     }),
+   };
+   const upload = async (id, side) => {
+     const bytes = Buffer.alloc(3000, ++imageNumber);
+     bytes.set([255, 216, 255]);
+     return uploadVerificationSessionImage(client(), applicant, id, side, {
+       image: 'data:image/jpeg;base64,' + bytes.toString('base64'),
+     }, { storage: fixtureStorage });
+   };
+   const { id } = await createVerificationSession(client(), applicant, { documentType: 'passport' });
+   for (const side of ['front', 'selfie']) await upload(id, side);
+   const pending = await submitVerificationSession(client(), applicant, id, { storage: fixtureStorage, ocr: fixtureOcr });
+   assert.equal(pending.status, 'pending_manual_review');
+   const queue = await listVerificationSessionsForReview(client(), reviewer, { workflow_phase: 'reviewer_action_required' });
+   assert.ok(queue.some(entry => entry.id === id && !Object.hasOwn(entry, 'user_id') && !Object.hasOwn(entry, 'ocr_result')));
+   const initial = (await confirm(id, applicant.id, pending.revision, 'ab000000-0000-4000-8000-000000000001', {
+     ...fields, first_name: 'Synthetic', national_id_number: 'TEST-0001',
+   }));
+   assert.equal(initial.code, 'OK');
+   const detail = await getVerificationSessionForReview(client(), reviewer, id);
+   assert.equal(detail.applicant_confirmations[0].original_observations.national_id_number, 'TEST-0123456');
+   assert.equal(detail.applicant_confirmations[0].applicant_fields.national_id_number, 'TEST-0001');
+   await reviewVerificationSession(client(), reviewer, id, {
+     action: 'request_resubmission', reasonCode: 'BLURRY_IMAGE',
+     internalNote: 'Confidential synthetic note', applicantMessage: 'Retake the document front.',
+     expectedRevision: detail.revision,
+   });
+   const retry = await getVerificationSession(client(), applicant, id);
+   assert.equal(retry.status, 'retry_requested');
+   assert.equal(retry.retry_reason, 'Retake the document front.');
+   assert.equal(Object.hasOwn(retry, 'review_notes'), false);
+   const retryQueue = await listVerificationSessionsForReview(client(), reviewer, { workflow_phase: 'applicant_action_required' });
+   assert.ok(retryQueue.some(entry => entry.id === id));
+   for (const side of ['front', 'selfie']) await upload(id, side);
+   const resubmitted = await submitVerificationSession(client(), applicant, id, { storage: fixtureStorage, ocr: fixtureOcr });
+   assert.equal(resubmitted.status, 'pending_manual_review');
+   const confirmation = await confirm(id, applicant.id, resubmitted.revision, 'ab000000-0000-4000-8000-000000000002');
+   assert.equal(confirmation.code, 'OK');
+   const revised = await getVerificationSessionForReview(client(), reviewer, id);
+   await reviewVerificationSession(client(), reviewer, id, { action: 'approve', expectedRevision: revised.revision });
+   const result = await getVerificationSession(client(), applicant, id);
+   assert.equal(result.status, 'verified');
+   assert.ok((await listVerificationSessionsForReview(client(), reviewer, { workflow_phase: 'resolved_approved' })).some(entry => entry.id === id));
+ });
  await check('submission audit failure is observable',async()=>{await db.exec("CREATE FUNCTION test_fail_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit blocked'; END $$; CREATE TRIGGER test_audit_fail BEFORE INSERT ON trust_audit_events FOR EACH ROW EXECUTE FUNCTION test_fail_audit();");await assert.rejects(()=>submitVerificationSession(client(),{id:'test-owner',role:'owner'},submission,{ocr:{}}),/audit or claim failed/i);const r=await db.query('SELECT status,version FROM verification_sessions WHERE id=$1',[submission]);assert.equal(r.rows[0].status,'uploaded');assert.equal(r.rows[0].version,1);assert.equal((await db.query("SELECT count(*)::int AS n FROM trust_audit_events WHERE event_type='VERIFICATION_SUBMITTED' AND new_value->>'session_id'=$1",[submission])).rows[0].n,0);await db.exec('DROP TRIGGER test_audit_fail ON trust_audit_events; DROP FUNCTION test_fail_audit()')});
 } catch(e) {failed=true;console.error('FATAL',e.message);} finally {await db.close();}
 console.log(failed?'VERDICT REMEDIATION_REQUIRED':'VERDICT EMBEDDED_CHECKS_PASS');

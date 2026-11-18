@@ -25,6 +25,7 @@ awk '/^-- \+migrate Down$/{exit} {print}' "$script_dir/database/migrations/011_p
 awk '/^-- \+migrate Down$/{exit} {print}' "$script_dir/database/migrations/20260621170000_outbox_dead_letter.sql" | "${PSQL[@]}" -q
 for migration in \
   20260613000000_phase7b_supabase_auth_and_identity.sql \
+  20260617120000_user_sessions_auth_contract_align.sql \
   20260605042424_verification_sessions_phase7b.sql \
   20260613020000_verification_admin_review.sql \
   20260618030000_verification_ocr_provenance.sql \
@@ -34,14 +35,18 @@ for migration in \
   20261117210000_identity_applicant_ocr_confirmation.sql \
   20261117220000_identity_atomic_submission_claim.sql \
   20261117230000_identity_decision_outbox_atomic.sql \
-  20261118010000_identity_reviewer_independence.sql; do
+  20261118010000_identity_reviewer_independence.sql \
+  20261118020000_identity_review_immutable_associations.sql \
+  20261118021000_identity_review_step_up.sql; do
   "${PSQL[@]}" -q -f "$script_dir/database/migrations/$migration"
 done
-# Repeat the four candidate migrations to verify their idempotent installation.
+# Repeat the six candidate migrations to verify their idempotent installation.
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117210000_identity_applicant_ocr_confirmation.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117220000_identity_atomic_submission_claim.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117230000_identity_decision_outbox_atomic.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118010000_identity_reviewer_independence.sql"
+"${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118020000_identity_review_immutable_associations.sql"
+"${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118021000_identity_review_step_up.sql"
 "${PSQL[@]}" -q <<'SQL'
 INSERT INTO users(id,name,email,role,join_date) VALUES ('test-owner','Synthetic User','synthetic@example.invalid','owner','2026-01-01');
 INSERT INTO verification_sessions(id,user_id,document_type,status,version,front_storage_path,selfie_storage_path) VALUES ('11111111-1111-4111-8111-111111111111','test-owner','passport','uploaded',1,'fixture/front','fixture/selfie');

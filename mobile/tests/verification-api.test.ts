@@ -84,6 +84,17 @@ test('maps pending manual review to needs_review without verified claim', () => 
   assert.match(outcome.processingError || '', /manual review/);
 });
 
+test('shows specialist review without opening OCR confirmation for an escalated case', () => {
+  const outcome = mapSessionToVerificationOutcome(session('pending_manual_review', {
+    workflow_phase: 'escalated',
+    ocr_result: { first_name: 'Synthetic' },
+    ocr_execution_status: 'provider_succeeded',
+  }));
+  assert.equal(outcome.status, 'needs_review');
+  assert.equal(outcome.needsConfirmation, false);
+  assert.match(outcome.processingError || '', /specialist review/);
+});
+
 test('an interrupted draft, capture or upload offers an incomplete state', () => {
   for (const status of ['draft', 'captured', 'uploaded'] as const) {
     const outcome = mapSessionToVerificationOutcome(session(status));

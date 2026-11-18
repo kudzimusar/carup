@@ -276,6 +276,7 @@ export class VerificationDecisionRecorder {
         internal_note: decision.internal_note,
         reviewer_id: decision.reviewer_id,
         created_at: decision.created_at,
+        audit_event_type: VerificationDecisionRecorder._eventTypeForAction(decision.decision),
       },
       session,
       allowed_actions: DecisionPolicyEngine.getAllowedActions(assessment),
