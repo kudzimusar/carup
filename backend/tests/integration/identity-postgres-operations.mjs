@@ -1,8 +1,8 @@
 /** Disposable, loopback-only operational identity route certification. */
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { PNG } from 'pngjs';
 
 const password = process.env.CARUP_IDV_TEST_PASSWORD;
@@ -126,6 +126,195 @@ async function finish(row, actor) {
   const readback = await expectJson(`${applicantRoot}/${row.id}`, { actor: applicant });
   assert.equal(readback.session.retry_reason, 'Retake the synthetic images.');
   stages.completed++;
+}
+
+if (process.argv.includes('--veriff-test') || process.argv.includes('--veriff-test-restart')) {
+  const database = new URL(process.env.CARUP_IDV_TEST_DATABASE_URL || 'about:blank');
+  assert.equal(database.protocol, 'postgresql:');
+  assert.equal(database.hostname, '127.0.0.1');
+  assert.match(database.pathname, /^\/carup_idv_test_[a-z0-9_]+$/u);
+  assert.equal(database.search, '');
+  assert.equal(process.env.CARUP_IDV_TEST_DISPOSABLE, 'yes');
+  assert.equal(process.env.CARUP_IDV_TEST_VERIFF_ORIGIN, 'https://veriff-fixture.invalid');
+  const { default: pg } = await import('pg');
+  const db = new pg.Pool({ connectionString: database.href });
+  const root = session => applicantRoot + '/' + session + '/biometrics';
+  const recoveryPath = (session, id) => root(session) + '/veriff-test/' + id + '/recover';
+  const client = process.env.CARUP_IDV_TEST_VERIFF_CLIENT;
+  const secret = process.env.CARUP_IDV_TEST_VERIFF_SECRET;
+
+  async function start(session, purpose, requestId = randomUUID(), actor = applicant) {
+    return request(root(session.id) + '/veriff-test/start', { actor, body: { requestId, revision: session.revision, purpose } });
+  }
+  async function grant(session, purposes) {
+    await expectJson(root(session.id) + '/grant', { actor: applicant,
+      body: { requestId: randomUUID(), revision: session.revision, purposes, notice: 'biometric_consent_text.v1' } });
+  }
+  async function stored(session, requestId) {
+    return (await db.query('SELECT * FROM identity_veriff_test_attempts WHERE session_id=$1 AND request_id=$2', [session.id, requestId])).rows[0];
+  }
+  function decision(attempt, status = 'approved', time = Date.now()) {
+    return { id: attempt.provider_session, attemptId: randomUUID(), vendorData: attempt.id,
+      code: { approved: 9001, declined: 9102, review: 9121, resubmission_requested: 9103 }[status],
+      status, decisionTime: new Date(time).toISOString() };
+  }
+  async function callback(event, change = {}) {
+    const raw = JSON.stringify({ status: 'success', verification: event }, null, 2);
+    const signature = createHmac('sha256', secret).update(raw).digest('hex');
+    return fetch(origin + '/api/identity/veriff-test/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AUTH-CLIENT': change.client ?? client,
+        ...(change.omit ? {} : { 'X-HMAC-SIGNATURE': change.signature ?? signature }) },
+      body: change.mutate ? raw + ' ' : raw,
+    });
+  }
+  async function outcome(event, expected) {
+    const res = await callback(event);
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).outcome, expected);
+  }
+
+  if (process.argv.includes('--veriff-test-restart')) {
+    const recovery = JSON.parse(await readFile(process.env.CARUP_IDV_TEST_VERIFF_LOOKUP_FILE, 'utf8'));
+    const event = Object.values(recovery)[0];
+    const { rows: [attempt] } = await db.query('SELECT session_id,request_id FROM identity_veriff_test_attempts WHERE id=$1', [event.vendorData]);
+    const { biometric } = await expectJson(recoveryPath(attempt.session_id, attempt.request_id), { actor: applicant, body: {} });
+    assert.equal(biometric.test_decision, 'declined');
+    assert.equal(biometric.liveness, 'not_run');
+    const { rows: [audit] } = await db.query("SELECT count(*)::integer AS count FROM trust_audit_events WHERE new_value->>'test_attempt_id'=$1", [event.vendorData]);
+    assert.equal(audit.count, 1);
+    console.log('PASS persisted simulated recovery receipt and audit survived process restart');
+    await db.end();
+    process.exit(0);
+  }
+
+  const { rows: [permissions] } = await db.query(`SELECT
+    has_function_privilege('service_role','public.record_identity_veriff_test_decision(uuid,uuid,uuid,text,timestamptz)','EXECUTE') AS worker,
+    has_function_privilege('authenticated','public.record_identity_veriff_test_decision(uuid,uuid,uuid,text,timestamptz)','EXECUTE') AS browser,
+    has_table_privilege('anon','public.identity_veriff_test_attempts','SELECT') AS anonymous,
+    has_column_privilege('service_role','public.identity_veriff_test_attempts','session_id','UPDATE') AS can_rebind`);
+  assert.deepEqual(permissions, { worker: true, browser: false, anonymous: false, can_rebind: false });
+
+  const session = await createCase();
+  const { id, revision } = session;
+  const startPath = root(id) + '/veriff-test/start';
+  const req = randomUUID();
+  assert.equal((await start(session, 'face_document_match', req)).status, 409);
+  await grant(session, ['face_document_match','liveness']);
+  assert.equal((await start(session, 'face_document_match', req, unrelated)).status, 404);
+  assert.equal((await start({ ...session, revision: revision - 1 }, 'face_document_match', req)).status, 409);
+  assert.equal((await request(startPath, { actor: applicant, body: { requestId: req, revision, purpose: 'liveness', status: 'approved' } })).status, 400);
+  const parallelStarts = await Promise.all([start(session, 'face_document_match', req), start(session, 'face_document_match', req)]);
+  assert.deepEqual(parallelStarts.map(res => res.status), [200, 200]);
+  const binding = await stored(session, req);
+  assert.ok(binding.provider_session);
+  assert.equal((await start(session, 'face_document_match')).status, 409);
+  assert.equal((await start(session, 'liveness', req)).status, 409);
+  const approved = { ...decision(binding), person: { firstName: 'SYNTHETIC-FIELD-MUST-NOT-PERSIST' } };
+  assert.equal((await fetch(origin + '/api/identity/veriff-test/webhook', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: ' '.repeat(32_769),
+  })).status, 413);
+  assert.equal((await fetch(origin + '/api/identity/veriff-test/webhook', {
+    method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{}',
+  })).status, 415);
+  assert.equal((await callback(approved, { omit: true })).status, 401);
+  assert.equal((await callback(approved, { signature: '0'.repeat(64) })).status, 401);
+  assert.equal((await callback(approved, { mutate: true })).status, 401);
+  assert.equal((await callback(approved, { client: 'unrelated-fixture' })).status, 401);
+  assert.equal((await callback({ ...approved, status: 'unexpected' })).status, 400);
+  assert.equal((await callback({ ...approved, code: 9102 })).status, 400);
+  await outcome({ ...approved, id: randomUUID() }, 'ignored');
+  await outcome({ ...approved, vendorData: randomUUID() }, 'ignored');
+  await outcome(decision(binding, 'approved', Date.now() + 300_000), 'ignored');
+  await outcome(decision(binding, 'review', Date.now() - 1000), 'recorded');
+  await outcome(decision(binding, 'resubmission_requested', Date.now() - 2000), 'ignored');
+
+  const receipts = await Promise.all([callback(approved), callback(approved)]);
+  assert.deepEqual((await Promise.all(receipts.map(async item => (await item.json()).outcome))).sort(), ['duplicate','recorded']);
+  await outcome(decision(binding, 'declined', Date.now() + 5000), 'ignored');
+  const result = await expectJson(recoveryPath(id, req), { actor: applicant, body: {} });
+  assert.deepEqual([result.biometric.state, result.biometric.test_decision, result.biometric.provenance,
+    result.biometric.face_match, result.biometric.liveness], ['veriff_test_simulated','approved','TEST_SIMULATED','not_run','not_run']);
+  assert.doesNotMatch(JSON.stringify(result), /provider_session|vendorData|SYNTHETIC-FIELD/);
+  assert.equal((await request(recoveryPath(id, req), { actor: unrelated, body: {} })).status, 404);
+  const { rows: [persisted] } = await db.query(`SELECT
+    (SELECT count(*)::integer FROM verification_assessments WHERE biometric_request_id=$1 AND
+      face_match_status='not_run' AND liveness_status='not_run' AND provider_state='veriff_test_simulated') AS assessments,
+    (SELECT count(*)::integer FROM trust_audit_events WHERE new_value->>'test_attempt_id'=$1::text) AS events,
+    (SELECT status FROM verification_sessions WHERE id=$2) AS status,
+    (SELECT count(*)::integer FROM domain_events WHERE payload->>'sessionId'=$2::text) AS outbox`, [binding.id, id]);
+  assert.deepEqual(persisted, { assessments: 1, events: 2, status: session.status, outbox: 0 });
+  const { session: readBack } = await expectJson(applicantRoot + '/' + id, { actor: applicant });
+  assert.equal(readBack.biometric_checks.face_match, 'not_performed');
+  assert.notEqual(readBack.status, 'verified');
+  assert.equal(readBack.biometric_test_simulations, undefined);
+  assert.equal((await request(reviewerRoot + '/' + id, { actor: first })).status, 403);
+  const { session: review } = await readCase(first, id);
+  assert.deepEqual(review.biometric_test_simulations.map(({ purpose, test_decision, provenance }) =>
+    [purpose, test_decision, provenance]), [['face_document_match', 'approved', 'TEST_SIMULATED']]);
+  assert.doesNotMatch(JSON.stringify(review.biometric_test_simulations), /provider_session|vendorData|SYNTHETIC-FIELD/);
+
+  const liveReq = randomUUID();
+  assert.equal((await start(session, 'liveness', liveReq)).status, 200);
+  const live = await stored(session, liveReq);
+  const lookupFile = process.env.CARUP_IDV_TEST_VERIFF_LOOKUP_FILE;
+  await writeFile(lookupFile, JSON.stringify({ [live.provider_session]: 'unavailable' }));
+  assert.equal((await request(recoveryPath(id, liveReq), { actor: applicant, body: {} })).status, 503);
+  await writeFile(lookupFile, '{}');
+  assert.equal((await expectJson(recoveryPath(id, liveReq), { actor: applicant, body: {} })).biometric.state, 'awaiting_test_decision');
+  const declined = decision(live, 'declined');
+  await writeFile(lookupFile, JSON.stringify({ [live.provider_session]: { ...declined, vendorData: randomUUID() } }));
+  assert.equal((await request(recoveryPath(id, liveReq), { actor: applicant, body: {} })).status, 503);
+  await writeFile(lookupFile, JSON.stringify({ [live.provider_session]: declined }));
+  await db.query(`ALTER TABLE trust_audit_events ADD CONSTRAINT lr18_fixture_reject_test_audit
+    CHECK (event_type <> 'VERIFICATION_BIOMETRIC_TEST_SIMULATION_RECORDED') NOT VALID`);
+  try {
+    assert.equal((await request(recoveryPath(id, liveReq), { actor: applicant, body: {} })).status, 503);
+    assert.equal((await stored(session, liveReq)).decision_status, null);
+    const { rows: [assessment] } = await db.query('SELECT count(*)::integer AS count FROM verification_assessments WHERE biometric_request_id=$1', [live.id]);
+    assert.equal(assessment.count, 0);
+  } finally {
+    await db.query('ALTER TABLE trust_audit_events DROP CONSTRAINT lr18_fixture_reject_test_audit');
+  }
+  assert.equal((await expectJson(recoveryPath(id, liveReq), { actor: applicant, body: {} })).biometric.test_decision, 'declined');
+  await outcome(declined, 'duplicate');
+
+  const withdrawn = await createCase();
+  await grant(withdrawn, ['liveness']);
+  assert.equal((await start(withdrawn, 'face_document_match')).status, 409);
+  const withdrawnReq = randomUUID();
+  assert.equal((await start(withdrawn, 'liveness', withdrawnReq)).status, 200);
+  const old = await stored(withdrawn, withdrawnReq);
+  await expectJson(root(withdrawn.id) + '/withdraw', { actor: applicant,
+    body: { requestId: randomUUID(), revision: withdrawn.revision } });
+  await outcome(decision(old), 'ignored');
+  assert.equal((await request(recoveryPath(withdrawn.id, withdrawnReq), { actor: applicant, body: {} })).status, 409);
+  await grant(withdrawn, ['liveness']);
+  await outcome(decision(old), 'ignored');
+
+  const expiredReq = randomUUID();
+  assert.equal((await start(withdrawn, 'liveness', expiredReq)).status, 200);
+  const expired = await stored(withdrawn, expiredReq);
+  await db.query("UPDATE identity_veriff_test_attempts SET expires_at=now()-interval '1 second' WHERE id=$1", [expired.id]);
+  await outcome(decision(expired), 'ignored');
+  assert.equal((await request(recoveryPath(withdrawn.id, expiredReq), { actor: applicant, body: {} })).status, 409);
+
+  const superseded = await createCase();
+  await grant(superseded, ['face_document_match']);
+  const supersededReq = randomUUID();
+  assert.equal((await start(superseded, 'face_document_match', supersededReq)).status, 200);
+  const replaced = await stored(superseded, supersededReq);
+  await expectJson(applicantRoot + '/' + superseded.id + '/ocr-confirmation', { actor: applicant,
+    body: { idempotencyKey: randomUUID(), revision: superseded.revision,
+      fields: { first_name: 'Synthetic', last_name: 'Applicant', national_id_number: 'TEST123456' } } });
+  await outcome(decision(replaced), 'ignored');
+  assert.equal((await request(recoveryPath(superseded.id, supersededReq), { actor: applicant, body: {} })).status, 409);
+  const { rows: [refusals] } = await db.query(`SELECT count(*)::integer AS count FROM trust_audit_events WHERE
+    new_value->>'test_attempt_id'=ANY($1::text[])`, [[old.id,expired.id,replaced.id]]);
+  assert.equal(refusals.count, 0);
+  await db.end();
+  console.log('PASS raw signatures, rejection and replay, authenticated applicant and purpose, attempt/session binding, atomic audit, timestamp order, no identity mutation, two simulated outcomes, poll recovery and outage, regrant, withdrawal, expiry and superseded evidence');
+  process.exit(0);
 }
 
 if (process.argv.includes('--local-ocr-recovery')) {

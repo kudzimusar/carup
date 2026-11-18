@@ -1,7 +1,8 @@
 import express from 'express';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { supabase } from '../db/supabase.js';
-import { biometricContract } from '../services/identity/biometrics/biometricContractService.js';
+import { veriffTestEnabled } from '../services/identity/biometrics/veriffTestTransport.js';
+import { biometricContract, recordVeriffTestWebhook, veriffTestAttempt } from '../services/identity/biometrics/biometricContractService.js';
 import { confirmApplicantOcr } from '../services/identity/applicantOcrConfirmation.js';
 import {
   createVerificationSession,
@@ -59,6 +60,37 @@ for (const operation of ['grant', 'withdraw', 'assess']) {
     const biometric = await biometricContract(supabase, req.userContext, req.params.sessionId, operation, req.body);
     res.json({ success: true, biometric });
   }));
+}
+
+const veriffTestPath = '/api/identity/verification-sessions/:sessionId/biometrics/veriff-test';
+
+router.post(veriffTestPath + '/start', authorizeSessionRole(), asyncHandler(async (req, res) => {
+  const biometric = await veriffTestAttempt(supabase, req.userContext, req.params.sessionId, req.body?.requestId, 'start', req.body);
+  res.json({ success: true, biometric });
+}));
+
+router.post(veriffTestPath + '/:requestId/recover', authorizeSessionRole(), asyncHandler(async (req, res) => {
+  const biometric = await veriffTestAttempt(supabase, req.userContext, req.params.sessionId, req.params.requestId, 'recover', req.body);
+  res.json({ success: true, biometric });
+}));
+
+// Mounted only on the dedicated callback path, before JSON and browser CSRF.
+const veriffRawBody = express.raw({ type: 'application/json', limit: '32kb', inflate: false });
+
+export function identityVeriffTestWebhook(req, res) {
+  res.set('Cache-Control', 'no-store');
+  if (!veriffTestEnabled()) return res.sendStatus(503);
+  veriffRawBody(req, res, async parseError => {
+    if (parseError) return res.sendStatus([400, 413, 415].includes(parseError.status) ? parseError.status : 400);
+    if (!Buffer.isBuffer(req.body)) return res.sendStatus(415);
+    try {
+      const outcome = await recordVeriffTestWebhook(supabase, req.body, req.get('X-AUTH-CLIENT'), req.get('X-HMAC-SIGNATURE'));
+      res.json({ outcome });
+    } catch (error) {
+      // Never pass provider body content or credentials to generic request logging.
+      res.sendStatus([400, 401].includes(error.statusCode) ? error.statusCode : 503);
+    }
+  });
 }
 
 // ENTRY PREFLIGHT: the applicant's latest session — registered BEFORE the

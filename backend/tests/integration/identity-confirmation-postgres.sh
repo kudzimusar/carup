@@ -43,7 +43,8 @@ for migration in \
   20261118023000_identity_review_refundable_budget.sql \
   20261118024000_identity_document_side_assessment.sql \
   20261118024900_identity_biometric_legacy_reconciliation.sql \
-  20261118025000_identity_biometric_contract.sql; do
+  20261118025000_identity_biometric_contract.sql \
+  20261118026000_identity_veriff_test_receipts.sql; do
   if [[ "$migration" == 20261118024900* && -n "${CARUP_IDV_TEST_O2_X4_SQL_DIR:-}" ]]; then
     for legacy in 20260903210000_identity_biometric_consents.sql 20260903211000_verification_assessments_biometrics.sql; do
       awk '/^-- \+migrate Down$/{exit} {print}' "$CARUP_IDV_TEST_O2_X4_SQL_DIR/$legacy" | "${PSQL[@]}" -q
@@ -83,6 +84,7 @@ SQL
   echo 'PASS historical consent and withdrawal archived without creating active consent or converting legacy assessment authority'
 fi
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118025000_identity_biometric_contract.sql"
+"${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118026000_identity_veriff_test_receipts.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118024000_identity_document_side_assessment.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117210000_identity_applicant_ocr_confirmation.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117220000_identity_atomic_submission_claim.sql"

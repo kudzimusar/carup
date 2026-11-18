@@ -185,6 +185,14 @@ export interface AdminVerificationSession {
   retry_reason: string | null;
   liveness_status: string | null;
   biometric_checks?: { face_match: 'not_performed'; liveness: 'not_performed'; provider_state: 'not_configured' };
+  /** Present on stepped-up case detail in the isolated synthetic test environment. */
+  biometric_test_simulations?: Array<{
+    purpose: 'face_document_match' | 'liveness';
+    evidence_revision: number;
+    test_decision: 'approved' | 'declined' | 'resubmission_requested' | 'expired' | 'abandoned' | 'review' | null;
+    decision_at: string | null;
+    provenance: 'TEST_SIMULATED';
+  }>;
   ocr_side_assessment?: {
     front?: string;
     back?: string;

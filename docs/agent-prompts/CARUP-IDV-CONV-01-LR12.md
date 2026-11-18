@@ -12,3 +12,8 @@ Continue the existing Phase 7C identity workflow from Issue #261. Approved basel
 The identity lane owns functionality and policy enforcement. RX-05 owns workbench presentation, layout, navigation and Option 5 consistency. Only disposable database activity and synthetic testing are authorized. Release, merge, deployment, shared or production database writes, real identity-data processing and retention changes require separate authority.
 
 See [LR12 handoff](../handoffs/CARUP-IDV-CONV-01-LR12-LIVE-REVIEW.md) for the candidate, test scope and reviewer instructions.
+
+
+## LR18 continuation reference
+
+Use the published draft PR #276 and the LR18 section of [the current RX-05 handoff](../handoffs/CARUP-IDV-CONV-01-LR16-RX05.md). Treat Veriff test receipts as `TEST_SIMULATED` evidence. The existing human-review authority and approval refusal still apply. Keep the vendor and hosted OCR runtime disabled until their documented gates are satisfied. The Owner authorization is limited to zero expenditure and synthetic metadata. Verify account-specific eligibility and each Zimbabwe document variant before any vendor API traffic.

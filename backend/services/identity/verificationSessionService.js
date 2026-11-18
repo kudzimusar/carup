@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { sanitizeOcrResult, sanitizeSession } from './sessionProjection.js';
+import { veriffTestEnabled } from './biometrics/veriffTestTransport.js';
 import { configuredIdentityOcrAdapter } from './identityOcrAdapter.js';
 import { supabase } from '../../db/supabase.js';
 import { logAuditEvent, requestContext, writeLegacyAuditMirror } from '../auditLogger.js';
@@ -891,6 +892,19 @@ export async function getVerificationSessionForReview(client = supabase, actor =
     .order('created_at', { ascending: true });
   if (confirmationError) throw new Error('Verification confirmation history is unavailable.');
   reviewSession.applicant_confirmations = confirmations || [];
+
+  if (veriffTestEnabled()) {
+    const { data: simulations, error } = await client.from('identity_veriff_test_attempts')
+      .select('purpose,evidence_revision,decision_status,decision_at')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (error) throw new Error('Verification test history is unavailable.');
+    reviewSession.biometric_test_simulations = (simulations || []).map(row => ({
+      purpose: row.purpose, evidence_revision: row.evidence_revision,
+      test_decision: row.decision_status, decision_at: row.decision_at, provenance: 'TEST_SIMULATED',
+    }));
+  }
 
   return reviewSession;
 }

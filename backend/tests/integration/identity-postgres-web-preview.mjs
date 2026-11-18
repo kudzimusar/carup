@@ -2,7 +2,8 @@
  * Loopback Owner UAT using real CarUp routes and SQL. Authentication accounts,
  * OCR output and private object storage are disposable test fixtures.
  */
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -37,8 +38,38 @@ Object.assign(process.env, {
   SENTRY_DSN: '',
 });
 const nativeFetch = globalThis.fetch;
+if (process.env.CARUP_IDV_TEST_VERIFF === 'yes' &&
+    (process.env.CARUP_IDV_TEST_VERIFF_ORIGIN !== 'https://veriff-fixture.invalid' ||
+     !process.env.CARUP_IDV_TEST_VERIFF_LOOKUP_FILE)) {
+  throw new Error('The disposable fixture requires the offline Veriff origin and lookup file.');
+}
+function signedVeriffFixture(verification) {
+  const bytes = JSON.stringify({ status: 'success', verification });
+  const signature = createHmac('sha256', process.env.CARUP_IDV_TEST_VERIFF_SECRET).update(bytes).digest('hex');
+  return new Response(bytes, { headers: {
+    'Content-Type': 'application/json', 'X-AUTH-CLIENT': process.env.CARUP_IDV_TEST_VERIFF_CLIENT, 'X-HMAC-SIGNATURE': signature,
+  } });
+}
 globalThis.fetch = (input, init) => {
   const target = new URL(input instanceof Request ? input.url : input);
+  if (target.origin === 'https://veriff-fixture.invalid' && process.env.CARUP_IDV_TEST_VERIFF === 'yes') {
+    if (target.pathname === '/v1/sessions' && init.method === 'POST') {
+      const body = JSON.parse(init.body);
+      if (!/^[a-f0-9-]{36}$/u.test(body?.verification?.vendorData) || Object.keys(body.verification).length !== 1) {
+        throw new Error('Non-synthetic Veriff fixture payload refused.');
+      }
+      return Promise.resolve(signedVeriffFixture({ id: randomUUID(), vendorData: body.verification.vendorData }));
+    }
+    if (init.method === 'GET' && /^\/v1\/sessions\/[a-f0-9-]{36}\/decision$/u.test(target.pathname)) {
+      const sessionId = target.pathname.split('/')[3];
+      const signature = createHmac('sha256', process.env.CARUP_IDV_TEST_VERIFF_SECRET).update(sessionId).digest('hex');
+      if (init.headers['X-HMAC-SIGNATURE'] !== signature) throw new Error('Unsigned Veriff fixture lookup.');
+      return readFile(process.env.CARUP_IDV_TEST_VERIFF_LOOKUP_FILE, 'utf8').then(content => {
+        const lookup = JSON.parse(content)[sessionId];
+        return lookup === 'unavailable' ? new Response(null, { status: 503 }) : signedVeriffFixture(lookup ?? null);
+      });
+    }
+  }
   if (target.href === 'https://api.cloudflare.com/client/v4/accounts/lr13-fixture/ai/run/@cf/qwen/qwen3.8-27b') {
     const prompt = JSON.parse(init.body).messages[0].content;
     const number = process.env.CARUP_IDV_TEST_SIDE_CONFLICT === 'yes' && prompt.startsWith('Transcribe') && prompt.includes('on the back')
@@ -57,11 +88,12 @@ globalThis.fetch = (input, init) => {
 };
 
 const { supabase } = await import('../../db/supabase.js');
-const { default: applicantRoutes } = await import('../../routes/identityVerificationRoutes.js');
+const { default: applicantRoutes, identityVeriffTestWebhook } = await import('../../routes/identityVerificationRoutes.js');
 const { default: reviewerRoutes } = await import('../../routes/identityVerificationAdminRoutes.js');
 const { default: errorHandler } = await import('../../middleware/errorMiddleware.js');
 const { csrfMiddleware, generateCsrfToken } = await import('../../middleware/securityMiddleware.js');
 const { authorizeSessionRole } = await import('../../middleware/authMiddleware.js');
+const { VERIFF_TEST_WEBHOOK } = await import('../../services/identity/biometrics/veriffTestTransport.js');
 const { hashPassword, verifyPassword } = await import('../../utils/passwordAuth.js');
 
 function identifier(name) {
@@ -191,6 +223,7 @@ for (const [id, name, email, role] of [
 
 const app = express();
 app.disable('x-powered-by');
+app.post(VERIFF_TEST_WEBHOOK, identityVeriffTestWebhook);
 app.use(express.json({ limit: '20mb' }));
 app.get('/api/security/csrf-token', (req, res) => {
   const csrfToken = generateCsrfToken(req.get('x-user-id'), req.get('x-session-token'));
