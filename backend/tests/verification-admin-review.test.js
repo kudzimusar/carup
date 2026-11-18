@@ -186,9 +186,10 @@ before(async () => {
 after(async () => { if (server) await new Promise((r) => server.close(r)); });
 beforeEach(resetDb);
 
-function req(method, path, { token, body } = {}) {
+function req(method, path, { token, body, userId } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['x-session-token'] = token;
+  if (userId) headers['x-user-id'] = userId;
   return fetch(`${baseUrl}${path}`, {
     method,
     headers,
@@ -225,6 +226,27 @@ test('non-admin list/read/review are rejected with 403', async () => {
     body: { action: 'approve' },
   });
   assert.equal(review.status, 403);
+});
+
+test('reviewer endpoints reject a header-only claimed admin', async () => {
+  for (const [method, path, body] of [
+    ['GET', LIST_PATH, undefined],
+    ['GET', `${LIST_PATH}/vs-pending`, undefined],
+    ['POST', `${LIST_PATH}/vs-pending/review`, { action: 'approve' }],
+    ['GET', `${LIST_PATH}/vs-pending/evidence/front/preview`, undefined],
+  ]) {
+    const response = await req(method, path, { userId: 'admin-1', body });
+    assert.equal(response.status, 401);
+  }
+});
+
+test('admin cannot review their own verification case', async () => {
+  db.verification_sessions[0].user_id = 'admin-1';
+  const response = await req('POST', `${LIST_PATH}/vs-pending/review`, {
+    token: 'admin-token', body: { action: 'reject', reasonCode: 'NON_DOCUMENT' },
+  });
+  assert.equal(response.status, 403);
+  assert.equal((db.verification_decisions || []).length, 0);
 });
 
 // --- Admin list ------------------------------------------------------------

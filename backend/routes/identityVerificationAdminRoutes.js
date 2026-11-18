@@ -1,5 +1,5 @@
 import express from 'express';
-import { authorizeRole, requireProvenIdentity } from '../middleware/authMiddleware.js';
+import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   getVerificationSessionForReview,
   getEvidencePreviewUrl,
@@ -13,12 +13,12 @@ const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
-// Admin manual-review queue. authorizeRole(['admin']) rejects unauthenticated
+// Admin manual-review queue. authorizeSessionRole(['admin']) rejects unauthenticated
 // callers (401) and non-admins (403); the service re-checks the role as a
 // defensive second gate. Responses never include private storage paths or URLs.
 router.get(
   '/api/admin/identity/verification-sessions',
-  authorizeRole(['admin']),
+  authorizeSessionRole(['admin']),
   asyncHandler(async (req, res) => {
     const sessions = await listVerificationSessionsForReview(undefined, req.userContext, {
       status: req.query.status,
@@ -30,7 +30,7 @@ router.get(
 
 router.get(
   '/api/admin/identity/verification-sessions/:sessionId',
-  authorizeRole(['admin']),
+  authorizeSessionRole(['admin']),
   asyncHandler(async (req, res) => {
     const session = await getVerificationSessionForReview(undefined, req.userContext, req.params.sessionId);
     res.json({ success: true, session });
@@ -39,7 +39,7 @@ router.get(
 
 router.post(
   '/api/admin/identity/verification-sessions/:sessionId/review',
-  authorizeRole(['admin']),
+  authorizeSessionRole(['admin']),
   asyncHandler(async (req, res) => {
     const result = await reviewVerificationSession(
       undefined,
@@ -57,10 +57,9 @@ router.post(
 // marked no-store so the URL is not cached by intermediaries.
 router.get(
   '/api/admin/identity/verification-sessions/:sessionId/evidence/:side/preview',
-  authorizeRole(['admin']),
+  authorizeSessionRole(['admin']),
   // This signs an object in the SAME private ocr-documents bucket — passport, national ID and
   // selfie evidence. An admin id asserted by a spoofable header must not be able to mint it.
-  requireProvenIdentity(),
   asyncHandler(async (req, res) => {
     const preview = await getEvidencePreviewUrl(
       undefined,

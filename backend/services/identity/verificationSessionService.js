@@ -893,6 +893,9 @@ export async function reviewVerificationSession(client = supabase, actor = {}, s
   const applicantMessage = payload.applicantMessage || payload.applicant_message || payload.retryReason || payload.retry_reason || '';
 
   const session = await fetchSessionForReview(client, sessionId);
+  if (String(session.user_id) === String(reviewerId)) {
+    throw new ForbiddenError('A reviewer cannot decide their own verification case.');
+  }
   if (action === DECISION_ACTION.APPROVE && session.ocr_confirmation_required && !session.ocr_confirmed_at) {
     throw new ConflictError('Applicant confirmation is required before approval.');
   }

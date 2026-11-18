@@ -33,13 +33,15 @@ for migration in \
   20260603233640_governance_foundation_trust_audit_events.sql \
   20261117210000_identity_applicant_ocr_confirmation.sql \
   20261117220000_identity_atomic_submission_claim.sql \
-  20261117230000_identity_decision_outbox_atomic.sql; do
+  20261117230000_identity_decision_outbox_atomic.sql \
+  20261118010000_identity_reviewer_independence.sql; do
   "${PSQL[@]}" -q -f "$script_dir/database/migrations/$migration"
 done
-# Repeat the three candidate migrations to verify their idempotent installation.
+# Repeat the four candidate migrations to verify their idempotent installation.
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117210000_identity_applicant_ocr_confirmation.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117220000_identity_atomic_submission_claim.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261117230000_identity_decision_outbox_atomic.sql"
+"${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118010000_identity_reviewer_independence.sql"
 "${PSQL[@]}" -q <<'SQL'
 INSERT INTO users(id,name,email,role,join_date) VALUES ('test-owner','Synthetic User','synthetic@example.invalid','owner','2026-01-01');
 INSERT INTO verification_sessions(id,user_id,document_type,status,version,front_storage_path,selfie_storage_path) VALUES ('11111111-1111-4111-8111-111111111111','test-owner','passport','uploaded',1,'fixture/front','fixture/selfie');

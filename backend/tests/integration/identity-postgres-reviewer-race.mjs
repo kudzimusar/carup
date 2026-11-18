@@ -86,5 +86,14 @@ try {
   await reviewVerificationSession(client(),{id:'test-reviewer',role:'admin'},eventCase,eventBody,{req:eventReq});
   assert.equal((await competitor.query("SELECT count(*)::int AS n FROM domain_events WHERE payload->>'sessionId'=$1",[eventCase])).rows[0].n,1);
   console.log('PASS failed event insertion rollback and exactly one event after retry and replay');
+  const selfCase='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  await db.query("INSERT INTO verification_sessions(id,user_id,document_type,status,version,workflow_phase) VALUES ($1,'test-owner','passport','pending_manual_review',1,'reviewer_action_required')",[selfCase]);
+  await assert.rejects(()=>reviewVerificationSession(client(),{id:'test-owner',role:'admin'},selfCase,eventBody),/cannot decide their own/i);
+  await db.query('SET ROLE service_role');
+  try {
+    await assert.rejects(()=>db.query("SELECT record_verification_decision_with_event_atomic($1,1,$2::jsonb,'{}'::jsonb,'TEST',NULL,NULL,NULL)",[selfCase,JSON.stringify({id:'self-rpc',session_id:selfCase,decision:'reject',reviewer_id:'test-owner'})]),/Independent reviewer required/i);
+  } finally { await db.query('RESET ROLE'); }
+  assert.equal((await competitor.query('SELECT count(*)::int AS n FROM verification_decisions WHERE session_id=$1',[selfCase])).rows[0].n,0);
+  console.log('PASS own-case review refused by service and service-role RPC');
   console.log('PASS actual reviewer service, competing confirmation on a second connection, safe replay and private projection');
 } finally { await competitor.end(); await db.end(); }

@@ -21,7 +21,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const db = new PGlite({ extensions: { pgcrypto, 'uuid-ossp': uuid_ossp } });
 let failed = false;
 async function check(name, fn) { try { await fn(); console.log(`PASS ${name}`); } catch (e) { failed = true; console.error(`FAIL ${name}: ${e.message}`); } }
-const sqlFiles = ['supabase_schema.sql','011_phase6_schema.sql','20260621170000_outbox_dead_letter.sql','20260613000000_phase7b_supabase_auth_and_identity.sql','20260605042424_verification_sessions_phase7b.sql','20260613020000_verification_admin_review.sql','20260618030000_verification_ocr_provenance.sql','20260618040000_verification_case_management.sql','20260618050000_verification_evidence_trust_columns.sql','20260603233640_governance_foundation_trust_audit_events.sql','20261117210000_identity_applicant_ocr_confirmation.sql','20261117220000_identity_atomic_submission_claim.sql','20261117230000_identity_decision_outbox_atomic.sql'];
+const sqlFiles = ['supabase_schema.sql','011_phase6_schema.sql','20260621170000_outbox_dead_letter.sql','20260613000000_phase7b_supabase_auth_and_identity.sql','20260605042424_verification_sessions_phase7b.sql','20260613020000_verification_admin_review.sql','20260618030000_verification_ocr_provenance.sql','20260618040000_verification_case_management.sql','20260618050000_verification_evidence_trust_columns.sql','20260603233640_governance_foundation_trust_audit_events.sql','20261117210000_identity_applicant_ocr_confirmation.sql','20261117220000_identity_atomic_submission_claim.sql','20261117230000_identity_decision_outbox_atomic.sql','20261118010000_identity_reviewer_independence.sql'];
 const session='11111111-1111-4111-8111-111111111111', second='33333333-3333-4333-8333-333333333333', third='44444444-4444-4444-8444-444444444444';
 const token='22222222-2222-4222-8222-222222222222';
 const fields={first_name:'Synthetic',last_name:'Example',national_id_number:'TEST'};
@@ -69,7 +69,7 @@ const client = hook => ({
 try {
  await db.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS; CREATE SCHEMA storage; CREATE TABLE storage.buckets(id text PRIMARY KEY, name text NOT NULL, public boolean);');
  await check('selected actual CarUp migration chain',async()=>{for(const file of sqlFiles){let sql=fs.readFileSync(path.join(root,'database/migrations',file),'utf8');if(file==='supabase_schema.sql')sql=sql.split('-- SEED DATA')[0];if(file==='011_phase6_schema.sql' || file==='20260621170000_outbox_dead_letter.sql')sql=sql.split('-- +migrate Down')[0];await db.exec(sql)}});
- await check('candidate migration repeatability',async()=>{for(const file of sqlFiles.slice(-3))await db.exec(fs.readFileSync(path.join(root,'database/migrations',file),'utf8'))});
+ await check('candidate migration repeatability',async()=>{for(const file of sqlFiles.slice(-4))await db.exec(fs.readFileSync(path.join(root,'database/migrations',file),'utf8'))});
  await db.exec("INSERT INTO users(id,name,email,role,join_date) VALUES ('test-owner','Synthetic','owner@example.invalid','owner','2026-01-01'),('test-reviewer','Synthetic Reviewer','reviewer@example.invalid','admin','2026-01-01');");
  await check('RPC grants and RLS',async()=>{const r=await db.query("SELECT has_function_privilege('anon','public.confirm_verification_ocr_fields(uuid,text,integer,uuid,jsonb)','EXECUTE') AS anon,has_function_privilege('authenticated','public.confirm_verification_ocr_fields(uuid,text,integer,uuid,jsonb)','EXECUTE') AS authenticated,has_function_privilege('service_role','public.confirm_verification_ocr_fields(uuid,text,integer,uuid,jsonb)','EXECUTE') AS service,relrowsecurity AS rls FROM pg_class WHERE oid='public.verification_applicant_confirmations'::regclass");assert.deepEqual(r.rows[0],{anon:false,authenticated:false,service:true,rls:true})});
  await check('only service role can call event-producing decision RPC; legacy entry point fails closed',async()=>{
@@ -85,6 +85,16 @@ try {
  });
  const makeSession = id => db.query("INSERT INTO verification_sessions(id,user_id,document_type,status,version,ocr_started_at,ocr_result,ocr_execution_status,workflow_phase,front_storage_path,selfie_storage_path) VALUES ($1,'test-owner','passport','pending_manual_review',1,now(),'{\"first_name\":\"Synthetic\"}','provider_succeeded','reviewer_action_required','private/front','private/selfie')",[id]);
  await makeSession(session);
+ await check('own-case review is refused by service and database',async()=>{
+   await assert.rejects(()=>reviewVerificationSession(client(),{id:'test-owner',role:'admin'},session,{action:'reject',reasonCode:'NON_DOCUMENT'}),/cannot decide their own/i);
+   await assert.rejects(()=>db.query("INSERT INTO verification_decisions(id,session_id,decision,reviewer_id) VALUES ('self-decision',$1,'reject','test-owner')",[session]),/Independent reviewer required/i);
+   await db.exec('SET ROLE service_role');
+   try {
+     await assert.rejects(()=>db.query("SELECT record_verification_decision_with_event_atomic($1,1,$2::jsonb,'{}'::jsonb,'TEST',NULL,NULL,NULL)",[session,JSON.stringify({id:'self-rpc',session_id:session,decision:'reject',reviewer_id:'test-owner'})]),/Independent reviewer required/i);
+   } finally { await db.exec('RESET ROLE'); }
+   assert.equal((await db.query('SELECT count(*)::int AS n FROM verification_decisions WHERE session_id=$1',[session])).rows[0].n,0);
+   assert.equal((await db.query('SELECT version FROM verification_sessions WHERE id=$1',[session])).rows[0].version,1);
+ });
  await check('service-role confirmation, replay, changed payload and ownership',async()=>{
    await db.exec('SET ROLE service_role');
    try {
