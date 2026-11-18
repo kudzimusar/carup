@@ -214,3 +214,23 @@ test('latest-session lookup returns the newest sanitized session (or null)', asy
   // Sanitized shape: storage paths never leak.
   assert.equal('front_storage_path' in latest, false);
 });
+
+
+test('latest status and the create guard use the newest millisecond for PostgreSQL Date values', async () => {
+  const previous = { id: 'older', status: 'pending_manual_review', created_at: new Date('2026-11-18T08:45:01.100Z') };
+  const rejected = { id: 'newest', status: 'rejected', created_at: new Date('2026-11-18T08:45:01.900Z') };
+  const client = { from: () => ({ select: () => ({
+    eq: async () => ({ data: [previous, rejected], error: null }),
+  }) }) };
+
+  assert.equal((await getLatestVerificationSessionForUser(client, owner)).id, rejected.id);
+  await assert.rejects(() => createVerificationSession(client, owner, { documentType: 'passport' }), ForbiddenError);
+});
+
+test('cannot start a new verification when prior status cannot be read', async () => {
+  const client = { from: () => ({ select: () => ({
+    eq: async () => ({ data: null, error: { message: 'fixture database failure' } }),
+  }) }) };
+
+  await assert.rejects(() => createVerificationSession(client, owner, { documentType: 'passport' }), /Verification service operation failed/);
+});

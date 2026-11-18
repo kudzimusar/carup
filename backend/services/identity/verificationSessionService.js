@@ -201,6 +201,21 @@ async function fetchSession(client, sessionId, actor) {
   return data;
 }
 
+function latestApplicantSession(sessions = []) {
+  function createdAt(session) {
+    const timestamp = session.created_at ? new Date(session.created_at).getTime() : NaN;
+    return Number.isFinite(timestamp) ? timestamp : -Infinity;
+  }
+  let latest = null;
+  for (const session of sessions) {
+    if (!latest || createdAt(session) > createdAt(latest)
+      || (createdAt(session) === createdAt(latest) && String(session.id) > String(latest.id))) {
+      latest = session;
+    }
+  }
+  return latest;
+}
+
 export async function createVerificationSession(client = supabase, actor = {}, payload = {}, options = {}) {
   const userId = actorId(actor);
   if (!userId) throw new ValidationError('Authenticated user context is required.');
@@ -210,13 +225,12 @@ export async function createVerificationSession(client = supabase, actor = {}, p
   // recent session is rejected. A reviewer/support reopens the case by
   // requesting resubmission on it (allowed by the decision policy), which
   // moves it off the terminal state and resumes the SAME session.
-  const { data: priorSessions } = await client
+  const { data: priorSessions, error: priorError } = await client
     .from('verification_sessions')
     .select('id, status, created_at')
     .eq('user_id', userId);
-  const latestPrior = (priorSessions || [])
-    .slice()
-    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+  if (priorError) throw new Error('Verification service operation failed.');
+  const latestPrior = latestApplicantSession(priorSessions || []);
   if (latestPrior && latestPrior.status === 'rejected') {
     throw new ForbiddenError(
       'Your previous verification was closed by a reviewer. A new attempt requires a reviewer to reopen the case (request resubmission) or CarUp support.',
@@ -704,9 +718,7 @@ export async function getLatestVerificationSessionForUser(client = supabase, act
     .eq('user_id', userId);
   if (error) throw new Error('Verification service operation failed.');
 
-  const latest = (data || [])
-    .slice()
-    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+  const latest = latestApplicantSession(data || []);
   return latest ? sanitizeSession(latest) : null;
 }
 
