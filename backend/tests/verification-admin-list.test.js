@@ -85,6 +85,6 @@ test('a database/PostgREST error THROWS — never silently an empty list', async
   });
   await assert.rejects(
     () => listVerificationSessionsForReview(client, admin, { workflow_phase: 'reviewer_action_required' }),
-    /more than one relationship/,
+    /Verification service operation failed/,
   );
 });

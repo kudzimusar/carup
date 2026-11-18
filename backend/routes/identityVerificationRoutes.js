@@ -1,5 +1,7 @@
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
+import { supabase } from '../db/supabase.js';
+import { confirmApplicantOcr } from '../services/identity/applicantOcrConfirmation.js';
 import {
   createVerificationSession,
   getLatestVerificationSessionForUser,
@@ -34,6 +36,11 @@ router.post('/api/identity/verification-sessions/:sessionId/upload/:side', autho
 router.post('/api/identity/verification-sessions/:sessionId/submit', authorizeRole(), asyncHandler(async (req, res) => {
   const session = await submitVerificationSession(undefined, req.userContext, req.params.sessionId, { req });
   res.json({ success: true, session });
+}));
+
+router.post('/api/identity/verification-sessions/:sessionId/ocr-confirmation', authorizeRole(), asyncHandler(async (req, res) => {
+  const confirmation = await confirmApplicantOcr(supabase, req.userContext, req.params.sessionId, req.body);
+  res.json({ success: true, confirmation });
 }));
 
 // ENTRY PREFLIGHT: the applicant's latest session — registered BEFORE the

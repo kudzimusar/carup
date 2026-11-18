@@ -27,7 +27,6 @@ function session(status: string, extra: Record<string, unknown> = {}): Verificat
     double_sided: true,
     status,
     uploaded_sides: { front: true, back: true, selfie: true },
-    ocr_document_id: null,
     ocr_result: null,
     confidence_score: null,
     created_at: '2026-07-14T00:00:00.000Z',
@@ -39,7 +38,7 @@ function session(status: string, extra: Record<string, unknown> = {}): Verificat
 describe('evaluateVerificationEntry (pure decision)', () => {
   it('REJECTED latest session → blocked-terminal, carrying the reviewer reason', () => {
     const d = evaluateVerificationEntry({
-      session: session('rejected', { failure_reason: 'The submitted photo is not an identity document.' }),
+      session: session('rejected', { applicant_message: 'The submitted photo is not an identity document.' }),
     })
     expect(d.kind).toBe('blocked-terminal')
     expect((d as { reason?: string | null }).reason).toContain('not an identity document')

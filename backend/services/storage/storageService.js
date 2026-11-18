@@ -105,6 +105,12 @@ export async function uploadToStorage(bucketName, fileName, fileBuffer, mimeType
   }
 }
 
+// Delete only a newly uploaded object that was not attached to a case.
+export async function removeFromStorage(bucketName, storagePath) {
+  const { error } = await supabase.storage.from(bucketName).remove([storagePath]);
+  if (error) throw new Error('Could not remove unattached verification evidence.');
+}
+
 /**
  * Generate a secure, timed, temporary shared access signature (SAS) read URL for a private document
  * 

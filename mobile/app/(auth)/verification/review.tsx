@@ -7,7 +7,6 @@ export default function VerificationReview() {
   const params = useLocalSearchParams<{
     docType: string;
     doubleSided: string;
-    livenessVerified: string;
   }>();
 
   const [checkingQuality, setCheckingQuality] = useState<boolean>(false);

@@ -192,6 +192,14 @@ export interface AdminVerificationSession {
   ocr_completed_at: string | null;
   /** Present on the detail view (null on the list). */
   identity_binding?: IdentityBinding | null;
+  applicant_confirmations?: Array<{
+    id: string;
+    applicant_user_id: string;
+    original_observations: Record<string, unknown>;
+    applicant_fields: Record<string, string>;
+    created_at: string;
+    source_ocr_started_at: string | null;
+  }>;
 }
 
 /** Backend response for a short-lived signed evidence preview URL. */

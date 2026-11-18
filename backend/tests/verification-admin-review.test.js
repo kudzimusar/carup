@@ -1,3 +1,4 @@
+import { mockIdentityDecision } from './support/mockIdentityClaim.js';
 /**
  * Phase 7C — backend admin / manual-review routes for identity verification.
  *
@@ -40,6 +41,7 @@ function resetDb() {
     verification_sessions: [
       {
         id: 'vs-pending',
+        version: 1,
         user_id: 'owner-2',
         document_type: 'national_id',
         double_sided: true,
@@ -66,6 +68,7 @@ function resetDb() {
       },
       {
         id: 'vs-verified',
+        version: 1,
         user_id: 'owner-2',
         document_type: 'passport',
         double_sided: false,
@@ -157,6 +160,8 @@ before(async () => {
     writable: true,
     value: (table) => new MockQuery(table),
   });
+
+  supabase.rpc = (name, payload) => { if (name !== 'record_verification_decision_with_event_atomic') throw new Error('Unexpected RPC'); return mockIdentityDecision(db, payload); };
 
   // Mock Supabase Storage so evidence-preview signed URLs can be generated
   // without touching real storage. The mock returns a fresh signed URL string.

@@ -1,3 +1,4 @@
+import { mockIdentityClaim, mockIdentityDecision } from './support/mockIdentityClaim.js';
 /**
  * Owner device Gate 2 regressions (retest round 2):
  *
@@ -48,6 +49,7 @@ class MockQuery {
       const inserted = rows.map((r) => ({
         id: r.id || `row-${++this.client.sequence}`,
         created_at: r.created_at || new Date(2026, 0, ++this.client.sequence).toISOString(),
+        ...(this.table === 'verification_sessions' ? { version: 1 } : {}),
         ...clone(r),
       }));
       this.rows().push(...inserted);
@@ -73,6 +75,7 @@ class MockQuery {
 function createMockClient() {
   return {
     sequence: 0,
+    rpc(name, payload) { return name === 'record_verification_decision_with_event_atomic' ? mockIdentityDecision(this.data, payload) : mockIdentityClaim(this, name, payload); },
     data: {
       verification_sessions: [],
       verification_decisions: [],

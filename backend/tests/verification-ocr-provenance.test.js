@@ -1,3 +1,4 @@
+import { mockIdentityClaim } from './support/mockIdentityClaim.js';
 /**
  * Phase 7C Workstream D — OCR provenance persistence.
  *
@@ -46,7 +47,7 @@ class MockQuery {
     }
     if (this.operation === 'insert') {
       const rows = Array.isArray(this.payload) ? this.payload : [this.payload];
-      const inserted = rows.map((r) => ({ id: r.id || `row-${++this.client.sequence}`, ...clone(r) }));
+      const inserted = rows.map((r) => ({ id: r.id || `row-${++this.client.sequence}`, ...(this.table === 'verification_sessions' ? { version: 1 } : {}), ...clone(r) }));
       this.rows().push(...inserted);
       return single ? { data: clone(inserted[0]), error: null } : { data: clone(inserted), error: null };
     }
@@ -67,6 +68,7 @@ class MockQuery {
 function createMockClient() {
   return {
     sequence: 0,
+    rpc(name, payload) { return mockIdentityClaim(this, name, payload); },
     failProvenance: false,
     data: {
       verification_sessions: [],

@@ -605,6 +605,17 @@ export default function IdentityVerificationCaseManagement() {
                         )}
                       </div>
                     )}
+                    {sessionDetail.applicant_confirmations?.map((confirmation) => (
+                      <div className="mt-4 space-y-2 text-xs" key={confirmation.id}>
+                        <p className="font-semibold">Applicant declaration — {confirmation.created_at}</p>
+                        <p className="text-gray-500">These values were supplied by the applicant and are not verified facts.</p>
+                        {Object.entries(confirmation.applicant_fields).map(([field, value]) => (
+                          <div key={field}>
+                            <span className="font-medium">{field}</span>: read {String(confirmation.original_observations[field] ?? (confirmation.original_observations.additional_fields as Record<string, unknown> | undefined)?.[field] ?? 'unreadable')}; declared {value}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>

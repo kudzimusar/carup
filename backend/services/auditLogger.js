@@ -218,6 +218,12 @@ async function writeLegacyOrganizationAudit(client, event, trustEvent) {
     });
 }
 
+// For an event whose authoritative row was committed atomically by the DB,
+// retain the existing best-effort legacy mirror without inserting it twice.
+export async function writeLegacyAuditMirror(client, event) {
+  return writeLegacyOrganizationAudit(client, event, normalizeTrustAuditEvent(event));
+}
+
 /**
  * Centrally log an audit event to the database.
  *
@@ -263,4 +269,4 @@ export async function logAuditEvent(clientOrEvent, maybeEvent) {
   }
 }
 
-export { redact, normalizeTrustAuditEvent };
+export { redact, normalizeTrustAuditEvent, requestContext };
