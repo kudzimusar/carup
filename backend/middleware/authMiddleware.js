@@ -110,12 +110,13 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
 
     try {
       let activeUserId = null;
+      let authenticatedSessionId = null;
 
       // 1. Validate Session Token
       if (sessionToken) {
         const { data: session, error: sessionError } = await supabase
           .from('user_sessions')
-          .select('user_id, is_valid, expires_at')
+          .select('id, user_id, is_valid, expires_at')
           .eq('token', sessionToken)
           .single();
 
@@ -123,6 +124,7 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
           return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
         }
         activeUserId = session.user_id;
+        authenticatedSessionId = session.id ?? null;
       }
 
       // Distinguishes a PROVEN identity from an ASSERTED one. `requireProvenIdentity` refuses the
@@ -203,6 +205,7 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
         requestedRole,
         isVerified: Boolean(user.is_verified),
         authenticationMethod,
+        authenticatedSessionId,
       };
 
       next();

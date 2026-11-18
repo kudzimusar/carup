@@ -1,5 +1,8 @@
 import express from 'express';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
+import { rateLimiter } from '../middleware/securityMiddleware.js';
+import { ValidationError } from '../utils/errors.js';
+import { consumeReviewerStepUp, issueReviewerStepUp, reviewerDecisionOperation } from '../services/identity/reviewerStepUp.js';
 import {
   getVerificationSessionForReview,
   getEvidencePreviewUrl,
@@ -12,6 +15,26 @@ const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
+
+const reviewBase = '/api/admin/identity/verification-sessions';
+router.use(reviewBase, (_req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
+const stepUpLimit = rateLimiter({ max: 15, windowMs: 15 * 60_000, bucket: 'identity-review-step-up', keyBy: 'account', isSensitive: true, failClosed: true });
+router.post(
+  reviewBase + '/:sessionId/step-up',
+  authorizeSessionRole(['admin']),
+  stepUpLimit,
+  asyncHandler(async (req, res) => {
+    res.json(await issueReviewerStepUp(req.userContext, req.params.sessionId, req.body));
+  }),
+);
+
+function consumeStepUp(req, operation) {
+  return consumeReviewerStepUp(req.userContext, req.params.sessionId, operation, req.get('x-review-step-up'));
+}
 
 // Admin manual-review queue. authorizeSessionRole(['admin']) rejects unauthenticated
 // callers (401) and non-admins (403); the service re-checks the role as a
@@ -32,6 +55,7 @@ router.get(
   '/api/admin/identity/verification-sessions/:sessionId',
   authorizeSessionRole(['admin']),
   asyncHandler(async (req, res) => {
+    await consumeStepUp(req, 'case:detail');
     const session = await getVerificationSessionForReview(undefined, req.userContext, req.params.sessionId);
     res.json({ success: true, session });
   })
@@ -41,6 +65,10 @@ router.post(
   '/api/admin/identity/verification-sessions/:sessionId/review',
   authorizeSessionRole(['admin']),
   asyncHandler(async (req, res) => {
+    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
+      throw new ValidationError('The displayed case revision is required.');
+    }
+    await consumeStepUp(req, reviewerDecisionOperation(req.body));
     const result = await reviewVerificationSession(
       undefined,
       req.userContext,
@@ -61,6 +89,7 @@ router.get(
   // This signs an object in the SAME private ocr-documents bucket — passport, national ID and
   // selfie evidence. An admin id asserted by a spoofable header must not be able to mint it.
   asyncHandler(async (req, res) => {
+    await consumeStepUp(req, 'preview:' + req.params.side);
     const preview = await getEvidencePreviewUrl(
       undefined,
       req.userContext,

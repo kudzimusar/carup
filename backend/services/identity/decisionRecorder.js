@@ -35,6 +35,7 @@ export class VerificationDecisionRecorder {
     reviewerId,
     reviewerRole,
     currentWorkflowPhase,
+    expectedRevision,
     req,
   }) {
     const timestamp = new Date().toISOString();
@@ -86,6 +87,9 @@ export class VerificationDecisionRecorder {
       }
     }
 
+    if (expectedRevision !== undefined && expectedRevision !== session.version) {
+      throw new ConflictError('This case has changed. Reopen the case before deciding.');
+    }
     const policyCheck = DecisionPolicyEngine.isActionAllowed(action, assessment);
 
     if (!policyCheck.allowed) {
