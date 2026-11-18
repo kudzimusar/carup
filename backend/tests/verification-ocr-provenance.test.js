@@ -159,7 +159,7 @@ test('D: a failed OCR run records provenance with succeeded=false and no identit
 
   const p = client.data.verification_ocr_provenance.at(-1);
   assert.equal(p.succeeded, false);
-  assert.match(p.failure_reason, /OCR provider unavailable/);
+  assert.equal(p.failure_reason, 'TECHNICAL_ERROR');
   assert.equal(p.metadata.final_status, 'ocr_failed');
 });
 

@@ -34,7 +34,10 @@ test('bad output and provider failure remain distinct and contain no invented da
   const invalid = makeIdentityOcrAdapter({ id: 'fixture', model: 'fixture', extract: async () => ({ content: 'bad json' }) });
   const outage = makeIdentityOcrAdapter({ id: 'fixture', model: 'fixture', extract: async () => { throw new Error('private'); } });
   assert.equal((await invalid.extractDocumentData('passport', data)).error, 'OCR_PROVIDER_INVALID_OUTPUT');
-  assert.deepEqual(await outage.extractDocumentData('passport', data), { success: false, error: 'OCR_PROVIDER_UNAVAILABLE', provider: 'fixture', model: 'fixture' });
+  const failure = await outage.extractDocumentData('passport', data);
+  assert.equal(failure.error, 'OCR_PROVIDER_UNAVAILABLE');
+  assert.equal(failure.sideAssessment.front, 'failed');
+  assert.doesNotMatch(JSON.stringify(failure), /private/);
 });
 
 test('configured document classes preserve only their own observations and require a legibility verdict', async () => {
@@ -63,7 +66,7 @@ test('real provider is off unless explicitly enabled and unsafe model remains re
   assert.equal(configuredIdentityVisionProvider({ CARUP_IDENTITY_OCR_ENABLED: 'true', CARUP_OCR_PROVIDER: 'cloudflare', CLOUDFLARE_ACCOUNT_ID: 'test', CLOUDFLARE_API_TOKEN: 'test', CARUP_OCR_MODEL: '@cf/meta/llama-3.2-11b-vision-instruct' }), null);
 });
 
-test('classification sends the front image only and fails closed on provider outage', async () => {
+test('single-sided classification excludes the selfie and fails closed on provider outage', async () => {
   let request;
   const adapter = makeIdentityOcrAdapter({ id: 'fixture', model: 'fixture', extract: async input => {
     request = input; return { content: { document_class_observed: 'passport', legible: true } };
@@ -76,4 +79,44 @@ test('classification sends the front image only and fails closed on provider out
   const unavailable = await outage.classifyDocument(png, null, null, 'passport');
   assert.equal(unavailable.reasonCode, 'OCR_PROVIDER_FAILED');
   assert.equal(unavailable.classification, 'uncertain');
+});
+
+test('two-sided evidence attributes readings and refuses conflicting observations', async () => {
+  const reverse = PNG.sync.write(new PNG({ width: 20, height: 20 }));
+  const backDataUri = 'data:image/png;base64,' + reverse.toString('base64');
+  const observed = [];
+  let backNumber = 'AB-123';
+  let backClass = 'zimbabwe_national_id';
+  const adapter = makeIdentityOcrAdapter({ id: 'fixture', model: 'fixture', extract: async ({ images }) => {
+    const bytes = Buffer.from(images[0].base64, 'base64');
+    const isBack = bytes.equals(reverse);
+    assert.ok(isBack || bytes.equals(png));
+    observed.push(isBack ? 'back' : 'front');
+    return { content: { document_class_observed: isBack ? backClass : 'zimbabwe_national_id', legible: true,
+      fields: isBack ? { national_id_number: backNumber, date_of_birth: '1992-01-01' }
+        : { national_id_number: 'AB123', first_name: 'Synthetic' } } };
+  } });
+  assert.equal((await adapter.classifyDocument(png, reverse, null, 'national_id')).classification, 'valid_identity_document');
+  assert.deepEqual(observed.sort(), ['back', 'front']);
+  const matching = await adapter.extractDocumentData('national_id', data, null, { backDataUri });
+  assert.equal(matching.sideAssessment.comparison, 'consistent_overlap');
+  assert.equal(matching.extractedData.date_of_birth, '1992-01-01');
+  assert.deepEqual(matching.sideAssessment.fieldSources.date_of_birth, ['back']);
+  backNumber = 'ZZ999';
+  const conflict = await adapter.extractDocumentData('national_id', data, null, { backDataUri });
+  assert.equal(conflict.success, false);
+  assert.equal(conflict.error, 'DOCUMENT_SIDE_MISMATCH');
+  assert.deepEqual(conflict.sideAssessment.conflictingFields, ['national_id_number']);
+  assert.deepEqual(conflict.extractedData, {});
+  backClass = 'non_document';
+  assert.equal((await adapter.classifyDocument(png, reverse, null, 'national_id')).classification, 'uncertain');
+});
+
+test('decoder refuses corrupted image data and dimensions beyond the pixel limit', async () => {
+  const { validateDecodedEvidenceImage } = await import('../services/identity/decodeEvidenceImage.js');
+  const damaged = Buffer.from(png);
+  damaged.fill(0xff, 41, 49); // Damage IDAT while retaining the PNG envelope.
+  await assert.rejects(validateDecodedEvidenceImage(damaged), /readable single image/);
+  const oversized = new PNG({ width: 4096, height: 4000 });
+  await assert.rejects(validateDecodedEvidenceImage(PNG.sync.write(oversized)), /size limits/);
 });

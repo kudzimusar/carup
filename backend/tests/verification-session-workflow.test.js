@@ -306,7 +306,7 @@ test('OCR failure marks session ocr_failed and remains fetchable as sanitized st
   });
 
   assert.equal(result.status, 'ocr_failed');
-  assert.match(client.data.verification_sessions[0].failure_reason, /OCR provider unavailable/);
+  assert.equal(client.data.verification_sessions[0].failure_reason, 'Verification evidence processing could not complete.');
   assert.equal(Object.hasOwn(result, 'front_storage_path'), false);
 
   const fetched = await getVerificationSession(client, owner, session.id);

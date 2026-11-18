@@ -36,6 +36,8 @@ export function sanitizeSession(session) {
     revision: Number.isInteger(session.version) ? session.version : null,
     workflow_phase: session.workflow_phase || null,
     ocr_execution_status: session.ocr_execution_status || null,
+    // A captured selfie and legacy status fields carry no biometric authority.
+    biometric_checks: { face_match: 'not_performed', liveness: 'not_performed', provider_state: 'not_configured' },
     ocr_confirmation_completed: Boolean(session.ocr_confirmed_at),
     uploaded_sides: {
       front: Boolean(session.front_storage_path),

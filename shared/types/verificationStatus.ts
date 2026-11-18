@@ -184,6 +184,15 @@ export interface AdminVerificationSession {
   review_decision: 'approve' | 'reject' | 'request_retry' | null;
   retry_reason: string | null;
   liveness_status: string | null;
+  biometric_checks?: { face_match: 'not_performed'; liveness: 'not_performed'; provider_state: 'not_configured' };
+  ocr_side_assessment?: {
+    front?: string;
+    back?: string;
+    comparison?: string;
+    classification?: { front: string; back: string };
+    conflictingFields?: string[];
+    fieldSources?: Record<string, ('front' | 'back')[]>;
+  } | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
   created_at: string;

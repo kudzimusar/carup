@@ -40,12 +40,15 @@ const nativeFetch = globalThis.fetch;
 globalThis.fetch = (input, init) => {
   const target = new URL(input instanceof Request ? input.url : input);
   if (target.href === 'https://api.cloudflare.com/client/v4/accounts/lr13-fixture/ai/run/@cf/qwen/qwen3.8-27b') {
+    const prompt = JSON.parse(init.body).messages[0].content;
+    const number = process.env.CARUP_IDV_TEST_SIDE_CONFLICT === 'yes' && prompt.startsWith('Transcribe') && prompt.includes('on the back')
+      ? 'TEST999999' : 'TEST123456';
     return Promise.resolve(Response.json({
       success: true,
       result: { choices: [{ message: { content: JSON.stringify({
         document_class_observed: 'passport',
         legible: true,
-        fields: { first_name: 'Synthetic', last_name: 'Applicant', national_id_number: 'TEST123456', passport_number: 'TEST123456', date_of_birth: '1992-01-01' },
+        fields: { first_name: 'Synthetic', last_name: 'Applicant', national_id_number: number, passport_number: number, date_of_birth: '1992-01-01' },
       }) } }] },
     }));
   }

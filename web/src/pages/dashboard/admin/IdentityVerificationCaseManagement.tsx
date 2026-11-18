@@ -675,6 +675,24 @@ export default function IdentityVerificationCaseManagement() {
                         {EXTRACTION_TRUST_LABELS[sessionDetail.extraction_trust_status || sessionDetail.assessment?.extraction_trust_status || 'not_run']}
                       </span>
                     </div>
+                    <p>Face matching: {humanize(sessionDetail.biometric_checks?.face_match || 'not_performed')}</p>
+                    <p>Liveness: {humanize(sessionDetail.biometric_checks?.liveness || 'not_performed')}</p>
+                    {sessionDetail.ocr_side_assessment && (
+                      <dl className="space-y-1">
+                        <dt>Front evidence</dt>
+                        <dd>{humanize(sessionDetail.ocr_side_assessment.front || sessionDetail.ocr_side_assessment.classification?.front || 'not_assessed')}</dd>
+                        <dt>Back evidence</dt>
+                        <dd>{humanize(sessionDetail.ocr_side_assessment.back || sessionDetail.ocr_side_assessment.classification?.back || 'not_assessed')}</dd>
+                        <dt>Side comparison</dt>
+                        <dd>{humanize(sessionDetail.ocr_side_assessment.comparison || 'uncompared')}</dd>
+                        {!!sessionDetail.ocr_side_assessment.conflictingFields?.length && (
+                          <>
+                            <dt>Conflicting fields</dt>
+                            <dd role="status">{sessionDetail.ocr_side_assessment.conflictingFields.map(humanize).join(', ')}</dd>
+                          </>
+                        )}
+                      </dl>
+                    )}
                     {sessionDetail.ocr_result && (
                       <div className="mt-2">
                         <span className="text-gray-500 block text-xs mb-1">Field-Level Extraction:</span>

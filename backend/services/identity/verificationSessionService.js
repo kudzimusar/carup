@@ -5,6 +5,7 @@ import { supabase } from '../../db/supabase.js';
 import { logAuditEvent, requestContext, writeLegacyAuditMirror } from '../auditLogger.js';
 import { downloadFromStorage, uploadToStorage, removeFromStorage, generateSecureReadUrl } from '../storage/storageService.js';
 import { validateEvidenceImages } from './evidenceValidation.js';
+import { validateDecodedEvidenceImage } from './decodeEvidenceImage.js';
 import { evidenceImageMime } from './evidenceImageFormat.js';
 import { compareAccountToDocument, documentHolderName } from './identityBinding.js';
 import { DocumentClassifier, EVIDENCE_CLASSIFICATION, EXTRACTION_TRUST_STATUS } from './documentClassifier.js';
@@ -106,9 +107,7 @@ function normalizeDocumentType(value) {
 }
 
 function requiresBack(documentType, explicitDoubleSided) {
-  if (explicitDoubleSided === true) return true;
-  if (explicitDoubleSided === false) return false;
-  return DOUBLE_SIDED_DOCUMENTS.has(documentType);
+  return explicitDoubleSided === true || DOUBLE_SIDED_DOCUMENTS.has(documentType);
 }
 
 function parseImagePayload(payload = {}) {
@@ -295,6 +294,7 @@ export async function uploadVerificationSessionImage(client = supabase, actor = 
   }
   if (!Number.isInteger(session.version)) throw new ConflictError('Verification session version is unavailable.');
   const parsed = parseImagePayload(payload);
+  await validateDecodedEvidenceImage(parsed.buffer);
   const timestamp = now();
   const extension = extensionForMimeType(parsed.mimeType);
   const storagePath = `${session.user_id}/${session.id}/${side}-${crypto.randomUUID()}.${extension}`;
@@ -311,6 +311,7 @@ export async function uploadVerificationSessionImage(client = supabase, actor = 
     [`${side}_mime_type`]: parsed.mimeType,
     captured_at: session.captured_at || timestamp,
     uploaded_at: timestamp,
+    ocr_side_assessment: null,
     updated_at: timestamp,
     version: session.version + 1,
   };
@@ -408,12 +409,13 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
   try {
     if (!ocr) throw new Error('Identity OCR is not configured.');
     const frontDocument = await storage.downloadFromStorage(BUCKET, session.front_storage_path);
+    let backDocument = null;
     let backBuffer = null;
     let selfieBuffer = null;
 
     if (session.back_storage_path) {
-      const backDoc = await storage.downloadFromStorage(BUCKET, session.back_storage_path);
-      backBuffer = backDoc.buffer;
+      backDocument = await storage.downloadFromStorage(BUCKET, session.back_storage_path);
+      backBuffer = backDocument.buffer;
     }
     if (session.selfie_storage_path) {
       const selfieDoc = await storage.downloadFromStorage(BUCKET, session.selfie_storage_path);
@@ -453,6 +455,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
           failure_reason: reasonText,
           review_notes: `Evidence classified as "${classificationResult.classification}". ${reasonText}. Manual review required.`,
           ocr_result: null,
+          ocr_side_assessment: classificationResult.sideClassification ? { classification: classificationResult.sideClassification } : null,
           confidence_score: null,
           ocr_completed_at: completedAt,
           updated_at: completedAt,
@@ -487,10 +490,10 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
         reason: reasonText,
       });
 
-      if (providerFailed) await recordOcrProvenance(client, {
+      if (providerFailed || classificationResult.sideClassification) await recordOcrProvenance(client, {
         session, result: { provider: classificationResult.provider, model: classificationResult.model },
-        succeeded: false, evidenceHashes, failureReason: 'OCR_PROVIDER_FAILED',
-        metadata: { stage: 'classification' },
+        succeeded: false, evidenceHashes, failureReason: reasonCode,
+        metadata: { stage: 'classification', sides: classificationResult.sideClassification },
       });
 
       return sanitizeSession(invalidSession);
@@ -500,13 +503,17 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     // STAGE 3: OCR extraction (only after classification passes)
     // -------------------------------------------------------
     const frontDataUri = `data:${session.front_mime_type || frontDocument.mimeType || 'image/jpeg'};base64,${frontDocument.buffer.toString('base64')}`;
-    const result = await ocr.extractDocumentData(session.document_type, frontDataUri, session.user_id);
+    const backDataUri = backDocument
+      ? `data:${session.back_mime_type || backDocument.mimeType || 'image/jpeg'};base64,${backBuffer.toString('base64')}` : undefined;
+    const result = await ocr.extractDocumentData(session.document_type, frontDataUri, session.user_id, { backDataUri });
+    const sideAssessment = result.sideAssessment
+      ? { ...result.sideAssessment, classification: classificationResult.sideClassification } : null;
     const confidence = result.provider === 'cloudflare' ? null : result.extractedData?.confidenceScore ?? null;
     const sanitizedResult = sanitizeOcrResult(result.extractedData || {}, session.document_type);
 
     // Determine extraction trust status
     // Provider succeeded does NOT imply trusted extraction
-    const documentIssue = ['DOCUMENT_UNREADABLE', 'UNSUPPORTED_DOCUMENT'].includes(result.error);
+    const documentIssue = ['DOCUMENT_UNREADABLE', 'UNSUPPORTED_DOCUMENT', 'DOCUMENT_SIDE_MISMATCH'].includes(result.error);
     const ocrExecStatus = result.success || documentIssue ? 'provider_succeeded' : 'provider_failed';
     let extractionTrust = EXTRACTION_TRUST_STATUS.UNTRUSTED;
     let extractionReasonCode = 'OCR_RESULT_UNTRUSTED';
@@ -533,7 +540,8 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     } else {
       extractionTrust = EXTRACTION_TRUST_STATUS.NO_FIELDS;
       extractionReasonCode = result.error === 'DOCUMENT_UNREADABLE' ? 'UNREADABLE_DOCUMENT'
-        : result.error === 'UNSUPPORTED_DOCUMENT' ? 'UNSUPPORTED_DOCUMENT_TYPE' : 'OCR_PROVIDER_FAILED';
+        : result.error === 'UNSUPPORTED_DOCUMENT' ? 'UNSUPPORTED_DOCUMENT_TYPE'
+        : result.error === 'DOCUMENT_SIDE_MISMATCH' ? 'DOCUMENT_SIDE_MISMATCH' : 'OCR_PROVIDER_FAILED';
     }
 
     // CONSISTENCY INVARIANT (fail-closed): a stored record may never claim a
@@ -569,11 +577,12 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
 
     const baseReason = 'Verification requires manual review. Automated OCR cannot confirm document authenticity on its own.';
 
-    const failureReason = binding.status === 'mismatch'
+    const sideConflict = result.error === 'DOCUMENT_SIDE_MISMATCH';
+    const failureReason = sideConflict ? 'Document-side observations disagree. Independent review is required.' : binding.status === 'mismatch'
       ? `Identity mismatch: ${binding.reason} ${baseReason}`
       : baseReason;
 
-    const reviewNote = binding.status === 'mismatch'
+    const reviewNote = sideConflict ? failureReason : binding.status === 'mismatch'
       ? `Account/document identity MISMATCH — account holder "${accountName}" vs document holder "${documentName}". Manual review required.`
       : 'OCR completed but requires manual review.';
 
@@ -592,6 +601,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
       identity_binding_status: identityBindingStatus,
       ocr_document_id: result.ocrDocumentId || null,
       ocr_result: sanitizedResult,
+      ocr_side_assessment: sideAssessment,
       ocr_confirmation_required: Boolean(result.success && Object.keys(sanitizedResult).length),
       confidence_score: confidence,
       failure_reason: failureReason,
@@ -653,6 +663,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
       failureReason: result.success ? null : (result.error || 'OCR_PROVIDER_FAILED'),
       metadata: {
         schema_version: result.schemaVersion || null,
+        sides: sideAssessment,
         document_class: result.documentClass || null,
         identity_binding: binding.status,
         final_status: finalStatus,
@@ -665,13 +676,15 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
   } catch (error) {
     if (error instanceof ConflictError) throw error;
     const failedAt = now();
+    const failureMessage = 'Verification evidence processing could not complete.';
     const { data: failedSession, error: failedError } = await client
       .from('verification_sessions')
       .update({
         status: 'ocr_failed',
         workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED,
         primary_reason_code: 'TECHNICAL_ERROR',
-        failure_reason: error.message,
+        failure_reason: failureMessage,
+        ocr_side_assessment: null,
         ocr_completed_at: failedAt,
         updated_at: failedAt,
         version: pendingSession.version + 1,
@@ -697,7 +710,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
       targetId: session.id,
       previous_value: { status: 'ocr_pending' },
       new_value: { status: 'ocr_failed', workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED },
-      reason: error.message,
+      reason: failureMessage,
     });
 
     await recordOcrProvenance(client, {
@@ -706,7 +719,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
       succeeded: false,
       confidence: null,
       evidenceHashes,
-      failureReason: error.message,
+      failureReason: 'TECHNICAL_ERROR',
       metadata: { final_status: 'ocr_failed' },
     });
 
@@ -767,7 +780,8 @@ function sanitizeReviewSession(session, identity = null) {
     reviewed_at: session.reviewed_at || null,
     review_decision: session.review_decision || null,
     retry_reason: session.retry_reason || null,
-    liveness_status: session.liveness_status || null,
+    liveness_status: 'not_run',
+    ocr_side_assessment: session.ocr_side_assessment || null,
     submitted_at: session.submitted_at || null,
     ocr_started_at: session.ocr_started_at || null,
     // New case management fields

@@ -126,6 +126,30 @@ async function finish(row, actor) {
   stages.completed++;
 }
 
+if (process.argv.includes('--side-conflict')) {
+  const submitted = await createCase();
+  assert.equal(submitted.status, 'pending_manual_review');
+  assert.equal(submitted.ocr_result?.national_id_number, undefined);
+  assert.equal(submitted.ocr_side_assessment, undefined);
+  assert.deepEqual(submitted.biometric_checks, {
+    face_match: 'not_performed', liveness: 'not_performed', provider_state: 'not_configured',
+  });
+  const detail = (await readCase(first, submitted.id)).session;
+  assert.equal(detail.primary_reason_code, 'DOCUMENT_SIDE_MISMATCH');
+  assert.equal(detail.ocr_side_assessment.classification.back, 'valid_identity_document');
+  assert.equal(detail.ocr_side_assessment.comparison, 'conflict');
+  assert.ok(detail.ocr_side_assessment.conflictingFields.includes('passport_number'));
+  const refused = await request(`${reviewerRoot}/${submitted.id}/review`, {
+    actor: first, proof: await getProof(first, submitted.id, 'decision:approve'), key: randomUUID(),
+    body: { action: 'approve', expectedRevision: detail.revision },
+  });
+  assert.equal(refused.status, 403);
+  assert.match(JSON.stringify(await refused.json()), /DOCUMENT_SIDE_MISMATCH/);
+  assert.equal((await readCase(first, submitted.id)).session.revision, detail.revision);
+  console.log('PASS conflicting side observations persist privately and block an authorized approval.');
+  process.exit(0);
+}
+
 if (process.argv.includes('--latest-after-restart')) {
   const expectedId = '10000000-0000-4000-8000-000000000001';
   for (const actor of [unrelated, await login('applicant-two')]) {

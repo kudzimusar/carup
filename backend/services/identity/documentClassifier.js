@@ -254,6 +254,7 @@ Classify the FIRST attached image for identity document presence.`;
       extractionTrust,
       provider: layer2.provider,
       model: layer2.model,
+      sideClassification: layer2.sideClassification,
     };
   }
 
