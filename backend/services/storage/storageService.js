@@ -86,11 +86,14 @@ export async function uploadToStorage(bucketName, fileName, fileBuffer, mimeType
     });
 
   if (error) {
+    if (bucketName === 'ocr-documents') throw new Error('Private document upload failed.');
     console.error(`❌ [Storage Service] Supabase upload failed for bucket [${bucketName}]:`, error.message);
     throw new Error(`Supabase upload failed: ${error.message}`);
   }
 
-  console.log(`✅ [Storage Service] Successfully uploaded file: ${data.path} to bucket: ${bucketName}`);
+  if (bucketName !== 'ocr-documents') {
+    console.log(`✅ [Storage Service] Successfully uploaded file: ${data.path} to bucket: ${bucketName}`);
+  }
 
   // Retrieve public or signed secure URLs based on bucket visibility
   if (bucketName === 'vehicle-images') {
@@ -125,6 +128,7 @@ export async function generateSecureReadUrl(bucketName, storagePath, expiresInSe
     .createSignedUrl(storagePath, expiresInSeconds);
 
   if (error) {
+    if (bucketName === 'ocr-documents') throw new Error('Private document preview failed.');
     console.error('❌ [Storage Service] Failed to generate signed URL:', error.message);
     throw new Error(`Signed URL generation failed: ${error.message}`);
   }
@@ -142,6 +146,7 @@ export async function downloadFromStorage(bucketName, storagePath) {
     .download(storagePath);
 
   if (error) {
+    if (bucketName === 'ocr-documents') throw new Error('Private document download failed.');
     console.error('\u274c [Storage Service] Failed to download private object:', error.message);
     throw new Error(`Storage download failed: ${error.message}`);
   }

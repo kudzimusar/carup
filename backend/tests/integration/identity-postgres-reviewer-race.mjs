@@ -1,5 +1,6 @@
 /** Real PostgreSQL reviewer-service integration test; disposable loopback DB only. */
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 process.env.SUPABASE_URL = 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'fixture-only';
 const url = process.env.CARUP_IDV_TEST_DATABASE_URL;
@@ -130,6 +131,43 @@ try {
     assert.equal((await claim(db, altSessionId)).rows[0].allowed, true);
   } finally { await db.query('RESET ROLE'); }
   console.log('PASS 15 shared claims across two connections and sessions, revocation, fresh window and role isolation');
+  const reserve = (connection, authId, id) => connection.query(
+    "SELECT public.reserve_identity_review_attempt('test-reviewer',$1,$2) AS accepted", [authId, id],
+  );
+  const refund = (connection, authId, id) => connection.query(
+    "SELECT public.release_identity_review_attempt('test-reviewer',$1,$2) AS accepted", [authId, id],
+  );
+  const accepted = async promise => (await promise).rows[0].accepted;
+  const reservation = randomUUID();
+  await db.query('SET ROLE authenticated');
+  try {
+    await assert.rejects(() => reserve(db, altSessionId, reservation), /permission denied/i);
+    await assert.rejects(() => refund(db, altSessionId, reservation), /permission denied/i);
+  } finally { await db.query('RESET ROLE'); }
+  await db.query("UPDATE user_sessions SET is_valid=true WHERE id=$1", [authSessionId]);
+  await db.query("UPDATE identity_review_attempt_budget SET window_started_at=now()-interval '16 minutes' WHERE reviewer_id='test-reviewer'");
+  await db.query(`SET ROLE "${serviceRole}"`);
+  await competitor.query(`SET ROLE "${serviceRole}"`);
+  try {
+    assert.equal(await accepted(reserve(db, altSessionId, reservation)), true);
+    assert.equal(await accepted(reserve(db, altSessionId, reservation)), false);
+    assert.equal(await accepted(refund(competitor, authSessionId, reservation)), false);
+    const releases = await Promise.all([accepted(refund(db, altSessionId, reservation)),
+      accepted(refund(competitor, altSessionId, reservation))]);
+    assert.equal(releases.filter(Boolean).length, 1);
+    async function reserveTen(connection, authId) {
+      const outcomes = [];
+      for (let i = 0; i < 10; i++) outcomes.push(await accepted(reserve(connection, authId, randomUUID())));
+      return outcomes;
+    }
+    const attempts = await Promise.all([reserveTen(db, authSessionId), reserveTen(competitor, altSessionId)]);
+    assert.equal(attempts.flat().filter(Boolean).length, 15);
+  } finally {
+    await db.query('RESET ROLE');
+    await competitor.query('RESET ROLE');
+  }
+  assert.equal((await db.query("SELECT attempts FROM identity_review_attempt_budget WHERE reviewer_id='test-reviewer'")).rows[0].attempts, 15);
+  console.log('PASS reservations count in-flight attempts, session binding, one concurrent refund and effective role denial');
   let confirmation;
   const interleave=async()=>{confirmation=(await competitor.query("SELECT confirm_verification_ocr_fields($1,'test-owner',1,$2,'{\"first_name\":\"Synthetic\"}'::jsonb) AS result",[session,token])).rows[0].result};
   await assert.rejects(()=>reviewVerificationSession(client(interleave),{id:'test-reviewer',role:'admin'},session,{action:'reject',reasonCode:'NON_DOCUMENT',applicantMessage:'Synthetic message'}),/changed|cannot be applied/i);

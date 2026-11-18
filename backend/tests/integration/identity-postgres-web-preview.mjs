@@ -16,7 +16,8 @@ if (process.env.CARUP_IDV_TEST_DISPOSABLE !== 'yes' || !/^postgres(?:ql)?:$/.tes
 }
 const password = process.env.CARUP_IDV_TEST_PASSWORD;
 if (!password || password.length < 16) throw new Error('Set an ephemeral synthetic password (16 characters minimum).');
-const port = 5074;
+const port = Number(process.env.CARUP_IDV_TEST_PREVIEW_PORT || 5074);
+if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid loopback preview port.');
 const base = `http://127.0.0.1:${port}`;
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const db = new pg.Pool({ connectionString: url.href });
@@ -177,6 +178,8 @@ const accountHash = await hashPassword(password);
 for (const [id, name, email, role] of [
   ['lr13-applicant', 'Synthetic Applicant', 'applicant@lr13.example.invalid', 'owner'],
   ['lr13-reviewer', 'Synthetic Reviewer', 'reviewer@lr13.example.invalid', 'admin'],
+  ['lr14-reviewer-two', 'Synthetic Second Reviewer', 'reviewer-two@lr13.example.invalid', 'admin'],
+  ['lr14-applicant-two', 'Synthetic Second Applicant', 'applicant-two@lr13.example.invalid', 'owner'],
 ]) {
   await db.query(`INSERT INTO public.users(id,name,email,role,join_date,password_hash)
     VALUES($1,$2,$3,$4,'2026-11-18',$5) ON CONFLICT(id) DO UPDATE SET password_hash=EXCLUDED.password_hash`,
@@ -197,8 +200,8 @@ app.use('/api', (req, res, next) => {
 });
 app.post('/api/auth/login', async (req, res, next) => {
   try {
-    const entry = (await db.query('SELECT id,name,role,password_hash FROM public.users WHERE email=$1 AND id IN ($2,$3)',
-      [req.body.email, 'lr13-applicant', 'lr13-reviewer'])).rows[0];
+    const entry = (await db.query('SELECT id,name,role,password_hash FROM public.users WHERE email=$1 AND id IN ($2,$3,$4,$5)',
+      [req.body.email, 'lr13-applicant', 'lr13-reviewer', 'lr14-reviewer-two', 'lr14-applicant-two'])).rows[0];
     if (!entry || !await verifyPassword(req.body.password, entry.password_hash)) return res.sendStatus(401);
     const { id, name, role } = entry;
     const token = randomBytes(32).toString('hex');

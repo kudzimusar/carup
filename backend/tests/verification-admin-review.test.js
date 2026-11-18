@@ -180,7 +180,7 @@ before(async () => {
 
   supabase.rpc = (name, payload) => {
     if (name === 'record_verification_decision_with_event_atomic') return mockIdentityDecision(db, payload);
-    if (name === 'claim_identity_review_attempt') return { data: true };
+    if (['reserve_identity_review_attempt', 'release_identity_review_attempt'].includes(name)) return { data: true };
     if (name !== 'consume_identity_review_step_up') throw new Error('Unexpected RPC');
     const proof = (db.identity_review_step_up || []).find(row => row.reviewer_id === payload.p_reviewer_id
       && row.auth_session_id === payload.p_auth_session_id
@@ -505,7 +505,7 @@ test('step-up stops before proof issuance when the shared attempt authority deni
   const input = { token: 'admin-token', body: { operation: 'case:detail', password: PASSWORD } };
   try {
     supabase.rpc = async name => {
-      assert.equal(name, 'claim_identity_review_attempt');
+      assert.equal(name, 'reserve_identity_review_attempt');
       return { data: false };
     };
     assert.equal((await req('POST', path, input)).status, 429);

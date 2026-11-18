@@ -1,3 +1,4 @@
+import { syntheticVerificationImage } from './fixtures/synthetic-verification-image.js';
 import { mockIdentityClaim, mockIdentityDecision } from './support/mockIdentityClaim.js';
 /**
  * Owner device Gate 2 regressions (retest round 2):
@@ -92,7 +93,7 @@ function createMockClient() {
 
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
 const admin = { id: 'admin-1', userId: 'admin-1', role: 'admin', tenantId: null };
-const image = 'data:image/jpeg;base64,' + Buffer.from('household-object-book').toString('base64');
+const image = syntheticVerificationImage;
 
 let __imgSeq = 0;
 function validImage() {

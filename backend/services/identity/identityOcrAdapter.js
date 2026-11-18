@@ -3,21 +3,16 @@
 import { configuredIdentityVisionProvider } from '../ai/ocrVisionProvider.js';
 import { decodeDocumentPayload } from '../document-intelligence/documentMedia.js';
 import { DOCUMENT_SCHEMAS, FIELD_ALIASES, OCR_SCHEMA_VERSION } from '../document-intelligence/documentSchemas.js';
+import { evidenceImageMime } from './evidenceImageFormat.js';
 
 const TYPES = Object.freeze({ national_id: 'national_id', passport: 'passport', driver_license: 'drivers_license', drivers_license: 'drivers_license' });
-function sniff(buffer) {
-  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
-  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) return 'image/png';
-  if (buffer.length >= 12 && buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP') return 'image/webp';
-  return null;
-}
 
 export function makeIdentityOcrAdapter(provider) {
   if (!provider || typeof provider.extract !== 'function') return null;
   return {
     async classifyDocument(front, _back, _selfie, docType) {
       const schema = DOCUMENT_SCHEMAS[TYPES[docType]];
-      const mimeType = front && sniff(front);
+      const mimeType = evidenceImageMime(front);
       if (!schema || !mimeType) return { classification: 'unsupported_document', classificationConfidence: null, reason: 'Unsupported document.', provider: provider.id, model: provider.model };
       try {
         const output = await provider.extract({
@@ -38,7 +33,7 @@ export function makeIdentityOcrAdapter(provider) {
     if (!schema) return { success: false, error: 'UNSUPPORTED_DOCUMENT' };
     let media;
     try { media = decodeDocumentPayload(dataUri); } catch { return { success: false, error: 'INVALID_DOCUMENT_MEDIA' }; }
-    const actualMime = sniff(media.buffer);
+    const actualMime = evidenceImageMime(media.buffer);
     if (!actualMime || actualMime !== media.mimeType || (media.declaredMimeType && media.declaredMimeType.replace('image/jpg','image/jpeg') !== actualMime)) {
       return { success: false, error: 'INVALID_DOCUMENT_MEDIA' };
     }
@@ -54,6 +49,7 @@ export function makeIdentityOcrAdapter(provider) {
       return { success: false, error: 'OCR_PROVIDER_INVALID_OUTPUT', provider: provider.id, model: provider.model };
     }
     if (parsed.document_class_observed !== schema.documentClass) return { success: false, error: 'UNSUPPORTED_DOCUMENT', provider: provider.id, model: provider.model };
+    if (typeof parsed.legible !== 'boolean') return { success: false, error: 'OCR_PROVIDER_INVALID_OUTPUT', provider: provider.id, model: provider.model };
     if (parsed.legible === false) return { success: false, error: 'DOCUMENT_UNREADABLE', provider: provider.id, model: provider.model };
     const extractedData = {};
     const additional = {};

@@ -5,6 +5,7 @@ import { supabase } from '../../db/supabase.js';
 import { logAuditEvent, requestContext, writeLegacyAuditMirror } from '../auditLogger.js';
 import { downloadFromStorage, uploadToStorage, removeFromStorage, generateSecureReadUrl } from '../storage/storageService.js';
 import { validateEvidenceImages } from './evidenceValidation.js';
+import { evidenceImageMime } from './evidenceImageFormat.js';
 import { compareAccountToDocument, documentHolderName } from './identityBinding.js';
 import { DocumentClassifier, EVIDENCE_CLASSIFICATION, EXTRACTION_TRUST_STATUS } from './documentClassifier.js';
 import { DecisionPolicyEngine } from './decisionPolicy.js';
@@ -116,20 +117,32 @@ function parseImagePayload(payload = {}) {
     throw new ValidationError('A base64 image payload is required.');
   }
 
-  const dataUriMatch = image.match(/^data:([^;]+);base64,(.+)$/);
-  const mimeType = String(payload.mimeType || dataUriMatch?.[1] || 'image/jpeg').toLowerCase();
+  if (image.length > 4 * Math.ceil(MAX_IMAGE_BYTES / 3) + 64) {
+    throw new ValidationError('Verification image exceeds the 15MB limit.');
+  }
+  const dataUriMatch = image.match(/^data:([^;,]+);base64,([\s\S]*)$/);
+  const declared = String(payload.mimeType || dataUriMatch?.[1] || 'image/jpeg').toLowerCase();
+  const mimeType = declared === 'image/jpg' ? 'image/jpeg' : declared;
+  const embeddedType = dataUriMatch?.[1].toLowerCase().replace(/^image\/jpg$/, 'image/jpeg');
   const base64 = dataUriMatch ? dataUriMatch[2] : image;
 
-  if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+  if (!ALLOWED_MIME_TYPES.has(mimeType) || (embeddedType && embeddedType !== mimeType)) {
     throw new ValidationError('Unsupported verification image MIME type.');
   }
 
-  const buffer = Buffer.from(base64, 'base64');
-  if (!buffer.length) {
-    throw new ValidationError('Verification image payload is empty.');
+  if (!base64 || /[^A-Za-z0-9+/=]/.test(base64)) {
+    throw new ValidationError('Invalid base64 verification image.');
   }
+  const buffer = Buffer.from(base64, 'base64');
   if (buffer.length > MAX_IMAGE_BYTES) {
     throw new ValidationError('Verification image exceeds the 15MB limit.');
+  }
+  const canonical = buffer.toString('base64');
+  if (base64 !== canonical && base64 !== canonical.replace(/=+$/, '')) {
+    throw new ValidationError('Invalid base64 verification image.');
+  }
+  if (evidenceImageMime(buffer) !== mimeType) {
+    throw new ValidationError('Verification image data does not match its declared type.');
   }
 
   return { buffer, mimeType, dataUri: `data:${mimeType};base64,${base64}` };

@@ -39,7 +39,8 @@ for migration in \
   20261118010000_identity_reviewer_independence.sql \
   20261118020000_identity_review_immutable_associations.sql \
   20261118021000_identity_review_step_up.sql \
-  20261118022000_identity_review_shared_attempt_budget.sql; do
+  20261118022000_identity_review_shared_attempt_budget.sql \
+  20261118023000_identity_review_refundable_budget.sql; do
   "${PSQL[@]}" -q -f "$script_dir/database/migrations/$migration"
 done
 # Repeat the candidate migrations to verify their idempotent installation.
@@ -50,6 +51,7 @@ done
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118020000_identity_review_immutable_associations.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118021000_identity_review_step_up.sql"
 "${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118022000_identity_review_shared_attempt_budget.sql"
+"${PSQL[@]}" -q -f "$script_dir/database/migrations/20261118023000_identity_review_refundable_budget.sql"
 "${PSQL[@]}" -q <<'SQL'
 INSERT INTO users(id,name,email,role,join_date) VALUES ('test-owner','Synthetic User','synthetic@example.invalid','owner','2026-01-01');
 INSERT INTO verification_sessions(id,user_id,document_type,status,version,front_storage_path,selfie_storage_path) VALUES ('11111111-1111-4111-8111-111111111111','test-owner','passport','uploaded',1,'fixture/front','fixture/selfie');

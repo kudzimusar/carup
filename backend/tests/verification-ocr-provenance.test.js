@@ -1,3 +1,4 @@
+import { syntheticVerificationImage } from './fixtures/synthetic-verification-image.js';
 import { mockIdentityClaim } from './support/mockIdentityClaim.js';
 /**
  * Phase 7C Workstream D — OCR provenance persistence.
@@ -83,7 +84,7 @@ function createMockClient() {
 }
 
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
-const image = 'data:image/jpeg;base64,' + Buffer.from('seed').toString('base64');
+const image = syntheticVerificationImage;
 
 let __imgSeq = 0;
 function validImage() {

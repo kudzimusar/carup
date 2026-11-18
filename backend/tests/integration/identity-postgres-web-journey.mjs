@@ -5,7 +5,9 @@ import { PNG } from 'pngjs';
 
 const password = process.env.CARUP_IDV_TEST_PASSWORD;
 if (!password) throw new Error('Set the ephemeral synthetic password.');
-const base = 'http://127.0.0.1:5074';
+const port = Number(process.env.CARUP_IDV_TEST_PREVIEW_PORT || 5074);
+if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid loopback port.');
+const base = `http://127.0.0.1:${port}`;
 const applicantRoot = '/api/identity/verification-sessions';
 const reviewerRoot = '/api/admin/identity/verification-sessions';
 
@@ -39,7 +41,7 @@ function image() {
 }
 
 const applicant = await login('applicant');
-const reviewer = await login('reviewer');
+const reviewer = await login(process.env.CARUP_IDV_TEST_REVIEWER === 'second' ? 'reviewer-two' : 'reviewer');
 const session = (await request(applicantRoot, {
   account: applicant, body: { documentType: 'passport', doubleSided: false }, expected: 201,
 })).session;

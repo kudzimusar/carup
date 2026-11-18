@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { supabase } from '../../db/supabase.js';
 import { verifyPassword } from '../../utils/passwordAuth.js';
 import { CarUpError, ForbiddenError, ValidationError } from '../../utils/errors.js';
@@ -36,10 +36,12 @@ export async function issueReviewerStepUp(actor, caseId, body = {}, client = sup
   if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
     throw new ForbiddenError('Enter your current account password.');
   }
-  const { data: allowed, error: budgetError } = await client.rpc('claim_identity_review_attempt', {
+  const reservation = {
     p_reviewer_id: actor.userId,
     p_auth_session_id: String(actor.authenticatedSessionId),
-  });
+    p_reservation: randomUUID(),
+  };
+  const { data: allowed, error: budgetError } = await client.rpc('reserve_identity_review_attempt', reservation);
   if (budgetError || typeof allowed !== 'boolean') throw unavailable();
   if (!allowed) throw new CarUpError('Reviewer credential verification is limited. Try again later.', 429, 'REVIEWER_STEP_UP_LIMITED');
 
@@ -49,6 +51,8 @@ export async function issueReviewerStepUp(actor, caseId, body = {}, client = sup
   if (!roles.has(user?.role) || !await verifyPassword(password, user?.password_hash)) {
     throw new ForbiddenError('Reviewer credential verification failed.');
   }
+  const { data: released, error: releaseError } = await client.rpc('release_identity_review_attempt', reservation);
+  if (releaseError || released !== true) throw unavailable();
   const { data: record, error: caseError } = await client.from('verification_sessions')
     .select('user_id').eq('id', caseId).maybeSingle();
   if (caseError) throw unavailable();

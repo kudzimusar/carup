@@ -1,3 +1,4 @@
+import { syntheticVerificationImage } from './fixtures/synthetic-verification-image.js';
 import { mockIdentityClaim } from './support/mockIdentityClaim.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -8,6 +9,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 const {
   createVerificationSession,
   getVerificationSession,
+  parseImagePayload,
   submitVerificationSession,
   uploadVerificationSessionImage,
 } = await import('../services/identity/verificationSessionService.js');
@@ -126,7 +128,7 @@ function createMockClient() {
 }
 
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
-const image = 'data:image/jpeg;base64,' + Buffer.from('not-a-real-document').toString('base64');
+const image = syntheticVerificationImage;
 
 // A buffer that passes Workstream C evidence validation (valid JPEG magic,
 // non-trivial size) so the OCR-decision path is exercised. Distinct fill per
@@ -149,6 +151,14 @@ test('creates verification session and writes audit event', async () => {
   assert.equal(session.double_sided, true);
   assert.equal(session.uploaded_sides.front, false);
   assert.equal(client.data.trust_audit_events.at(-1).event_type, 'VERIFICATION_SESSION_CREATED');
+});
+
+test('applicant upload refuses oversized, noncanonical and mislabeled evidence before storage', () => {
+  assert.equal(parseImagePayload({ image }).mimeType, 'image/jpeg');
+  assert.throws(() => parseImagePayload({ image, mimeType: 'image/png' }), /MIME type/);
+  assert.throws(() => parseImagePayload({ image: 'data:image/jpeg;base64,/9j/YWJjZGVmZ2j/2Q==' }), /does not match/);
+  assert.throws(() => parseImagePayload({ image: 'AB==' }), /base64/);
+  assert.throws(() => parseImagePayload({ image: 'A'.repeat(20 * 1024 * 1024 + 65) }), /15MB/);
 });
 
 test('uploads images to private storage and returns sanitized session', async () => {
