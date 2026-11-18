@@ -8,8 +8,7 @@
 
 import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
-import { emitDomainEvent } from '../eventBus/eventBusService.js';
-import { logAuditEvent } from '../auditLogger.js';
+import { requestContext, writeLegacyAuditMirror } from '../auditLogger.js';
 import { DecisionPolicyEngine } from './decisionPolicy.js';
 import {
   DECISION_ACTION,
@@ -21,15 +20,6 @@ import {
 } from './caseWorkflow.js';
 import { getReasonConfig } from './reasonCodes.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
-
-// Decisions that materially change the applicant's verification outcome and
-// therefore surface to the applicant through the communication engine.
-// Internal-only actions (escalate, internal notes) never notify the applicant.
-const APPLICANT_FACING_DECISIONS = Object.freeze([
-  DECISION_ACTION.APPROVE,
-  DECISION_ACTION.REQUEST_RESUBMISSION,
-  DECISION_ACTION.REJECT,
-]);
 
 export class VerificationDecisionRecorder {
   /**
@@ -45,6 +35,7 @@ export class VerificationDecisionRecorder {
     reviewerId,
     reviewerRole,
     currentWorkflowPhase,
+    expectedRevision,
     req,
   }) {
     const timestamp = new Date().toISOString();
@@ -88,10 +79,17 @@ export class VerificationDecisionRecorder {
         .maybeSingle();
 
       if (existingDecision) {
+        if (existingDecision.decision !== action || (existingDecision.reason_code || null) !== (reasonCode || null)
+          || (existingDecision.internal_note || null) !== (internalNote || null)
+          || (existingDecision.applicant_message || null) !== (applicantMessage || null)
+          || existingDecision.reviewer_id !== reviewerId) throw new ConflictError('Decision idempotency key was reused for a different request.');
         return VerificationDecisionRecorder._buildResponse(existingDecision, session, assessment);
       }
     }
 
+    if (expectedRevision !== undefined && expectedRevision !== session.version) {
+      throw new ConflictError('This case has changed. Reopen the case before deciding.');
+    }
     const policyCheck = DecisionPolicyEngine.isActionAllowed(action, assessment);
 
     if (!policyCheck.allowed) {
@@ -152,29 +150,6 @@ export class VerificationDecisionRecorder {
       created_at: timestamp,
     };
 
-    const { error: decisionError } = await client
-      .from('verification_decisions')
-      .insert(decisionRecord);
-
-    if (decisionError) {
-      // Idempotency check: if duplicate key, fetch existing. Scoped to this
-      // session like the proactive check above, so a reused key can never
-      // replay another session's decision.
-      if (decisionError.code === '23505' && idempotencyKey) {
-        const { data: existing } = await client
-          .from('verification_decisions')
-          .select('*')
-          .eq('idempotency_key', idempotencyKey)
-          .eq('session_id', session.id)
-          .maybeSingle();
-
-        if (existing) {
-          return VerificationDecisionRecorder._buildResponse(existing, session, assessment);
-        }
-      }
-      throw new Error(`Failed to record decision: ${decisionError.message}`);
-    }
-
     // Update the session for legacy compatibility
     const sessionUpdate = {
       updated_at: timestamp,
@@ -225,79 +200,24 @@ export class VerificationDecisionRecorder {
       }
     }
 
-    const updateQuery = client
-      .from('verification_sessions')
-      .update(sessionUpdate)
-      .eq('id', session.id);
-    if (sessionVersion != null) {
-      updateQuery.eq('version', sessionVersion);
-    }
-    const { data: updatedSession, error: updateError } = await updateQuery
-      .select()
-      .single();
-
-    if (!updatedSession) {
-      throw new ConflictError(
-        `Session version ${sessionVersion ?? 1} is stale. The session has been modified by another request.`
-      );
-    }
-
-    if (updateError) {
-      throw new Error(`Session update failed: ${updateError.message}`);
-    }
-
-    // Write audit event
     const eventType = VerificationDecisionRecorder._eventTypeForAction(action);
-    const auditResult = await logAuditEvent(client, {
-      req,
-      event_type: eventType,
-      actor_user_id: reviewerId,
-      actor_role: reviewerRole,
-      source_route: `/api/admin/identity/verification-sessions/${session.id}/review`,
-      targetType: 'verification_session',
-      targetId: session.id,
-      previous_value: {
-        status: session.status,
-        review_decision: session.review_decision || null,
-        workflow_phase: currentWorkflowPhase,
-      },
-      new_value: {
-        status: updatedSession.status,
-        review_decision: updatedSession.review_decision || null,
-        workflow_phase: resultingPhase,
-        final_disposition: disposition,
-        decision_id: decisionId,
-      },
-      reason: reasonCode || null,
-      decision_notes: internalNote || applicantMessage || null,
-      metadata: {
-        decision_id: decisionId,
-        reason_code: reasonCode,
-        idempotency_key: idempotencyKey,
-      },
+    // Decision, versioned case update and authoritative audit share one DB transaction.
+    // The migration is mandatory; no non-atomic fallback is permitted.
+    if (!Number.isInteger(sessionVersion)) throw new ConflictError('Session version is unavailable.');
+    const { data: atomicResult, error: atomicError } = await client.rpc('record_verification_decision_with_event_atomic', {
+      p_session_id: session.id, p_expected_version: sessionVersion, p_decision: decisionRecord,
+      p_update: sessionUpdate, p_event_type: eventType,
+      p_request_id: requestContext(req).requestId,
+      p_ip_address: requestContext(req).ipAddress, p_user_agent: requestContext(req).userAgent,
     });
+    if (atomicError || !atomicResult) throw new Error('Verification decision audit or update failed.');
+    if (atomicResult.code === 'REPLAY') return VerificationDecisionRecorder._buildResponse(atomicResult.decision, atomicResult.session, assessment);
+    if (atomicResult.code !== 'OK') throw new ConflictError('The verification case changed or the decision cannot be applied.');
+    const updatedSession = atomicResult.session;
+    void writeLegacyAuditMirror(client, { req, event_type: eventType, actor_user_id: reviewerId, actor_role: reviewerRole, targetType: 'verification_session', targetId: session.id, metadata: { decision_id: decisionId, reason_code: reasonCode, idempotency_key: idempotencyKey } }).catch(() => {});
 
-    if (!auditResult.success) {
-      console.warn('Decision audit write failed:', auditResult.error);
-    }
-
-    // Bridge the persisted decision into the communication engine (seam-E E5).
-    // Best-effort: the decision is already durable, so an outbox write failure
-    // must never fail the review action itself.
-    if (APPLICANT_FACING_DECISIONS.includes(action)) {
-      await emitDomainEvent(null, 'identity.verification.decided', {
-        sessionId: session.id,
-        userId: session.user_id,
-        recipientUserId: session.user_id,
-        decision: action,
-        reasonCodes: reasonCode ? [reasonCode] : [],
-        // verification_sessions has NO tenant_id column (live-verified), so
-        // session.tenant_id is always undefined — pass the platform scope (null)
-        // explicitly instead of reading a phantom column.
-      }, null).catch((err) => {
-        console.warn('identity.verification.decided outbox emit failed:', err.message);
-      });
-    }
+    // The RPC writes applicant-facing events to the existing outbox in the
+    // same transaction as the decision and authoritative audit.
 
     // Recompute allowed actions based on new state
     const newAssessment = {
@@ -356,6 +276,7 @@ export class VerificationDecisionRecorder {
         internal_note: decision.internal_note,
         reviewer_id: decision.reviewer_id,
         created_at: decision.created_at,
+        audit_event_type: VerificationDecisionRecorder._eventTypeForAction(decision.decision),
       },
       session,
       allowed_actions: DecisionPolicyEngine.getAllowedActions(assessment),

@@ -41,7 +41,7 @@ export function securityHeadersMiddleware(req, res, next) {
 /**
  * Custom Rate Limiter Middleware
  */
-export function rateLimiter({ max, windowMs, isSensitive = false, bucket = 'shared', keyBy = 'ip' }) {
+export function rateLimiter({ max, windowMs, isSensitive = false, bucket = 'shared', keyBy = 'ip', failClosed = false }) {
   if(typeof bucket!=='string'||!/^[a-z][a-z0-9-]{0,63}$/.test(bucket))
     throw new TypeError('INVALID_RATE_LIMIT_BUCKET');
   // keyBy:'account' (R6 #8a) counts per authenticated user id and MUST be mounted after session
@@ -103,6 +103,10 @@ export function rateLimiter({ max, windowMs, isSensitive = false, bucket = 'shar
       }
       next();
     }).catch((err) => {
+      if (failClosed) {
+        console.warn('[Security] Required rate-limit store unavailable.');
+        return res.status(503).json({ error: 'Credential verification is temporarily unavailable.' });
+      }
       // Fail open on store I/O errors (e.g. transient Redis outage) so the rate
       // limiter never takes down the API; surface a warning for observability.
       console.warn(`⚠️ [Security] Rate-limit store error (failing open): ${err.message}`);

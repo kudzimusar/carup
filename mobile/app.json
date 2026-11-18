@@ -7,7 +7,7 @@
     "orientation": "portrait",
     "scheme": "carup",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.carup.mobile"

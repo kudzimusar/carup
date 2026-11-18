@@ -87,6 +87,7 @@ const defaultSessions = [
 ]
 
 const sessionDetail = {
+  revision: 1,
   ...defaultSessions[0],
   evidence_classification: 'valid_identity_document',
   extraction_trust_status: 'trusted',
@@ -136,9 +137,15 @@ async function waitForSessions() {
   })
 }
 
+async function unlockCase() {
+  await userEvent.click(openFirstSession())
+  await userEvent.type(screen.getByLabelText('Current password'), 'synthetic-password')
+  await userEvent.click(screen.getByRole('button', { name: 'Open case' }))
+}
+
 async function openDialog() {
   await waitForSessions()
-  await userEvent.click(openFirstSession())
+  await unlockCase()
   await waitFor(() => {
     expect(screen.getByText('Case Disposition')).toBeInTheDocument()
   })
@@ -222,6 +229,7 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('session detail dialog', () => {
     beforeEach(() => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.endsWith('/step-up')) return Promise.resolve(jsonResponse({ proof: 'synthetic-proof' }))
         if (url.includes('/security/csrf-token')) {
           return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
         }
@@ -235,7 +243,7 @@ describe('IdentityVerificationCaseManagement', () => {
     it('opens dialog and loads session detail when clicking a session', async () => {
       render(<IdentityVerificationCaseManagement />)
       await waitForSessions()
-      await userEvent.click(openFirstSession())
+      await unlockCase()
 
       await waitFor(() => {
         expect(screen.getByText('Decision Summary')).toBeInTheDocument()
@@ -244,10 +252,35 @@ describe('IdentityVerificationCaseManagement', () => {
       expect(screen.getByText('Approve')).toBeInTheDocument()
     })
 
+    it('labels test evidence only after step-up and preserves unperformed checks', async () => {
+      globalThis.fetch = vi.fn((url: string) => {
+        if (url.endsWith('/step-up')) return Promise.resolve(jsonResponse({ proof: 'synthetic-proof' }))
+        if (url.includes('/security/csrf-token')) return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
+        if (url.includes(SESSION_ID_1)) return Promise.resolve(jsonResponse({ success: true, session: {
+          ...sessionDetail,
+          biometric_checks: { face_match: 'not_performed', liveness: 'not_performed', provider_state: 'not_configured' },
+          biometric_test_simulations: [
+            { purpose: 'face_document_match', evidence_revision: 3, test_decision: 'approved', provenance: 'TEST_SIMULATED' },
+            { purpose: 'liveness', evidence_revision: 4, test_decision: 'approved', provenance: 'unknown' },
+          ],
+        } }))
+        return Promise.resolve(jsonResponse({ success: true, sessions: defaultSessions }))
+      })
+      render(<IdentityVerificationCaseManagement />)
+      await waitForSessions()
+      expect(screen.queryByText('Simulated provider tests')).not.toBeInTheDocument()
+      await unlockCase()
+      expect(await screen.findByText('Simulated provider tests')).toBeInTheDocument()
+      expect(screen.getByText(/Simulated result: Approved · Evidence revision 3/)).toBeInTheDocument()
+      expect(screen.queryByText(/Evidence revision 4/)).not.toBeInTheDocument()
+      expect(screen.getByText('Face matching: Not Performed')).toBeInTheDocument()
+      expect(screen.getByText('Liveness: Not Performed')).toBeInTheDocument()
+    })
+
     it('shows identity binding match information', async () => {
       render(<IdentityVerificationCaseManagement />)
       await waitForSessions()
-      await userEvent.click(openFirstSession())
+      await unlockCase()
 
       await waitFor(() => {
         expect(screen.getByText('Identity Comparison')).toBeInTheDocument()
@@ -257,7 +290,7 @@ describe('IdentityVerificationCaseManagement', () => {
     it('displays case timeline when decisions exist', async () => {
       render(<IdentityVerificationCaseManagement />)
       await waitForSessions()
-      await userEvent.click(openFirstSession())
+      await unlockCase()
 
       await waitFor(() => {
         expect(screen.getByText('Case Timeline')).toBeInTheDocument()
@@ -268,6 +301,7 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('evidence preview', () => {
     it('loads and displays evidence preview image on button click', async () => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.endsWith('/step-up')) return Promise.resolve(jsonResponse({ proof: 'synthetic-proof' }))
         if (url.includes('/security/csrf-token')) {
           return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
         }
@@ -285,11 +319,13 @@ describe('IdentityVerificationCaseManagement', () => {
 
       render(<IdentityVerificationCaseManagement />)
       await waitForSessions()
-      await userEvent.click(openFirstSession())
+      await unlockCase()
 
       await waitFor(() => { expect(screen.getByText('Evidence')).toBeInTheDocument() })
 
       await userEvent.click(screen.getByText('Show front'))
+      await userEvent.type(screen.getByLabelText('Current password'), 'synthetic-password')
+      await userEvent.click(screen.getByRole('button', { name: 'Open preview' }))
 
       await waitFor(() => {
         const img = screen.getByAltText('front evidence')
@@ -301,6 +337,7 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('decision form', () => {
     beforeEach(() => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.endsWith('/step-up')) return Promise.resolve(jsonResponse({ proof: 'synthetic-proof' }))
         if (url.includes('/security/csrf-token')) {
           return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
         }
@@ -347,6 +384,48 @@ describe('IdentityVerificationCaseManagement', () => {
       })
     })
 
+    it('keeps the request key when the response is lost and asks for a fresh password', async () => {
+      const fallback = globalThis.fetch
+      const keys: Array<string | null> = []
+      globalThis.fetch = vi.fn((input, init) => {
+        if (String(input).endsWith('/review')) {
+          keys.push(new Headers(init?.headers).get('x-idempotency-key'))
+          if (keys.length === 1) return Promise.reject(new TypeError('Failed to fetch'))
+        }
+        return fallback(input, init)
+      })
+      render(<IdentityVerificationCaseManagement />)
+      await openDialog()
+      await userEvent.click(screen.getByText('Approve identity'))
+      await userEvent.click(screen.getByText('Confirm Decision'))
+      await userEvent.type(screen.getByLabelText('Current password'), 'synthetic-password{Enter}')
+      expect(await screen.findByRole('alert')).toHaveTextContent('retry the same decision')
+      expect(screen.getByLabelText('Current password')).toHaveValue('')
+      await userEvent.type(screen.getByLabelText('Current password'), 'synthetic-password{Enter}')
+      expect(await screen.findByText(/Decision saved/i)).toBeInTheDocument()
+      expect(keys).toHaveLength(2)
+      expect(keys[0]).toBeTruthy()
+      expect(keys[1]).toBe(keys[0])
+    })
+
+    it('closes a stale confirmation and requires reopening the current case', async () => {
+      const fallback = globalThis.fetch
+      globalThis.fetch = vi.fn((input, init) => {
+        if (String(input).endsWith('/review')) {
+          return Promise.resolve(new Response(JSON.stringify({ error: 'Case changed' }), { status: 409 }))
+        }
+        return fallback(input, init)
+      })
+      render(<IdentityVerificationCaseManagement />)
+      await openDialog()
+      await userEvent.click(screen.getByText('Approve identity'))
+      await userEvent.click(screen.getByText('Confirm Decision'))
+      await userEvent.type(screen.getByLabelText('Current password'), 'synthetic-password{Enter}')
+      expect(await screen.findByRole('alert')).toHaveTextContent('Open it again')
+      expect(screen.getByRole('button', { name: 'Open case', exact: true })).toBeDisabled()
+      expect(screen.queryByText('Approve identity')).not.toBeInTheDocument()
+    })
+
     it('submits an approve decision through the confirmation dialog and shows success panel', async () => {
       render(<IdentityVerificationCaseManagement />)
       await openDialog()
@@ -359,10 +438,13 @@ describe('IdentityVerificationCaseManagement', () => {
         expect(screen.getByText(/Confirm Approve/i)).toBeInTheDocument()
       })
 
-      await userEvent.click(screen.getByRole('button', { name: /confirm/i }))
+      await userEvent.type(screen.getByLabelText('Current password'), 'synthetic-password')
+      await userEvent.click(screen.getByRole('button', { name: 'Confirm', exact: true }))
 
       await waitFor(() => {
         expect(screen.getByText(/Decision saved/i)).toBeInTheDocument()
+        expect(screen.getByText('Applicant notification queued. Delivery is unconfirmed.')).toBeInTheDocument()
+        expect(screen.queryByText('Decision Summary')).not.toBeInTheDocument()
       })
     })
   })
@@ -370,6 +452,7 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('error handling', () => {
     it('shows error toast when session detail fetch fails', async () => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.endsWith('/step-up')) return Promise.resolve(jsonResponse({ proof: 'synthetic-proof' }))
         if (url.includes('/security/csrf-token')) {
           return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
         }
@@ -381,10 +464,10 @@ describe('IdentityVerificationCaseManagement', () => {
 
       render(<IdentityVerificationCaseManagement />)
       await waitForSessions()
-      await userEvent.click(openFirstSession())
+      await unlockCase()
 
       await waitFor(() => {
-        expect(mockToast.error).toHaveBeenCalledWith('Failed to load session detail')
+        expect(mockToast.error).toHaveBeenCalledWith('Not found')
       })
     })
   })
@@ -392,6 +475,7 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('disposition flows', () => {
     beforeEach(() => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.endsWith('/step-up')) return Promise.resolve(jsonResponse({ proof: 'synthetic-proof' }))
         if (url.includes('/security/csrf-token')) {
           return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
         }
@@ -435,6 +519,7 @@ describe('IdentityVerificationCaseManagement', () => {
 
     it('reject flow requires reason code before confirming', async () => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.endsWith('/step-up')) return Promise.resolve(jsonResponse({ proof: 'synthetic-proof' }))
         if (url.includes('/security/csrf-token')) {
           return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
         }
@@ -504,6 +589,7 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('close and state reset', () => {
     it('cancel button in decision form closes dialog', async () => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.endsWith('/step-up')) return Promise.resolve(jsonResponse({ proof: 'synthetic-proof' }))
         if (url.includes('/security/csrf-token')) {
           return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
         }
@@ -515,7 +601,7 @@ describe('IdentityVerificationCaseManagement', () => {
       render(<IdentityVerificationCaseManagement />)
       await waitForSessions()
 
-      await userEvent.click(openFirstSession())
+      await unlockCase()
       await waitFor(() => {
         expect(screen.getByText('Case Disposition')).toBeInTheDocument()
       })
@@ -531,6 +617,7 @@ describe('IdentityVerificationCaseManagement', () => {
     it('does not show case timeline when no decisions exist', async () => {
       const noDecisions = { ...sessionDetail, decisions: [] }
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.endsWith('/step-up')) return Promise.resolve(jsonResponse({ proof: 'synthetic-proof' }))
         if (url.includes('/security/csrf-token')) {
           return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
         }
@@ -542,7 +629,7 @@ describe('IdentityVerificationCaseManagement', () => {
 
       render(<IdentityVerificationCaseManagement />)
       await waitForSessions()
-      await userEvent.click(openFirstSession())
+      await unlockCase()
 
       await waitFor(() => {
         expect(screen.getByText('Decision Summary')).toBeInTheDocument()
@@ -569,9 +656,10 @@ describe('device retest round 2 regressions (source-level)', () => {
     expect(src).toContain('`Automated: ${EVIDENCE_CLASSIFICATION_LABELS[session.evidence_classification]}`')
   })
 
-  it('admin cards surface the applicant identity with a user-id fallback', () => {
-    expect(src).toContain('session.applicant_name')
-    expect(src).toContain('session.applicant_email')
+  it('renders case references in the queue without applicant names or emails', () => {
+    expect(src).toContain('Open verification case')
+    expect(src).not.toContain('session.applicant_email')
+    expect(src).not.toContain('session.applicant_name')
   })
 
   it('the resubmission queue has a distinct sub-filter label', () => {
@@ -580,8 +668,7 @@ describe('device retest round 2 regressions (source-level)', () => {
 
   it('a failed load NEVER renders zero counts — counts show — and the error panel offers Retry', () => {
     expect(src).toContain('setLoadError(true)')
-    expect(src).toContain("'(—)'")
     expect(src).toContain('Could not load verification sessions.')
-    expect(src).toContain('they are NOT zero')
+    expect(src).toContain('Retry to retrieve the current queue.')
   })
 })

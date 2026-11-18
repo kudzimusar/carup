@@ -1,3 +1,4 @@
+import { mockIdentityDecision } from './support/mockIdentityClaim.js';
 /**
  * Phase 7C — Decision policy engine tests.
  *
@@ -524,6 +525,7 @@ test('approve on already-rejected case is forbidden', () => {
 function makeMockClient({ decisions, auditEvents, sessions }) {
   return {
     sequence: 0,
+    rpc(name, payload) { if (name !== 'record_verification_decision_with_event_atomic') throw new Error('Unexpected RPC'); return mockIdentityDecision(this.data, payload); },
     data: {
       verification_sessions: sessions,
       verification_decisions: decisions,

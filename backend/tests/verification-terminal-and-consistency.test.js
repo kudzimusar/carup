@@ -1,3 +1,5 @@
+import { syntheticVerificationImage } from './fixtures/synthetic-verification-image.js';
+import { mockIdentityClaim, mockIdentityDecision } from './support/mockIdentityClaim.js';
 /**
  * Owner device Gate 2 regressions (retest round 2):
  *
@@ -48,6 +50,7 @@ class MockQuery {
       const inserted = rows.map((r) => ({
         id: r.id || `row-${++this.client.sequence}`,
         created_at: r.created_at || new Date(2026, 0, ++this.client.sequence).toISOString(),
+        ...(this.table === 'verification_sessions' ? { version: 1 } : {}),
         ...clone(r),
       }));
       this.rows().push(...inserted);
@@ -73,6 +76,7 @@ class MockQuery {
 function createMockClient() {
   return {
     sequence: 0,
+    rpc(name, payload) { return name === 'record_verification_decision_with_event_atomic' ? mockIdentityDecision(this.data, payload) : mockIdentityClaim(this, name, payload); },
     data: {
       verification_sessions: [],
       verification_decisions: [],
@@ -89,7 +93,7 @@ function createMockClient() {
 
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
 const admin = { id: 'admin-1', userId: 'admin-1', role: 'admin', tenantId: null };
-const image = 'data:image/jpeg;base64,' + Buffer.from('household-object-book').toString('base64');
+const image = syntheticVerificationImage;
 
 let __imgSeq = 0;
 function validImage() {
@@ -210,4 +214,24 @@ test('latest-session lookup returns the newest sanitized session (or null)', asy
   assert.equal(latest.document_type, 'national_id');
   // Sanitized shape: storage paths never leak.
   assert.equal('front_storage_path' in latest, false);
+});
+
+
+test('latest status and the create guard use the newest millisecond for PostgreSQL Date values', async () => {
+  const previous = { id: 'older', status: 'pending_manual_review', created_at: new Date('2026-11-18T08:45:01.100Z') };
+  const rejected = { id: 'newest', status: 'rejected', created_at: new Date('2026-11-18T08:45:01.900Z') };
+  const client = { from: () => ({ select: () => ({
+    eq: async () => ({ data: [previous, rejected], error: null }),
+  }) }) };
+
+  assert.equal((await getLatestVerificationSessionForUser(client, owner)).id, rejected.id);
+  await assert.rejects(() => createVerificationSession(client, owner, { documentType: 'passport' }), ForbiddenError);
+});
+
+test('cannot start a new verification when prior status cannot be read', async () => {
+  const client = { from: () => ({ select: () => ({
+    eq: async () => ({ data: null, error: { message: 'fixture database failure' } }),
+  }) }) };
+
+  await assert.rejects(() => createVerificationSession(client, owner, { documentType: 'passport' }), /Verification service operation failed/);
 });

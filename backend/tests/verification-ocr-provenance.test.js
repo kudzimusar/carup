@@ -1,3 +1,5 @@
+import { syntheticVerificationImage } from './fixtures/synthetic-verification-image.js';
+import { mockIdentityClaim } from './support/mockIdentityClaim.js';
 /**
  * Phase 7C Workstream D — OCR provenance persistence.
  *
@@ -46,7 +48,7 @@ class MockQuery {
     }
     if (this.operation === 'insert') {
       const rows = Array.isArray(this.payload) ? this.payload : [this.payload];
-      const inserted = rows.map((r) => ({ id: r.id || `row-${++this.client.sequence}`, ...clone(r) }));
+      const inserted = rows.map((r) => ({ id: r.id || `row-${++this.client.sequence}`, ...(this.table === 'verification_sessions' ? { version: 1 } : {}), ...clone(r) }));
       this.rows().push(...inserted);
       return single ? { data: clone(inserted[0]), error: null } : { data: clone(inserted), error: null };
     }
@@ -67,6 +69,7 @@ class MockQuery {
 function createMockClient() {
   return {
     sequence: 0,
+    rpc(name, payload) { return mockIdentityClaim(this, name, payload); },
     failProvenance: false,
     data: {
       verification_sessions: [],
@@ -81,7 +84,7 @@ function createMockClient() {
 }
 
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
-const image = 'data:image/jpeg;base64,' + Buffer.from('seed').toString('base64');
+const image = syntheticVerificationImage;
 
 let __imgSeq = 0;
 function validImage() {
@@ -156,7 +159,7 @@ test('D: a failed OCR run records provenance with succeeded=false and no identit
 
   const p = client.data.verification_ocr_provenance.at(-1);
   assert.equal(p.succeeded, false);
-  assert.match(p.failure_reason, /OCR provider unavailable/);
+  assert.equal(p.failure_reason, 'TECHNICAL_ERROR');
   assert.equal(p.metadata.final_status, 'ocr_failed');
 });
 

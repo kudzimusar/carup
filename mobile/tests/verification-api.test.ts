@@ -6,6 +6,7 @@
 import { strict as assert } from 'node:assert';
 import {
   getVerificationApiBaseUrl,
+  confirmationIdempotencyKey,
   mapSessionToVerificationOutcome,
   VerificationSession,
 } from '../utils/verificationApi';
@@ -17,11 +18,8 @@ function session(status: VerificationSession['status'], overrides: Partial<Verif
     double_sided: true,
     status,
     uploaded_sides: { front: true, back: true, selfie: true },
-    ocr_document_id: null,
     ocr_result: null,
     confidence_score: null,
-    failure_reason: null,
-    review_notes: null,
     retry_reason: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -45,6 +43,13 @@ console.log('\n=== PHASE 7B VERIFICATION API TEST ===\n');
 
 test('requires EXPO_PUBLIC_API_URL', () => {
   assert.throws(() => getVerificationApiBaseUrl({}, 'ios'), /EXPO_PUBLIC_API_URL/);
+});
+
+test('confirmation retries retain a key for the same case and revision', () => {
+  const caseId = '12345678-1234-4234-8234-123456789012';
+  assert.equal(confirmationIdempotencyKey(caseId, 8), confirmationIdempotencyKey(caseId, 8));
+  assert.notEqual(confirmationIdempotencyKey(caseId, 8), confirmationIdempotencyKey(caseId, 9));
+  assert.throws(() => confirmationIdempotencyKey('invalid', 8));
 });
 
 test('blocks localhost for native devices by default', () => {
@@ -74,26 +79,46 @@ test('maps verified backend sessions to verified mobile state', () => {
 });
 
 test('maps pending manual review to needs_review without verified claim', () => {
+  const outcome = mapSessionToVerificationOutcome(session('pending_manual_review'));
+  assert.equal(outcome.status, 'needs_review');
+  assert.match(outcome.processingError || '', /manual review/);
+});
+
+test('shows specialist review without opening OCR confirmation for an escalated case', () => {
   const outcome = mapSessionToVerificationOutcome(session('pending_manual_review', {
-    review_notes: 'Reviewer must inspect document quality.',
+    workflow_phase: 'escalated',
+    ocr_result: { first_name: 'Synthetic' },
+    ocr_execution_status: 'provider_succeeded',
   }));
   assert.equal(outcome.status, 'needs_review');
-  assert.match(outcome.processingError || '', /Reviewer/);
+  assert.equal(outcome.needsConfirmation, false);
+  assert.match(outcome.processingError || '', /specialist review/);
+});
+
+test('an interrupted draft, capture or upload offers an incomplete state', () => {
+  for (const status of ['draft', 'captured', 'uploaded'] as const) {
+    const outcome = mapSessionToVerificationOutcome(session(status));
+    assert.equal(outcome.status, 'incomplete');
+    assert.equal(outcome.sessionId, 'session-1');
+  }
+});
+
+test('requests confirmation only for unconfirmed successful OCR', () => {
+  const observed = { first_name: 'Ada' };
+  assert.equal(mapSessionToVerificationOutcome(session('pending_manual_review', { ocr_result: observed, ocr_execution_status: 'provider_succeeded' })).needsConfirmation, true);
+  assert.equal(mapSessionToVerificationOutcome(session('pending_manual_review', { ocr_result: observed, ocr_execution_status: 'provider_succeeded', ocr_confirmation_completed: true })).needsConfirmation, false);
+  assert.equal(mapSessionToVerificationOutcome(session('pending_manual_review', { ocr_result: observed, ocr_execution_status: 'provider_failed' })).needsConfirmation, false);
 });
 
 test('maps OCR failure to ocr_failed', () => {
-  const outcome = mapSessionToVerificationOutcome(session('ocr_failed', {
-    failure_reason: 'OCR provider unavailable',
-  }));
+  const outcome = mapSessionToVerificationOutcome(session('ocr_failed'));
   assert.equal(outcome.status, 'ocr_failed');
-  assert.match(outcome.processingError || '', /provider unavailable/);
+  assert.match(outcome.processingError || '', /could not complete/);
   assert.equal(outcome.sessionStatus, 'ocr_failed');
 });
 
 test('maps rejected backend session to rejected with the reviewer reason', () => {
-  const outcome = mapSessionToVerificationOutcome(session('rejected', {
-    review_notes: 'Document is illegible.',
-  }));
+  const outcome = mapSessionToVerificationOutcome(session('rejected', { applicant_message: 'Document is illegible.' }));
   assert.equal(outcome.status, 'rejected');
   assert.equal(outcome.sessionStatus, 'rejected');
   assert.match(outcome.processingError || '', /illegible/);

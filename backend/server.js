@@ -120,7 +120,8 @@ import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
 import trustFactRouter from './routes/trustFactRoutes.js';
-import identityVerificationRouter from './routes/identityVerificationRoutes.js';
+import identityVerificationRouter, { identityVeriffTestWebhook } from './routes/identityVerificationRoutes.js';
+import { VERIFF_TEST_WEBHOOK } from './services/identity/biometrics/veriffTestTransport.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import intelligenceActivityRouter from './routes/intelligenceActivityRoutes.js';
@@ -245,6 +246,8 @@ app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSe
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+
+app.post(VERIFF_TEST_WEBHOOK, identityVeriffTestWebhook);
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
 // verification checks the real payload the sender signed. The global parsers run before any

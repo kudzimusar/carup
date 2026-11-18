@@ -166,6 +166,7 @@ export interface IdentityBinding {
  */
 export interface AdminVerificationSession {
   id: string;
+  revision?: number | null;
   user_id: string;
   document_type: string;
   double_sided: boolean;
@@ -183,6 +184,23 @@ export interface AdminVerificationSession {
   review_decision: 'approve' | 'reject' | 'request_retry' | null;
   retry_reason: string | null;
   liveness_status: string | null;
+  biometric_checks?: { face_match: 'not_performed'; liveness: 'not_performed'; provider_state: 'not_configured' };
+  /** Present on stepped-up case detail in the isolated synthetic test environment. */
+  biometric_test_simulations?: Array<{
+    purpose: 'face_document_match' | 'liveness';
+    evidence_revision: number;
+    test_decision: 'approved' | 'declined' | 'resubmission_requested' | 'expired' | 'abandoned' | 'review' | null;
+    decision_at: string | null;
+    provenance: 'TEST_SIMULATED';
+  }>;
+  ocr_side_assessment?: {
+    front?: string;
+    back?: string;
+    comparison?: string;
+    classification?: { front: string; back: string };
+    conflictingFields?: string[];
+    fieldSources?: Record<string, ('front' | 'back')[]>;
+  } | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
   created_at: string;
@@ -192,6 +210,14 @@ export interface AdminVerificationSession {
   ocr_completed_at: string | null;
   /** Present on the detail view (null on the list). */
   identity_binding?: IdentityBinding | null;
+  applicant_confirmations?: Array<{
+    id: string;
+    applicant_user_id: string;
+    original_observations: Record<string, unknown>;
+    applicant_fields: Record<string, string>;
+    created_at: string;
+    source_ocr_started_at: string | null;
+  }>;
 }
 
 /** Backend response for a short-lived signed evidence preview URL. */

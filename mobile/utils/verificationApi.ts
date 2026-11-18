@@ -6,16 +6,19 @@ export interface VerificationSession {
   document_type: string;
   double_sided: boolean;
   status: 'draft' | 'captured' | 'uploaded' | 'ocr_pending' | 'ocr_failed' | 'pending_manual_review' | 'retry_requested' | 'verified' | 'rejected';
+  revision?: number | null;
+  workflow_phase?: string | null;
+  ocr_execution_status?: string | null;
+  ocr_confirmation_completed?: boolean;
+  confirmation_fields?: Array<{ name: string; label: string; required: boolean; source: 'top' | 'additional' }>;
   uploaded_sides: {
     front: boolean;
     back: boolean;
     selfie: boolean;
   };
-  ocr_document_id: string | null;
   ocr_result: OcrResult | null;
   confidence_score: number | null;
-  failure_reason: string | null;
-  review_notes: string | null;
+  applicant_message?: string | null;
   retry_reason: string | null;
   created_at: string;
   updated_at: string;
@@ -29,6 +32,9 @@ export interface VerificationFlowInput {
   capturedFront: string;
   capturedBack?: string | null;
   capturedSelfie: string;
+  existingSessionId?: string | null;
+  onSession?: (sessionId: string) => void;
+  shouldContinue?: () => boolean;
 }
 
 export interface VerificationOutcome {
@@ -38,6 +44,7 @@ export interface VerificationOutcome {
   processingError: string | null;
   /** Raw backend session status, used for shared status-mapping copy. */
   sessionStatus: VerificationSession['status'] | null;
+  needsConfirmation?: boolean;
 }
 
 export class VerificationApiError extends Error {
@@ -254,7 +261,30 @@ export async function getVerificationSession(sessionId: string) {
   return response.session;
 }
 
+export async function confirmVerificationOcr(sessionId: string, revision: number, idempotencyKey: string, fields: Record<string, string>) {
+  const response = await requestJson<{ success: boolean; confirmation: { revision: number; replayed: boolean } }>(
+    `/api/identity/verification-sessions/${sessionId}/ocr-confirmation`,
+    { method: 'POST', body: JSON.stringify({ revision, idempotencyKey, fields }) }
+  );
+  return response.confirmation;
+}
+
+/** Stable retry token for one session revision; authorization remains server-side. */
+export function confirmationIdempotencyKey(sessionId: string, revision: number): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId) || !Number.isSafeInteger(revision) || revision < 1 || revision > 0x7fffffff) {
+    throw new VerificationApiError('Invalid verification session revision.');
+  }
+  return revision.toString(16).padStart(8, '0') + sessionId.slice(8);
+}
+
 export function mapSessionToVerificationOutcome(session: VerificationSession): VerificationOutcome {
+  if (['draft', 'captured', 'uploaded'].includes(session.status)) {
+    return {
+      status: 'incomplete', sessionId: session.id, ocrResult: session.ocr_result,
+      processingError: 'Submission is incomplete. Retake your photos to resume this session.',
+      sessionStatus: session.status,
+    };
+  }
   if (session.status === 'verified') {
     return {
       status: 'verified',
@@ -270,7 +300,7 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       status: 'ocr_failed',
       sessionId: session.id,
       ocrResult: session.ocr_result,
-      processingError: session.failure_reason || 'OCR could not complete. A reviewer may need to inspect the capture.',
+      processingError: 'OCR could not complete. A reviewer may need to inspect the capture.',
       sessionStatus: session.status,
     };
   }
@@ -280,8 +310,11 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       status: 'needs_review',
       sessionId: session.id,
       ocrResult: session.ocr_result,
-      processingError: session.review_notes || session.failure_reason || 'Verification needs manual review before it can be marked verified.',
+      processingError: session.workflow_phase === 'escalated'
+        ? 'Your case is awaiting specialist review. You do not need to resubmit unless asked.'
+        : 'Verification needs manual review before it can be marked verified.',
       sessionStatus: session.status,
+      needsConfirmation: session.workflow_phase !== 'escalated' && session.ocr_execution_status === 'provider_succeeded' && Boolean(session.ocr_result && Object.keys(session.ocr_result).length) && !session.ocr_confirmation_completed,
     };
   }
 
@@ -290,7 +323,7 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       status: 'retry_requested',
       sessionId: session.id,
       ocrResult: session.ocr_result,
-      processingError: session.retry_reason || session.review_notes || 'A reviewer asked you to retake and resubmit your verification.',
+      processingError: session.retry_reason || 'A reviewer asked you to retake and resubmit your verification.',
       sessionStatus: session.status,
     };
   }
@@ -300,7 +333,7 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       status: 'rejected',
       sessionId: session.id,
       ocrResult: session.ocr_result,
-      processingError: session.review_notes || session.failure_reason || 'Verification was rejected.',
+      processingError: session.applicant_message || 'Verification was rejected.',
       sessionStatus: session.status,
     };
   }
@@ -315,14 +348,35 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
 }
 
 export async function runVerificationSessionFlow(input: VerificationFlowInput): Promise<VerificationOutcome> {
-  const session = await createVerificationSession(input.docType, input.doubleSided);
-  let latest = await uploadVerificationImage(session.id, 'front', input.capturedFront);
+  const checkActive = () => { if (input.shouldContinue && !input.shouldContinue()) throw new Error('Verification flow interrupted.'); };
+  checkActive();
+  const recoveredFromServer = !input.existingSessionId;
+  const saved = input.existingSessionId
+    ? await getVerificationSession(input.existingSessionId)
+    : await getLatestVerificationSession();
+  checkActive();
+  const session = saved || await createVerificationSession(input.docType, input.doubleSided);
+  input.onSession?.(session.id);
+  checkActive();
+  if (session.document_type !== input.docType || session.double_sided !== input.doubleSided) {
+    throw new VerificationApiError('The saved verification session does not match this document.', 409);
+  }
+  if (session.status === 'ocr_pending') return mapSessionToVerificationOutcome(await submitVerificationSession(session.id));
+  if (['pending_manual_review', 'verified', 'rejected'].includes(session.status)) return mapSessionToVerificationOutcome(session);
+  let latest = session;
+  // After a process restart, captures live only in memory. Replace the previous
+  // attempt's partial set with the newly captured set rather than mix photos.
+  const replacing = session.status === 'retry_requested' || Boolean(recoveredFromServer && saved && ['draft', 'captured', 'uploaded', 'ocr_failed'].includes(session.status));
+  if (replacing || !latest.uploaded_sides.front) latest = await uploadVerificationImage(session.id, 'front', input.capturedFront);
+  checkActive();
 
-  if (input.doubleSided && input.capturedBack) {
+  if (input.doubleSided && input.capturedBack && (replacing || !latest.uploaded_sides.back)) {
     latest = await uploadVerificationImage(session.id, 'back', input.capturedBack);
+    checkActive();
   }
 
-  latest = await uploadVerificationImage(session.id, 'selfie', input.capturedSelfie);
+  if (replacing || !latest.uploaded_sides.selfie) latest = await uploadVerificationImage(session.id, 'selfie', input.capturedSelfie);
+  checkActive();
   latest = await submitVerificationSession(latest.id);
 
   return mapSessionToVerificationOutcome(latest);

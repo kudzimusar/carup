@@ -30,11 +30,9 @@ export function evaluateVerificationEntry(
   if (!session) return { kind: 'allow' }; // first-ever attempt
 
   if (TERMINAL_STATUSES.has(session.status)) {
-    // Reviewer's applicant-facing message travels on failure_reason (reject)
-    // or retry_reason (legacy copy) — surface whichever exists.
+    // Only the explicitly applicant-facing message may be displayed here.
     const reason =
-      (session as { failure_reason?: string | null }).failure_reason ||
-      (session as { retry_reason?: string | null }).retry_reason ||
+      session.applicant_message ||
       null;
     return { kind: 'blocked-terminal', reason };
   }

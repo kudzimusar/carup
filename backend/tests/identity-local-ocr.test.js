@@ -1,0 +1,53 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { spawn } from 'node:child_process';
+import { runLocalIdentityOcr } from '../services/identity/localIdentityOcr.js';
+import { configuredIdentityOcrAdapter } from '../services/identity/identityOcrAdapter.js';
+
+test('local OCR requires explicit selection and only returns uncertain classification', async () => {
+  assert.equal(configuredIdentityOcrAdapter({ CARUP_OCR_PROVIDER: 'local-tesseract' }), null);
+  const adapter = configuredIdentityOcrAdapter({ CARUP_IDENTITY_OCR_ENABLED: 'true', CARUP_OCR_PROVIDER: 'local-tesseract' });
+  const result = await adapter.classifyDocument(null, null, null, 'passport');
+  assert.equal(result.classification, 'uncertain');
+  assert.equal(result.observationsOnly, true);
+  assert.equal((await adapter.classifyDocument(null, null, null, 'registration_book')).observationsOnly, false);
+});
+
+test('local worker timeout and actual child exit return sanitized failures', async () => {
+  const dummy = Buffer.from('unused');
+  await assert.rejects(runLocalIdentityOcr(dummy, 'passport', { timeoutMs: 1 }), /timed out/);
+  await assert.rejects(runLocalIdentityOcr(dummy, 'passport', {
+    start: () => spawn(process.execPath, ['-e', 'process.exit(1)'],
+      { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] }),
+  }), /exited without observations/);
+});
+
+test('malformed worker reply is refused and releases its slot', async () => {
+  let terminated = 0;
+  const start = () => {
+    const child = new EventEmitter();
+    child.kill = () => { terminated++; child.emit('close'); };
+    child.send = () => queueMicrotask(() => child.emit('message', { fields: [], legible: true }));
+    return child;
+  };
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(runLocalIdentityOcr(Buffer.alloc(0), 'passport', { start }), /invalid response/);
+  }
+  assert.equal(terminated, 3);
+});
+
+test('ICAO TD3 structural observations validate checksums without conferring identity', async () => {
+  const { inspectTd3Structure } = await import('../services/identity/localOcrStructure.js');
+  const upper = 'P<UTOERIKSSON<<ANNA<MARIA'.padEnd(44, '<');
+  const lower = 'L898902C36UTO7408122F1204159ZE184226B<<<<<10';
+  assert.equal(inspectTd3Structure(upper + '\n' + lower), 'checksums_pass');
+  const spacedRow = line => line.split('').join(' ');
+  assert.equal(inspectTd3Structure(spacedRow(upper) + '\r\n' + spacedRow(lower)), 'checksums_pass');
+  assert.equal(inspectTd3Structure(spacedRow(upper) + '\n' + spacedRow('I' + lower.slice(1))), 'checksums_fail');
+  assert.equal(inspectTd3Structure('P<UTO' + '<'.repeat(39) + '\n' + lower), 'unreadable');
+  assert.equal(inspectTd3Structure(upper + '\n' + lower.slice(0, 22) + '\n' + lower.slice(22)), 'unreadable');
+  assert.equal(inspectTd3Structure(upper + '\n' + lower.slice(0, 9) + '2' + lower.slice(10)), 'checksums_fail');
+  assert.equal(inspectTd3Structure(upper + '\n' + lower.slice(1)), 'unreadable');
+  assert.equal(inspectTd3Structure('PASSPORT NUMBER: EXAMPLE'), 'not_observed');
+});

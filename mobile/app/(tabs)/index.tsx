@@ -5,6 +5,8 @@ import { Redirect, useRouter } from 'expo-router';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 import { getFeatureById } from '../../navigation/featureManifest';
 import { resolveDashboardGate } from '../../navigation/dashboardGate';
+import { getLatestVerificationSession, mapSessionToVerificationOutcome } from '../../utils/verificationApi';
+import { useVerificationStore } from '../../store/verificationStore';
 
 function DashboardScreenInner() {
   const router = useRouter();
@@ -14,12 +16,29 @@ function DashboardScreenInner() {
   const logout = useAuthStore((state) => state.logout);
   const switchRole = useAuthStore((state) => state.switchRole);
   const [roleSwitchWarning, setRoleSwitchWarning] = useState<string | null>(null);
+  const [identityLoading, setIdentityLoading] = useState(false);
+  const [identityError, setIdentityError] = useState<string | null>(null);
 
   const goToLogin = () => router.replace('/(auth)/login');
 
   const handleLogout = async () => {
     await logout();
+    useVerificationStore.getState().clear();
     router.replace('/(auth)/login');
+  };
+
+  const handleIdentityStatus = async () => {
+    if (identityLoading) return;
+    setIdentityLoading(true); setIdentityError(null);
+    try {
+      const session = await getLatestVerificationSession();
+      if (!session) { router.push('/(auth)/verification/intro'); return; }
+      const outcome = mapSessionToVerificationOutcome(session);
+      useVerificationStore.getState().setVerificationOutcome(outcome.status, session.id, outcome.processingError, session.status);
+      useVerificationStore.getState().setOcrResult(session.ocr_result);
+      router.push(outcome.needsConfirmation ? '/(auth)/verification/ocr-confirmation' : '/(auth)/verification/result');
+    } catch { setIdentityError('Could not load identity status. Please try again.'); }
+    finally { setIdentityLoading(false); }
   };
 
   // Role switching is optional convenience. A failure shows a non-blocking
@@ -175,6 +194,11 @@ function DashboardScreenInner() {
         <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '800' }}>Start Verification Flow</Text>
         <Text style={{ color: '#F97316', fontSize: 11, fontWeight: '700', marginTop: 2 }}>Tap to verify your identity →</Text>
       </TouchableOpacity>
+
+      <TouchableOpacity accessibilityRole="button" disabled={identityLoading} onPress={() => void handleIdentityStatus()} style={{ padding: 14, marginBottom: 8 }}>
+        <Text style={{ color: '#C2410C', fontWeight: '700' }}>{identityLoading ? 'Loading identity status…' : 'View identity status'}</Text>
+      </TouchableOpacity>
+      {identityError && <Text accessibilityRole="alert" style={{ color: '#B91C1C', marginBottom: 12 }}>{identityError}</Text>}
 
       {/* Account actions */}
       <Pressable

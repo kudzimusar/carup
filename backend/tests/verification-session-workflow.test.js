@@ -1,3 +1,5 @@
+import { syntheticVerificationImage } from './fixtures/synthetic-verification-image.js';
+import { mockIdentityClaim } from './support/mockIdentityClaim.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -7,6 +9,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 const {
   createVerificationSession,
   getVerificationSession,
+  parseImagePayload,
   submitVerificationSession,
   uploadVerificationSessionImage,
 } = await import('../services/identity/verificationSessionService.js');
@@ -75,6 +78,7 @@ class MockQuery {
       const rows = Array.isArray(this.payload) ? this.payload : [this.payload];
       const inserted = rows.map(row => ({
         id: row.id || `session-${++this.client.sequence}`,
+        ...(this.table === 'verification_sessions' ? { version: 1 } : {}),
         ...clone(row),
       }));
       this.rows().push(...inserted);
@@ -108,6 +112,7 @@ class MockQuery {
 function createMockClient() {
   return {
     sequence: 0,
+    rpc(name, payload) { return mockIdentityClaim(this, name, payload); },
     failAudit: false,
     data: {
       verification_sessions: [],
@@ -123,7 +128,7 @@ function createMockClient() {
 }
 
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
-const image = 'data:image/jpeg;base64,' + Buffer.from('not-a-real-document').toString('base64');
+const image = syntheticVerificationImage;
 
 // A buffer that passes Workstream C evidence validation (valid JPEG magic,
 // non-trivial size) so the OCR-decision path is exercised. Distinct fill per
@@ -146,6 +151,14 @@ test('creates verification session and writes audit event', async () => {
   assert.equal(session.double_sided, true);
   assert.equal(session.uploaded_sides.front, false);
   assert.equal(client.data.trust_audit_events.at(-1).event_type, 'VERIFICATION_SESSION_CREATED');
+});
+
+test('applicant upload refuses oversized, noncanonical and mislabeled evidence before storage', () => {
+  assert.equal(parseImagePayload({ image }).mimeType, 'image/jpeg');
+  assert.throws(() => parseImagePayload({ image, mimeType: 'image/png' }), /MIME type/);
+  assert.throws(() => parseImagePayload({ image: 'data:image/jpeg;base64,/9j/YWJjZGVmZ2j/2Q==' }), /does not match/);
+  assert.throws(() => parseImagePayload({ image: 'AB==' }), /base64/);
+  assert.throws(() => parseImagePayload({ image: 'A'.repeat(20 * 1024 * 1024 + 65) }), /15MB/);
 });
 
 test('uploads images to private storage and returns sanitized session', async () => {
@@ -222,7 +235,7 @@ test('submit runs OCR but NEVER auto-verifies — routes to manual review (fail 
   // is reachable only through admin review of the actual evidence.
   assert.notEqual(result.status, 'verified');
   assert.equal(result.status, 'pending_manual_review');
-  assert.match(result.failure_reason, /manual review/i);
+  assert.match(client.data.verification_sessions[0].failure_reason, /manual review/i);
   // Sanitization still holds: extracted fields surface, private notes stripped.
   assert.equal(result.ocr_result.first_name, 'Ruvimbo');
   assert.equal(result.ocr_result.additional_fields.expiry, '2030-05-18');
@@ -293,7 +306,7 @@ test('OCR failure marks session ocr_failed and remains fetchable as sanitized st
   });
 
   assert.equal(result.status, 'ocr_failed');
-  assert.match(result.failure_reason, /OCR provider unavailable/);
+  assert.equal(client.data.verification_sessions[0].failure_reason, 'Verification evidence processing could not complete.');
   assert.equal(Object.hasOwn(result, 'front_storage_path'), false);
 
   const fetched = await getVerificationSession(client, owner, session.id);
@@ -344,8 +357,8 @@ test('blank/1x1 image (OCR success with zero confidence, no fields) cannot becom
 
   assert.notEqual(result.status, 'verified');
   assert.equal(result.status, 'pending_manual_review');
-  assert.equal(result.extraction_trust_status, 'no_fields');
-  assert.match(result.failure_reason, /requires manual review/);
+  assert.equal(client.data.verification_sessions[0].extraction_trust_status, 'no_fields');
+  assert.match(client.data.verification_sessions[0].failure_reason, /requires manual review/);
 });
 
 test('high confidence without extracted identity fields cannot become verified', async () => {
@@ -359,9 +372,9 @@ test('high confidence without extracted identity fields cannot become verified',
   });
 
   assert.equal(result.status, 'pending_manual_review');
-  assert.equal(result.extraction_trust_status, 'untrusted');
-  assert.equal(result.primary_reason_code, 'REQUIRED_FIELDS_MISSING');
-  assert.match(result.failure_reason, /requires manual review/);
+  assert.equal(client.data.verification_sessions[0].extraction_trust_status, 'untrusted');
+  assert.equal(client.data.verification_sessions[0].primary_reason_code, 'REQUIRED_FIELDS_MISSING');
+  assert.match(client.data.verification_sessions[0].failure_reason, /requires manual review/);
 });
 
 test('identity fields with low confidence cannot become verified', async () => {
@@ -381,9 +394,9 @@ test('identity fields with low confidence cannot become verified', async () => {
 
   assert.equal(result.status, 'pending_manual_review');
   // Has identity fields but identity binding is indeterminate (no account user)
-  assert.equal(result.extraction_trust_status, 'partially_trusted');
-  assert.equal(result.primary_reason_code, null);
-  assert.notEqual(result.failure_reason, null);
+  assert.equal(client.data.verification_sessions[0].extraction_trust_status, 'partially_trusted');
+  assert.equal(client.data.verification_sessions[0].primary_reason_code, null);
+  assert.notEqual(client.data.verification_sessions[0].failure_reason, null);
 });
 
 test('P0/C: a non-image / tiny front (cup-as-blank, screenshot) fails closed before OCR', async () => {
@@ -404,7 +417,7 @@ test('P0/C: a non-image / tiny front (cup-as-blank, screenshot) fails closed bef
   assert.equal(ocrCalled, false); // OCR must not run on invalid evidence
   assert.notEqual(result.status, 'verified');
   assert.equal(result.status, 'pending_manual_review');
-  assert.match(result.failure_reason, /too small|not a supported/);
+  assert.match(client.data.verification_sessions[0].failure_reason, /too small|not a supported/);
   // No identity fields populated from a non-document.
   assert.ok(!result.ocr_result || result.ocr_result.first_name === undefined);
 });
@@ -428,10 +441,10 @@ test('F: account/document identity MISMATCH is surfaced (and never auto-verifies
 
   assert.notEqual(result.status, 'verified');
   assert.equal(result.status, 'pending_manual_review');
-  assert.match(result.failure_reason, /Identity mismatch/i);
-  assert.match(result.review_notes, /MISMATCH/);
-  assert.match(result.review_notes, /Phase7B Tester/);
-  assert.match(result.review_notes, /Tafadzwa Moyo/);
+  assert.match(client.data.verification_sessions[0].failure_reason, /Identity mismatch/i);
+  assert.match(client.data.verification_sessions[0].review_notes, /MISMATCH/);
+  assert.match(client.data.verification_sessions[0].review_notes, /Phase7B Tester/);
+  assert.match(client.data.verification_sessions[0].review_notes, /Tafadzwa Moyo/);
   const ocrEvent = client.data.trust_audit_events.find(e => e.event_type === 'VERIFICATION_OCR_COMPLETED');
   assert.equal(ocrEvent.new_value.identity_binding, 'mismatch');
 });
@@ -453,8 +466,8 @@ test('F: matching account/document identity is NOT flagged as a mismatch', async
   });
 
   assert.equal(result.status, 'pending_manual_review');
-  assert.doesNotMatch(result.failure_reason, /Identity mismatch/i);
-  assert.doesNotMatch(result.review_notes, /MISMATCH/);
+  assert.doesNotMatch(client.data.verification_sessions[0].failure_reason, /Identity mismatch/i);
+  assert.doesNotMatch(client.data.verification_sessions[0].review_notes, /MISMATCH/);
 });
 
 test('evaluateOcrEvidence unit cases', async () => {
@@ -471,4 +484,201 @@ test('evaluateOcrEvidence unit cases', async () => {
     evaluateOcrEvidence({ success: true, extractedData: { confidenceScore: 0.9, first_name: 'A', last_name: 'B' } }).sufficient,
     true
   );
+});
+
+test('applicant detail is self-scoped for all roles and omits private review data', async () => {
+  const client = createMockClient();
+  client.data.verification_sessions.push({
+    id: 'private-case', user_id: owner.id, status: 'pending_manual_review',
+    review_notes: 'private note', reviewer_identity: 'reviewer', failure_reason: 'private exception',
+    front_storage_path: 'private/path', ocr_result: { first_name: 'Test', secret: 'hidden' },
+  });
+  const own = await getVerificationSession(client, owner, 'private-case');
+  assert.equal(own.ocr_result.first_name, 'Test');
+  for (const key of ['review_notes', 'reviewer_identity', 'failure_reason', 'front_storage_path']) {
+    assert.equal(Object.hasOwn(own, key), false);
+  }
+  for (const role of ['buyer', 'admin', 'government']) {
+    await assert.rejects(() => getVerificationSession(client, { id: 'other', role }, 'private-case'), /not found/i);
+  }
+});
+
+test('submission claim admits one processor and repeated pending submission is stable', async () => {
+  const client = createMockClient();
+  client.data.verification_sessions.push({ id: 'atomic-case', user_id: owner.id, status: 'uploaded', version: 1,
+    document_type: 'passport', double_sided: false, front_storage_path: 'front', selfie_storage_path: 'selfie' });
+  let release;
+  const hold = new Promise(resolve => { release = resolve; });
+  let downloads = 0;
+  const first = submitVerificationSession(client, owner, 'atomic-case', { ocr: {}, storage: {
+    downloadFromStorage: async () => { downloads++; await hold; throw new Error('provider offline'); },
+  } });
+  while (downloads === 0) await new Promise(resolve => setImmediate(resolve));
+  const second = await submitVerificationSession(client, owner, 'atomic-case');
+  assert.equal(second.status, 'ocr_pending');
+  assert.equal(downloads, 1);
+  assert.equal(client.data.trust_audit_events.filter(e => e.event_type === 'VERIFICATION_SUBMITTED').length, 1);
+  release();
+  const done = await first;
+  assert.equal(done.status, 'ocr_failed');
+  assert.equal(client.data.verification_sessions[0].version, 3);
+});
+
+test('a late processor cannot overwrite a reviewer decision', async () => {
+  const client = createMockClient();
+  client.data.verification_sessions.push({ id: 'stale-case', user_id: owner.id, status: 'uploaded', version: 1,
+    document_type: 'passport', double_sided: false, front_storage_path: 'front', selfie_storage_path: 'selfie' });
+  let release;
+  const hold = new Promise(resolve => { release = resolve; });
+  let started = false;
+  const task = submitVerificationSession(client, owner, 'stale-case', { ocr: {}, storage: {
+    downloadFromStorage: async () => { started = true; await hold; throw new Error('late error'); },
+  } });
+  while (!started) await new Promise(resolve => setImmediate(resolve));
+  Object.assign(client.data.verification_sessions[0], { status: 'rejected', version: 3, review_decision: 'reject' });
+  release();
+  await assert.rejects(task, /changed during processing/);
+  assert.equal(client.data.verification_sessions[0].status, 'rejected');
+  assert.equal(client.data.trust_audit_events.filter(e => e.event_type === 'VERIFICATION_OCR_FAILED').length, 0);
+});
+
+test('terminal and processing cases cannot accept replacement images', async () => {
+  for (const status of ['ocr_pending', 'pending_manual_review', 'verified', 'rejected']) {
+    const client = createMockClient();
+    client.data.verification_sessions.push({ id: 'locked', user_id: owner.id, status, version: 1 });
+    let uploads = 0;
+    await assert.rejects(() => uploadVerificationSessionImage(client, owner, 'locked', 'front', { image }, {
+      storage: { uploadToStorage: async () => { uploads++; } },
+    }), /cannot be changed/);
+    assert.equal(uploads, 0);
+  }
+});
+
+test('simultaneous submits claim one processing attempt', async () => {
+  const client = createMockClient();
+  client.data.verification_sessions.push({ id: 'race', user_id: owner.id, status: 'uploaded', version: 1,
+    document_type: 'passport', double_sided: false, front_storage_path: 'front', selfie_storage_path: 'selfie' });
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let downloads = 0;
+  const opts = { ocr: {}, storage: { downloadFromStorage: async () => { downloads++; await gate; throw new Error('offline'); } } };
+  const first = submitVerificationSession(client, owner, 'race', opts);
+  const second = submitVerificationSession(client, owner, 'race', opts);
+  while (!downloads) await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(downloads, 1);
+  release();
+  const outcomes = await Promise.all([first, second]);
+  assert.ok(outcomes.every(x => ['ocr_pending', 'ocr_failed'].includes(x.status)));
+  assert.equal(client.data.trust_audit_events.filter(x => x.event_type === 'VERIFICATION_SUBMITTED').length, 1);
+});
+
+test('upload losing a version race removes its unattached object', async () => {
+  const client = createMockClient();
+  const row = { id: 'upload-race', user_id: owner.id, status: 'uploaded', version: 1,
+    document_type: 'passport', double_sided: false, front_storage_path: 'old', selfie_storage_path: 'selfie' };
+  client.data.verification_sessions.push(row);
+  let removed;
+  await assert.rejects(() => uploadVerificationSessionImage(client, owner, 'upload-race', 'front', { image }, {
+    storage: {
+      uploadToStorage: async () => { row.status = 'ocr_pending'; row.version++; },
+      removeFromStorage: async (bucket, path) => { removed = [bucket, path]; },
+    },
+  }), /changed while/);
+  assert.equal(removed[0], 'ocr-documents');
+  assert.match(removed[1], /front-/);
+  assert.equal(row.front_storage_path, 'old');
+});
+
+test('review decision and idempotent replay project reviewer fields without private paths', async () => {
+  const { reviewVerificationSession } = await import('../services/identity/verificationSessionService.js');
+  const { VerificationDecisionRecorder } = await import('../services/identity/decisionRecorder.js');
+  const original = VerificationDecisionRecorder.recordDecision;
+  const client = createMockClient();
+  client.data.verification_sessions.push({ id: 'review-case', user_id: owner.id, status: 'pending_manual_review',
+    front_storage_path: 'private/front', selfie_storage_path: 'private/selfie', review_notes: 'internal note' });
+  try {
+    for (const replay of [false, true]) {
+      VerificationDecisionRecorder.recordDecision = async () => ({ session: client.data.verification_sessions[0], idempotent_replay: replay });
+      const result = await reviewVerificationSession(client, { id: 'reviewer', role: 'admin' }, 'review-case', { action: 'reject' });
+      assert.equal(result.session.review_notes, 'internal note');
+      assert.equal(Object.hasOwn(result.session, 'front_storage_path'), false);
+      assert.equal(Object.hasOwn(result.session, 'selfie_storage_path'), false);
+    }
+    await assert.rejects(() => reviewVerificationSession(client, owner, 'review-case', { action: 'reject' }), /admin role/i);
+  } finally {
+    VerificationDecisionRecorder.recordDecision = original;
+  }
+});
+
+test('identity OCR is unavailable by default and does not invoke legacy OCR or download evidence', async () => {
+  const client = createMockClient();
+  client.data.verification_sessions.push({ id: 'no-provider', user_id: owner.id, status: 'uploaded', version: 1,
+    document_type: 'passport', double_sided: false, front_storage_path: 'front', selfie_storage_path: 'selfie' });
+  let downloads = 0;
+  const result = await submitVerificationSession(client, owner, 'no-provider', {
+    storage: { downloadFromStorage: async () => { downloads++; throw new Error('unexpected download'); } },
+  });
+  assert.equal(result.status, 'ocr_failed');
+  assert.equal(result.ocr_result, null);
+  assert.equal(downloads, 0);
+  assert.equal(Object.hasOwn(result, 'failure_reason'), false);
+});
+
+test('rejected case cannot be submitted, even when evidence is missing', async () => {
+  const client = createMockClient();
+  client.data.verification_sessions.push({ id: 'closed', user_id: owner.id, status: 'rejected', version: 4 });
+  await assert.rejects(() => submitVerificationSession(client, owner, 'closed'), /cannot be submitted/);
+  assert.equal(client.data.verification_sessions[0].status, 'rejected');
+});
+
+test('upload provider errors do not escape to the applicant', async () => {
+  const client = createMockClient();
+  client.data.verification_sessions.push({ id: 'upload-error', user_id: owner.id, status: 'draft', version: 1 });
+  await assert.rejects(() => uploadVerificationSessionImage(client, owner, 'upload-error', 'front', { image }, {
+    storage: { uploadToStorage: async () => { throw new Error('private bucket and credentials'); } },
+  }), error => error.message === 'Verification image upload failed.');
+});
+
+test('new OCR cases cannot be approved before the applicant confirms', async () => {
+  const { reviewVerificationSession } = await import('../services/identity/verificationSessionService.js');
+  const client = createMockClient();
+  client.data.verification_sessions.push({ id: 'unconfirmed', user_id: owner.id, status: 'pending_manual_review',
+    ocr_confirmation_required: true, ocr_confirmed_at: null, version: 3 });
+  await assert.rejects(() => reviewVerificationSession(client, { id: 'reviewer', role: 'admin' }, 'unconfirmed', { action: 'approve' }), /confirmation is required/i);
+  assert.equal(client.data.verification_sessions[0].status, 'pending_manual_review');
+});
+
+test('expired processing lease may be reclaimed while a fresh claim cannot', async () => {
+  const client = createMockClient();
+  const row = { id: 'lease', user_id: owner.id, status: 'ocr_pending', version: 2,
+    document_type: 'passport', double_sided: false, front_storage_path: 'front', selfie_storage_path: 'selfie', ocr_started_at: new Date().toISOString() };
+  client.data.verification_sessions.push(row);
+  let downloads = 0;
+  const opts = { ocr: {}, storage: { downloadFromStorage: async () => { downloads++; throw new Error('offline'); } } };
+  assert.equal((await submitVerificationSession(client, owner, 'lease', opts)).status, 'ocr_pending');
+  assert.equal(downloads, 0);
+  row.ocr_started_at = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+  assert.equal((await submitVerificationSession(client, owner, 'lease', opts)).status, 'ocr_failed');
+  assert.equal(downloads, 1);
+  assert.equal(row.version, 4);
+});
+
+test('expired worker cannot overwrite its replacement attempt', async () => {
+  const client = createMockClient();
+  const row = { id: 'lease-race', user_id: owner.id, status: 'uploaded', version: 1,
+    document_type: 'passport', double_sided: false, front_storage_path: 'front', selfie_storage_path: 'selfie' };
+  client.data.verification_sessions.push(row);
+  let release, started = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  const first = submitVerificationSession(client, owner, 'lease-race', { ocr: {}, storage: { downloadFromStorage: async () => { started = true; await gate; throw new Error('old failure'); } } });
+  while (!started) await new Promise(resolve => setImmediate(resolve));
+  row.ocr_started_at = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+  const second = await submitVerificationSession(client, owner, 'lease-race', { ocr: {}, storage: { downloadFromStorage: async () => { throw new Error('new failure'); } } });
+  assert.equal(second.status, 'ocr_failed');
+  const version = row.version;
+  release();
+  await assert.rejects(first, /changed during processing/);
+  assert.equal(row.status, 'ocr_failed'); assert.equal(row.version, version);
+  assert.equal(client.data.trust_audit_events.filter(e => e.event_type === 'VERIFICATION_OCR_FAILED').length, 1);
 });

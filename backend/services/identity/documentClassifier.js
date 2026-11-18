@@ -169,7 +169,7 @@ Classify the FIRST attached image for identity document presence.`;
    * Returns a unified result with the classification and a decision on whether
    * extraction should proceed.
    */
-  static async classify({ front, back, selfie } = {}, declaredDocType) {
+  static async classify({ front, back, selfie } = {}, declaredDocType, options = {}) {
     const buffers = { front, back, selfie };
 
     // Layer 1: deterministic checks
@@ -193,7 +193,7 @@ Classify the FIRST attached image for identity document presence.`;
 
     // In test mock mode, skip Layer 2 and allow extraction
     const mockAllowed = process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
-    if (mockAllowed) {
+    if (mockAllowed && options.allowTestMock !== false) {
       return {
         classification: EVIDENCE_CLASSIFICATION.VALID_IDENTITY_DOCUMENT,
         classificationConfidence: 1.0,
@@ -208,7 +208,7 @@ Classify the FIRST attached image for identity document presence.`;
     }
 
     // Layer 2: vision classification
-    const layer2 = await DocumentClassifier.classifyDocument(
+    const layer2 = await (options.classifyDocument || DocumentClassifier.classifyDocument)(
       front, back, selfie, declaredDocType
     );
 
@@ -226,7 +226,9 @@ Classify the FIRST attached image for identity document presence.`;
     if (layer2.reason) fullReasons.push(layer2.reason);
 
     let reasonCode = null;
-    if (!extractionAllowed) {
+    if (!extractionAllowed && layer2.reasonCode === 'OCR_PROVIDER_FAILED') {
+      reasonCode = 'OCR_PROVIDER_FAILED';
+    } else if (!extractionAllowed) {
       switch (layer2.classification) {
         case EVIDENCE_CLASSIFICATION.NON_DOCUMENT:
           reasonCode = 'NON_DOCUMENT';
@@ -252,6 +254,8 @@ Classify the FIRST attached image for identity document presence.`;
       extractionTrust,
       provider: layer2.provider,
       model: layer2.model,
+      sideClassification: layer2.sideClassification,
+      observationsOnly: layer2.observationsOnly === true,
     };
   }
 

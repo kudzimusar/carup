@@ -1,5 +1,7 @@
 import express from 'express';
-import { authorizeRole, requireProvenIdentity } from '../middleware/authMiddleware.js';
+import { authorizeSessionRole } from '../middleware/authMiddleware.js';
+import { ValidationError } from '../utils/errors.js';
+import { consumeReviewerStepUp, issueReviewerStepUp, reviewerDecisionOperation } from '../services/identity/reviewerStepUp.js';
 import {
   getVerificationSessionForReview,
   getEvidencePreviewUrl,
@@ -13,12 +15,30 @@ const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
-// Admin manual-review queue. authorizeRole(['admin']) rejects unauthenticated
+const reviewBase = '/api/admin/identity/verification-sessions';
+router.use(reviewBase, (_req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
+router.post(
+  reviewBase + '/:sessionId/step-up',
+  authorizeSessionRole(['admin']),
+  asyncHandler(async (req, res) => {
+    res.json(await issueReviewerStepUp(req.userContext, req.params.sessionId, req.body));
+  }),
+);
+
+function consumeStepUp(req, operation) {
+  return consumeReviewerStepUp(req.userContext, req.params.sessionId, operation, req.get('x-review-step-up'));
+}
+
+// Admin manual-review queue. authorizeSessionRole(['admin']) rejects unauthenticated
 // callers (401) and non-admins (403); the service re-checks the role as a
 // defensive second gate. Responses never include private storage paths or URLs.
 router.get(
   '/api/admin/identity/verification-sessions',
-  authorizeRole(['admin']),
+  authorizeSessionRole(['admin']),
   asyncHandler(async (req, res) => {
     const sessions = await listVerificationSessionsForReview(undefined, req.userContext, {
       status: req.query.status,
@@ -30,8 +50,9 @@ router.get(
 
 router.get(
   '/api/admin/identity/verification-sessions/:sessionId',
-  authorizeRole(['admin']),
+  authorizeSessionRole(['admin']),
   asyncHandler(async (req, res) => {
+    await consumeStepUp(req, 'case:detail');
     const session = await getVerificationSessionForReview(undefined, req.userContext, req.params.sessionId);
     res.json({ success: true, session });
   })
@@ -39,8 +60,12 @@ router.get(
 
 router.post(
   '/api/admin/identity/verification-sessions/:sessionId/review',
-  authorizeRole(['admin']),
+  authorizeSessionRole(['admin']),
   asyncHandler(async (req, res) => {
+    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
+      throw new ValidationError('The displayed case revision is required.');
+    }
+    await consumeStepUp(req, reviewerDecisionOperation(req.body));
     const result = await reviewVerificationSession(
       undefined,
       req.userContext,
@@ -57,11 +82,11 @@ router.post(
 // marked no-store so the URL is not cached by intermediaries.
 router.get(
   '/api/admin/identity/verification-sessions/:sessionId/evidence/:side/preview',
-  authorizeRole(['admin']),
+  authorizeSessionRole(['admin']),
   // This signs an object in the SAME private ocr-documents bucket — passport, national ID and
   // selfie evidence. An admin id asserted by a spoofable header must not be able to mint it.
-  requireProvenIdentity(),
   asyncHandler(async (req, res) => {
+    await consumeStepUp(req, 'preview:' + req.params.side);
     const preview = await getEvidencePreviewUrl(
       undefined,
       req.userContext,

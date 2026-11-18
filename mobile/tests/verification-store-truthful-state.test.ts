@@ -9,11 +9,8 @@ function session(status: VerificationSession['status'], overrides: Partial<Verif
     double_sided: true,
     status,
     uploaded_sides: { front: true, back: true, selfie: true },
-    ocr_document_id: null,
     ocr_result: null,
     confidence_score: null,
-    failure_reason: null,
-    review_notes: null,
     retry_reason: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -167,26 +164,20 @@ describe('mapSessionToVerificationOutcome — truthful backend mapping', () => {
   })
 
   it('maps pending_manual_review to needs_review without claiming verified', () => {
-    const outcome = mapSessionToVerificationOutcome(session('pending_manual_review', {
-      review_notes: 'Reviewer must inspect.',
-    }))
+    const outcome = mapSessionToVerificationOutcome(session('pending_manual_review'))
     expect(outcome.status).toBe('needs_review')
     expect(outcome.status).not.toBe('verified')
-    expect(outcome.processingError).toContain('Reviewer')
+    expect(outcome.processingError).toContain('manual review')
   })
 
   it('maps ocr_failed with failure reason', () => {
-    const outcome = mapSessionToVerificationOutcome(session('ocr_failed', {
-      failure_reason: 'OCR provider unavailable',
-    }))
+    const outcome = mapSessionToVerificationOutcome(session('ocr_failed'))
     expect(outcome.status).toBe('ocr_failed')
     expect(outcome.sessionStatus).toBe('ocr_failed')
   })
 
-  it('maps rejected with reviewer notes', () => {
-    const outcome = mapSessionToVerificationOutcome(session('rejected', {
-      review_notes: 'Document is illegible.',
-    }))
+  it('maps rejected with the applicant-facing message', () => {
+    const outcome = mapSessionToVerificationOutcome(session('rejected', { applicant_message: 'Document is illegible.' }))
     expect(outcome.status).toBe('rejected')
     expect(outcome.sessionStatus).toBe('rejected')
     expect(outcome.processingError).toContain('illegible')

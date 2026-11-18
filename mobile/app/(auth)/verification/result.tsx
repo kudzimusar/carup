@@ -1,10 +1,11 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, ScrollView, SafeAreaView } from 'react-native';
 import { router } from 'expo-router';
 import { useVerificationStore } from '../../../store/verificationStore';
 import {
   getVerificationSession,
   mapSessionToVerificationOutcome,
+  submitVerificationSession,
   VerificationApiError,
 } from '../../../utils/verificationApi';
 import { getVerificationStatusMeta } from '@shared/types';
@@ -21,6 +22,7 @@ export default function VerificationResult() {
   const setRefreshing = useVerificationStore(state => state.setRefreshing);
   const clearVerificationStore = useVerificationStore(state => state.clear);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const recoveryInFlight = useRef(false);
 
   const firstName = ocrResult?.first_name || null;
   const lastName = ocrResult?.last_name || null;
@@ -50,10 +52,20 @@ export default function VerificationResult() {
   // including a backend-unreachable failure — must read as not-verified.
   const isBackendVerified = verificationStatus === 'verified';
 
-  const statusCopy = {
+  const statusCopy = verificationSessionStatus === 'ocr_pending' ? {
+    title: 'Verification Processing',
+    badge: 'Waiting for OCR processing',
+    accent: '#fbbf24',
+    panel: 'rgba(245,158,11,0.1)',
+  } : ['draft', 'captured', 'uploaded'].includes(verificationSessionStatus || '') ? {
+    title: 'Verification Incomplete',
+    badge: 'Submission has not completed',
+    accent: '#fbbf24',
+    panel: 'rgba(245,158,11,0.1)',
+  } : {
     verified: {
       title: 'Identity Verified',
-      badge: 'Backend OCR Verified',
+      badge: 'Identity verified',
       accent: '#34d399',
       panel: 'rgba(16,185,129,0.1)',
     },
@@ -119,6 +131,7 @@ export default function VerificationResult() {
       if (outcome.ocrResult) {
         setOcrResult(outcome.ocrResult);
       }
+      if (outcome.needsConfirmation) router.push('/(auth)/verification/ocr-confirmation');
     } catch (error) {
       const message =
         error instanceof VerificationApiError
@@ -127,6 +140,22 @@ export default function VerificationResult() {
       setRefreshError(message);
     } finally {
       setRefreshing(false);
+    }
+  }, [verificationSessionId, setRefreshing, setVerificationOutcome, setOcrResult]);
+
+  const handleProcessingRecovery = useCallback(async () => {
+    if (!verificationSessionId || recoveryInFlight.current) return;
+    recoveryInFlight.current = true; setRefreshing(true); setRefreshError(null);
+    try {
+      const session = await submitVerificationSession(verificationSessionId);
+      const outcome = mapSessionToVerificationOutcome(session);
+      setVerificationOutcome(outcome.status, outcome.sessionId, outcome.processingError, outcome.sessionStatus);
+      setOcrResult(outcome.ocrResult);
+      if (outcome.needsConfirmation) router.push('/(auth)/verification/ocr-confirmation');
+    } catch {
+      setRefreshError('Could not retry processing. Please try again.');
+    } finally {
+      recoveryInFlight.current = false; setRefreshing(false);
     }
   }, [verificationSessionId, setRefreshing, setVerificationOutcome, setOcrResult]);
 
@@ -297,6 +326,12 @@ export default function VerificationResult() {
               ) : (
                 <Text style={{ color: '#cbd5e1', fontWeight: '600', fontSize: 15 }}>Refresh status</Text>
               )}
+            </TouchableOpacity>
+          )}
+
+          {verificationSessionStatus === 'ocr_pending' && verificationSessionId && (
+            <TouchableOpacity onPress={handleProcessingRecovery} disabled={isRefreshing} accessibilityRole="button" style={{ padding: 16, alignItems: 'center' }}>
+              <Text style={{ color: '#cbd5e1', fontWeight: '600' }}>Retry interrupted processing</Text>
             </TouchableOpacity>
           )}
 
