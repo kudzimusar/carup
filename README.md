@@ -1,5 +1,10 @@
 # React + TypeScript + Vite
 
+## Mandatory Agent Governance
+
+All implementation, review and handoff agents must read [`AGENTS.md`](AGENTS.md) and [the two global 11-11 Tech standards](docs/governance/GLOBAL_AGENT_RULES.md) before acting. [Download the central governance PDF](https://github.com/kudzimusar/11-11-tech/blob/917c16f6d64d7f29d442fec562021dd11687228d/governance/global-moderator/11-11-TECH-GLOBAL-AGENT-GOVERNANCE-v1.0.pdf). This is process guidance; product architecture, formal stage gates and release authority remain project-specific.
+
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
