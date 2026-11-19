@@ -1,0 +1,40 @@
+name: 11-11 Tech — Global Agent Governance Presence
+on:
+  pull_request:
+    paths:
+      - AGENTS.md
+      - README.md
+      - docs/governance/GLOBAL_AGENT_RULES.md
+      - .github/workflows/global-agent-governance.yml
+  push:
+    branches: [main]
+    paths:
+      - AGENTS.md
+      - README.md
+      - docs/governance/GLOBAL_AGENT_RULES.md
+      - .github/workflows/global-agent-governance.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-dual-governance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm both global rules and downloadable document remain discoverable
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s AGENTS.md
+          test -s README.md
+          test -s docs/governance/GLOBAL_AGENT_RULES.md
+          grep -Fq 'GOAL-FIDELITY-STAGE-CONTROL-v1.0.md' AGENTS.md
+          grep -Fq 'STANDARD-v1.0.md' AGENTS.md
+          grep -Fq 'AGENT-GOVERNANCE-UNIFIED-v1.0.md' AGENTS.md
+          grep -Fq '11-11-TECH-GLOBAL-AGENT-GOVERNANCE-v1.0.pdf' AGENTS.md
+          grep -Fq 'GLOBAL_AGENT_RULES.md' README.md
+          grep -Fq 'GOAL-FIDELITY-STAGE-CONTROL-v1.0.md' docs/governance/GLOBAL_AGENT_RULES.md
+          grep -Fq 'STANDARD-v1.0.md' docs/governance/GLOBAL_AGENT_RULES.md
+          grep -Fq 'NOT_BASELINED' docs/governance/GLOBAL_AGENT_RULES.md
+          echo 'PASS: global dual governance entrypoints and PDF linked'
