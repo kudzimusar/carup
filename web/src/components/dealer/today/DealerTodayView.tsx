@@ -92,10 +92,18 @@ export function DealerTodayView(props: {
         {props.cover && (
           <img src={props.cover.url} alt={props.cover.alt} className="absolute inset-0 -z-20 h-full w-full object-cover" />
         )}
-        <div aria-hidden="true" className="absolute inset-0 -z-10"
-          style={{ background: props.cover
-            ? 'linear-gradient(90deg, var(--carup-raw-ink) 0%, color-mix(in srgb, var(--carup-raw-ink) 82%, transparent) 55%, color-mix(in srgb, var(--carup-raw-ink) 35%, transparent) 100%)'
-            : 'radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--carup-raw-orange-signal) 22%, transparent) 0%, transparent 55%), linear-gradient(135deg, var(--carup-raw-ink) 0%, var(--carup-raw-navy) 100%)' }} />
+        {/* The dealership's own cover sits behind text: the overlay keeps every line on near-solid ink
+            (uniform below md; opaque under the text column, fading only towards the far edge above). */}
+        {props.cover ? (
+          <>
+            <div aria-hidden="true" className="absolute inset-0 -z-10 md:hidden" style={{ background: 'color-mix(in srgb, var(--carup-raw-ink) 90%, transparent)' }} />
+            <div aria-hidden="true" className="absolute inset-0 -z-10 hidden md:block"
+              style={{ background: 'linear-gradient(90deg, var(--carup-raw-ink) 0%, color-mix(in srgb, var(--carup-raw-ink) 94%, transparent) 62%, color-mix(in srgb, var(--carup-raw-ink) 55%, transparent) 100%)' }} />
+          </>
+        ) : (
+          <div aria-hidden="true" className="absolute inset-0 -z-10"
+            style={{ background: 'radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--carup-raw-orange-signal) 22%, transparent) 0%, transparent 55%), linear-gradient(135deg, var(--carup-raw-ink) 0%, var(--carup-raw-navy) 100%)' }} />
+        )}
         <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:gap-5 sm:p-6">
           <DealerProfileAvatar className="h-16 w-16 rounded-control shadow-none ring-0 sm:h-20 sm:w-20" src={props.avatar?.url} alt={props.avatar?.alt} name={props.displayName} />
           <div className="min-w-0 flex-1">
