@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useRef,useState} from 'react'
+import {useCallback,useEffect,useRef,useState,type ReactNode} from 'react'
 import { DEALER_WRAP_BUTTON } from '@/components/dealer/dealerButtonWrap'
 import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
@@ -7,6 +7,12 @@ import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
 import {dealerRefusalCode,dealerReviewerErrorMessage} from '@/lib/dealerReviewerErrors'
 import ReviewerStepUpField from '@/components/dealer/ReviewerStepUpField'
+import { dealerDateTime } from '@/lib/dealerDates'
+import { useInReviewWorkbench } from '@/components/dealer/reviewWorkbenchContext'
+import {
+  REVIEW_LABEL, REVIEW_PRIMARY, REVIEW_SECONDARY, ReviewAccessNotice, ReviewAudienceSplit, ReviewAuditTrail, ReviewCaseBody, ReviewCaseHeader, ReviewChoice, ReviewDecisionPanel, ReviewFacts, ReviewMessages, ReviewNoCase, ReviewQueueItem, ReviewQueuePanel, ReviewQueueTabs, ReviewReasonField, ReviewSection, ReviewStepUp, ReviewWorkbenchGrid, ReviewWorkbenchHeader, type ReviewQueueState,
+} from '@/components/dealer/review/ReviewCaseFile'
+import { noCaseTitle } from '@/components/dealer/review/reviewTone'
 
 type QueueItem={seed_dealer_id:string;operating_status:string;
   independent_reviewer_required:boolean}
@@ -74,6 +80,9 @@ export default function DealerFullStorefrontReview(){
  const [spentTickets,setSpentTickets]=useState<string[]>([])
  const [mediaRefusal,setMediaRefusal]=useState<MediaRefusal|null>(null)
  const refreshRef=useRef<HTMLButtonElement>(null)
+ // RX05-D: lets the unified queues tell "loading" and "could not load" apart from "empty" (legacy view unchanged).
+ const [readState,setReadState]=useState<'loading'|'ready'|'failed'>('loading')
+ const [mediaRead,setMediaRead]=useState<'ready'|'failed'>('ready')
  /** Resolves to the refreshed media queue, or null when it could not be read. */
  const reload=useCallback(async():Promise<MediaQueueItem[]|null>=>{
   if(!reviewer||!user||!token)return null
@@ -95,9 +104,11 @@ export default function DealerFullStorefrontReview(){
     ?previous:result.cases[0]?.seed_dealer_id||'')
    setSelectedMediaKey(previous=>mediaItems.some(m=>m.media_id===previous)
     ?previous:mediaItems[0]?.media_id||'')
+   setReadState('ready');setMediaRead(mediaResult?'ready':'failed')
    return mediaResult?mediaItems:null
   }catch(problem){
    setQueue([])
+   setReadState('failed')
    setError(dealerReviewerErrorMessage(problem,'Could not load independent publication queue'))
    return null
   }
@@ -239,6 +250,227 @@ export default function DealerFullStorefrontReview(){
    <Button ref={refreshRef} type="button" variant="outline" size="sm" disabled={busy}
     onClick={()=>{void refreshReviewQueue()}}>Refresh review queue</Button>
   </div>
+ // RX05-D — unified ReviewWorkbench composition (presentation only; same state, handlers and rules).
+ const inWorkbench=useInReviewWorkbench()
+ const [pane,setPane]=useState<'storefront'|'media'>('storefront')
+ if(inWorkbench){
+  const human=(v:string)=>v.replaceAll('_',' ').toLowerCase()
+  const storefrontState:ReviewQueueState=readState==='loading'?'loading':readState==='failed'?'unavailable':queue.length?'ready':'empty'
+  const mediaState:ReviewQueueState=readState==='loading'?'loading':readState==='failed'||mediaRead==='failed'?'unavailable':mediaQueue.length?'ready':'empty'
+  const categoryLabel=(m:{media_category:string})=>MEDIA_CATEGORY_LABELS[m.media_category]||m.media_category
+  const unifiedRefusal=mediaRefusal&&<div data-testid="dealer-media-review-refusal" className="space-y-2 rounded-card bg-status-danger-soft p-3 text-sm">
+   <p role="alert" className="text-status-danger">{mediaRefusal.message}</p>
+   {!mediaRefusal.ticketInvalid&&<p className="text-carup-text">Each review ticket works once. Refresh the review queue before you try again.</p>}
+   <button ref={refreshRef} type="button" className={REVIEW_SECONDARY} disabled={busy}
+    onClick={()=>{void refreshReviewQueue()}}>Refresh review queue</button>
+  </div>
+  const stepUp=(actions:ReactNode)=><ReviewStepUp actions={actions}
+   note="Reviewer password (required before preview and independently before decision). It is cleared after each attempt.">
+   <div>
+    <label htmlFor="storefront-password" className={REVIEW_LABEL}>Reviewer password</label>
+    <ReviewerStepUpField id="storefront-password" value={password} onChange={setPassword} username={user?.email}
+     className="mt-1" inputClassName="bg-carup-bg-raised"/>
+   </div>
+  </ReviewStepUp>
+  const mediaPublic=currentMedia?.review_status==='APPROVED_PUBLIC_DISPLAY'
+  return <div className="min-w-0 pb-8" data-testid="storefront-review-workbench">
+   <ReviewWorkbenchHeader eyebrow="Public storefront workbench" title="Full dealership publication"
+    summaryLabel="What a publication decision does — and does not do">
+    <p>This is distinct from prelisting research and legal company activation.
+     Reviewed branch data and versioned dealer-declared policies are copied into an
+     immutable buyer-safe display snapshot. No unlicensed logo, VIN verification,
+     OEM franchise, finance-provider approval or subscription is granted.</p>
+   </ReviewWorkbenchHeader>
+   {!reviewer?<ReviewAccessNotice>Sign in as a verified independent CarUp reviewer. The API enforces this separately.</ReviewAccessNotice>:
+   <ReviewWorkbenchGrid testId="storefront-review-grid" caseLabel={pane==='storefront'?'Selected storefront candidate':'Selected media item'}
+    queue={<ReviewQueuePanel testId="storefront-queue" title="Queue" listLabel={pane==='storefront'?'Operational approval candidates':'Dealership media items'}
+     onRefresh={()=>{void reload()}} state={pane==='storefront'?storefrontState:mediaState}
+     loadingText="Loading the publication queue…" unavailableTestId="storefront-queue-unavailable"
+     unavailableMessage={pane==='media'&&readState!=='failed'
+      ?<>The storefront media queue could not be loaded.</>
+      :<>The independent publication queue could not be loaded{error?<> ({error})</>:null}.</>}
+     toolbar={<ReviewQueueTabs label="Storefront review queues" active={pane} onChange={setPane} tabs={[
+      {id:'storefront',label:'Storefronts',count:readState==='ready'?queue.length:null},
+      {id:'media',label:'Media',count:readState==='ready'&&mediaRead==='ready'?mediaQueue.length:null},
+     ]}/>}
+     emptyTitle={pane==='storefront'?'No legal dealer activation candidates':'No dealership facility media items in queue'}
+     emptyBody={pane==='storefront'?'Research-only listings do not qualify. A storefront appears here only after legal activation.'
+      :'A photograph appears here when an activated dealership uploads it. Nothing is shown publicly until it is approved.'}>
+     {pane==='storefront'
+      ?queue.map(x=><ReviewQueueItem key={x.seed_dealer_id} testId={`storefront-queue-item-${x.seed_dealer_id}`}
+       selected={seed===x.seed_dealer_id} title={x.seed_dealer_id} status={x.operating_status} statusLabel={`Operating status: ${human(x.operating_status)}`}
+       flag={!x.independent_reviewer_required?'Self-review not permitted':undefined}
+       onSelect={()=>{setSeed(x.seed_dealer_id);setError('');setStatus('')}}/>)
+      :mediaQueue.map(m=><ReviewQueueItem key={m.media_id} testId={`storefront-media-item-${m.media_id}`}
+       selected={selectedMediaKey===m.media_id} title={categoryLabel(m)} status={m.review_status}
+       meta={[m.seed_dealer_id]} since={m.created_at} sinceLabel="Uploaded"
+       flag={!m.independent_reviewer_required?'Self-review not permitted':m.conflict_of_interest?'Conflict of interest':undefined}
+       onSelect={()=>{setSelectedMediaKey(m.media_id);setMediaPreview(null)}}/>)}
+    </ReviewQueuePanel>}>
+    {pane==='storefront'&&<>
+     {!item&&<ReviewNoCase title={noCaseTitle(storefrontState,'No business candidate selected.','There is no storefront to review.')}
+      body={storefrontState==='ready'?"Choose a legally activated dealership to review its declared branches and sections for public display.":undefined}/>}
+     {item&&<>
+      <ReviewCaseHeader testId="storefront-case-identity" eyebrow="Full storefront publication" title={seed}
+       status={item.operating_status} statusLabel={`Operating status: ${human(item.operating_status)}`}
+       facts={[{label:'Research identity',value:seed,mono:true},{label:'Declared content',value:candidate?'Opened privately · not verified':'Not opened'}]}/>
+      {!item.independent_reviewer_required&&<p role="alert" className="rounded-card bg-status-warning-soft p-4 text-sm text-status-warning">
+       Self-review not permitted: a different independent reviewer must inspect and decide this storefront.</p>}
+      <ReviewAudienceSplit audience="public"
+       facingNote="Buyers see only an approved publication snapshot: the branches and sections you select. Nothing you leave unselected is published."
+       facing={<ReviewFacts items={[
+        {label:'Branches selected',value:String(approvedBranches.length)},
+        {label:'Sections selected',value:String(approvedSections.length)},
+       ]}/>}
+       internal={<p className="text-xs leading-5 text-carup-text-2">This queue contains no original private evidence, banking or identity document.
+        Explicit display approval is not a guarantee, legal opinion or payment authorization.</p>}/>
+      <ReviewCaseBody
+       evidence={<>
+        {!candidate&&<ReviewSection testId="storefront-evidence-locked" title="Dealer-declared storefront content" provenance="dealer">
+         <p className="rounded-control border border-dashed border-carup-line-strong bg-carup-bg-surface p-4 text-center text-sm text-carup-text-2">
+          Enter your password under Step-up and choose “Inspect review candidate” to read the declared branches and sections.</p>
+        </ReviewSection>}
+        {candidate&&<>
+         <ReviewSection testId="storefront-branches" title="Approve only verified branch display facts" provenance="dealer"
+          description="Verify the actual site before selecting a branch.">
+          {candidate.branches.length===0&&<p className="text-sm text-carup-text-2">No branches declared.</p>}
+          {candidate.branches.map(b=><label key={b.branch_id}
+           className="flex min-h-11 items-start gap-3 rounded-control p-3 text-sm ring-1 ring-carup-line">
+           <input type="checkbox" className="mt-1 h-4 w-4 shrink-0" checked={approvedBranches.includes(b.branch_id)}
+            onChange={e=>setApprovedBranches(prev=>e.target.checked?[...prev,b.branch_id]:prev.filter(v=>v!==b.branch_id))}/>
+           <span className="min-w-0"><span className="block font-semibold text-carup-text">{b.proposed_name}</span>
+            <span className="block text-carup-text-2">{b.proposed_address}</span>
+            <span className="block text-xs text-carup-text-3">Dealer-declared; verify actual site before selecting</span></span>
+          </label>)}
+         </ReviewSection>
+         <ReviewSection testId="storefront-sections" title="Independently review dealer-declared sections" provenance="dealer">
+          {Object.keys(candidate.proposed_sections).length===0&&<p className="text-sm text-carup-text-2">No sections declared.</p>}
+          {Object.entries(candidate.proposed_sections).map(([key,value])=>
+           <div key={key} className="rounded-control p-3 text-sm ring-1 ring-carup-line">
+            <label className="flex min-h-11 items-center gap-2 font-semibold text-carup-text">
+             <input type="checkbox" className="h-4 w-4 shrink-0" checked={approvedSections.includes(key)}
+              onChange={e=>setApprovedSections(prev=>e.target.checked?[...prev,key]:prev.filter(x=>x!==key))}/>
+             {key.replaceAll('_',' ')} · version {value.version}
+            </label>
+            <ReviewFacts className="mt-2" items={Object.entries(value.proposed_values).map(([field,text])=>({label:field.replaceAll('_',' '),value:text}))}/>
+           </div>)}
+         </ReviewSection>
+        </>}
+       </>}
+       decision={<div className="min-w-0 space-y-4" data-testid="storefront-decision">
+        {stepUp(<button type="button" className={REVIEW_SECONDARY+' w-full'} disabled={busy||password.length<8||!item.independent_reviewer_required}
+         onClick={()=>{void inspect()}}>Inspect review candidate</button>)}
+        <ReviewDecisionPanel title="Independent publication decision"
+         requirements={[
+          {label:'Reviewer password entered again (at least 8 characters)',met:password.length>=8},
+          {label:'Source, branch, legal and policy rationale written (at least 80 characters)',met:reason.trim().length>=80},
+          ...(disposition==='PUBLISHED_FULL'?[
+           {label:'Declared content inspected in this session',met:Boolean(candidate)},
+           {label:'At least one independently checked branch selected',met:approvedBranches.length>0},
+          ]:[]),
+         ]}
+         footnote="A full publication requires at least one independently checked, selected branch."
+         submit={<button type="button" className={REVIEW_PRIMARY} disabled={busy||password.length<8||reason.trim().length<80||
+          (disposition==='PUBLISHED_FULL'&&(!candidate||approvedBranches.length===0))}
+          onClick={()=>{void record()}}>Record immutable publication decision</button>}>
+         <ReviewChoice id="storefront-decision" legend="Disposition" value={disposition} onChange={setDisposition} options={[
+           ['PUBLISHED_FULL','Publish independently approved full storefront'],
+           ['RETRACTED','Retract existing full storefront'],
+         ]}/>
+         <ReviewReasonField id="storefront-reason" label="Source, branch, legal and policy review rationale (80+ characters)"
+          value={reason} onChange={setReason} min={80}
+          audience="Recorded with this publication event in the private review record; buyers see only the approved snapshot."/>
+        </ReviewDecisionPanel>
+        <ReviewMessages notice={status} error={error}/>
+       </div>}
+       audit={<ReviewAuditTrail testId="storefront-audit-trail" entries={[]}
+        empty="Earlier publication events are not returned to this workbench; the operating status above is the server's current record."/>}/>
+     </>}
+    </>}
+    {pane==='media'&&<>
+     {!currentMedia&&<ReviewNoCase title={noCaseTitle(mediaState,'No media item selected.','There is no photograph to review.')}
+      body={mediaState==='ready'?"Each photograph is reviewed on its own with single-use review tickets.":undefined}/>}
+     {currentMedia&&<>
+      <ReviewCaseHeader testId="storefront-media-identity" eyebrow="Storefront media" title={categoryLabel(currentMedia)}
+       status={currentMedia.review_status}
+       facts={[
+        {label:'Dealership',value:currentMedia.seed_dealer_id},
+        {label:'Uploaded',value:dealerDateTime(currentMedia.created_at)},
+        {label:'File',value:`${currentMedia.mime_type} · ${Math.max(1,Math.round(currentMedia.file_bytes/1024))} KB`},
+        {label:'Review tickets expire',value:currentMedia.ticket_expires_at?dealerDateTime(currentMedia.ticket_expires_at):'Not issued'},
+       ]}/>
+      <ReviewAudienceSplit audience="public"
+       facingNote={mediaPublic
+        ?'Approved for the public storefront gallery; it is shown while the dealership and its storefront are current.'
+        :'Not public. A submitted photograph is shown publicly only after an independent approval.'}
+       facing={<ReviewFacts items={[{label:'Public gallery',value:mediaPublic?'Approved for display':'Not shown'}]}/>}
+       internal={<ReviewFacts items={[
+        {label:'Rights attestation',value:human(currentMedia.rights_attestation)},
+        {label:'Logo rights approved',value:'No'},
+        ...(currentMedia.conflict_of_interest?[{label:'Conflict of interest',value:'Yes — you cannot decide this item'}]:[]),
+       ]}/>}/>
+      <ReviewCaseBody
+       evidence={<ReviewSection testId="dealer-media-review-section" title="Submitted photograph" provenance="dealer"
+        provenanceLabel={mediaPublic?'Uploaded by the dealership · approved for display':'Uploaded by the dealership · not approved'}
+        description="Verify descriptive accessibility alt text, caption accuracy, and absence of OEM or third-party brand logos.">
+        {(currentMedia.media_category==='COMPANY_PROFILE_IMAGE'||currentMedia.media_category==='COMPANY_COVER_IMAGE')&&
+         <p className="rounded-control bg-carup-bg-surface p-3 text-xs leading-5 text-carup-text-2" data-testid="dealer-media-review-company-image-note">
+          Company {currentMedia.media_category==='COMPANY_PROFILE_IMAGE'?'profile':'cover'} image: approve only the dealer’s own
+          photograph — never a manufacturer, franchise or third-party logo. It is shown on the public profile while the
+          dealership and its storefront are current, and is not legal evidence.
+         </p>}
+        <dl className="grid gap-3 text-sm">
+         <div data-testid="dealer-media-review-caption"><dt className="text-[11px] font-semibold uppercase tracking-[0.12em] text-carup-text-3">Caption</dt>
+          <dd className="mt-0.5 break-words text-carup-text">{currentMedia.caption}</dd></div>
+         <div data-testid="dealer-media-review-alt"><dt className="text-[11px] font-semibold uppercase tracking-[0.12em] text-carup-text-3">Alt text</dt>
+          <dd className="mt-0.5 break-words text-carup-text">{currentMedia.alt_text}</dd></div>
+        </dl>
+        <div className="flex min-h-40 items-center justify-center rounded-card border border-dashed border-carup-line-strong bg-carup-bg-surface p-3 text-center" data-testid="storefront-media-viewer">
+         {mediaPreview&&mediaPreview.media_id===currentMedia.media_id?<figure className="w-full">
+          <img src={mediaPreview.signed_url} alt={mediaPreview.alt_text} className="mx-auto max-h-80 max-w-full rounded-control object-contain"/>
+          <figcaption className="mt-2 text-xs text-carup-text-2">Private preview · SHA-256: {mediaPreview.sha256.slice(0,16)}… · Logo rights approved: false</figcaption>
+         </figure>:<p className="max-w-sm text-sm text-carup-text-2">Enter your password under Step-up and choose “Preview private media binary” to see the photograph here.</p>}
+        </div>
+        {currentMedia.independent_reviewer_required&&currentMedia.ticket_issuance_deferred&&
+         <div className="space-y-2 rounded-control bg-status-warning-soft p-3" data-testid="dealer-media-review-tickets-deferred">
+          <p className="text-sm text-status-warning">New review tickets could not be issued for this item just now. Wait a few minutes, then refresh the review queue.</p>
+          <button type="button" className={REVIEW_SECONDARY} disabled={busy} onClick={()=>{void refreshReviewQueue()}}>Refresh review queue</button>
+         </div>}
+        {showMediaRefusal&&mediaRefusal?.operation==='preview'&&unifiedRefusal}
+       </ReviewSection>}
+       decision={<div className="min-w-0 space-y-4" data-testid="storefront-media-decision">
+        {stepUp(<button type="button" className={REVIEW_SECONDARY+' w-full'}
+         disabled={busy||password.length<8||!currentMedia.independent_reviewer_required||!currentMedia.preview_ticket||previewSpent}
+         onClick={()=>{void inspectMedia()}}>Preview private media binary</button>)}
+        <ReviewDecisionPanel title="Media review decision"
+         requirements={[
+          {label:'Reviewer password entered (at least 8 characters)',met:password.length>=8},
+          {label:'Rights & accessibility rationale written (at least 40 characters)',met:mediaReason.trim().length>=40},
+          {label:'A current single-use decision ticket',met:Boolean(currentMedia.decision_ticket)&&!decisionSpent},
+         ]}
+         submit={<button type="button" className={REVIEW_PRIMARY}
+          disabled={busy||password.length<8||mediaReason.trim().length<40||!currentMedia.independent_reviewer_required||!currentMedia.decision_ticket||decisionSpent}
+          onClick={()=>{void recordMediaDecision()}}>Record storefront media decision</button>}>
+         <ReviewChoice id="storefront-media-decision" legend="Decision" value={mediaDecision} onChange={setMediaDecision} options={[
+           ['APPROVED_PUBLIC_DISPLAY','Approve for public storefront gallery'],
+           ['REJECTED','Reject media item'],
+           ['RETRACTED','Retract previously approved media item'],
+         ]}/>
+         <ReviewReasonField id="storefront-media-reason" label="Media rights & accessibility review rationale (40+ characters)"
+          value={mediaReason} onChange={setMediaReason} min={40} minHeight="min-h-24"/>
+        </ReviewDecisionPanel>
+        {showMediaRefusal&&mediaRefusal?.operation==='decision'&&unifiedRefusal}
+        <ReviewMessages notice={status} error={error}/>
+       </div>}
+       audit={<ReviewAuditTrail testId="storefront-media-audit-trail"
+        entries={[{id:'uploaded',title:'Uploaded by the dealership',at:currentMedia.created_at,status:currentMedia.review_status}]}
+        empty="Nothing recorded yet."
+        note="The media queue returns the upload and the current review status only."/>}/>
+     </>}
+    </>}
+   </ReviewWorkbenchGrid>}
+  </div>
+ }
  return <main className="min-h-screen bg-slate-50 px-4 py-10">
   <div className="mx-auto max-w-6xl">
    <Link to="/admin/dealer-claims" className="text-sm text-blue-700 underline">

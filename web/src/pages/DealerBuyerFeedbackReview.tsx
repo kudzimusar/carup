@@ -3,6 +3,12 @@ import {Link} from 'react-router-dom'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
 import ReviewerStepUpField from '@/components/dealer/ReviewerStepUpField'
+import { dealerDateTime } from '@/lib/dealerDates'
+import { useInReviewWorkbench } from '@/components/dealer/reviewWorkbenchContext'
+import {
+  REVIEW_FIELD, REVIEW_LABEL, REVIEW_PRIMARY, REVIEW_SECONDARY, ReviewAccessNotice, ReviewAudienceSplit, ReviewAuditTrail, ReviewCaseBody, ReviewCaseHeader, ReviewChoice, ReviewDecisionPanel, ReviewFacts, ReviewMessages, ReviewNoCase, ReviewQueueItem, ReviewQueuePanel, ReviewReasonField, ReviewSection, ReviewStepUp, ReviewWorkbenchGrid, ReviewWorkbenchHeader, type ReviewQueueState,
+} from '@/components/dealer/review/ReviewCaseFile'
+import { noCaseTitle } from '@/components/dealer/review/reviewTone'
 
 type QueueRow={case_id:string;seed_dealer_id:string;case_type:string;submitted_at:string}
 type PrivateCase={
@@ -39,6 +45,8 @@ export default function DealerBuyerFeedbackReview(){
  const [busy,setBusy]=useState(false)
  const [notice,setNotice]=useState('')
  const [error,setError]=useState('')
+ // RX05-D: lets the unified queue tell a failed read apart from an empty queue (legacy view unchanged).
+ const [readFailed,setReadFailed]=useState(false)
  const load=useCallback(async()=>{
   if(!user||!token||!isReviewer){setLoading(false);return}
   setLoading(true)
@@ -51,9 +59,11 @@ export default function DealerBuyerFeedbackReview(){
    setCases(response.cases)
    setSelected(prev=>response.cases.some(c=>c.case_id===prev)?prev:
     response.cases[0]?.case_id||'')
+   setReadFailed(false)
   }catch(problem){
    setError(problem instanceof Error?problem.message:'Could not load independent review queue')
    setCases([])
+   setReadFailed(true)
   }finally{setLoading(false)}
  },[user,token,isReviewer])
  useEffect(()=>{void Promise.resolve().then(load)},[load])
@@ -98,6 +108,102 @@ export default function DealerBuyerFeedbackReview(){
   }catch(problem){
    setError(problem instanceof Error?problem.message:'Independent case review refused')
   }finally{setBusy(false);setPassword('')}
+ }
+ // RX05-D — unified ReviewWorkbench composition (presentation only; same state, handlers and rules).
+ const inWorkbench=useInReviewWorkbench()
+ if(inWorkbench){
+  const qs:ReviewQueueState=loading?'loading':readFailed?'unavailable':cases.length?'ready':'empty'
+  const row=cases.find(c=>c.case_id===selected)
+  const human=(v:string)=>v.replaceAll('_',' ').toLowerCase()
+  return <div className="min-w-0 pb-8" data-testid="buyer-feedback-review-workbench">
+   <ReviewWorkbenchHeader eyebrow="Buyer complaints workbench" title="Independent buyer complaint review"
+    summaryLabel="What a finding does — and does not do">
+    <p>Canonical transaction-linked, immutable private case records only. A platform
+     reviewer must not be the buyer or the dealership owner. No public review,
+     star score, payment, settlement or canonical dispute resolution is authorized.</p>
+   </ReviewWorkbenchHeader>
+   {!isReviewer?<ReviewAccessNotice>Verified platform reviewer access and a real authenticated session are required.</ReviewAccessNotice>:
+   <ReviewWorkbenchGrid testId="buyer-feedback-review-grid" caseLabel="Selected buyer case"
+    queue={<ReviewQueuePanel testId="buyer-feedback-queue" listLabel="Private case queue" title="Queue"
+     count={qs==='ready'||qs==='empty'?cases.length:null} onRefresh={()=>{void load()}} state={qs}
+     loadingText="Loading canonical case references…" unavailableTestId="buyer-feedback-queue-unavailable"
+     unavailableMessage={<>The private case queue could not be loaded{error?<> ({error})</>:null}.</>}
+     emptyTitle="No pending private buyer findings"
+     emptyBody="A case appears here only when a buyer files a complaint linked to a real CarUp transaction. Nothing is published from this queue.">
+     {cases.map(c=><ReviewQueueItem key={c.case_id} testId={`buyer-feedback-queue-item-${c.case_id}`}
+      selected={selected===c.case_id} title={human(c.case_type).replace(/^./,x=>x.toUpperCase())}
+      meta={[c.seed_dealer_id,`Case ${c.case_id}`]} since={c.submitted_at} sinceLabel="Submitted"
+      onSelect={()=>{setSelected(c.case_id);setPrivateCase(null);setReason('');setPassword('')}}/>)}
+    </ReviewQueuePanel>}>
+    {!row&&<ReviewNoCase title={noCaseTitle(qs,'Select an independently reviewable case.','There is no buyer complaint to review.')}
+     body={qs==='ready'?"No private buyer statement is provided in the queue. You reauthenticate to read it and again to record a finding.":undefined}/>}
+    {row&&<>
+     <ReviewCaseHeader testId="buyer-feedback-case-identity" eyebrow="Private buyer complaint"
+      title={human(row.case_type).replace(/^./,x=>x.toUpperCase())}
+      status={activeCase?'UNVERIFIED':'PENDING'} statusLabel={activeCase?'Statement opened · not verified':'Statement not opened'}
+      facts={[
+       {label:'Dealership',value:row.seed_dealer_id},
+       {label:'Submitted',value:dealerDateTime(row.submitted_at)},
+       {label:'Case ID',value:row.case_id,mono:true},
+      ]}/>
+     <ReviewAudienceSplit audience="public"
+      facingNote="Nothing from this case is public. No review, star score or rating is published, and no payment, escrow or dispute state changes from this workbench."
+      facing={<ReviewFacts items={[
+       {label:'Public review',value:'None — not eligible'},
+       {label:'Verified purchase',value:'Not certified'},
+      ]}/>}
+      internalNote="Private case references, shown only after your password step-up."
+      internal={activeCase?<ReviewFacts items={[
+       {label:'Canonical buyer reference',value:activeCase.buyer_user_id,mono:true},
+       {label:'Escrow intent',value:activeCase.transaction_intent_id,mono:true},
+       {label:'Recorded state',value:human(activeCase.canonical_transaction_state_at_submission)},
+      ]}/>:<p className="text-xs text-carup-text-2">Open the private statement to see the case references.</p>}/>
+     <ReviewCaseBody
+      evidence={<ReviewSection testId="buyer-feedback-evidence" title="Buyer's private statement" provenance="buyer">
+       {!activeCase?<p className="rounded-control border border-dashed border-carup-line-strong bg-carup-bg-surface p-4 text-center text-sm text-carup-text-2">
+        Enter your password under Step-up and choose “Inspect private buyer statement” to read it here.
+       </p>:<>
+        <p className="whitespace-pre-wrap break-words rounded-control bg-carup-bg-surface p-4 text-sm leading-6 text-carup-text">{activeCase.statement}</p>
+        {activeCase.submitted_rating!==null&&<p className="rounded-control bg-status-warning-soft p-3 text-sm text-status-warning">
+         Private proposed rating: {activeCase.submitted_rating}/5, not certified and not displayed to buyers.</p>}
+       </>}
+      </ReviewSection>}
+      decision={<div className="min-w-0 space-y-4" data-testid="buyer-feedback-decision">
+       <ReviewStepUp
+        note={activeCase?'Reenter the reviewer password before submission. A separate password challenge is required for your finding.':'Your password opens the statement; it is cleared after each attempt.'}
+        actions={!activeCase?<button type="button" className={REVIEW_SECONDARY+' w-full'} disabled={password.length<8||busy}
+         onClick={()=>{void inspect()}}>Inspect private buyer statement</button>:undefined}>
+        <div>
+         <label htmlFor="buyer-feedback-review-password" className={REVIEW_LABEL}>Current reviewer account password</label>
+         <ReviewerStepUpField plain id="buyer-feedback-review-password" value={password} onChange={setPassword}
+          username={user?.email} inputClassName={REVIEW_FIELD}/>
+        </div>
+       </ReviewStepUp>
+       {!activeCase?<ReviewNoCase title="Decision available after you read the statement"
+        body="A finding can only be recorded for a statement you have opened in this session."/>:
+       <ReviewDecisionPanel title="Independent non-public finding"
+        requirements={[
+         {label:'Reviewer password entered again (at least 8 characters)',met:password.length>=8},
+         {label:'Evidence and moderation rationale written (at least 80 characters)',met:reason.trim().length>=80},
+        ]}
+        footnote="This appends a finding but does not contact a dispute provider or grant refund/verified-review status."
+        submit={<button type="button" className={REVIEW_PRIMARY} disabled={busy||password.length<8||reason.trim().length<80}
+         onClick={()=>{void record()}}>Record immutable private finding</button>}>
+        <ReviewChoice id="buyer-case-finding" legend="Finding" value={finding} onChange={setFinding} options={FINDINGS}/>
+        <ReviewReasonField id="buyer-case-rationale" label="Evidence and moderation rationale (80–3,000 characters)"
+         value={reason} onChange={setReason} min={80}
+         audience="Recorded as a private finding. It is not published and changes no payment, escrow or dispute."/>
+       </ReviewDecisionPanel>}
+       <ReviewMessages notice={notice} error={error}/>
+      </div>}
+      audit={<ReviewAuditTrail testId="buyer-feedback-audit-trail"
+       entries={[{id:'submitted',title:'Complaint submitted by the buyer',at:row.submitted_at,
+        detail:activeCase?`Transaction state at submission: ${human(activeCase.canonical_transaction_state_at_submission)}`:undefined}]}
+       empty="Nothing recorded yet."
+       note="Earlier findings on this case are not returned to this workbench."/>}/>
+    </>}
+   </ReviewWorkbenchGrid>}
+  </div>
  }
  return <main className="min-h-screen bg-slate-50 px-4 py-10">
   <div className="mx-auto max-w-6xl space-y-6">

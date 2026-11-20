@@ -10,7 +10,13 @@ import ReviewerStepUpField from '@/components/dealer/ReviewerStepUpField'
 import { dealerReviewerErrorMessage } from '@/lib/dealerReviewerErrors'
 import { dealerDateTime } from '@/lib/dealerDates'
 import { useInReviewWorkbench } from '@/components/dealer/reviewWorkbenchContext'
-import { ArrowLeft, FileText, RefreshCw } from 'lucide-react'
+import { FileText } from 'lucide-react'
+import {
+  REVIEW_FIELD, REVIEW_LABEL, REVIEW_PRIMARY, REVIEW_SECONDARY, ReviewAccessNotice, ReviewAudienceSplit, ReviewAuditTrail,
+  ReviewCaseBody, ReviewCaseHeader, ReviewChoice, ReviewDecisionPanel, ReviewFacts, ReviewMessages, ReviewMoreAction, ReviewNoCase,
+  ReviewQueueItem, ReviewQueuePanel, ReviewReasonField, ReviewSection, ReviewStatusChip, ReviewStepUp, ReviewWorkbenchGrid,
+  ReviewWorkbenchHeader, type ReviewAuditEntry,
+} from '@/components/dealer/review/ReviewCaseFile'
 
 type QueueClaim = {
   claim_id:string;seed_dealer_id:string;claimed_scope:string;claim_status:string;created_at:string
@@ -254,227 +260,197 @@ function DealerClaimReviewForActor() {
   const selectedOpened=Boolean(evidenceId&&opened.includes(evidenceId))
 
   if(inWorkbench){
-    const chip='inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-semibold'
-    const statusChip=(status:string)=>`${chip} ${/APPROVED/.test(status)?'bg-status-success-soft text-status-success':/REJECT|REVOK/.test(status)?'bg-status-danger-soft text-status-danger':/DISPUT/.test(status)?'bg-status-warning-soft text-status-warning':'bg-status-info-soft text-status-info'}`
-    const field='w-full rounded-lg border border-carup-line bg-white p-2.5 text-sm'
+    // RX05-D — queue → case → evidence → decision → audit, on the shared reviewer case file.
+    // Same state, same handlers, same submit rules as the legacy composition below.
+    const approving=verdict==='CLAIM_APPROVED'
+    const quarantined=evidence.filter(e=>e.quarantined)
+    const decisionRequirements=[
+      {label:'Reviewer password entered for this decision',met:Boolean(password)},
+      {label:'Findings written (at least 40 characters)',met:reason.trim().length>=40},
+      ...(approving?[
+        {label:'A usable original document selected',met:Boolean(evidenceId)},
+        {label:'Verified document issuer entered (at least 3 characters)',met:issuer.trim().length>=3},
+        {label:'You opened the selected original and confirmed what it is',met:documentConfirmed},
+      ]:[]),
+    ]
+    const audit:ReviewAuditEntry[]=current?[
+      {id:'filed',title:'Claim filed by the applicant',at:current.created_at,detail:`Claimed scope: ${current.claimed_scope.replaceAll('_',' ').toLowerCase()}`},
+      ...evidence.map(item=>({id:'doc-'+item.evidence_id,title:`Document received · ${(DOCUMENT_LABELS[item.document_class]||'document')}`,at:item.created_at,
+        detail:<span className="font-mono text-xs">SHA-256 {item.content_sha256.slice(0,16)}…</span>})),
+      ...quarantined.filter(item=>item.quarantine).map(item=>({id:'q-'+item.evidence_id,
+        title:item.quarantine?.actor_kind==='CLAIMANT_WITHDRAWAL'?'Document withdrawn by the applicant':'Document quarantined by a reviewer',
+        at:item.quarantine?.recorded_at,status:'QUARANTINED',
+        detail:(item.quarantine?.reason_code||'').replaceAll('_',' ').toLowerCase()||undefined})),
+    ]:[]
     return <div className="min-w-0 pb-8" data-testid="claim-review-workbench">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-carup-text-3">Claims workbench</p>
-          <h1 className="mt-1 text-xl font-bold tracking-[-0.01em] sm:text-2xl">Independent dealership claim review</h1>
-        </div>
-        <details className="max-w-xl text-xs text-carup-text-2">
-          <summary className="inline-flex min-h-11 cursor-pointer items-center font-semibold text-carup-text">What a claim decision does — and does not do</summary>
-          <p className="mt-1 leading-5">
-            Business authority is approved separately from legal compliance, operational membership,
-            vehicle listings and subscription entitlements. Reviewer actions require password step-up.
-            Disputed parent/branch ownership and competing claims require documented resolution.
-          </p>
-        </details>
-      </div>
-      {!authorized||!token ? <p className="mt-4" role="alert">
-        Reviewer or administrator session required. <Link className="underline text-carup-action-hover" to="/login">Sign in</Link>.
-      </p> : (
-        <div className="grid min-w-0 gap-4 lg:grid-cols-[17rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)_22rem]">
-          {/* 1 · Queue */}
-          <section aria-label="Claim queue" className={`min-w-0 lg:row-span-2 xl:row-span-1 ${mobileView==='case'?'hidden lg:block':''}`} data-testid="claim-queue">
-            <div className="rounded-2xl bg-carup-bg-raised ring-1 ring-carup-line">
-              <div className="flex items-center justify-between gap-2 border-b border-carup-line px-4 py-2">
-                <h2 className="text-sm font-semibold">Queue{queueState==='ready'&&<span className="ml-1.5 font-normal text-carup-text-3">· {claims.length}</span>}</h2>
-                <Button variant="ghost" size="sm" className="min-h-11" onClick={()=>{void reload()}}>
-                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true"/>Refresh queue
-                </Button>
-              </div>
-              {queueState==='loading'&&<p className="px-4 py-4 text-sm text-carup-text-2" role="status">Loading the claim queue…</p>}
-              {(queueState==='forbidden'||queueState==='expired'||queueState==='failed')&&<div className="px-4 py-4 text-sm text-status-danger" role="alert" data-testid="claim-queue-unavailable">
-                <p>{queueMessage} This is not an empty queue.</p>
-                <Button variant="outline" size="sm" className="mt-3 min-h-11" onClick={()=>{void reload()}}>Try again</Button>
-              </div>}
-              {queueState==='ready'&&claims.length===0&&<p className="px-4 py-4 text-sm text-carup-text-2">No pending/recorded claims in this queue.</p>}
-              {queueState==='ready'&&claims.length>0&&<ul className="max-h-[70vh] divide-y divide-carup-line overflow-y-auto" aria-label="Claims">
-                {claims.map(claim=>{
-                  const isSelected=selected===claim.claim_id
-                  return <li key={claim.claim_id}>
-                    <button type="button" aria-current={isSelected?'true':undefined}
-                      className={`block w-full min-h-11 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-carup-focus ${isSelected?'bg-carup-action-soft':'hover:bg-carup-bg-surface'}`}
-                      onClick={()=>{
-                        setMobileView('case')
-                        if(claim.claim_id===selected)return
-                        setSelected(claim.claim_id);setError('');setNotice('');setPassword('')
-                        setPreview(null);setEvidence([]);setEvidenceId('');setDocumentConfirmed(false)
-                      }}>
-                      <span className="block truncate text-sm font-semibold">{claim.seed_dealer_id}</span>
-                      <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <span className={statusChip(claim.claim_status)}>{claim.claim_status.replaceAll('_',' ')}</span>
-                        <span className="text-[12px] text-carup-text-3">Scope {claim.claimed_scope.replaceAll('_',' ').toLowerCase()}</span>
-                      </span>
-                      <span className="mt-1 block text-[12px] text-carup-text-3">Filed {dealerDateTime(claim.created_at)}</span>
-                    </button>
-                  </li>
-                })}
-              </ul>}
-            </div>
-          </section>
-
-          {/* 2 · Selected case and its evidence */}
-          <section aria-label="Selected claim" className={`min-w-0 space-y-4 ${mobileView==='queue'?'hidden lg:block':''}`} data-testid="claim-case">
-            <button type="button" onClick={()=>setMobileView('queue')}
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg text-sm font-semibold text-carup-text-2 lg:hidden">
-              <ArrowLeft className="h-4 w-4" aria-hidden="true"/> Back to queue
-            </button>
-            {!current&&<p className="rounded-2xl bg-carup-bg-raised p-5 text-sm text-carup-text-2 ring-1 ring-carup-line">
-              {queueState==='ready'&&claims.length===0?'There is no claim to review.':'Select a claim from the queue.'}
-            </p>}
+      <ReviewWorkbenchHeader eyebrow="Claims workbench" title="Independent dealership claim review"
+        summaryLabel="What a claim decision does — and does not do">
+        <p>
+          Business authority is approved separately from legal compliance, operational membership,
+          vehicle listings and subscription entitlements. Reviewer actions require password step-up.
+          Disputed parent/branch ownership and competing claims require documented resolution.
+        </p>
+      </ReviewWorkbenchHeader>
+      {!authorized||!token ? <ReviewAccessNotice>
+        Reviewer or administrator session required. <Link className="font-semibold text-carup-action-hover underline" to="/login">Sign in</Link>.
+      </ReviewAccessNotice> : (
+        <ReviewWorkbenchGrid view={mobileView} onViewChange={setMobileView} testId="claim-review-grid" caseLabel="Selected claim"
+          queue={<ReviewQueuePanel testId="claim-queue" ariaLabel="Claim queue" listLabel="Claims" title="Queue"
+            count={queueState==='ready'?claims.length:null} onRefresh={()=>{void reload()}}
+            state={queueState==='loading'?'loading':queueState==='ready'?(claims.length?'ready':'empty'):'unavailable'}
+            loadingText="Loading the claim queue…" unavailableTestId="claim-queue-unavailable" unavailableMessage={queueMessage}
+            emptyTitle="No claims are waiting for review"
+            emptyBody="No pending/recorded claims in this queue. A claim appears here only after an applicant files it; nothing is approved automatically.">
+            {claims.map(claim=><ReviewQueueItem key={claim.claim_id} selected={selected===claim.claim_id}
+              title={claim.seed_dealer_id} status={claim.claim_status}
+              meta={[`Claimed scope: ${claim.claimed_scope.replaceAll('_',' ').toLowerCase()}`]}
+              since={claim.created_at} sinceLabel="Filed"
+              onSelect={()=>{
+                if(claim.claim_id===selected)return
+                setSelected(claim.claim_id);setError('');setNotice('');setPassword('')
+                setPreview(null);setEvidence([]);setEvidenceId('');setDocumentConfirmed(false)
+              }}/>)}
+          </ReviewQueuePanel>}>
+          <div data-testid="claim-case" className="min-w-0 space-y-4">
+            {!current&&<ReviewNoCase
+              title={queueState==='ready'&&claims.length===0?'There is no claim to review.':queueState==='ready'?'Select a claim from the queue.':'No case is open.'}
+              body={queueState==='ready'?'Choose a claim to see its documents, the step-up and the decision.':'A case opens only while the latest queue read for your session succeeded.'}/>}
             {current&&<>
-              <div className="rounded-2xl bg-carup-raw-ink p-4 text-carup-raw-paper sm:p-5" data-testid="claim-case-identity">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[color-mix(in_srgb,var(--carup-raw-paper)_65%,transparent)]">Dealership claim</p>
-                <h2 className="mt-1 break-words text-lg font-semibold sm:text-xl">{current.seed_dealer_id}</h2>
-                <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-                  <div><dt className="text-[11px] uppercase tracking-wider text-[color-mix(in_srgb,var(--carup-raw-paper)_60%,transparent)]">Status</dt><dd className="font-medium">{current.claim_status.replaceAll('_',' ')}</dd></div>
-                  <div><dt className="text-[11px] uppercase tracking-wider text-[color-mix(in_srgb,var(--carup-raw-paper)_60%,transparent)]">Claimed scope</dt><dd className="font-medium">{current.claimed_scope}</dd></div>
-                  <div className="min-w-0"><dt className="text-[11px] uppercase tracking-wider text-[color-mix(in_srgb,var(--carup-raw-paper)_60%,transparent)]">Claim ID</dt><dd className="break-all font-mono text-xs">{current.claim_id}</dd></div>
-                </dl>
-              </div>
-
-              <div className="rounded-2xl bg-carup-bg-raised p-4 ring-1 ring-carup-line sm:p-5 space-y-3" data-testid="claim-evidence">
-                <h3 className="font-semibold">Private original document evidence</h3>
-                {evidence.length===0&&<p className="text-sm text-carup-text-2">No original document is attached to this claim, or the evidence list is still loading.</p>}
-                {evidence.length>0&&<ul className="grid gap-2 sm:grid-cols-2" aria-label="Documents on this claim">
-                  {evidence.map(item=><li key={item.evidence_id}>
-                    <button type="button" disabled={item.quarantined} aria-pressed={evidenceId===item.evidence_id}
-                      onClick={()=>{setEvidenceId(item.evidence_id);setPreview(null);setDocumentConfirmed(false)}}
-                      className={`flex w-full min-h-11 items-start gap-2 rounded-xl p-3 text-left text-sm ring-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus disabled:cursor-not-allowed disabled:opacity-60 ${evidenceId===item.evidence_id?'bg-carup-action-soft ring-carup-action':'ring-carup-line hover:ring-carup-text-3'}`}>
-                      <FileText className="mt-0.5 h-4 w-4 shrink-0 text-carup-text-3" aria-hidden="true"/>
-                      <span className="min-w-0">
-                        <span className="block font-medium">{item.document_class.replaceAll('_',' ')}</span>
-                        <span className="block text-[12px] text-carup-text-3">{[item.mime_type,item.file_bytes?Math.max(1,Math.round(item.file_bytes/1024))+' KB':null,dealerDateTime(item.created_at)].filter(Boolean).join(' · ')}</span>
-                        {item.quarantined&&<span className="mt-0.5 block text-[12px] font-semibold text-status-danger">Quarantined — not usable</span>}
-                      </span>
-                    </button>
-                  </li>)}
-                </ul>}
-                <div>
-                  <label htmlFor="dealer-evidence-selection" className="block text-xs font-medium text-carup-text-2">Select original document</label>
-                  <select id="dealer-evidence-selection" className={field+' mt-1'}
-                    value={evidenceId} onChange={event=>{setEvidenceId(event.target.value);setPreview(null);setDocumentConfirmed(false)}}>
-                    <option value="">No document selected</option>
-                    {evidence.map(item=><option key={item.evidence_id} value={item.evidence_id} disabled={item.quarantined}>
-                      {evidenceOption(item)}
-                    </option>)}
-                  </select>
-                </div>
-                {evidence.some(e=>e.quarantined)&&<p className="text-xs text-amber-900 bg-amber-50 rounded-md p-2" data-testid="claim-quarantined-evidence">
-                  {evidence.filter(e=>e.quarantined).length} document(s) quarantined
-                  ({evidence.filter(e=>e.quarantined).map(e=>(e.quarantine?.actor_kind==='CLAIMANT_WITHDRAWAL'?'withdrawn by the applicant':'quarantined by a reviewer')).join('; ')}) — they cannot support any decision.
-                </p>}
-                <div className={`flex min-h-40 items-center justify-center rounded-xl border border-dashed border-carup-line bg-carup-bg-surface p-3 ${preview?'':'text-center'}`} data-testid="claim-evidence-viewer">
-                  {preview&&preview.evidenceId===evidenceId?<div className="w-full space-y-2">
-                    {selectedEvidence?.mime_type?.startsWith('image/')&&
-                      <img src={preview.url} alt={'Private original: '+(DOCUMENT_LABELS[selectedEvidence.document_class]||'document')+' as uploaded'}
-                        className="mx-auto max-h-[28rem] w-auto max-w-full rounded-md border bg-white object-contain" data-testid="claim-evidence-inline-preview"/>}
-                    <p className="text-sm">
-                      <a href={preview.url} target="_blank" rel="noopener noreferrer"
-                        className="font-semibold text-carup-action-hover underline">Open private original (expires in {preview.expires}s)</a>
-                    </p>
-                  </div>:<p className="max-w-sm text-sm text-carup-text-2">
-                    {evidenceId?'Re-enter your password under Step-up and choose “View selected original securely” to open this original here.':'Select a document to examine.'}
+              <ReviewCaseHeader testId="claim-case-identity" eyebrow="Dealership claim" title={current.seed_dealer_id}
+                status={current.claim_status}
+                facts={[
+                  {label:'Claimed scope',value:current.claimed_scope.replaceAll('_',' ').toLowerCase()},
+                  {label:'Filed',value:dealerDateTime(current.created_at)},
+                  {label:'Claim ID',value:current.claim_id,mono:true},
+                ]}/>
+              <ReviewAudienceSplit audience="applicant"
+                facingNote="The applicant sees only this claim's status, scope and filing date — never your findings, document fingerprints or quarantine notes."
+                facing={<ReviewFacts items={[
+                  {label:'Status they see',value:<ReviewStatusChip status={current.claim_status}/>},
+                  {label:'Scope they claimed',value:current.claimed_scope.replaceAll('_',' ').toLowerCase()},
+                ]}/>}
+                internalNote="Reviewer workbench only. Your findings are recorded with the decision and are not returned to the applicant."
+                internal={<ul className="space-y-1.5 text-xs leading-5 text-carup-text-2">
+                  <li>{evidence.length} document(s) on file · {quarantined.length} quarantined</li>
+                  <li>Originals opened in this session: {opened.length}</li>
+                  <li>A clean malware scan does not establish that a certificate is genuine.</li>
+                </ul>}/>
+              <ReviewCaseBody
+                evidence={<ReviewSection testId="claim-evidence" title="Private original document evidence" provenance="applicant"
+                  description="Choose a document, then open it with your password. Examine original issuer, dates, names, branch/parent authority and possible competing claims.">
+                  {evidence.length===0&&<p className="text-sm text-carup-text-2">No original document is attached to this claim, or the evidence list is still loading.</p>}
+                  {evidence.length>0&&<ul className="grid gap-2 sm:grid-cols-2" aria-label="Documents on this claim">
+                    {evidence.map(item=><li key={item.evidence_id}>
+                      <button type="button" disabled={item.quarantined} aria-pressed={evidenceId===item.evidence_id}
+                        onClick={()=>{setEvidenceId(item.evidence_id);setPreview(null);setDocumentConfirmed(false)}}
+                        className={`flex w-full min-h-11 items-start gap-2 rounded-control p-3 text-left text-sm ring-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus disabled:cursor-not-allowed ${evidenceId===item.evidence_id?'bg-carup-action-soft ring-carup-action':'bg-carup-bg-raised ring-carup-line hover:ring-carup-text-3'} ${item.quarantined?'bg-carup-bg-surface':''}`}>
+                        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-carup-text-3" aria-hidden="true"/>
+                        <span className="min-w-0">
+                          <span className="block font-semibold text-carup-text">{item.document_class.replaceAll('_',' ')}</span>
+                          <span className="block text-[12px] text-carup-text-3">{[item.mime_type,item.file_bytes?Math.max(1,Math.round(item.file_bytes/1024))+' KB':null,dealerDateTime(item.created_at)].filter(Boolean).join(' · ')}</span>
+                          <span className="mt-0.5 block text-[12px] font-semibold text-carup-text-2">
+                            {item.quarantined?'Quarantined — not usable':opened.includes(item.evidence_id)?'Opened by you this session · not yet decided':'Not yet opened · not verified'}
+                          </span>
+                        </span>
+                      </button>
+                    </li>)}
+                  </ul>}
+                  {quarantined.length>0&&<p className="rounded-control bg-status-warning-soft p-2.5 text-xs leading-5 text-status-warning" data-testid="claim-quarantined-evidence">
+                    {quarantined.length} document(s) quarantined
+                    ({quarantined.map(e=>(e.quarantine?.actor_kind==='CLAIMANT_WITHDRAWAL'?'withdrawn by the applicant':'quarantined by a reviewer')).join('; ')}) — they cannot support any decision.
                   </p>}
-                </div>
-                <p className="text-xs text-carup-text-3">
-                  A clean malware scan does not establish that a certificate is genuine. Examine
-                  original issuer, dates, names, branch/parent authority and possible competing claims.
-                </p>
-                {selectedEvidence&&!selectedEvidence.quarantined&&<details className="rounded-lg border border-carup-line p-3 text-sm">
-                  <summary className="cursor-pointer font-medium">Not the document it was filed as?</summary>
-                  <p className="mt-2 text-xs text-carup-text-2">Quarantine it so it can never support a claim, legal or activation decision.
-                    It keeps its original label for the record. Uses the step-up password.</p>
-                  <label htmlFor="claim-quarantine-reason" className="block text-sm font-medium mt-2">Why</label>
-                  <select id="claim-quarantine-reason" className={field} value={quarantineReason}
-                    onChange={e=>setQuarantineReason(e.target.value as QuarantineReason|'')}>
-                    <option value="">Choose a reason</option>
-                    {QUARANTINE_REASONS.map(([code,label])=><option key={code} value={code}>{label}</option>)}
-                  </select>
-                  <label htmlFor="claim-quarantine-note" className="block text-sm font-medium mt-2">Note (optional)</label>
-                  <Input id="claim-quarantine-note" maxLength={1000} value={quarantineNote} onChange={e=>setQuarantineNote(e.target.value)}/>
-                  <Button className={DEALER_WRAP_BUTTON+' mt-2'} variant="outline" disabled={busy||!password||!quarantineReason}
-                    onClick={()=>{void quarantine()}}>Quarantine this document</Button>
-                </details>}
-              </div>
+                  <div className={`flex min-h-40 items-center justify-center rounded-card border border-dashed border-carup-line-strong bg-carup-bg-surface p-3 ${preview?'':'text-center'}`} data-testid="claim-evidence-viewer">
+                    {preview&&preview.evidenceId===evidenceId?<div className="w-full space-y-2">
+                      <p className="text-xs font-semibold text-carup-text-2">Private original · as uploaded by the applicant · not verified</p>
+                      {selectedEvidence?.mime_type?.startsWith('image/')&&
+                        <img src={preview.url} alt={'Private original: '+(DOCUMENT_LABELS[selectedEvidence.document_class]||'document')+' as uploaded'}
+                          className="mx-auto max-h-[28rem] w-auto max-w-full rounded-control bg-carup-bg-raised object-contain ring-1 ring-carup-line" data-testid="claim-evidence-inline-preview"/>}
+                      <p className="text-sm">
+                        <a href={preview.url} target="_blank" rel="noopener noreferrer"
+                          className="font-semibold text-carup-action-hover underline">Open private original (expires in {preview.expires}s)</a>
+                      </p>
+                    </div>:<p className="max-w-sm text-sm text-carup-text-2">
+                      {evidenceId?'Enter your password under Step-up and choose “View selected original securely” to open this original here.':'Select a document to examine.'}
+                    </p>}
+                  </div>
+                  {selectedEvidence&&!selectedEvidence.quarantined&&<ReviewMoreAction testId="claim-quarantine" title="Not the document it was filed as?"
+                    summary="Quarantine it so it can never support a claim, legal or activation decision. Uses the step-up password.">
+                    <p className="text-xs leading-5 text-carup-text-2">It keeps its original label for the record.</p>
+                    <div>
+                      <label htmlFor="claim-quarantine-reason" className={REVIEW_LABEL}>Why</label>
+                      <select id="claim-quarantine-reason" className={REVIEW_FIELD} value={quarantineReason}
+                        onChange={e=>setQuarantineReason(e.target.value as QuarantineReason|'')}>
+                        <option value="">Choose a reason</option>
+                        {QUARANTINE_REASONS.map(([code,label])=><option key={code} value={code}>{label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="claim-quarantine-note" className={REVIEW_LABEL}>Note (optional)</label>
+                      <input id="claim-quarantine-note" className={REVIEW_FIELD} maxLength={1000} value={quarantineNote} onChange={e=>setQuarantineNote(e.target.value)}/>
+                    </div>
+                    <button type="button" className={REVIEW_SECONDARY+' w-full'} disabled={busy||!password||!quarantineReason}
+                      onClick={()=>{void quarantine()}}>Quarantine this document</button>
+                  </ReviewMoreAction>}
+                </ReviewSection>}
+                decision={<div data-testid="claim-decision" aria-label="Findings and decision" role="region" className="min-w-0 space-y-4">
+                  <ReviewStepUp note={<>This one-time password challenge is for the decision or document preview only.
+                    Passwordless/SSO-only reviewer accounts cannot certify through this path until
+                    a separately governed step-up method is available.</>}
+                    actions={<button type="button" className={REVIEW_SECONDARY+' w-full'} disabled={busy||!password||!evidenceId}
+                      onClick={()=>{void viewOriginal()}}>View selected original securely</button>}>
+                    <div>
+                      <label htmlFor="claim-reviewer-password" className={REVIEW_LABEL}>
+                        Re-enter your own CarUp account password
+                      </label>
+                      <ReviewerStepUpField id="claim-reviewer-password" value={password} onChange={setPassword} username={user?.email}
+                        className="mt-1" inputClassName="bg-carup-bg-raised"/>
+                    </div>
+                  </ReviewStepUp>
+                  <ReviewDecisionPanel title="Record independent determination" requirements={decisionRequirements}
+                    footnote="A claim approval does not award a verification badge or enable inventory listing."
+                    submit={<button type="button" className={REVIEW_PRIMARY} disabled={busy||!password||reason.trim().length<40||
+                      (verdict==='CLAIM_APPROVED'&&(!evidenceId||issuer.trim().length<3||!documentConfirmed))}
+                      onClick={()=>{void decide()}}>Record immutable review decision</button>}>
+                    <ReviewChoice id="claim-verdict" legend="Verdict" value={verdict} onChange={setVerdict} options={[
+                      ['CLAIM_DISPUTED','Disputed — investigate further'],
+                      ['CLAIM_REJECTED','Reject claimant authority'],
+                      ['CLAIM_APPROVED','Approve claimant authority only'],
+                      ['CLAIM_REVOKED','Revoke previously approved claimant authority'],
+                    ]}/>
+                    {approving&&<>
+                      <div>
+                        <label htmlFor="claim-issuer" className={REVIEW_LABEL}>Verified document issuer</label>
+                        <input id="claim-issuer" className={REVIEW_FIELD} required minLength={3} value={issuer} onChange={e=>setIssuer(e.target.value)}/>
+                      </div>
+                      <div>
+                        <label htmlFor="claim-confirmed-scope" className={REVIEW_LABEL}>Independently confirmed legal scope</label>
+                        <select id="claim-confirmed-scope" className={REVIEW_FIELD} value={scope}
+                          onChange={e=>setScope(e.target.value as 'BRANCH'|'PARENT_ORGANIZATION')}>
+                          <option value="BRANCH">Branch authority</option>
+                          <option value="PARENT_ORGANIZATION">Parent organization authority</option>
+                        </select>
+                      </div>
+                      <label htmlFor="claim-document-confirmed" className="flex items-start gap-2 rounded-control bg-carup-bg-surface p-3 text-sm text-carup-text">
+                        <input id="claim-document-confirmed" type="checkbox" className="mt-1 h-4 w-4 shrink-0" checked={documentConfirmed}
+                          disabled={!selectedOpened} onChange={e=>setDocumentConfirmed(e.target.checked)}/>
+                        <span className="min-w-0">{selectedOpened
+                          ?`I opened this original and it is a genuine ${DOCUMENT_LABELS[selectedEvidence?.document_class||'']||'document of the stated type'} from the issuer I entered — not a photo of premises or any other document.`
+                          :'Open the selected original (“View selected original securely”) before you can confirm what it is.'}</span>
+                      </label>
+                    </>}
+                    <ReviewReasonField id="claim-review-reason" label="Specific independent review findings (40–3000 characters)"
+                      value={reason} onChange={setReason} min={40}
+                      audience="Internal reviewer note — recorded with this decision. The applicant sees the resulting status, not this text."/>
+                  </ReviewDecisionPanel>
+                  <ReviewMessages notice={notice} error={error}/>
+                </div>}
+                audit={<ReviewAuditTrail testId="claim-audit-trail" entries={audit}
+                  empty="Nothing has been recorded for this claim yet."
+                  note="What the server returned for this claim: filing, documents received and any quarantine. Earlier reviewer decisions are not returned by the queue; the status above is the latest recorded outcome."/>}/>
             </>}
-          </section>
-
-          {/* 3 · Step-up and the consequential decision — only with a selected claim */}
-          {current&&<section aria-label="Findings and decision" className={`min-w-0 space-y-4 lg:col-start-2 xl:col-start-auto xl:sticky xl:top-20 xl:self-start ${mobileView==='queue'?'hidden lg:block':''}`} data-testid="claim-decision">
-            <div className="rounded-2xl bg-carup-bg-raised p-4 ring-1 ring-carup-line sm:p-5 space-y-3">
-              <h3 className="font-semibold">Step-up</h3>
-              <div>
-                <label htmlFor="claim-reviewer-password" className="block text-sm font-medium mb-1">
-                  Re-enter your own CarUp account password
-                </label>
-                <ReviewerStepUpField id="claim-reviewer-password" value={password} onChange={setPassword} username={user?.email}/>
-                <p className="mt-2 text-xs text-carup-text-3">
-                  This one-time password challenge is for the decision or document preview only.
-                  Passwordless/SSO-only reviewer accounts cannot certify through this path until
-                  a separately governed step-up method is available.
-                </p>
-              </div>
-              <Button className={DEALER_WRAP_BUTTON+' w-full'} variant="outline" disabled={busy||!password||!evidenceId}
-                onClick={()=>{void viewOriginal()}}>View selected original securely</Button>
-            </div>
-            <div className="rounded-2xl bg-carup-bg-raised p-4 ring-1 ring-carup-line sm:p-5 space-y-4">
-              <h3 className="font-semibold text-lg">Record independent determination</h3>
-              <div>
-                <label htmlFor="claim-verdict" className="block text-sm font-medium mb-1">Verdict</label>
-                <select id="claim-verdict" value={verdict} className={field}
-                  onChange={e=>setVerdict(e.target.value as Verdict)}>
-                  <option value="CLAIM_DISPUTED">Disputed — investigate further</option>
-                  <option value="CLAIM_REJECTED">Reject claimant authority</option>
-                  <option value="CLAIM_APPROVED">Approve claimant authority only</option>
-                  <option value="CLAIM_REVOKED">Revoke previously approved claimant authority</option>
-                </select>
-              </div>
-              {verdict==='CLAIM_APPROVED'&&<>
-                <div>
-                  <label htmlFor="claim-issuer" className="block text-sm font-medium mb-1">Verified document issuer</label>
-                  <Input id="claim-issuer" required minLength={3} value={issuer} onChange={e=>setIssuer(e.target.value)}/>
-                </div>
-                <div>
-                  <label htmlFor="claim-confirmed-scope" className="block text-sm font-medium mb-1">
-                    Independently confirmed legal scope
-                  </label>
-                  <select id="claim-confirmed-scope" className={field} value={scope}
-                    onChange={e=>setScope(e.target.value as 'BRANCH'|'PARENT_ORGANIZATION')}>
-                    <option value="BRANCH">Branch authority</option>
-                    <option value="PARENT_ORGANIZATION">Parent organization authority</option>
-                  </select>
-                </div>
-                <label htmlFor="claim-document-confirmed" className="flex items-start gap-2 text-sm">
-                  <input id="claim-document-confirmed" type="checkbox" className="mt-1 shrink-0" checked={documentConfirmed}
-                    disabled={!selectedOpened} onChange={e=>setDocumentConfirmed(e.target.checked)}/>
-                  <span className="min-w-0">{selectedOpened
-                    ?`I opened this original and it is a genuine ${DOCUMENT_LABELS[selectedEvidence?.document_class||'']||'document of the stated type'} from the issuer I entered — not a photo of premises or any other document.`
-                    :'Open the selected original (“View selected original securely”) before you can confirm what it is.'}</span>
-                </label>
-              </>}
-              <div>
-                <label htmlFor="claim-review-reason" className="block text-sm font-medium mb-1">
-                  Specific independent review findings (40–3000 characters)
-                </label>
-                <textarea id="claim-review-reason" className={field+' min-h-32'} required
-                  minLength={40} maxLength={3000} value={reason}
-                  onChange={e=>setReason(e.target.value)} />
-                <p className="mt-1 text-right text-[12px] tabular-nums text-carup-text-3">{reason.trim().length} / 40 minimum</p>
-              </div>
-              <Button className={DEALER_WRAP_BUTTON+' w-full'} disabled={busy||!password||reason.trim().length<40||
-                (verdict==='CLAIM_APPROVED'&&(!evidenceId||issuer.trim().length<3||!documentConfirmed))}
-                onClick={()=>{void decide()}}>Record immutable review decision</Button>
-              <p className="text-xs text-carup-text-3">A claim approval does not award a verification badge or enable inventory listing.</p>
-            </div>
-            {notice&&<p role="status" className="rounded-xl bg-carup-bg-surface p-4 text-sm">{notice}</p>}
-            {error&&<p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</p>}
-          </section>}
-          {!current&&error&&<p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 lg:col-start-2">{error}</p>}
-        </div>
+            {!current&&error&&<ReviewMessages error={error}/>}
+          </div>
+        </ReviewWorkbenchGrid>
       )}
     </div>
   }

@@ -10,6 +10,12 @@ import ExtractionReviewPanel from '@/components/ExtractionReviewPanel'
 import { CheckCircle, FileText, Image as ImageIcon, Loader2, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import type { EvidenceVerificationStatus, VehicleEvidence } from '@/types'
+import { useInReviewWorkbench } from '@/components/dealer/reviewWorkbenchContext'
+import { dealerDateTime } from '@/lib/dealerDates'
+import {
+  REVIEW_PRIMARY, ReviewAudienceSplit, ReviewAuditTrail, ReviewCaseBody, ReviewCaseHeader, ReviewDecisionPanel, ReviewFacts, ReviewNoCase, ReviewQueueItem, ReviewQueuePanel, ReviewQueueTabs, ReviewReasonField, ReviewSection, ReviewChoice, ReviewStatusChip, ReviewWorkbenchGrid, ReviewWorkbenchHeader, type ReviewQueueState,
+} from '@/components/dealer/review/ReviewCaseFile'
+import { noCaseTitle } from '@/components/dealer/review/reviewTone'
 
 const statuses: EvidenceVerificationStatus[] = ['pending', 'verified', 'rejected']
 
@@ -44,6 +50,8 @@ export default function EvidenceReview() {
   // RX03-P2: a refused or failed queue read is NOT an empty queue (TI-13; MP01 §22.8).
   const [loadError, setLoadError] = useState<null | 'forbidden' | 'failed'>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  // RX05-D: the unified queue offers a retry after a failed read (the legacy view has none and is unchanged).
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let mounted = true
@@ -64,7 +72,7 @@ export default function EvidenceReview() {
       })
 
     return () => { mounted = false }
-  }, [fetchEvidenceReviewQueue, status])
+  }, [fetchEvidenceReviewQueue, status, reloadKey])
 
   const counts = useMemo(() => ({
     total: items.length,
@@ -89,6 +97,156 @@ export default function EvidenceReview() {
     } finally {
       setBusyId(null)
     }
+  }
+
+  // RX05-D — unified ReviewWorkbench composition (presentation only; same reads and the same
+  // approve/reject calls). Inside the independent reviewer workbench only; the admin, dealer and
+  // government routes that also render this page keep the composition below.
+  const inWorkbench = useInReviewWorkbench()
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  if (inWorkbench) {
+    const qs: ReviewQueueState = loading ? 'loading' : loadError ? 'unavailable' : items.length ? 'ready' : 'empty'
+    const current = qs === 'ready' ? (items.find(i => i.id === selectedId) ?? items[0]) : undefined
+    const ai = current?.metadata?.ai_analysis
+    return (
+      <div className="min-w-0 pb-8" data-testid="vehicle-evidence-review-workbench">
+        <ReviewWorkbenchHeader eyebrow="Vehicle documents workbench" title="Vehicle Evidence Review"
+          summaryLabel="What a document decision does — and does not do">
+          <p>Approve, reject, and inspect visual proof linked to vehicle registry events.</p>
+          <p>CarUp lets only administrators and government reviewers verify or reject vehicle evidence; the server checks
+            your role on every decision.</p>
+        </ReviewWorkbenchHeader>
+        <ReviewWorkbenchGrid testId="vehicle-evidence-review-grid" caseLabel="Selected vehicle document"
+          queue={<ReviewQueuePanel testId="vehicle-evidence-queue" title="Queue" listLabel="Evidence Queue"
+            count={qs === 'ready' || qs === 'empty' ? counts.total : null}
+            onRefresh={() => setReloadKey(k => k + 1)} state={qs} loadingText="Loading the evidence queue…"
+            unavailableTestId={loadError === 'forbidden' ? 'evidence-review-forbidden' : 'evidence-review-load-failed'}
+            unavailableMessage={loadError === 'forbidden'
+              ? <>This vehicle document queue is not open to your session. CarUp lets only administrators and government reviewers verify or reject vehicle evidence. Nothing has been hidden from you as “empty”.</>
+              : <>The evidence queue could not be loaded. The counts are unknown, not zero.</>}
+            toolbar={<ReviewQueueTabs label="Evidence review status" active={status} onChange={id => { setStatus(id); setSelectedId(null) }}
+              tabs={statuses.map(option => ({ id: option, label: labelize(option) }))} />}
+            intro={loadError ? 'Counts unknown.' : loading ? undefined : `${counts.total} item(s) · ${counts.photos} photo(s) · ${counts.documents} document(s)`}
+            emptyTitle={`No ${status} evidence items`}
+            emptyBody={status === 'pending' ? 'A document appears here when it is uploaded to a vehicle file. Nothing is verified automatically.' : undefined}>
+            {items.map(item => (
+              <ReviewQueueItem key={item.id} testId={`vehicle-evidence-item-${item.id}`} selected={current?.id === item.id}
+                title={classificationLabel(item)} status={item.verification_status}
+                meta={[item.vin, `Uploaded by ${labelize(item.uploader_role).toLowerCase()}`]}
+                since={item.uploaded_at} sinceLabel="Uploaded" onSelect={() => setSelectedId(item.id)} />
+            ))}
+          </ReviewQueuePanel>}>
+          {!current && <ReviewNoCase title={noCaseTitle(qs, 'Select a vehicle document.', 'There is no document to review.')}
+            body={qs==='ready'?"A document opens here from the queue: the file, any automated scan, extracted fields and the decision.":undefined} />}
+          {current && <>
+            <ReviewCaseHeader testId="vehicle-evidence-case-identity" eyebrow="Vehicle document" title={classificationLabel(current)}
+              status={current.verification_status}
+              facts={[
+                { label: 'VIN', value: current.vin, mono: true },
+                { label: 'Uploaded by', value: labelize(current.uploader_role) },
+                { label: 'Uploaded', value: dealerDateTime(current.uploaded_at) },
+                { label: 'Event', value: labelize(current.event_type) },
+                { label: 'Registry event', value: current.linked_registry_event_id || 'Unlinked', mono: Boolean(current.linked_registry_event_id) },
+              ]}>
+              <Link to={`/admin/vehicles/${current.vin}/review`} data-testid="open-vehicle-operations"
+                className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-carup-action-hover underline">
+                Open Vehicle Operations
+              </Link>
+            </ReviewCaseHeader>
+            <ReviewAudienceSplit audience="uploader"
+              facingNote="What the vehicle file records about this document: its review status. Nothing counts toward the vehicle's trust until a reviewer decides."
+              facing={<ReviewFacts items={[
+                { label: 'Status on the vehicle file', value: <ReviewStatusChip status={current.verification_status} /> },
+                { label: 'File', value: current.file_url ? 'Viewable in this workbench' : 'Withheld here' },
+              ]} />}
+              internal={<ReviewFacts items={[
+                { label: 'Checksum', value: (current.checksum || current.image_hash || '').slice(0, 12) || 'missing', mono: true },
+                { label: 'Trust impact on decision', value: String(current.trust_score_impact) },
+                ...(current.verification_notes ? [{ label: 'Earlier reviewer note', value: current.verification_notes }] : []),
+              ]} />} />
+            <ReviewCaseBody
+              evidence={<>
+                <ReviewSection testId="vehicle-evidence-file" title="Uploaded document"
+                  provenance={current.verification_status === 'pending' ? 'uploader' : 'server'}
+                  provenanceLabel={current.verification_status === 'pending' ? undefined : `Reviewer decision on record: ${labelize(current.verification_status).toLowerCase()}`}>
+                  {current.file_url ? (
+                    <a href={current.file_url} target="_blank" rel="noopener noreferrer"
+                      className="block rounded-card bg-carup-bg-surface p-3 ring-1 ring-carup-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus">
+                      {current.evidence_type.includes('document') ? (
+                        <span className="flex min-h-36 flex-col items-center justify-center gap-2 text-carup-text-2">
+                          <FileText className="h-8 w-8 text-carup-text-3" aria-hidden="true" />
+                          <span className="text-sm font-semibold">Open document</span>
+                        </span>
+                      ) : (
+                        <img src={current.file_url} alt={classificationLabel(current)} className="mx-auto max-h-80 w-auto max-w-full rounded-control object-contain" />
+                      )}
+                    </a>
+                  ) : (
+                    <div className="flex min-h-36 flex-col items-center justify-center gap-2 rounded-card border border-dashed border-carup-line-strong bg-carup-bg-surface p-3 text-carup-text-2"
+                      data-testid="evidence-review-file-unavailable">
+                      <FileText className="h-8 w-8 text-carup-text-3" aria-hidden="true" />
+                      <span className="px-2 text-center text-sm font-semibold">File not available here</span>
+                    </div>
+                  )}
+                </ReviewSection>
+                {ai && (
+                  <ReviewSection testId="vehicle-evidence-automated-scan" title="Automated scan" provenance="server"
+                    provenanceLabel="Advisory only · not a decision"
+                    description="Machine output. It never verifies or rejects a document; only your decision does.">
+                    <ReviewFacts items={[
+                      { label: 'Scan result', value: labelize(ai.ai_status) },
+                      { label: 'Confidence', value: `${Math.round(ai.confidence * 100)}%` },
+                      { label: 'Scan suggestion (not a decision)', value: ai.recommended_action || 'None' },
+                    ]} />
+                    {ai.reviewer_summary && <p className="text-sm leading-6 text-carup-text-2">{ai.reviewer_summary}</p>}
+                    {(ai.visible_vin || ai.visible_plate || ai.visible_odometer) && (
+                      <ul className="grid gap-2 text-sm sm:grid-cols-2">
+                        {ai.visible_vin && (
+                          <li className={`rounded-control p-2.5 ${ai.visible_vin !== current.vin ? 'bg-status-warning-soft text-status-warning' : 'bg-carup-bg-surface text-carup-text'}`}>
+                            Visible VIN: <span className="font-mono font-semibold">{ai.visible_vin}</span>
+                            <span className="block text-xs">{ai.visible_vin !== current.vin ? 'Does not match the vehicle VIN' : 'Same characters as the vehicle VIN (read by the scan)'}</span>
+                          </li>
+                        )}
+                        {ai.visible_plate && <li className="rounded-control bg-carup-bg-surface p-2.5 text-carup-text">Visible plate: <span className="font-semibold">{ai.visible_plate}</span></li>}
+                        {ai.visible_odometer && <li className="rounded-control bg-carup-bg-surface p-2.5 text-carup-text">Odometer: <span className="font-semibold">{Number(ai.visible_odometer).toLocaleString()} km</span></li>}
+                      </ul>
+                    )}
+                    {ai.damage_indicators && ai.damage_indicators.length > 0 && (
+                      <p className="text-sm text-carup-text"><span className="font-semibold">Damage indicators: </span>
+                        {ai.damage_indicators.map(d => `${d.type} (${d.severity})${d.location ? ` @ ${d.location}` : ''}`).join(' · ')}</p>
+                    )}
+                    {ai.manipulation_indicators && ai.manipulation_indicators.length > 0 && (
+                      <p className="rounded-control bg-status-warning-soft p-2.5 text-sm text-status-warning"><span className="font-semibold">Manipulation indicators: </span>
+                        {ai.manipulation_indicators.map(m => `${m.type} (${m.severity})`).join(' · ')}</p>
+                    )}
+                  </ReviewSection>
+                )}
+                <ReviewSection testId="vehicle-evidence-extractions" title="Extracted fields" provenance="server"
+                  provenanceLabel="Read from the document · confirm each field">
+                  <ExtractionReviewPanel vin={current.vin} evidenceId={current.id} />
+                </ReviewSection>
+              </>}
+              decision={<div className="min-w-0 space-y-4" data-testid="vehicle-evidence-decision">
+                {current.verification_status === 'pending'
+                  ? <VehicleEvidenceDecision key={current.id} note={notes[current.id] || ''} busy={busyId === current.id}
+                      onNote={value => setNotes(prev => ({ ...prev, [current.id]: value }))}
+                      onDecide={action => { void review(current, action) }} />
+                  : <ReviewNoCase title={`Decision on record: ${labelize(current.verification_status).toLowerCase()}`}
+                      body="This document is no longer waiting for a decision. Switch to Pending to review waiting documents." />}
+              </div>}
+              audit={<ReviewAuditTrail testId="vehicle-evidence-audit-trail"
+                entries={[
+                  { id: 'uploaded', title: `Uploaded by ${labelize(current.uploader_role).toLowerCase()}`, at: current.uploaded_at },
+                  ...(current.captured_at ? [{ id: 'captured', title: 'Captured', at: current.captured_at }] : []),
+                  ...(current.verification_status !== 'pending' ? [{ id: 'decision', title: 'Reviewer decision recorded', status: current.verification_status,
+                    detail: current.verification_notes || undefined }] : []),
+                ]}
+                empty="Nothing recorded yet."
+                note="The queue returns upload and capture times; a decision's time is not returned here." />} />
+          </>}
+        </ReviewWorkbenchGrid>
+      </div>
+    )
   }
 
   return (
@@ -368,5 +526,39 @@ export default function EvidenceReview() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+/** RX05-D — a vehicle-document reviewer note is required before either decision (UI-only minimum). */
+const VEHICLE_EVIDENCE_NOTE_MIN = 20
+
+/**
+ * RX05-D — one decision for one document: choose approve or reject, write the REQUIRED note, then one
+ * submit. Keyed by evidence id, so a choice never carries over to the next document in the queue.
+ * The page's own `review()` makes the call; nothing here decides on its own.
+ */
+function VehicleEvidenceDecision({ note, busy, onNote, onDecide }: {
+  note: string; busy: boolean; onNote: (value: string) => void; onDecide: (action: 'approve' | 'reject') => void
+}) {
+  const [action, setAction] = useState<'approve' | 'reject' | ''>('')
+  const noteOk = note.trim().length >= VEHICLE_EVIDENCE_NOTE_MIN
+  return (
+    <ReviewDecisionPanel title="Review this document"
+      description="There is no password step-up for this decision; the server accepts it only from administrators and government reviewers."
+      requirements={[
+        { label: 'Approve or reject chosen', met: Boolean(action) },
+        { label: `Reviewer note written (at least ${VEHICLE_EVIDENCE_NOTE_MIN} characters)`, met: noteOk },
+      ]}
+      footnote="There is no undo in this workbench."
+      submit={<button type="button" className={REVIEW_PRIMARY} disabled={busy || !action || !noteOk}
+        onClick={() => { if (action && noteOk) onDecide(action) }}>{busy ? 'Recording…' : 'Record decision'}</button>}>
+      <ReviewChoice<'approve' | 'reject'> id="vehicle-evidence-decision" legend="Decision" value={action} onChange={setAction} options={[
+        ['approve', 'Approve — it supports the linked registry event'],
+        ['reject', 'Reject — it does not support the event'],
+      ]} />
+      <ReviewReasonField id="vehicle-evidence-note" label="Reviewer note" value={note} onChange={onNote}
+        min={VEHICLE_EVIDENCE_NOTE_MIN} minHeight="min-h-24"
+        audience="Recorded with your decision as this document's verification note." />
+    </ReviewDecisionPanel>
   )
 }
