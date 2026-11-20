@@ -5,6 +5,8 @@ import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import {isUnifiedUiEnabled} from '@/components/shell/unifiedFlag'
+import {InquiriesWorkspace} from '@/components/dealer/workspace/InquiriesWorkspace'
 
 type Lead={
   inquiry_id:string;vin:string|null;inquiry_type:string|null;
@@ -90,6 +92,11 @@ export default function DealerTenantInquiries(){
     return [row.vin,row.inquiry_type,row.status,row.contact_name].
       filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)
   })
+  // RX05-C: unified Dealer OS presentation — same read, filter and follow-up handler; legacy body below unchanged.
+  if(isUnifiedUiEnabled())return <InquiriesWorkspace status={status} inbox={data} filtered={filtered}
+    search={search} onSearch={setSearch} updatingId={updatingId} actionNotice={actionNotice}
+    actionError={actionError} onRefresh={()=>setRefresh(n=>n+1)}
+    onFollowup={item=>{void recordDealerFollowup(item)}}/>
   return <main className="min-h-screen bg-slate-50 py-10 px-4">
     <div className="max-w-6xl mx-auto">
       <Link to="/dealer" className="text-blue-700 underline text-sm">

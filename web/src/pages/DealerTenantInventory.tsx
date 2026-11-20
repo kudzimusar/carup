@@ -4,6 +4,8 @@ import {Card,CardContent} from '@/components/ui/card'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
 import DealerVinListingPanel from '@/components/dealer/DealerVinListingPanel'
+import {isUnifiedUiEnabled} from '@/components/shell/unifiedFlag'
+import {InventoryWorkspace} from '@/components/dealer/workspace/InventoryWorkspace'
 type Vehicle={
  vin:string;make:string|null;model:string|null;year:number|null;
  recorded_mileage:number|null;
@@ -216,6 +218,21 @@ export default function DealerTenantInventory(){
     'Private VIN correction not confirmed; check the current data before retrying.')
   }finally{setEditSaving(false)}
  }
+ // RX05-C: unified Dealer OS presentation — same state, reads and handlers; legacy body below unchanged.
+ if(isUnifiedUiEnabled())return <InventoryWorkspace status={visibleStatus} inventory={visibleResult}
+  filtered={filtered} search={search} onSearch={setSearch}
+  draft={{vin:draftVin,make:draftMake,model:draftModel,year:draftYear,mileage:draftMileage,
+   setVin:setDraftVin,setMake:setDraftMake,setModel:setDraftModel,setYear:setDraftYear,
+   setMileage:setDraftMileage,saving:draftSaving,notice:draftNotice,error:draftError,
+   readWarning:draftReadWarning,onSubmit:()=>{void createPrivateDraft()}}}
+  edit={{vin:editingVin,make:editMake,model:editModel,year:editYear,mileage:editMileage,
+   setMake:setEditMake,setModel:setEditModel,setYear:setEditYear,setMileage:setEditMileage,
+   saving:editSaving,notice:editNotice,error:editError,onBegin:beginPrivateEdit,
+   onSave:()=>{void savePrivateEdit()},onCancel:()=>setEditingVin('')}}
+  pendingPrecheckVin={pendingPrecheckVin} openListingVin={openListingVin}
+  onToggleListing={vin=>setOpenListingVin(openListingVin===vin?'':vin)}
+  branches={branches} userId={userId} token={token}
+  onRetry={()=>{setStatus('loading');setInventoryRefresh(n=>n+1)}} onListingChanged={()=>setInventoryRefresh(n=>n+1)}/>
  return <main className="min-h-screen bg-slate-50 px-4 py-10">
   <div className="max-w-6xl mx-auto">
    <Link to="/dealers/operating-details" className="text-blue-700 text-sm underline">

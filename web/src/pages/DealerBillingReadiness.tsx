@@ -4,6 +4,8 @@ import {Link} from 'react-router-dom'
 import {Card,CardContent} from '@/components/ui/card'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import {isUnifiedUiEnabled} from '@/components/shell/unifiedFlag'
+import {BillingWorkspace} from '@/components/dealer/workspace/BillingWorkspace'
 
 type Flow={code:string;payer:string;beneficiary:string;provider:string;status:string;paid:false}
 type Subscription={
@@ -45,6 +47,8 @@ export default function DealerBillingReadiness(){
   const {user,token}=useAuth()
   const [data,setData]=useState<Readiness|null>(null)
   const [state,setState]=useState<'loading'|'ready'|'denied'>('loading')
+  // RX05-C: a retry (unified view only) re-runs the same single read; legacy never changes it.
+  const [attempt,setAttempt]=useState(0)
   useEffect(()=>{
     let live=true
     if(!user||!token){
@@ -59,7 +63,10 @@ export default function DealerBillingReadiness(){
       setData(result.readiness);setState('ready')
     }).catch(()=>{if(live){setData(null);setState('denied')}})
     return()=>{live=false}
-  },[user,token])
+  },[user,token,attempt])
+  // RX05-C: unified Dealer OS presentation — same read; legacy body below unchanged.
+  if(isUnifiedUiEnabled())return <BillingWorkspace state={state} data={data}
+    onRetry={()=>{setState('loading');setAttempt(n=>n+1)}}/>
   return <main className="min-h-screen bg-slate-50 px-4 py-10">
     <div className="max-w-5xl mx-auto">
       <Link to="/dealers/operating-details" className="text-sm underline text-blue-700">

@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {Link} from 'react-router-dom'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import {skin} from '@/lib/unifiedSkin'
 
 /**
  * R4 P0-2 — one dealer VIN's journey onto the canonical Marketplace.
@@ -142,8 +143,8 @@ export default function DealerVinListingPanel({vin,tenantId,userId,token,branche
   await load();onChanged()
  })
 
- if(state==='loading')return <p role="status" className="text-sm">Loading Marketplace checks for {vin}…</p>
- if(state==='unavailable'||!readiness)return <p role="alert" className="text-sm text-red-700">
+ if(state==='loading')return <p role="status" className={skin('text-sm','mt-3 text-sm text-carup-text-2')}>Loading Marketplace checks for {vin}…</p>
+ if(state==='unavailable'||!readiness)return <p role="alert" className={skin('text-sm text-red-700','mt-3 rounded-control border border-status-warning bg-status-warning-soft px-3 py-2 text-sm text-carup-text')}>
   Marketplace checks for {vin} are unavailable right now. Nothing has been published.</p>
  const published=readiness.recorded_marketplace_publication_state==='published'
  const sellerAuthority=readiness.canonical_gate.requirements.find(r=>r.key==='seller_authority')
@@ -151,91 +152,93 @@ export default function DealerVinListingPanel({vin,tenantId,userId,token,branche
   sellerAuthority&&sellerAuthority.status!=='verified'
  const canPublish=readiness.listing_candidate_prepared&&!published&&
   readiness.dealer_operating_authority_current&&readiness.canonical_gate.is_publishable
- const field='mt-1 w-full rounded border border-slate-400 px-2 py-2 text-sm'
- return <section aria-labelledby={`listing-${vin}`} className="mt-3 rounded-lg border border-slate-300 p-3"
+ const label=skin('text-sm','text-sm font-semibold text-carup-text')
+ const field=skin('mt-1 w-full rounded border border-slate-400 px-2 py-2 text-sm',
+  'mt-1.5 block min-h-11 w-full rounded-control border border-carup-line-strong bg-carup-bg-raised px-3 py-2 text-sm font-normal text-carup-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus')
+ return <section aria-labelledby={`listing-${vin}`} className={skin('mt-3 rounded-lg border border-slate-300 p-3','mt-3 rounded-card border border-carup-line-strong bg-carup-bg p-4 text-carup-text')}
   data-testid={`dealer-listing-panel-${vin}`}>
-  <h4 id={`listing-${vin}`} className="font-semibold">Marketplace listing — {vin}</h4>
-  <p className="text-xs text-slate-700">
+  <h4 id={`listing-${vin}`} className={skin('font-semibold','text-sm font-semibold text-carup-text [overflow-wrap:anywhere]')}>Marketplace listing — {vin}</h4>
+  <p className={skin('text-xs text-slate-700','mt-1 text-xs leading-5 text-carup-text-2')}>
    Dealer operating authority: <strong data-testid="dealer-listing-authority">
     {readiness.dealer_operating_authority_current?'current':'NOT current — listing disabled'}</strong>
    {' · '}Publication state: <strong data-testid="dealer-listing-publication-state">
     {readiness.recorded_marketplace_publication_state||'not recorded'}</strong>
   </p>
-  {notice&&<p role="status" className="mt-2 text-sm text-emerald-800">{notice}</p>}
-  {problem&&<div role="alert" className="mt-2 text-sm text-red-700">
+  {notice&&<p role="status" className={skin('mt-2 text-sm text-emerald-800','mt-3 rounded-control border border-status-info bg-status-info-soft px-3 py-2 text-sm text-carup-text')}>{notice}</p>}
+  {problem&&<div role="alert" className={skin('mt-2 text-sm text-red-700','mt-3 rounded-control border border-status-danger bg-status-danger-soft px-3 py-2 text-sm text-carup-text')}>
    <p>Not completed: {problem}</p>
    {refusal.length>0&&<ul className="list-disc pl-5">{refusal.map(r=>
     <li key={r.key}>{r.label} — {STATUS_TEXT[r.status]||r.status}</li>)}</ul>}
   </div>}
   {!readiness.listing_candidate_prepared&&readiness.dealer_operating_authority_current&&
-   <form className="mt-3 grid gap-2 sm:grid-cols-2" onSubmit={e=>{e.preventDefault();void prepare()}}
+   <form className={skin('mt-3 grid gap-2 sm:grid-cols-2','mt-3 grid gap-3 sm:grid-cols-2')} onSubmit={e=>{e.preventDefault();void prepare()}}
     aria-label={`Prepare ${vin} for Marketplace`}>
-    <p className="sm:col-span-2 text-xs text-slate-700">Every fact below is recorded as
+    <p className={skin('sm:col-span-2 text-xs text-slate-700','sm:col-span-2 text-xs leading-5 text-carup-text-2')}>Every fact below is recorded as
      <strong> declared by your dealership</strong>. CarUp does not verify it by saving it.</p>
-    <label className="text-sm">Branch holding this vehicle
+    <label className={label}>Branch holding this vehicle
      <select required className={field} value={branchId} onChange={e=>setBranchId(e.target.value)}>
       <option value="">Choose a branch</option>
       {branches.map(b=><option key={b.id} value={b.id}>{b.name||'Unnamed branch'}</option>)}
      </select></label>
-    <label className="text-sm">Asking price
+    <label className={label}>Asking price
      <input required inputMode="decimal" className={field} value={price}
       onChange={e=>setPrice(e.target.value.replace(/[^0-9.]/g,''))}/></label>
-    <label className="text-sm">Currency
+    <label className={label}>Currency
      <select className={field} value={currency} onChange={e=>setCurrency(e.target.value)}>
       <option value="USD">USD</option><option value="ZWG">ZWG</option>
      </select></label>
-    <label className="text-sm">Chassis number
+    <label className={label}>Chassis number
      <input required className={field} value={chassis} onChange={e=>setChassis(e.target.value)}/></label>
-    <label className="text-sm">Engine number
+    <label className={label}>Engine number
      <input required className={field} value={engine} onChange={e=>setEngine(e.target.value)}/></label>
-    <label className="text-sm">Registration stage
+    <label className={label}>Registration stage
      <select className={field} value={stage} onChange={e=>setStage(e.target.value)}>
       {STAGES.map(([value,label])=><option key={value} value={value}>{label}</option>)}
      </select></label>
-    <label className="text-sm">Plate number (if registered)
+    <label className={label}>Plate number (if registered)
      <input className={field} value={plate} onChange={e=>setPlate(e.target.value)}/></label>
-    <label className="text-sm">City shown to buyers
+    <label className={label}>City shown to buyers
      <input required className={field} value={city} onChange={e=>setCity(e.target.value)}/></label>
-    <label className="text-sm">Province (optional)
+    <label className={label}>Province (optional)
      <input className={field} value={province} onChange={e=>setProvince(e.target.value)}/></label>
-    <label className="text-sm">Location shown publicly
+    <label className={label}>Location shown publicly
      <select className={field} value={visibility} onChange={e=>setVisibility(e.target.value)}>
       <option value="public">City and province</option><option value="province_only">Province only</option>
       <option value="withheld">Withheld</option>
      </select></label>
-    <label className="flex items-center gap-2 text-sm sm:col-span-2">
+    <label className={skin('flex items-center gap-2 text-sm sm:col-span-2','flex min-h-11 items-center gap-3 text-sm sm:col-span-2')}>
      <input type="checkbox" checked={showDealer} onChange={e=>setShowDealer(e.target.checked)}/>
      Show our dealership as the seller on the public listing</label>
     <button type="submit" disabled={busy!==''||!branchId}
-     className="min-h-11 rounded bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-60 sm:col-span-2">
+     className={skin('min-h-11 rounded bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-60 sm:col-span-2','min-h-11 rounded-control bg-carup-action px-4 text-sm font-semibold text-carup-action-on hover:bg-carup-action-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus sm:col-span-2')}>
      {busy==='prepare'?'Saving…':'Save listing facts (stays private)'}</button>
    </form>}
   {readiness.listing_candidate_prepared&&<div className="mt-3">
-   <h5 className="text-sm font-semibold">CarUp publication checks
+   <h5 className={skin('text-sm font-semibold','text-sm font-semibold text-carup-text')}>CarUp publication checks
     {readiness.canonical_gate.completeness_percent!==null&&` · ${readiness.canonical_gate.completeness_percent}%`}</h5>
-   <ul className="mt-1 space-y-1 text-sm" data-testid="dealer-listing-requirements">
+   <ul className={skin('mt-1 space-y-1 text-sm','mt-2 space-y-1.5 text-sm text-carup-text-2')} data-testid="dealer-listing-requirements">
     {readiness.canonical_gate.requirements.filter(r=>r.blocking).map(r=>
      <li key={r.key} data-requirement={r.key} data-status={r.status}>
-      <span className="font-medium">{r.label}</span> — {STATUS_TEXT[r.status]||r.status}</li>)}
+      <span className={skin('font-medium','font-semibold text-carup-text')}>{r.label}</span> — {STATUS_TEXT[r.status]||r.status}</li>)}
    </ul>
   </div>}
   {needsDocument&&<div className="mt-3">
-   <label className="text-sm">Ownership or registration document (PDF, JPG or PNG, up to 5 MB)
+   <label className={label}>Ownership or registration document (PDF, JPG or PNG, up to 5 MB)
     <input type="file" accept="application/pdf,image/jpeg,image/png" className={field}
      data-testid="dealer-listing-document" onChange={e=>setDocFile(e.target.files?.[0]||null)}/></label>
    <button type="button" onClick={()=>void upload()} disabled={busy!==''||!docFile}
-    className="mt-2 min-h-11 rounded border border-slate-900 px-4 text-sm font-semibold disabled:opacity-60">
+    className={skin('mt-2 min-h-11 rounded border border-slate-900 px-4 text-sm font-semibold disabled:opacity-60','mt-2 min-h-11 rounded-control border border-carup-line-strong bg-carup-bg-raised px-4 text-sm font-semibold text-carup-text hover:bg-carup-bg-surface disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus')}>
     {busy==='upload'?'Uploading…':'Send document for independent review'}</button>
   </div>}
   {readiness.listing_candidate_prepared&&!published&&<button type="button" onClick={()=>void publish()}
    disabled={busy!==''||!canPublish}
-   className="mt-3 min-h-11 rounded bg-emerald-800 px-4 text-sm font-semibold text-white disabled:opacity-60">
+   className={skin('mt-3 min-h-11 rounded bg-emerald-800 px-4 text-sm font-semibold text-white disabled:opacity-60','mt-3 min-h-11 rounded-control bg-carup-action px-4 text-sm font-semibold text-carup-action-on hover:bg-carup-action-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus')}>
    {busy==='publish'?'Publishing…':canPublish?'Publish on CarUp Marketplace':'Publish (blocked until checks are met)'}
   </button>}
-  {published&&<div className="mt-3 flex flex-wrap gap-3 text-sm">
-   <Link className="underline" to={`/marketplace/listing/${vin}`}>View the public listing</Link>
+  {published&&<div className={skin('mt-3 flex flex-wrap gap-3 text-sm','mt-3 flex flex-wrap items-center gap-3 text-sm')}>
+   <Link className={skin('underline','inline-flex min-h-11 items-center font-semibold text-carup-action underline-offset-4 hover:underline')} to={`/marketplace/listing/${vin}`}>View the public listing</Link>
    <button type="button" onClick={()=>void unpublish()} disabled={busy!==''}
-    className="min-h-11 rounded border border-slate-900 px-4 font-semibold disabled:opacity-60">
+    className={skin('min-h-11 rounded border border-slate-900 px-4 font-semibold disabled:opacity-60','min-h-11 rounded-control border border-status-danger bg-carup-bg-raised px-4 font-semibold text-status-danger hover:bg-status-danger-soft disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus')}>
     {busy==='unpublish'?'Removing…':'Remove from Marketplace'}</button>
   </div>}
  </section>

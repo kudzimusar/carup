@@ -7,6 +7,8 @@ import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import {isUnifiedUiEnabled} from '@/components/shell/unifiedFlag'
+import {StaffWorkspace} from '@/components/dealer/workspace/StaffWorkspace'
 type Invitation={invite_id:string;invited_user_id?:string;organization_id?:string;
  requested_role:string;status:'PENDING'|'ACCEPTED'|'REVOKED';
  created_at:string;expires_at:string}
@@ -166,6 +168,17 @@ export default function DealerStaffConsole(){
    setError(problem instanceof Error?problem.message:'Branch edit unavailable')
   }finally{setBusy(false)}
  }
+ // RX05-C: unified Dealer OS presentation — same reads, writes and receipt checks; legacy body below unchanged.
+ if(isUnifiedUiEnabled())return <StaffWorkspace signedIn={Boolean(user)} currentUserId={user?.id} loaded={loaded} staff={staff}
+  mine={mine} myBranches={myBranches} ownerScopes={ownerScopes} ownerBranches={ownerBranches}
+  recipient={recipient} setRecipient={setRecipient} scopeBranchId={scopeBranchId}
+  setScopeBranchId={setScopeBranchId} scopeReason={scopeReason} setScopeReason={setScopeReason}
+  staffHours={staffHours} setStaffHour={(scopeId,value)=>setStaffHours(current=>({...current,[scopeId]:value}))}
+  busy={busy} error={error} notice={notice} onInvite={()=>{void invite()}}
+  onAccept={id=>{void action(id,'accept')}} onRevoke={id=>{void action(id,'revoke')}}
+  onGrantScope={id=>{void grantScope(id)}} onRevokeScope={id=>{void revokeScope(id)}}
+  onSaveHours={branch=>{void saveScopedHours(branch)}}
+  onReload={()=>{setLoaded(false);setError('');void reload()}}/>
  return <main className="min-h-screen bg-slate-50 px-4 py-10">
   <div className="max-w-6xl mx-auto">
    <Link to="/dealers/operating-details" className="text-sm text-blue-700 underline">

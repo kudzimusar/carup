@@ -6,6 +6,8 @@ import {Card,CardContent} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import {isUnifiedUiEnabled} from '@/components/shell/unifiedFlag'
+import {OperatingDetailsWorkspace} from '@/components/dealer/workspace/OperatingDetailsWorkspace'
 
 type Section='BUSINESS_OVERVIEW'|'BUYER_ASSURANCE'|'FINANCE_TERMS'|
   'SOURCING'|'WARRANTY_AFTERSALES'|'SERVICE_CAPABILITIES'
@@ -229,6 +231,23 @@ export default function DealerOperatingDetails(){
       setError(problem instanceof Error?problem.message:'Could not persist dealership declaration')
     }finally{setBusy(false)}
   }
+  // RX05-C: unified Dealer OS presentation — same reads, writes, version checks and the
+  // #dealer-profile-images focus ref; legacy body below unchanged.
+  if(isUnifiedUiEnabled())return <OperatingDetailsWorkspace status={status} error={error} notice={notice}
+    busy={busy} read={read} workspace={workspace} mediaItems={mediaModel?mediaModel.items:null}
+    sections={sections} selected={selected}
+    onSelectSection={key=>{setSelected(key);setNotice('');setError('')}}
+    draft={draft} setDraftField={(field,value)=>setDraft(previous=>({...previous,[field]:value}))}
+    onSave={()=>{void save()}} branchName={branchName} setBranchName={setBranchName}
+    branchAddress={branchAddress} setBranchAddress={setBranchAddress} onRecordBranch={()=>{void recordBranch()}}
+    media={{category:mediaCategory,setCategory:setMediaCategory,branchId:mediaBranchId,
+      setBranchId:setMediaBranchId,caption:mediaCaption,setCaption:setMediaCaption,alt:mediaAltText,
+      setAlt:setMediaAltText,fileLoaded:Boolean(mediaDataUrl),attested:mediaAttested,
+      setAttested:setMediaAttested,onSelectFile:onSelectMediaFile,onUpload:()=>{void uploadMedia()}}}
+    mediaLabels={MEDIA_LABELS} companyImageCategories={COMPANY_IMAGE_CATEGORIES}
+    rightsAttestation={RIGHTS_ATTESTATION} mediaSectionRef={mediaSectionRef}
+    privateThumb={{apiBase:API,headers:user&&token?{...header(user.id,token)}:{}}}
+    onReload={()=>{setStatus('loading');void reload()}}/>
   return <main className="min-h-screen bg-slate-50 py-10 px-4">
     <div className="max-w-6xl mx-auto">
       <div className="flex flex-wrap items-center gap-4 mb-6">
