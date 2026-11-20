@@ -61,7 +61,7 @@ export function ShowroomFloorScene({ className = '', label = 'Illustration of a 
           </div>
         ))}
       </div>
-      {disclosure && <SceneDisclosure className="absolute bottom-3 right-3" />}
+      {disclosure && <SceneDisclosure className="absolute right-3 top-3" />}
     </div>
   )
 }
