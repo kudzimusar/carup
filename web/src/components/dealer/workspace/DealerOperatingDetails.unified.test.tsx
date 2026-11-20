@@ -76,7 +76,10 @@ describe('DealerOperatingDetails — unified Dealer OS view', () => {
     const stages = within(section).getByTestId('dealer-ws-media-stages')
     expect(stages).toHaveTextContent('Uploaded privately')
     expect(stages).toHaveTextContent('Awaiting independent review')
-    expect(stages).toHaveTextContent('Approved & public')
+    expect(stages).toHaveTextContent('Approved for public display')
+    // A reviewer approval is not a visibility claim: the public read also needs an approved storefront.
+    expect(stages).toHaveTextContent('only while your full storefront is approved too')
+    expect(stages).not.toHaveTextContent('Approved & public')
 
     const pending = within(section).getByTestId('dealer-owner-media-item-m-profile-pending')
     expect(pending).toHaveAttribute('data-stage', 'review')

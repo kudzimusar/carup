@@ -8,7 +8,9 @@
  * Photos follow three explicit, separate states — never merged, never shortcut:
  *   1. Uploaded privately (scanned, private storage, only this dealership sees it)
  *   2. Awaiting independent review (warning — never green)
- *   3. Approved & public (success — only `APPROVED_PUBLIC_DISPLAY` with `public_display_approved`)
+ *   3. Approved for public display (success — only `APPROVED_PUBLIC_DISPLAY` with `public_display_approved`).
+ *      A recorded reviewer approval, NOT a visibility claim: the public media read also requires a
+ *      currently approved full storefront (`requires_current_full_storefront_and_dealer_authority`).
  * Thumbnails use the existing `PrivateMediaThumb` (owner-session blob, revoked on unmount) for the
  * same items the legacy view previews, and are always labelled as the dealership's private copy.
  *
@@ -111,7 +113,7 @@ function MediaProgress({ item }: { item: OperatingMediaItemView }) {
       text: stage === 'review' ? 'text-status-warning' : rejected ? 'text-status-danger' : 'text-carup-text-2',
     },
     {
-      label: stage === 'public' ? 'Public on profile' : 'Not public',
+      label: stage === 'public' ? 'Approved for display' : 'Not public',
       bar: stage === 'public' ? 'bg-status-success' : 'bg-carup-line',
       text: stage === 'public' ? 'text-status-success' : 'text-carup-text-3',
     },
@@ -370,8 +372,8 @@ export function OperatingDetailsWorkspace<S extends string, C extends string>(pr
                   body="Virus-scanned into private storage. Only your dealership can see it." />
                 <StageCard n={2} icon={<Eye className="h-4 w-4" />} title="Awaiting independent review" count={reviewItems.length} tone={reviewItems.length ? 'warning' : 'neutral'}
                   body="A CarUp reviewer checks rights, logos and alt text. Not public yet." />
-                <StageCard n={3} icon={<ShieldCheck className="h-4 w-4" />} title="Approved & public" count={publicItems.length} tone={publicItems.length ? 'success' : 'neutral'}
-                  body="Only after approval does the photo appear on your public profile." />
+                <StageCard n={3} icon={<ShieldCheck className="h-4 w-4" />} title="Approved for public display" count={publicItems.length} tone={publicItems.length ? 'success' : 'neutral'}
+                  body="A reviewer approved it. It appears on your public profile only while your full storefront is approved too." />
               </ol>
               <p className="mt-2 text-xs leading-5 text-carup-text-2 sm:hidden">
                 Three separate states: private upload → independent review → public. Only approved photos reach buyers.
