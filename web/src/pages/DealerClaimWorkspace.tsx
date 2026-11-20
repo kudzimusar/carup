@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, type AuthHeaders } from '@/lib/apiClient'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { DealerClaimWorkspaceShowroom } from '@/components/dealer/showroom/DealerClaimWorkspaceShowroom'
 
 type ClaimState = 'AWAITING_DOCUMENTARY_EVIDENCE' | 'CLAIM_APPROVED' |
   'CLAIM_REJECTED' | 'CLAIM_DISPUTED' | 'CLAIM_APPEALED' | 'CLAIM_REVOKED'
@@ -122,6 +124,11 @@ export default function DealerClaimWorkspace() {
   const [csvMapping,setCsvMapping]=useState<Record<string,string|null>>({})
   const [csvAcknowledged,setCsvAcknowledged]=useState(false)
   const [operationalAuthority,setOperationalAuthority]=useState<OperationalAuthority|null>(null)
+  // RX05-A: which claim's detail reads have settled, so the unified journey can say "checking"
+  // instead of reading another claim's (or no) data as a status. The legacy view does not use it.
+  const [detailsFor,setDetailsFor]=useState<string|null>(null)
+  // RX05-A: whether the claims list itself was read, so a failed read is never shown as "no claims".
+  const [claimsRead,setClaimsRead]=useState<'pending'|'ok'|'failed'>('pending')
 
   const [draft,setDraft]=useState<Draft|null>(null)
   const [complianceSubmissions,setComplianceSubmissions]=useState<ComplianceSubmission[]>([])
@@ -153,8 +160,10 @@ export default function DealerClaimWorkspace() {
       setSelected(current=>current && result.claims.some(x=>x.claim_id===current)
         ? current : result.claims[0]?.claim_id || null)
       setError('')
+      setClaimsRead('ok')
     }catch(problem){
       setError(problem instanceof Error?problem.message:'Claims unavailable')
+      setClaimsRead('failed')
     }finally{setLoading(false)}
   },[token,user])
   useEffect(()=>{
@@ -205,7 +214,8 @@ export default function DealerClaimWorkspace() {
       setJurisdiction(results[3].status==='fulfilled'?results[3].value.preview:null)
       setComplianceSubmissions(results[4].status==='fulfilled'?results[4].value.submissions||[]:[])
       setOperationalAuthority(results[5].status==='fulfilled'?results[5].value.authority:null)
-    }catch{setEvidence([]);setDraft(null);setOcrCandidates([]);setJurisdiction(null);setComplianceSubmissions([]);setOperationalAuthority(null)}
+      setDetailsFor(selected)
+    }catch{setEvidence([]);setDraft(null);setOcrCandidates([]);setJurisdiction(null);setComplianceSubmissions([]);setOperationalAuthority(null);setDetailsFor(selected)}
   },[selected,user,token,claims])
   useEffect(()=>{
     let mounted=true
@@ -429,6 +439,50 @@ export default function DealerClaimWorkspace() {
       await reload()
     }catch(problem){setError(problem instanceof Error?problem.message:'Appeal could not be recorded')}
     finally{setBusy(false)}
+  }
+
+  if(isUnifiedUiEnabled()){
+    // Same reads, uploads, imports, submissions and appeal; the unified view only arranges them as a
+    // claim → application → legal → activation journey.
+    return <DealerClaimWorkspaceShowroom model={{
+      signedIn:Boolean(user&&token),loading,claims,selected,
+      claimsReadFailed:claimsRead==='failed',
+      onRetryClaims:()=>{setError('');setLoading(true);void reload()},
+      onSelect:claimId=>{setSelected(claimId);setError('');setNotice('')},
+      chosen,detailsLoaded:Boolean(selected)&&detailsFor===selected,busy,notice,error,
+      evidence,documentClasses:DOCUMENT_CLASSES,documentLabel,
+      documentClass,setDocumentClass,documentClassConfirmed,setDocumentClassConfirmed,
+      documentFile,setDocumentFile,
+      uploadEvidence:()=>{void uploadEvidence()},
+      withdrawEvidence:evidenceId=>{void withdrawEvidence(evidenceId)},
+      extractEvidenceCandidates:evidenceId=>{void extractEvidenceCandidates(evidenceId)},
+      ocrCandidates,
+      downloadPrefilled:()=>{void downloadPrefilled()},
+      workbookFile,setWorkbookFile,uploadWorkbook:()=>{void uploadWorkbook()},
+      fileProblem,setFileProblem,
+      csvTab,setCsvTab,csvFile,setCsvFile,csvPreview,setCsvPreview,csvMapping,setCsvMapping,
+      csvAcknowledged,setCsvAcknowledged,
+      previewLegacyCsv:()=>{void previewLegacyCsv()},importMappedCsv:()=>{void importMappedCsv()},
+      manual:{
+        legalName:manualLegalName,setLegalName:setManualLegalName,
+        tradingName:manualTradingName,setTradingName:setManualTradingName,
+        registrationNumber:manualRegistrationNumber,setRegistrationNumber:setManualRegistrationNumber,
+        registrationAuthority:manualRegistrationAuthority,setRegistrationAuthority:setManualRegistrationAuthority,
+        country:manualCountry,setCountry:setManualCountry,
+        city:manualCity,setCity:setManualCity,
+        branchName:manualBranchName,setBranchName:setManualBranchName,
+        researchConfirmation:manualResearchConfirmation,setResearchConfirmation:setManualResearchConfirmation,
+        signer:manualSigner,setSigner:setManualSigner,
+        signerRole:manualSignerRole,setSignerRole:setManualSignerRole,
+        privacy:manualPrivacy,setPrivacy:setManualPrivacy,
+      },
+      saveManual:()=>{void saveManual()},
+      draft,submitAcknowledged,setSubmitAcknowledged,
+      submitFrozenApplication:()=>{void submitFrozenApplication()},
+      complianceSubmissions,jurisdiction,operationalAuthority,
+      reasonText:AUTHORITY_REASON_TEXT,nextStepText:NEXT_STEP_TEXT,
+      appealReason,setAppealReason,appeal:()=>{void appeal()},
+    }}/>
   }
 
   return (

@@ -25,6 +25,8 @@ import {
   COMPANY_COVER_IMAGE, COMPANY_PROFILE_IMAGE, IDENTITY_MEDIA_CATEGORIES, declaredFieldLabel,
   declaredSectionLabel, mediaCategoryLabel, newestMediaOf, plural,
 } from '@/components/dealer/profile/dealerProfileLabels'
+import { isShowroomPagesEnabled } from '@/lib/presentationFlags'
+import { DealerProfileShowroom } from '@/components/dealer/showroom/DealerProfileShowroom'
 
 type ResearchProfile = {
   seed_dealer_id: string
@@ -194,6 +196,8 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
   // CarUp has no dealership save/like).
   const [savedVins,setSavedVins]=useState<ReadonlySet<string>>(()=>new Set())
   const savedMutatedRef=useRef(false)
+  // RX05-A: the showroom view's "Try again" re-runs the same reads; the legacy view never changes it.
+  const [reloadKey,setReloadKey]=useState(0)
 
   useEffect(() => {
     const key = seedId?.toUpperCase()
@@ -276,7 +280,7 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
       applyDealerPublicSeo(null)
     })
     return cleanup
-  }, [seedId, navigate])
+  }, [seedId, navigate, reloadKey])
 
   const signedIn=Boolean(user&&token)
   const hasStock=(stock?.length??0)>0
@@ -371,6 +375,45 @@ export default function DealerResearchProfile({ claimMode = false }: { claimMode
     reviewedContacts.reviewed_public_website,
   ].filter(Boolean).length:0
   const showGallery=mediaState==='loading'||mediaState==='unavailable'||galleryItems.length>0
+
+  if(isShowroomPagesEnabled()){
+    // Same reads, SEO, saved-vehicle hearts and claim submission; only the presentation differs.
+    return <DealerProfileShowroom
+      claimMode={claimMode}
+      loaded={loaded}
+      profile={profile}
+      redirectedFrom={redirectedFrom}
+      onRetry={()=>setReloadKey(value=>value+1)}
+      apiBase={API}
+      coverSrc={coverItem?API+coverItem.image_path:null}
+      coverAlt={coverItem?.alt_text}
+      avatarSrc={avatarItem?API+avatarItem.image_path:null}
+      avatarAlt={avatarItem?.alt_text}
+      mediaState={mediaState}
+      galleryItems={galleryItems}
+      stock={stock}
+      stockState={stockState}
+      signedIn={signedIn}
+      savedVins={savedVins}
+      onToggleSaved={(vin,name)=>{void toggleSaved(vin,name)}}
+      onScrollTo={scrollToSection}
+      contacts={reviewedContacts}
+      contactAvailability={contactAvailability}
+      overview={overview}
+      policySections={policySections}
+      claim={{
+        signedIn:Boolean(token&&user),
+        signInHref:loginWithReturnTo(location.pathname),
+        templateHref:API+'/dealership/intake/template',
+        scope,onScope:setScope,
+        relationship,onRelationship:setRelationship,
+        legalName,onLegalName:setLegalName,
+        statement,onStatement:setStatement,
+        submitting,outcome:claimOutcome,error:claimError,
+        onSubmit:event=>{void submitClaim(event)},
+      }}
+    />
+  }
 
   return (
     <div className="min-h-screen bg-slate-50" data-testid="dealer-public-profile">

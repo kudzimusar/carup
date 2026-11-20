@@ -2,6 +2,8 @@ import {useCallback,useEffect,useState} from 'react'
 import {Link} from 'react-router-dom'
 import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import {isShowroomPagesEnabled} from '@/lib/presentationFlags'
+import {DealerFeedbackShowroom} from '@/components/dealer/showroom/DealerFeedbackShowroom'
 
 type Transaction={
  transaction_id:string;seed_dealer_id:string;canonical_status:string;
@@ -88,6 +90,30 @@ export default function DealerBuyerFeedback(){
   }catch(problem){
    setError(problem instanceof Error?problem.message:'Private buyer case submission refused')
   }finally{setSaving(false)}
+ }
+ if(isShowroomPagesEnabled()){
+  // Same canonical read, eligibility rules and private POST; only the presentation differs.
+  return <DealerFeedbackShowroom
+   signedIn={Boolean(user&&token)}
+   loading={loading}
+   entries={context?.entries??null}
+   cases={context?.cases??null}
+   selected={selected}
+   onSelect={value=>{setSelected(value);setType('BUYER_COMPLAINT');setRating(0)}}
+   transaction={transaction}
+   type={type}
+   onType={setType}
+   rating={rating}
+   onRating={setRating}
+   statement={statement}
+   onStatement={setStatement}
+   canSubmit={canSubmit}
+   saving={saving}
+   notice={notice}
+   error={error}
+   onSubmit={()=>{void submit()}}
+   onRetry={()=>{setError('');void load()}}
+  />
  }
  return <main className="min-h-screen bg-slate-50 p-4 sm:p-8">
   <div className="max-w-4xl mx-auto space-y-6">

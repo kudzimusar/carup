@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { apiRequest, resolveApiBaseUrl } from '@/lib/apiClient'
+import { isShowroomPagesEnabled } from '@/lib/presentationFlags'
+import { DealerCorrectionShowroom } from '@/components/dealer/showroom/DealerCorrectionShowroom'
 
 type RequestType = 'CORRECTION' | 'REMOVAL' | 'BUSINESS_CLOSED' | 'IDENTITY_DISPUTE'
 const API = resolveApiBaseUrl(import.meta.env.VITE_API_URL,
@@ -41,6 +43,25 @@ export default function DealerResearchCorrection() {
       setPhase('draft')
       setError(problem instanceof Error ? problem.message : 'Correction could not be submitted')
     }
+  }
+
+  if (isShowroomPagesEnabled()) {
+    // Same state, validation and request; only the presentation differs.
+    return (
+      <DealerCorrectionShowroom
+        reference={(seedId || '').toUpperCase()}
+        validId={validId}
+        requestType={requestType}
+        onRequestType={setRequestType}
+        summary={summary}
+        onSummary={setSummary}
+        contactEmail={contactEmail}
+        onContactEmail={setContactEmail}
+        phase={phase}
+        error={error}
+        onSubmit={event => { void submit(event) }}
+      />
+    )
   }
 
   return (

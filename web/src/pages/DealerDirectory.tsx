@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Search, Store, MapPin, AlertTriangle } from 'lucide-react'
 import { apiRequest, resolveApiBaseUrl } from '@/lib/apiClient'
+import { isShowroomPagesEnabled } from '@/lib/presentationFlags'
+import { DealerDirectoryShowroom } from '@/components/dealer/showroom/DealerDirectoryShowroom'
 
 type ResearchTier =
   | 'PRELISTED_UNCLAIMED'
@@ -80,6 +82,8 @@ export default function DealerDirectory() {
   const [page, setPage] = useState(1)
   const [directory, setDirectory] = useState<DirectoryEnvelope | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+  // RX05-A: the showroom view offers "Try again" after a failed read; the legacy view never changes it.
+  const [retryNonce, setRetryNonce] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -110,12 +114,46 @@ export default function DealerDirectory() {
       active = false
       window.clearTimeout(timer)
     }
-  }, [search, city, category, tier, page])
+  }, [search, city, category, tier, page, retryNonce])
 
   const hasFilters = Boolean(search.trim() || city.trim() || category || tier)
   const categories = directory?.available_categories?.length
     ? directory.available_categories
     : DEFAULT_CATEGORIES
+
+  if (isShowroomPagesEnabled()) {
+    // Same filters, read and pagination; only the presentation differs. Filter options come from
+    // the API alone (no DEFAULT_CATEGORIES fallback in this view).
+    const resetPage = <T,>(set: (value: T) => void) => (value: T) => {
+      set(value)
+      setPage(1)
+    }
+    return (
+      <DealerDirectoryShowroom
+        search={search}
+        city={city}
+        category={category}
+        tier={tier}
+        onSearch={resetPage(setSearch)}
+        onCity={resetPage(setCity)}
+        onCategory={resetPage(setCategory)}
+        onTier={resetPage((value: string) => setTier(value as '' | ResearchTier))}
+        onClear={() => {
+          setSearch('')
+          setCity('')
+          setCategory('')
+          setTier('')
+          setPage(1)
+        }}
+        hasFilters={hasFilters}
+        page={page}
+        onPage={setPage}
+        state={state}
+        directory={directory}
+        onRetry={() => setRetryNonce(value => value + 1)}
+      />
+    )
+  }
 
   return (
     <main className="min-h-screen bg-gray-50">
