@@ -20,7 +20,6 @@ import {
   WS_FIELD, WS_HINT, WS_LABEL, WS_PRIMARY, WS_ROW, WS_SECONDARY,
 } from '@/components/dealer/workspace/workspaceStyles'
 import { statusLabel } from '@/components/trade/core/importOrderLifecycle'
-import { buildLoginRedirect } from '@/lib/returnTo'
 import type { DiasporaBuyerOrder, DiasporaMatchCandidate, DiasporaQuote } from '@/types'
 import {
   DeskHeader, DeskPanel, DeskState, EditorialEmpty, Fact, InlineConfirm, NextMove, PulseLine, RefCode, RouteGlyph,
@@ -31,6 +30,7 @@ import {
   RFQ_STAGE, demandTitle, partNumberOf, quoteRows, quoteSpread, requestNextMove, rfqStage, stageCounts,
   urgencyOf, yearSpan, type QuoteRow, type RfqDetailRead, type SourcingDeskModel,
 } from './rfqDesk'
+import { SourcingGuestExplainer } from './SourcingGuestExplainer'
 
 type Lane = 'buyer' | 'seller'
 
@@ -47,17 +47,10 @@ export function SourcingDeskView({ model }: { model: SourcingDeskModel }) {
   }
 
   if (!model.signedIn) {
+    // LR02: a guest learns how sourcing requests work (static; nothing is read) instead of a dead end.
     return (
-      <div className="min-w-0 space-y-5" data-testid="trade-rfq" data-presentation="trade-desk">
-        <DeskHeader eyebrow="Trade · Sourcing" title="Sourcing requests" />
-        <DeskState
-          kind="signin"
-          title="Sign in to use sourcing requests"
-          action={<Link to={buildLoginRedirect('/diaspora/rfq')} className={WS_PRIMARY}>Sign in</Link>}
-          testId="trade-rfq-signin"
-        >
-          Requests, quotes and matching stock belong to a signed-in buyer or seller. Nothing was loaded.
-        </DeskState>
+      <div className="min-w-0" data-testid="trade-rfq" data-presentation="trade-desk">
+        <SourcingGuestExplainer />
       </div>
     )
   }

@@ -42,6 +42,7 @@ const VehicleDetail = lazyRoute(() => import('./pages/VehicleDetail'), 'VehicleD
 // showroom presentation OFF (the production default) these are never requested.
 import { ShowroomRoute } from './components/showroom/ShowroomRoute'
 import { isShowroomPagesEnabled } from './lib/presentationFlags'
+import { isUnifiedUiEnabled } from './components/shell/unifiedFlag'
 const ShowroomLanding = lazyRoute(() => import('./pages/showroom/ShowroomLanding'), 'ShowroomLanding')
 const ShowroomMarketplace = lazyRoute(() => import('./pages/showroom/ShowroomMarketplace'), 'ShowroomMarketplace')
 const ShowroomVehicleDetail = lazyRoute(() => import('./pages/showroom/ShowroomVehicleDetail'), 'ShowroomVehicleDetail')
@@ -98,6 +99,7 @@ const DiasporaImportShipment = lazyRoute(() => importDiasporaTrade().then(m => (
 const DiasporaLanding = lazyRoute(() => importDiasporaTrade().then(m => ({ default: m.DiasporaLanding })), 'DiasporaLanding')
 const NewDiasporaImportOrder = lazyRoute(() => importDiasporaTrade().then(m => ({ default: m.NewDiasporaImportOrder })), 'NewDiasporaImportOrder')
 const DiasporaOrderPassport = lazyRoute(() => import('./pages/diaspora/DiasporaOrderPassport'), 'DiasporaOrderPassport')
+const DiasporaSampleImport = lazyRoute(() => import('./pages/diaspora/DiasporaSampleImport'), 'DiasporaSampleImport')
 const DiasporaStockPassport = lazyRoute(() => import('./pages/diaspora/DiasporaStockPassport'), 'DiasporaStockPassport')
 const DiasporaWorkbookDryRun = lazyRoute(() => import('./pages/diaspora/DiasporaWorkbookDryRun'), 'DiasporaWorkbookDryRun')
 const DiasporaWorkbookOperatorConsole = lazyRoute(() => import('./pages/diaspora/DiasporaWorkbookOperatorConsole'), 'DiasporaWorkbookOperatorConsole')
@@ -343,6 +345,7 @@ export default function App() {
           <Route path="/security" element={<Security />} />
           <Route path="/api-docs" element={<APIDocs />} />
           <Route path="/diaspora" element={<DiasporaLanding />} />
+          {(isShowroomPagesEnabled() || isUnifiedUiEnabled()) && <Route path="/diaspora/sample" element={<DiasporaSampleImport />} />}
           <Route path="/diaspora/imports" element={<DiasporaImportList />} />
           <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
           <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />

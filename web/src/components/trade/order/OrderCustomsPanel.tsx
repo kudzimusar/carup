@@ -26,6 +26,7 @@ import {
   type TradeOrder,
 } from './orderModel'
 import type { TradeViewer } from './orderViewTypes'
+import { useOrderSurface } from './orderLinks'
 import { Panel, Provenance, ReadGate } from './TradeKit'
 
 const TRUTH_TONE: Record<string, Tone> = {
@@ -67,6 +68,7 @@ export function OrderCustomsPanel({ order, viewer, documents, footprint }: {
   const dutyDocs = ofType('customs_declaration', 'duty_receipt', 'port_release_order')
   const dutyMilestones = (order.diaspora_payment_milestones ?? []).filter(m => String(m.milestone_type).toUpperCase() === 'CUSTOMS_DUTY')
   const reviews = order.diaspora_compliance_reviews ?? []
+  const { toolLinks } = useOrderSurface()
   return (
     <div className="space-y-5" data-testid="trade-customs">
       <section className="rounded-card border border-carup-line bg-carup-bg-raised p-4 sm:p-5" aria-labelledby="trade-customs-standing" data-testid="trade-customs-standing">
@@ -125,7 +127,7 @@ export function OrderCustomsPanel({ order, viewer, documents, footprint }: {
         title="Compliance reviews"
         eyebrow={`${reviews.length} recorded`}
         testId="trade-customs-reviews"
-        action={isTradeOperator(viewer.role) ? <Link to="/admin/diaspora/compliance" className={WS_TEXT_ACTION}>Compliance desk <ArrowRight className="h-4 w-4" aria-hidden="true" /></Link> : undefined}
+        action={toolLinks && isTradeOperator(viewer.role) ? <Link to="/admin/diaspora/compliance" className={WS_TEXT_ACTION}>Compliance desk <ArrowRight className="h-4 w-4" aria-hidden="true" /></Link> : undefined}
       >
         {reviews.length === 0 ? (
           <p className="text-sm text-carup-text-2" data-testid="trade-customs-reviews-empty">No compliance review has been opened for this order. CarUp reviewers open one when the order needs it.</p>

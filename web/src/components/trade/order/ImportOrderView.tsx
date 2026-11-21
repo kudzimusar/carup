@@ -40,7 +40,7 @@ import {
   type OrderMode,
   type TradeOrder,
 } from './orderModel'
-import { useOrderHref } from './orderLinks'
+import { useOrderHref, useOrderSurface } from './orderLinks'
 import type { ImportOrderViewProps } from './orderViewTypes'
 import type { DiasporaTradeDocument } from '@/types'
 import { Provenance, RefCode, RouteGlyph } from './TradeKit'
@@ -57,10 +57,11 @@ const BACK = `${WS_TEXT_ACTION} -ml-1`
 
 export function ImportOrderView(props: ImportOrderViewProps) {
   const { order, orderId } = props
+  const surface = useOrderSurface()
   if (order.state !== 'ready') {
     return (
       <div className="space-y-4" data-testid="trade-order-view" data-state={order.state}>
-        <Link to="/diaspora/imports" className={BACK} data-testid="trade-order-back"><ArrowLeft className="h-4 w-4" aria-hidden="true" /> Import orders</Link>
+        <Link to={surface.ledgerHref} className={BACK} data-testid="trade-order-back"><ArrowLeft className="h-4 w-4" aria-hidden="true" /> {surface.ledgerLabel}</Link>
         {order.state === 'loading' && (
           <EmptyState kind="loading" title="Loading this import order…" testId="trade-order-loading" />
         )}
@@ -180,10 +181,11 @@ function OrderHeader({ order, mode, documents, orders, onRefresh, refreshing }: 
   const quotes = order.diaspora_import_quotes?.length ?? 0
   const recorded = formatDay(order.created_at)
   const last = formatDay(lastRecordedAt(order))
+  const surface = useOrderSurface()
   return (
     <header className="space-y-4" data-testid="trade-order-header">
       <div className="flex flex-wrap items-center gap-2">
-        <Link to="/diaspora/imports" className={cn(BACK, 'mr-auto')} data-testid="trade-order-back"><ArrowLeft className="h-4 w-4" aria-hidden="true" /> Import orders</Link>
+        <Link to={surface.ledgerHref} className={cn(BACK, 'mr-auto')} data-testid="trade-order-back"><ArrowLeft className="h-4 w-4" aria-hidden="true" /> {surface.ledgerLabel}</Link>
         {onRefresh && (
           <button type="button" onClick={onRefresh} disabled={refreshing} className={cn(WS_SECONDARY, 'order-2 w-11 px-0 sm:order-3 sm:w-auto sm:px-4')} data-testid="trade-order-refresh" aria-busy={refreshing} aria-label={refreshing ? 'Refreshing this order' : 'Refresh this order'}>
             <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin motion-reduce:animate-none')} aria-hidden="true" />

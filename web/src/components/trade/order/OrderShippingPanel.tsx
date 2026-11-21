@@ -37,6 +37,7 @@ import {
   type TradeOrder,
 } from './orderModel'
 import type { OrderLogistics, TradeViewer } from './orderViewTypes'
+import { useOrderSurface } from './orderLinks'
 import { NotRecorded, Panel, Provenance, ReadGate, RefCode } from './TradeKit'
 
 function str(value: unknown): string | null {
@@ -177,6 +178,7 @@ function Allocation({ order, reservations, logistics, operator }: {
 }
 
 function RequestSpace({ order, logistics }: { order: TradeOrder; logistics?: OrderLogistics }) {
+  const { toolLinks } = useOrderSurface()
   if (!logistics) return null
   return (
     <ReadGate read={logistics.containers} label="the open containers" testId="trade-containers-read">
@@ -184,8 +186,8 @@ function RequestSpace({ order, logistics }: { order: TradeOrder; logistics?: Ord
         if (containers.length === 0) {
           return (
             <p className="text-sm text-carup-text-2" data-testid="diaspora-no-containers">
-              No open containers are currently accepting reservations. Check back once a coordinator opens booking.{' '}
-              <Link to="/diaspora/containers" className="font-semibold text-carup-action underline-offset-4 hover:underline">See shared containers</Link>
+              No open containers are currently accepting reservations. Check back once a coordinator opens booking.{toolLinks && ' '}
+              {toolLinks && <Link to="/diaspora/containers" className="font-semibold text-carup-action underline-offset-4 hover:underline">See shared containers</Link>}
             </p>
           )
         }
