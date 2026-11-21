@@ -63,7 +63,7 @@ export const IMPORT_REQUEST_STEPS: readonly ImportRequestStep[] = [
   { key: 'vehicle', title: 'Which vehicle?', help: 'Tell sellers what to quote on. Pick a make and model from CarUp’s catalogue or type your own — a name the catalogue does not know is recorded exactly as you typed it.', fields: ['requested_make', 'requested_model', 'requested_year_min'] },
   { key: 'route', title: 'From where, to where?', help: 'Where the vehicle is now, or where sellers should source it, and the Zimbabwe city it should reach.', fields: ['origin_country', 'origin_city', 'destination_city'] },
   { key: 'budget', title: 'Your budget', help: 'Recorded on the order as your stated budget. It is not a price, a quote or a payment, and nothing is charged.', fields: ['budget_amount'] },
-  { key: 'review', title: 'Check and send', help: 'Sending records your request. Sellers can then quote, and you can add documents to the order straight away.', fields: [] },
+  { key: 'review', title: 'Check and send', help: 'Sending records your request. To get quotes, publish it to sellers from Sourcing requests; you can add documents to the order straight away.', fields: [] },
 ]
 
 /** The legacy errors that belong to one step. */
