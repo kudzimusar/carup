@@ -70,7 +70,8 @@ export function WorkbookImportView({ model }: { model: WorkbookImportModel }) {
         ) : undefined}
       />
 
-      <ol aria-label="Import steps" data-testid="wi-stepper" className="relative mt-5 flex gap-2 overflow-x-auto pb-1">
+      {/* Scrolls sideways on phones: keyboard users can focus it and scroll with the arrow keys (axe scrollable-region-focusable). */}
+      <ol aria-label="Import steps" tabIndex={0} data-testid="wi-stepper" className="relative mt-5 flex gap-2 overflow-x-auto rounded-control pb-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus">
         {IMPORT_STEPS.map((s, i) => {
           const state = steps[s.id]
           return (
