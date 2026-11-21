@@ -23,6 +23,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { classifyActionError } from '@/components/diaspora/safetrade/safeTradeHelpers'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { StockPassportView } from '@/components/trade/seller/StockPassportView'
+import { readFailureOf, type ReadFailure } from '@/components/trade/seller/deskFormat'
 import type {
   DiasporaStockItem,
   DiasporaStockLedgerEntry,
@@ -97,7 +100,7 @@ function UnavailableNote({ testId, children }: { testId: string; children: React
 
 export default function DiasporaStockPassport() {
   const { id = '' } = useParams<{ id: string }>()
-  const { isAuthenticated, loading: authLoading } = useAuth()
+  const { user, isAuthenticated, loading: authLoading } = useAuth()
   const api = useCarUpApi()
 
   const [item, setItem] = useState<DiasporaStockItem | null>(null)
@@ -110,13 +113,15 @@ export default function DiasporaStockPassport() {
   const [hasLoaded, setHasLoaded] = useState(false)
   const loadingRef = useRef(false)
   const [fatal, setFatal] = useState<{ kind: 'notfound' | 'forbidden' | 'session' | 'error'; message: string } | null>(null)
+  // RX-06 unified view only: the backbone failure with its HTTP meaning (403 / 404 / 429 / 5xx kept apart).
+  const [failure, setFailure] = useState<ReadFailure | null>(null)
 
   const canView = isAuthenticated
 
   const load = useCallback(async () => {
     if (!canView || !id || loadingRef.current) return
     loadingRef.current = true
-    setLoading(true); setFatal(null)
+    setLoading(true); setFatal(null); setFailure(null)
     try {
       // Backbone — failure here is fatal for the whole passport.
       const stockItem = await api.fetchDiasporaStockItem(id)
@@ -135,6 +140,7 @@ export default function DiasporaStockPassport() {
         setProfile(null); setProfileFailed(false)
       }
     } catch (err) {
+      setFailure(readFailureOf(err))
       const { kind } = classifyActionError(err)
       if (kind === 'session') setFatal({ kind: 'session', message: 'Your session has expired. Please sign in again to view this passport.' })
       else if (kind === 'notfound') setFatal({ kind: 'notfound', message: 'This stock item was not found.' })
@@ -147,6 +153,16 @@ export default function DiasporaStockPassport() {
   // so depending on the api object (or a callback derived from it) would loop the effect forever.
   // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, id])
+
+  if (isUnifiedUiEnabled()) {
+    // Same reads as the legacy passport below (backbone + best-effort enrichments); only the arrangement differs.
+    return (
+      <StockPassportView model={{
+        id, viewerId: user?.id ?? null, isAuthenticated, authLoading, loading, hasLoaded, failure,
+        item, ledger, supplyDocs, profile, profileFailed, onRefresh: () => { void load() },
+      }} />
+    )
+  }
 
   if (authLoading || (loading && !hasLoaded)) {
     return <div className="flex min-h-[40vh] items-center justify-center text-orange-600" data-testid="stock-passport-loading"><Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /></div>

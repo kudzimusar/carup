@@ -28,9 +28,13 @@ import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { safeTradeUiEnabled, SAFETRADE_NON_CUSTODIAL_NOTICE } from '@/config/safeTradeFlag'
 import type {
-  SafeTradeApproval, SafeTradeOperation, SafeTradeOutboxBacklog, SafeTradeOutboxDeadLetter,
+  SafeTradeApproval, SafeTradeOperation, SafeTradeOutboxBacklog, SafeTradeOutboxDeadLetter, SafeTradeOutboxDrainSummary,
 } from '@/types'
 import { formatAge, outboxHealth } from './safeTradeOperationsHelpers'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { OpsConsoleView } from '@/components/trade/operations/OpsConsoleView'
+import { OPS_MESSAGES, type OpsActionOutcome, type OpsReadKey } from '@/components/trade/operations/opsConsole'
+import { readFailureOf, type ReadFailure } from '@/components/trade/seller/deskFormat'
 
 export default function DiasporaSafeTradeOperations() {
   const flagEnabled = safeTradeUiEnabled()
@@ -48,6 +52,13 @@ export default function DiasporaSafeTradeOperations() {
   const [forbidden, setForbidden] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  // RX-06 unified view only (the legacy view never reads these): WHY each queue could not be read, a
+  // first-load marker so "nothing yet" is never shown as "none", whether the last action succeeded
+  // (with the server's own refusal text), and the drain summary the server returns.
+  const [failures, setFailures] = useState<Record<OpsReadKey, ReadFailure | null>>({ approvals: null, queue: null, backlog: null, deadLetters: null })
+  const [loadedOnce, setLoadedOnce] = useState(false)
+  const [lastAction, setLastAction] = useState<OpsActionOutcome | null>(null)
+  const [lastDrain, setLastDrain] = useState<SafeTradeOutboxDrainSummary | null>(null)
 
   const role = String(user?.role || '').toLowerCase()
   const isReviewer = ['admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer'].includes(role)
@@ -80,6 +91,12 @@ export default function DiasporaSafeTradeOperations() {
         backlog: b.status === 'rejected',
         deadLetters: d.status === 'rejected',
       })
+      setFailures({
+        approvals: a.status === 'rejected' ? readFailureOf(a.reason) : null,
+        queue: q.status === 'rejected' ? readFailureOf(q.reason) : null,
+        backlog: b.status === 'rejected' ? readFailureOf(b.reason) : null,
+        deadLetters: d.status === 'rejected' ? readFailureOf(d.reason) : null,
+      })
 
       const firstFailure = [a, q, b, d].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined
       if (firstFailure) {
@@ -91,6 +108,7 @@ export default function DiasporaSafeTradeOperations() {
       setError('Could not load SafeTrade operations. Please retry.')
     } finally {
       setLoading(false)
+      setLoadedOnce(true)
     }
   }, [api, canView])
 
@@ -98,9 +116,26 @@ export default function DiasporaSafeTradeOperations() {
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView])
 
   const act = useCallback(async (id: string, fn: () => Promise<unknown>, ok: string, bad: string) => {
-    setBusyId(id); setNotice(null)
-    try { await fn(); setNotice(ok); await load() } catch { setNotice(bad) } finally { setBusyId(null) }
+    setBusyId(id); setNotice(null); setLastAction(null)
+    try { await fn(); setNotice(ok); setLastAction({ tone: 'ok', id, serverMessage: null }); await load() } catch (err) { setNotice(bad); setLastAction({ tone: 'bad', id, serverMessage: err instanceof Error ? err.message : null }) } finally { setBusyId(null) }
   }, [load])
+
+  if (isUnifiedUiEnabled()) {
+    // Same reads and the same `act` (same API calls, same messages) as the legacy console below. The
+    // optional approver notes / rejection reason are the ones the client and API already accept; the
+    // drain summary is the server's own return value, which the legacy view discards.
+    return (
+      <OpsConsoleView model={{
+        flagEnabled, isAuthenticated, authLoading, isReviewer, isPlatformAdmin, role, viewerId: user?.id ?? null,
+        loading, loadedOnce, approvals, queue, backlog, deadLetters, failures, busyId, notice, outcome: lastAction, lastDrain,
+        onRefresh: () => { void load() },
+        onApprove: (id, notes) => { void act(id, () => api.approveSafeTradeDecision(id, notes.trim() || undefined), OPS_MESSAGES.approveOk, OPS_MESSAGES.approveBad) },
+        onReject: (id, reason) => { void act(id, () => api.rejectSafeTradeDecision(id, reason.trim() || undefined), OPS_MESSAGES.rejectOk, OPS_MESSAGES.rejectBad) },
+        onReplay: (id) => { void act(id, () => api.replaySafeTradeOutboxEvent(id), OPS_MESSAGES.replayOk, OPS_MESSAGES.replayBad) },
+        onDrain: () => { void act('drain', async () => { setLastDrain(null); setLastDrain(await api.drainSafeTradeOutbox()) }, OPS_MESSAGES.drainOk, OPS_MESSAGES.drainBad) },
+      }} />
+    )
+  }
 
   if (!flagEnabled) {
     return (

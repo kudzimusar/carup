@@ -35,6 +35,9 @@ import {
 import type {
   WorkbookImportConfirmation, WorkbookImportReceipt, WorkbookImportExecutionResult, WorkbookInterruptedBatch,
 } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { WorkbookImportView } from '@/components/trade/seller/WorkbookImportView'
+import { readFailureOf, type ReadFailure } from '@/components/trade/seller/deskFormat'
 
 export default function DiasporaConfirmedImport() {
   const flagEnabled = workbookImportUiEnabled()
@@ -53,6 +56,14 @@ export default function DiasporaConfirmedImport() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // RX-06 unified view only (the legacy view never reads these): why a batch load failed (403 / 404 /
+  // 429 / 5xx), the summary as returned (for its breakdowns), and whether that read actually carried a
+  // dry-run revision and a quota verdict — the narrowed preview silently defaults both.
+  const [loadFailure, setLoadFailure] = useState<ReadFailure | null>(null)
+  const [dryRunRaw, setDryRunRaw] = useState<Record<string, unknown> | null>(null)
+  const [summaryReported, setSummaryReported] = useState<{ revision: boolean; quota: boolean } | null>(null)
+  // Why the interrupted-import check failed (429 vs 5xx …), so the unified view can say so and retry it.
+  const [interruptedFailure, setInterruptedFailure] = useState<ReadFailure | null>(null)
 
   const tenantId = user?.active_tenant_id ?? null
   const userId = user?.id ?? null
@@ -81,7 +92,9 @@ export default function DiasporaConfirmedImport() {
     try {
       setInterrupted(await api.getWorkbookInterruptedImports())
       setInterruptedUnreadable(false)
-    } catch {
+      setInterruptedFailure(null)
+    } catch (err) {
+      setInterruptedFailure(readFailureOf(err))
       // The whole section is gated on this list being non-empty, so swallowing
       // the failure hid the "do not retry" warning from an operator whose import
       // may be partly applied. An unreadable check is reported, never hidden.
@@ -173,9 +186,12 @@ export default function DiasporaConfirmedImport() {
     const id = batchIdInput.trim()
     if (!id) return
     setBusy('load'); setError(null); setResult(null); setConfirmation(null); setReceipts([])
+    setLoadFailure(null)
     try {
       const summary = await api.getDiasporaWorkbookImportBatchSummary(id)
       const s = summary as unknown as Record<string, unknown>
+      setDryRunRaw(s)
+      setSummaryReported({ revision: s.dry_run_revision != null || s.dryRunRevision != null, quota: typeof s.quotaAllowed === 'boolean' })
       const next: DryRunSummary = {
         batchId: id,
         checksum: (s.checksum_sha256 as string) ?? (s.checksum as string) ?? null,
@@ -193,8 +209,27 @@ export default function DiasporaConfirmedImport() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That workbook batch could not be loaded.')
       setDryRun(null)
+      setLoadFailure(readFailureOf(e))
+      setDryRunRaw(null)
+      setSummaryReported(null)
     } finally { setBusy(null) }
   }, [api, batchIdInput, loadReceipts])
+
+  if (isUnifiedUiEnabled()) {
+    // Same reads, confirmation, execution, receipts and recovery as the legacy view below.
+    return (
+      <WorkbookImportView model={{
+        flagEnabled, isAuthenticated, authLoading, role: user?.role || '', tenantId,
+        batchIdInput, setBatchIdInput, onLoadBatch: () => { void onLoadBatch() }, loadFailure,
+        dryRun, dryRunRaw, reported: summaryReported, rowMessages,
+        blockReason, blockMessage, confirmation, onConfirm: () => { void onConfirm() }, onExecute: () => { void onExecute() },
+        result, receipts, receiptsUnreadable, onRetryReceipts: () => { if (dryRun) void loadReceipts(dryRun.batchId) },
+        totals, onDownloadCsv: () => { void onDownloadCsv() },
+        interrupted, interruptedUnreadable, interruptedFailure, onRetryInterrupted: () => { void loadInterrupted() },
+        busy, error, notice,
+      }} />
+    )
+  }
 
   if (!flagEnabled) {
     return (

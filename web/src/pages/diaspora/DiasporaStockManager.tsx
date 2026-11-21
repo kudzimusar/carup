@@ -8,6 +8,9 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { StockDeskView } from '@/components/trade/seller/StockDeskView'
+import { readFailureOf, type ReadFailure } from '@/components/trade/seller/deskFormat'
 import type {
   DiasporaStockItem,
   DiasporaStockLedgerEntry,
@@ -26,6 +29,10 @@ function genKey() {
 export default function DiasporaStockManager() {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
   const api = useCarUpApi()
+  // The hook returns a fresh object on every render, but each method on it is a stable callback.
+  // The loaders depend on the METHODS: depending on the object re-ran the load effect on every render
+  // (a continuous refetch loop that also drained the shared API rate limit). Render output is unchanged.
+  const { fetchDiasporaStockItems, fetchDiasporaSupplyDocuments, fetchDiasporaStockLedger } = api
 
   const [items, setItems] = useState<DiasporaStockItem[]>([])
   const [listLoading, setListLoading] = useState(false)
@@ -71,6 +78,15 @@ export default function DiasporaStockManager() {
   const [docOrigin, setDocOrigin] = useState('')
   const [docSubmitting, setDocSubmitting] = useState(false)
 
+  // RX-06 unified view only (the legacy view never reads these): a failed read is kept apart from an
+  // empty one, the optional movement reason and supply-document link the API already accepts, and a
+  // per-document busy marker. Unset, they leave every legacy request byte-identical.
+  const [listFailure, setListFailure] = useState<ReadFailure | null>(null)
+  const [docsFailure, setDocsFailure] = useState<ReadFailure | null>(null)
+  const [actionReason, setActionReason] = useState('')
+  const [newSupplyDocId, setNewSupplyDocId] = useState('')
+  const [supplyBusyId, setSupplyBusyId] = useState<string | null>(null)
+
   const canView = useMemo(
     () => isAuthenticated && allowedSellerRoles.has((user?.role || '').toLowerCase()),
     [isAuthenticated, user?.role],
@@ -81,34 +97,38 @@ export default function DiasporaStockManager() {
     setListLoading(true)
     setListError('')
     try {
-      const data = await api.fetchDiasporaStockItems()
+      const data = await fetchDiasporaStockItems()
       setItems(data)
+      setListFailure(null)
     } catch (err) {
       setListError(err instanceof Error ? err.message : 'Unable to load stock')
+      setListFailure(readFailureOf(err))
     } finally {
       setListLoading(false)
     }
-  }, [api, canView])
+  }, [fetchDiasporaStockItems, canView])
 
   const loadDocs = useCallback(async () => {
     if (!canView) return
     try {
-      setDocs(await api.fetchDiasporaSupplyDocuments())
+      setDocs(await fetchDiasporaSupplyDocuments())
+      setDocsFailure(null)
     } catch (err) {
       setDocError(err instanceof Error ? err.message : 'Unable to load supply documents')
+      setDocsFailure(readFailureOf(err))
     }
-  }, [api, canView])
+  }, [fetchDiasporaSupplyDocuments, canView])
 
   const loadLedger = useCallback(async (id: string) => {
     try {
-      setLedger(await api.fetchDiasporaStockLedger(id))
+      setLedger(await fetchDiasporaStockLedger(id))
       setLedgerUnreadable(false)
     } catch {
       // An unreadable ledger is not an untouched one.
       setLedger([])
       setLedgerUnreadable(true)
     }
-  }, [api])
+  }, [fetchDiasporaStockLedger])
 
   useEffect(() => {
     if (authLoading || !canView) return
@@ -195,9 +215,11 @@ export default function DiasporaStockManager() {
       const created = await api.createDiasporaStockItem({
         part_name: newName.trim(),
         initial_quantity: newQty ? Number(newQty) : 0,
+        supply_document_id: newSupplyDocId || undefined,
       })
       setNewName('')
       setNewQty('')
+      setNewSupplyDocId('')
       await loadList()
       await selectItem(created)
     } catch (err) {
@@ -221,11 +243,13 @@ export default function DiasporaStockManager() {
       const result = await api.appendDiasporaStockMovement(selected.id, {
         action,
         quantity: qty,
+        reason: actionReason.trim() || undefined,
         idempotencyKey: genKey(),
         source: 'ui',
       })
       setSelected(result.stockItem)
       setActionQty('')
+      setActionReason('')
       await loadList()
       await loadLedger(selected.id)
     } catch (err) {
@@ -269,6 +293,57 @@ export default function DiasporaStockManager() {
     } catch (err) {
       setDocError(err instanceof Error ? err.message : 'Publish blocked')
     }
+  }
+
+  // Unified view only: the one supply-document lifecycle step the legacy page never offered (the API
+  // and client already support it), plus a per-document busy marker around the existing publish call.
+  const handleUnpublishDoc = async (doc: DiasporaSupplyDocument) => {
+    setDocError('')
+    try {
+      await api.unpublishDiasporaSupplyDocument(doc.id)
+      await loadDocs()
+    } catch (err) {
+      setDocError(err instanceof Error ? err.message : 'Unpublish refused')
+    }
+  }
+  const withDocBusy = (doc: DiasporaSupplyDocument, run: (d: DiasporaSupplyDocument) => Promise<void>) => {
+    setSupplyBusyId(doc.id)
+    void run(doc).finally(() => setSupplyBusyId(null))
+  }
+
+  if (isUnifiedUiEnabled()) {
+    // Same reads, writes and rules as the legacy page below; only the arrangement differs.
+    return (
+      <StockDeskView model={{
+        isAuthenticated, authLoading, canView, role: user?.role || '', viewerId: user?.id ?? null,
+        items, listLoading, listFailure, onRetryList: () => { void loadList() },
+        selected, onSelect: (item) => { void selectItem(item) }, onClearSelection: () => setSelected(null),
+        ledger, ledgerUnreadable, onRetryLedger: () => { if (selected) void loadLedger(selected.id) },
+        docs, docsFailure, onRetryDocs: () => { void loadDocs() },
+        create: {
+          name: newName, setName: setNewName, qty: newQty, setQty: setNewQty,
+          supplyDocId: newSupplyDocId, setSupplyDocId: setNewSupplyDocId,
+          error: createError, busy: creating, onSubmit: () => { void handleCreate() },
+        },
+        movement: {
+          action, setAction, qty: actionQty, setQty: setActionQty, reason: actionReason, setReason: setActionReason,
+          error: actionError, busy: movementLoading, onSubmit: () => { void handleMovement() },
+        },
+        publication: { busy: publishBusy, message: publishMessage, error: publishError, onToggle: () => { void handlePublishToggle() } },
+        merch: {
+          partNumber: editPartNumber, setPartNumber: setEditPartNumber, vehicleMake: editVehicleMake, setVehicleMake: setEditVehicleMake,
+          condition: editCondition, setCondition: setEditCondition, unitPrice: editUnitPrice, setUnitPrice: setEditUnitPrice,
+          currency: editCurrency, setCurrency: setEditCurrency,
+          saving: editSaving, message: editMessage, error: editError, onSave: () => { void handleSaveMerchandising() },
+        },
+        supply: {
+          number: docNumber, setNumber: setDocNumber, title: docTitle, setTitle: setDocTitle, origin: docOrigin, setOrigin: setDocOrigin,
+          submitting: docSubmitting, error: docError, onCreate: () => { void handleCreateDoc() },
+          onPublish: (doc) => withDocBusy(doc, handlePublishDoc), onUnpublish: (doc) => withDocBusy(doc, handleUnpublishDoc),
+          busyId: supplyBusyId,
+        },
+      }} />
+    )
   }
 
   if (authLoading) {

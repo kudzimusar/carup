@@ -8,7 +8,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import type { DiasporaAiCommand, DiasporaAiParseResult } from '@/types'
+import type { DiasporaAiCommand, DiasporaAiCommandCreateResult, DiasporaAiParseResult } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { CommandDeskView } from '@/components/trade/seller/CommandDeskView'
+import { readFailureOf, type ReadFailure } from '@/components/trade/seller/deskFormat'
 
 const allowedRoles = new Set(['owner', 'dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'reviewer'])
 const reviewerRoles = new Set(['admin', 'platform_admin', 'super_admin', 'government', 'reviewer'])
@@ -22,6 +25,9 @@ function riskBadgeClass(risk?: string) {
 export default function DiasporaAiCommandCenter() {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
   const api = useCarUpApi()
+  // Depend on the hook's stable method, not on its per-render object: depending on the object re-ran
+  // the load effect on every render (a continuous refetch loop). Render output is unchanged.
+  const { fetchDiasporaAiCommands } = api
   const role = (user?.role || '').toLowerCase()
   const canView = isAuthenticated && allowedRoles.has(role)
   const isReviewer = reviewerRoles.has(role)
@@ -31,15 +37,26 @@ export default function DiasporaAiCommandCenter() {
   const [commands, setCommands] = useState<DiasporaAiCommand[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // RX-06 unified view only (the legacy view never reads these): whether the list read failed and
+  // why, whether it has completed once, the create result the API returns (incl. its duplicate
+  // flag), and which proposal an action is running on.
+  const [commandsFailure, setCommandsFailure] = useState<ReadFailure | null>(null)
+  const [commandsLoaded, setCommandsLoaded] = useState(false)
+  const [lastSubmit, setLastSubmit] = useState<DiasporaAiCommandCreateResult | null>(null)
+  const [actingId, setActingId] = useState<string | null>(null)
 
   const loadCommands = useCallback(async () => {
     if (!canView) return
     try {
-      setCommands(await api.fetchDiasporaAiCommands())
+      setCommands(await fetchDiasporaAiCommands())
+      setCommandsFailure(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load commands')
+      setCommandsFailure(readFailureOf(err))
+    } finally {
+      setCommandsLoaded(true)
     }
-  }, [api, canView])
+  }, [fetchDiasporaAiCommands, canView])
 
   useEffect(() => {
     if (authLoading || !canView) return
@@ -63,7 +80,7 @@ export default function DiasporaAiCommandCenter() {
     if (!text.trim()) { setError('Enter a command'); return }
     setBusy(true)
     try {
-      await api.createDiasporaAiCommand(text.trim())
+      setLastSubmit(await api.createDiasporaAiCommand(text.trim()))
       setText('')
       setParsed(null)
       await loadCommands()
@@ -85,6 +102,27 @@ export default function DiasporaAiCommandCenter() {
   }
 
   const voiceAvailable = useMemo(() => false, [])
+
+  if (isUnifiedUiEnabled()) {
+    // Same parse / create / list / confirm / approve / execute calls and the same `act` as the legacy
+    // page below, plus the reject (discard) call the API and client already provide.
+    const run = (id: string, fn: () => Promise<unknown>) => {
+      setActingId(id)
+      void act(fn).finally(() => setActingId(null))
+    }
+    return (
+      <CommandDeskView model={{
+        isAuthenticated, authLoading, canView, role, viewerId: user?.id ?? null, isReviewer, voiceAvailable,
+        text, setText, parsed, commands, commandsLoaded, commandsFailure, onRetryCommands: () => { void loadCommands() },
+        error, busy, lastSubmit, actingId,
+        onParse: () => { void handleParse() }, onSubmit: () => { void handleSubmit() },
+        onConfirm: (id) => run(id, () => api.confirmDiasporaAiCommand(id)),
+        onApprove: (id) => run(id, () => api.approveDiasporaAiCommand(id)),
+        onExecute: (id) => run(id, () => api.executeDiasporaAiCommand(id)),
+        onDiscard: (id) => run(id, () => api.rejectDiasporaAiCommand(id)),
+      }} />
+    )
+  }
 
   if (authLoading) {
     return <div className="flex min-h-[50vh] items-center justify-center text-orange-600"><Loader2 className="h-5 w-5 animate-spin" /></div>

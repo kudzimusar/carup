@@ -41,6 +41,9 @@ import {
 import type {
   TradeGraphSummary, TradeGraphDeadLetter, TradeGraphHealthState,
 } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { TradeGraphView } from '@/components/trade/seller/TradeGraphView'
+import { readFailureOf, type ReadFailure } from '@/components/trade/seller/deskFormat'
 
 /** Tone → classes. Every tone also carries a distinct text label, so colour is never the only cue. */
 const TONE_CLASSES: Record<'ok' | 'warn' | 'error' | 'neutral', string> = {
@@ -104,6 +107,9 @@ export default function DiasporaTradeGraph() {
   const [forbidden, setForbidden] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
   const [rebuildNotice, setRebuildNotice] = useState<string | null>(null)
+  // RX-06 unified view only: WHY the summary read failed (403 / 404 / 429 / 5xx), so each is its own
+  // state there. The legacy view keeps reading `forbidden` and `error` exactly as before.
+  const [summaryFailure, setSummaryFailure] = useState<ReadFailure | null>(null)
 
   // The rebuild control and the dead-letter panel are for platform operators. This is a display
   // decision only — the backend independently refuses both for anyone else, so hiding them here can
@@ -115,7 +121,7 @@ export default function DiasporaTradeGraph() {
 
   const load = useCallback(async () => {
     if (!canView) return
-    setLoading(true); setError(null); setForbidden(false)
+    setLoading(true); setError(null); setForbidden(false); setSummaryFailure(null)
     try {
       const result = await api.getTradeGraphSummary()
       setSummary(result)
@@ -132,6 +138,7 @@ export default function DiasporaTradeGraph() {
         }
       }
     } catch (err) {
+      setSummaryFailure(readFailureOf(err))
       const message = err instanceof Error ? err.message : ''
       if (/forbidden|403|tenant context/i.test(message)) {
         setForbidden(true)
@@ -175,6 +182,23 @@ export default function DiasporaTradeGraph() {
 
   const nodeItems = useMemo(() => summary?.counts?.nodes ?? [], [summary])
   const edgeItems = useMemo(() => summary?.counts?.edges ?? [], [summary])
+
+  if (isUnifiedUiEnabled()) {
+    // Same reads, rebuild and rules as the legacy view below. The insight lenses are the existing
+    // client reads, handed over unused: the unified view calls one only when the person asks for it.
+    return (
+      <TradeGraphView model={{
+        flagEnabled, aiEnabled, isAuthenticated, authLoading, role, isOperator,
+        summary, loading, failure: summaryFailure, onRefresh: () => { void load() },
+        deadLetters, deadLettersUnreadable, rebuilding, rebuildNotice, onRebuild: () => { void onRebuild() },
+        lenses: {
+          demand: api.getTradeGraphDemandSignals,
+          containers: api.getTradeGraphContainerOpportunities,
+          risk: api.getTradeGraphRiskExposure,
+        },
+      }} />
+    )
+  }
 
   // ── Fail-closed: flag off ──────────────────────────────────────────────────
   if (!flagEnabled) {
