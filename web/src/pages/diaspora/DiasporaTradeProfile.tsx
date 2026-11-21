@@ -10,6 +10,9 @@ import { useAuth } from '@/context/AuthContext'
 import { buildLoginRedirect } from '@/lib/returnTo'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { DiasporaTradeProfile } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { TradeProfileView } from '@/components/trade/account/TradeProfileView'
+import { READ_IDLE, READ_READY, failedRead, type ReadState } from '@/components/trade/sourcing/deskKit'
 
 // Reviewer/admin roles that may verify or suspend any profile. Backend is the real authority
 // boundary (service-layer checks); this only gates whether the review console is shown.
@@ -101,6 +104,11 @@ export default function DiasporaTradeProfile() {
   const [reviewBusyId, setReviewBusyId] = useState<string | null>(null)
   const [reviewMessage, setReviewMessage] = useState('')
 
+  // RX-06 unified view only (the legacy view never reads these): whether each read has answered and,
+  // when it failed, with which HTTP status — so a 403/404 is never shown as "no profile".
+  const [ownRead, setOwnRead] = useState<ReadState>(READ_IDLE)
+  const [queueRead, setQueueRead] = useState<ReadState>(READ_IDLE)
+
   // Single-flight guards. A ref (not state) so the check is synchronous: it collapses overlapping
   // calls from effects, rapid clicks and React StrictMode's double-invoked effects into one
   // in-flight request without itself triggering a render.
@@ -118,10 +126,12 @@ export default function DiasporaTradeProfile() {
     try {
       // /trade-profiles/me returns only the caller's own profiles regardless of privilege.
       setOwn(await fetchOwnDiasporaTradeProfiles())
+      setOwnRead(READ_READY)
     } catch (err) {
       // Never auto-retry a 429 — surface a truthful state with a manual retry instead.
       if (isRateLimited(err)) setOwnRateLimited(true)
       else setLoadError(errText(err, 'Unable to load your trade profile'))
+      setOwnRead(failedRead(err))
     } finally {
       setLoading(false)
       ownInFlight.current = false
@@ -138,9 +148,11 @@ export default function DiasporaTradeProfile() {
     try {
       const data = await listDiasporaTradeProfiles({ verificationStatus: 'PENDING_REVIEW' })
       setQueue(data)
+      setQueueRead(READ_READY)
     } catch (err) {
       if (isRateLimited(err)) setQueueRateLimited(true)
       else setQueueError(errText(err, 'Unable to load the review queue'))
+      setQueueRead(failedRead(err))
     } finally {
       setQueueLoading(false)
       queueInFlight.current = false
@@ -268,6 +280,56 @@ export default function DiasporaTradeProfile() {
 
   if (!authLoading && !isAuthenticated) {
     return <Navigate to={buildLoginRedirect('/diaspora/trade-profile')} replace />
+  }
+
+  if (isUnifiedUiEnabled()) {
+    // RX-06: the same reads, state and handlers, arranged as a trader-identity desk.
+    return (
+      <TradeProfileView
+        model={{
+          authLoading,
+          role: (user?.role || '').toLowerCase(),
+          isReviewer,
+          own,
+          ownRead,
+          loading,
+          loadError,
+          rateLimited: ownRateLimited,
+          onRetry: () => { void loadOwn() },
+          onEdit: startEdit,
+          onResubmit: submitForReview,
+          submittingReviewId,
+          form: {
+            editingId,
+            roleType,
+            setRoleType,
+            country,
+            setCountry,
+            city,
+            setCity,
+            org,
+            setOrg,
+            saving,
+            onSubmit: submitForm,
+            onCancel: resetForm,
+            result: formResult,
+            error: formError,
+          },
+          queue: {
+            items: queue,
+            read: queueRead,
+            loading: queueLoading,
+            error: queueError,
+            rateLimited: queueRateLimited,
+            onRetry: () => { void loadQueue() },
+            busyId: reviewBusyId,
+            onVerify: (id) => review(id, 'verify'),
+            onSuspend: (id) => review(id, 'suspend'),
+            message: reviewMessage,
+          },
+        }}
+      />
+    )
   }
 
   return (

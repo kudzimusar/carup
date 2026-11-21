@@ -9,6 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { DiasporaMarketplaceContainer, DiasporaMarketplaceReservation } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { ContainerBoardView } from '@/components/trade/sourcing/ContainerBoardView'
+import { READ_IDLE, READ_READY, failedRead, type ReadState } from '@/components/trade/sourcing/deskKit'
+import { formatCbm, type ContainerNotice } from '@/components/trade/sourcing/containerBoard'
 
 const allowedRoles = new Set(['owner', 'dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'reviewer'])
 const reviewerRoles = new Set(['admin', 'platform_admin', 'super_admin', 'government', 'reviewer'])
@@ -23,6 +27,11 @@ function fillOf(container: DiasporaMarketplaceContainer) {
 export default function DiasporaContainerMarketplace() {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
   const api = useCarUpApi()
+  // The mount read must be keyed on the individually memoized request function, never on `api`:
+  // useCarUpApi() returns a NEW object on every render and owns loading state, so a callback keyed on
+  // it re-fired the mount effect on its own state changes — an unbounded request loop (the defect
+  // pull request 130 fixed on the trade profile). This identity is stable per signed-in session.
+  const { fetchDiasporaMarketplaceContainers } = api
   const role = (user?.role || '').toLowerCase()
   const canView = isAuthenticated && allowedRoles.has(role)
   const isReviewer = reviewerRoles.has(role)
@@ -35,19 +44,26 @@ export default function DiasporaContainerMarketplace() {
   const [error, setError] = useState('')
   const [reserveError, setReserveError] = useState('')
   const [loading, setLoading] = useState(false)
+  // RX-06 unified view only (the legacy view never reads these): whether the list read has answered
+  // and how, whose reservations the list holds, and a receipt/refusal for the last action.
+  const [listRead, setListRead] = useState<ReadState>(READ_IDLE)
+  const [reservationsFor, setReservationsFor] = useState<string | null>(null)
+  const [boardNotice, setBoardNotice] = useState<ContainerNotice | null>(null)
 
   const load = useCallback(async () => {
     if (!canView) return
     setLoading(true)
     setError('')
     try {
-      setContainers(await api.fetchDiasporaMarketplaceContainers())
+      setContainers(await fetchDiasporaMarketplaceContainers())
+      setListRead(READ_READY)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load containers')
+      setListRead(failedRead(err))
     } finally {
       setLoading(false)
     }
-  }, [api, canView])
+  }, [fetchDiasporaMarketplaceContainers, canView])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, load])
@@ -55,13 +71,16 @@ export default function DiasporaContainerMarketplace() {
   const open = async (container: DiasporaMarketplaceContainer) => {
     setSelected(container)
     setReserveError('')
+    setBoardNotice(null)
     try {
       setReservations(await api.fetchDiasporaContainerReservations(container.id))
       setReservationsUnreadable(false)
+      setReservationsFor(container.id)
     } catch {
       // A reviewer could otherwise close a booking believing nobody reserved space.
       setReservations([])
       setReservationsUnreadable(true)
+      setReservationsFor(container.id)
     }
   }
 
@@ -70,29 +89,83 @@ export default function DiasporaContainerMarketplace() {
     const cap = await api.fetchDiasporaContainerCapacity(selected.id)
     setSelected(cap.container)
     setReservations(await api.fetchDiasporaContainerReservations(selected.id))
+    setReservationsUnreadable(false)
+    setReservationsFor(selected.id)
     await load()
   }
 
   const handleReserve = async () => {
     if (!selected) return
     setReserveError('')
+    setBoardNotice(null)
     const v = Number(volume)
-    if (!(v > 0)) { setReserveError('Enter a positive volume'); return }
+    if (!(v > 0)) {
+      setReserveError('Enter a positive volume')
+      setBoardNotice({ tone: 'danger', text: 'Enter the space you need in CBM — a number greater than zero.' })
+      return
+    }
     try {
       await api.requestDiasporaReservation(selected.id, { estimated_volume: v, source: 'ui' })
       setVolume('')
+      setBoardNotice({ tone: 'info', text: `Space requested: ${formatCbm(v)}. It counts against capacity only once a CarUp logistics reviewer approves it.` })
       await refreshSelected()
     } catch (err) {
       setReserveError(err instanceof Error ? err.message : 'Reservation rejected')
+      setBoardNotice({ tone: 'danger', text: `Not requested: ${err instanceof Error ? err.message : 'Reservation rejected'}` })
     }
   }
 
   const act = async (fn: () => Promise<unknown>) => {
     setReserveError('')
-    try { await fn(); await refreshSelected() } catch (err) { setReserveError(err instanceof Error ? err.message : 'Action failed') }
+    setBoardNotice(null)
+    try { await fn(); await refreshSelected() } catch (err) {
+      setReserveError(err instanceof Error ? err.message : 'Action failed')
+      setBoardNotice({ tone: 'danger', text: err instanceof Error ? err.message : 'Action failed' })
+    }
   }
 
   const selFill = useMemo(() => (selected ? fillOf(selected) : null), [selected])
+
+  if (isUnifiedUiEnabled()) {
+    // RX-06: the same reads, state and handlers, arranged as a "space on a ship" board.
+    return (
+      <ContainerBoardView
+        model={{
+          authLoading,
+          signedIn: isAuthenticated,
+          role,
+          canView,
+          isReviewer,
+          containers,
+          read: listRead,
+          loading,
+          onRetry: () => { void load() },
+          selected,
+          onOpen: open,
+          reservations,
+          reservationsFor,
+          reservationsUnreadable,
+          volume,
+          setVolume,
+          onReserve: handleReserve,
+          onApprove: (id) => act(async () => {
+            await api.approveDiasporaMarketplaceReservation(id)
+            setBoardNotice({ tone: 'info', text: 'Space request approved. It now counts against the container’s capacity.' })
+          }),
+          onReject: (id) => act(async () => {
+            await api.rejectDiasporaMarketplaceReservation(id)
+            setBoardNotice({ tone: 'info', text: 'Space request rejected.' })
+          }),
+          onCloseBooking: () => act(async () => {
+            if (!selected) return
+            await api.closeDiasporaContainerBooking(selected.id)
+            setBoardNotice({ tone: 'info', text: 'Booking closed. No new space can be requested on this container.' })
+          }),
+          notice: boardNotice,
+        }}
+      />
+    )
+  }
 
   if (authLoading) return <div className="flex min-h-[50vh] items-center justify-center text-orange-600"><Loader2 className="h-5 w-5 animate-spin" /></div>
   if (!canView) {

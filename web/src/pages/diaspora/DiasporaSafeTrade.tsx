@@ -19,6 +19,9 @@ import { safeTradeUiEnabled } from '@/config/safeTradeFlag'
 import { SafeTradeAssuranceNotice } from '@/components/diaspora/safetrade/SafeTradeAssuranceNotice'
 import { classifyActionError, designStateOf, formatMoney, isEscapeHatchState, stateLabel } from '@/components/diaspora/safetrade/safeTradeHelpers'
 import type { SafeTradeTransaction } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { SafeTradeCasesView } from '@/components/trade/protection/SafeTradeCasesView'
+import { errorMessage, errorStatus } from '@/components/trade/sourcing/deskKit'
 
 function relationshipOf(txn: SafeTradeTransaction, viewerId: string | null): 'buyer' | 'seller' | 'other' {
   const v = (viewerId || '').toLowerCase()
@@ -40,12 +43,16 @@ export default function DiasporaSafeTrade() {
   const [relFilter, setRelFilter] = useState<'all' | 'buyer' | 'seller'>('all')
   const [disputedOnly, setDisputedOnly] = useState(false)
   const [orderFilter, setOrderFilter] = useState('')
+  // RX-06 unified view only (the legacy view never reads these): the raw HTTP status of a failed list
+  // read (so a 404 "not enabled" or a 429 is never shown as a generic failure) and whether it answered.
+  const [listFailure, setListFailure] = useState<{ status: number | null; message: string | null } | null>(null)
+  const [answered, setAnswered] = useState(false)
 
   const canView = flagEnabled && isAuthenticated
 
   const load = useCallback(async () => {
     if (!canView) return
-    setLoading(true); setError(null)
+    setLoading(true); setError(null); setListFailure(null)
     try {
       const res = await api.getSafeTradeCases(statusFilter ? { status: statusFilter } : undefined)
       setCases(res?.data || [])
@@ -53,7 +60,8 @@ export default function DiasporaSafeTrade() {
       // apiClient throws message-only Errors; classify by message content (no `.code` exists).
       const { kind } = classifyActionError(err)
       setError(kind === 'tenant' ? 'A tenant context is required to view SafeTrade cases.' : 'Could not load SafeTrade cases. Please retry.')
-    } finally { setLoading(false) }
+      setListFailure({ status: errorStatus(err), message: errorMessage(err) })
+    } finally { setLoading(false); setAnswered(true) }
   }, [api, canView, statusFilter])
 
   // Depend on stable primitives (not `load`): useCarUpApi() returns a fresh object each render.
@@ -67,6 +75,37 @@ export default function DiasporaSafeTrade() {
     if (orderFilter && !String(c.import_order_id || '').toLowerCase().includes(orderFilter.toLowerCase())) return false
     return true
   }), [cases, viewerId, relFilter, disputedOnly, orderFilter])
+
+  if (isUnifiedUiEnabled()) {
+    // RX-06: the same read, filters and state, arranged as a case ledger.
+    return (
+      <SafeTradeCasesView
+        model={{
+          flagEnabled,
+          authLoading,
+          signedIn: isAuthenticated,
+          viewerId,
+          cases,
+          filtered,
+          loading,
+          answered,
+          error,
+          failure: listFailure,
+          onRetry: () => { void load() },
+          filters: {
+            status: statusFilter,
+            setStatus: setStatusFilter,
+            rel: relFilter,
+            setRel: setRelFilter,
+            disputedOnly,
+            setDisputedOnly,
+            order: orderFilter,
+            setOrder: setOrderFilter,
+          },
+        }}
+      />
+    )
+  }
 
   if (!flagEnabled) {
     return (

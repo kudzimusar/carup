@@ -27,6 +27,9 @@ import type {
   SafeTradeTransaction, SafeTradeTimelineEvent, SafeTradeEligibilityVerdict,
   SafeTradeMilestone, SafeTradeDispute, SafeTradeAvailableAction,
 } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { SafeTradeCaseView } from '@/components/trade/protection/SafeTradeCaseView'
+import { errorMessage, errorStatus } from '@/components/trade/sourcing/deskKit'
 
 const REVIEWER_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer'])
 
@@ -54,13 +57,16 @@ export default function DiasporaSafeTradeDetail() {
   const [hasLoaded, setHasLoaded] = useState(false)
   const loadingRef = useRef(false)
   const [fatal, setFatal] = useState<{ kind: 'notfound' | 'forbidden' | 'tenant' | 'session' | 'error'; message: string } | null>(null)
+  // RX-06 unified view only (the legacy view never reads it): the raw HTTP status of a fatal case read,
+  // so "SafeTrade is not enabled" (404) and the shared rate limit (429) are not shown as generic errors.
+  const [fatalFailure, setFatalFailure] = useState<{ status: number | null; message: string | null } | null>(null)
 
   const canView = flagEnabled && isAuthenticated
 
   const load = useCallback(async () => {
     if (!canView || !id || loadingRef.current) return
     loadingRef.current = true
-    setLoading(true); setFatal(null)
+    setLoading(true); setFatal(null); setFatalFailure(null)
     try {
       const t = await api.getSafeTradeCase(id) // backbone; its failure is fatal
       setTxn(t)
@@ -80,6 +86,7 @@ export default function DiasporaSafeTradeDetail() {
       // classify from message content. A 401 session failure is shown as a sign-in prompt, NOT a
       // dead Retry (auth is already cleared, so Retry would no-op).
       const { kind } = classifyActionError(err)
+      setFatalFailure({ status: errorStatus(err), message: errorMessage(err) })
       if (kind === 'session') setFatal({ kind: 'session', message: 'Your session has expired. Please sign in again to view this case.' })
       else if (kind === 'notfound') setFatal({ kind: 'notfound', message: 'This SafeTrade case was not found.' })
       else if (kind === 'forbidden') setFatal({ kind: 'forbidden', message: 'You do not have access to this SafeTrade case.' })
@@ -92,6 +99,34 @@ export default function DiasporaSafeTradeDetail() {
   // `load` dependency would recreate it every render and loop the effect forever.
   // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, id])
+
+  if (isUnifiedUiEnabled()) {
+    // RX-06: the same reads, state and reload, arranged as a SafeTrade case object page.
+    return (
+      <SafeTradeCaseView
+        model={{
+          flagEnabled,
+          authLoading,
+          signedIn: isAuthenticated,
+          viewerId,
+          isReviewer,
+          caseId: id,
+          loading,
+          hasLoaded,
+          fatal,
+          fatalFailure,
+          onReload: load,
+          txn,
+          timeline,
+          eligibility,
+          milestones,
+          disputes,
+          actions,
+          unreadable: unreadableSections,
+        }}
+      />
+    )
+  }
 
   if (!flagEnabled) {
     return (

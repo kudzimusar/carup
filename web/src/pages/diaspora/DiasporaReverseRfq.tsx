@@ -9,6 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { DiasporaBuyerOrder, DiasporaMatchCandidate, DiasporaQuote } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { SourcingDeskView } from '@/components/trade/sourcing/SourcingDeskView'
+import { READ_IDLE, READ_LOADING, READ_READY, errorMessage, errorStatus, failedRead, formatAmount, type ReadState } from '@/components/trade/sourcing/deskKit'
+import type { RfqDetailRead, RfqNotice } from '@/components/trade/sourcing/rfqDesk'
 
 const BUYER_ROLES = new Set(['owner', 'admin', 'platform_admin', 'super_admin', 'government', 'reviewer'])
 const SELLER_ROLES = new Set(['dealer', 'admin', 'platform_admin', 'super_admin', 'reviewer'])
@@ -21,6 +25,11 @@ function genKey() {
 export default function DiasporaReverseRfq() {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
   const api = useCarUpApi()
+  // The mount reads must be keyed on the individually memoized request functions, never on `api`:
+  // useCarUpApi() returns a NEW object on every render and owns loading state, so callbacks keyed on
+  // it re-fired the mount effect on its own state changes — an unbounded request loop (the defect
+  // pull request 130 fixed on the trade profile). These identities are stable per signed-in session.
+  const { fetchDiasporaBuyerOrders, fetchDiasporaRfqs } = api
   const role = (user?.role || '').toLowerCase()
   const isBuyer = isAuthenticated && BUYER_ROLES.has(role)
   const isSeller = isAuthenticated && SELLER_ROLES.has(role)
@@ -43,23 +52,35 @@ export default function DiasporaReverseRfq() {
   const [quoteAmounts, setQuoteAmounts] = useState<Record<string, string>>({})
   const [quotingId, setQuotingId] = useState('')
 
+  // RX-06 unified view only (the legacy view never reads these): whether each read has answered, how
+  // the selected order's detail read went, and a receipt/refusal for the last action — so a failed
+  // read is never shown as "none" and a 403/429 is never shown as an outage.
+  const [ordersRead, setOrdersRead] = useState<ReadState>(READ_IDLE)
+  const [rfqsRead, setRfqsRead] = useState<ReadState>(READ_IDLE)
+  const [detailRead, setDetailRead] = useState<RfqDetailRead>({ phase: 'idle', orderId: null })
+  const [deskNotice, setDeskNotice] = useState<RfqNotice | null>(null)
+
   const loadOrders = useCallback(async () => {
     if (!isBuyer) return
     try {
-      setOrders(await api.fetchDiasporaBuyerOrders())
+      setOrders(await fetchDiasporaBuyerOrders())
+      setOrdersRead(READ_READY)
     } catch (err) {
       setBuyerError(err instanceof Error ? err.message : 'Unable to load orders')
+      setOrdersRead(failedRead(err))
     }
-  }, [api, isBuyer])
+  }, [fetchDiasporaBuyerOrders, isBuyer])
 
   const loadRfqs = useCallback(async () => {
     if (!isSeller) return
     try {
-      setRfqs(await api.fetchDiasporaRfqs())
+      setRfqs(await fetchDiasporaRfqs())
+      setRfqsRead(READ_READY)
     } catch (err) {
       setSellerError(err instanceof Error ? err.message : 'Unable to load RFQs')
+      setRfqsRead(failedRead(err))
     }
-  }, [api, isSeller])
+  }, [fetchDiasporaRfqs, isSeller])
 
   useEffect(() => {
     if (authLoading || !canView) return
@@ -71,22 +92,29 @@ export default function DiasporaReverseRfq() {
   const selectOrder = async (order: DiasporaBuyerOrder) => {
     setSelectedOrder(order)
     setBuyerError('')
+    setDetailRead((prev) => (prev.orderId === order.id && prev.phase === 'ready' ? prev : { phase: 'loading', orderId: order.id }))
+    let stage: 'detail' | 'matches' = 'detail'
     try {
       const detail = await api.fetchDiasporaBuyerOrder(order.id)
       setSelectedOrder(detail) // keep fresh metadata (e.g. acceptedQuoteId) for accept-state derivation
       setQuotes(detail.quotes || [])
+      stage = 'matches'
       if (detail.metadata?.rfq?.published) setMatches(await api.fetchDiasporaOrderMatches(order.id))
       else setMatches([])
+      setDetailRead({ phase: 'ready', orderId: order.id })
     } catch (err) {
       setBuyerError(err instanceof Error ? err.message : 'Unable to load order detail')
+      setDetailRead({ phase: 'failed', orderId: order.id, stage, status: errorStatus(err), message: errorMessage(err) })
     }
   }
 
   const handleCreate = async () => {
     if (creating) return
     setBuyerError('')
+    setDeskNotice(null)
     if (!newOrigin.trim()) {
       setBuyerError('Origin country is required')
+      setDeskNotice({ lane: 'buyer', tone: 'danger', text: 'Enter the origin country — it is the one required field.' })
       return
     }
     setCreating(true)
@@ -98,9 +126,11 @@ export default function DiasporaReverseRfq() {
         requested_model: newModel.trim() || undefined,
       })
       setNewMake(''); setNewModel(''); setNewOrigin('')
+      setDeskNotice({ lane: 'buyer', tone: 'info', text: 'Request recorded as a draft. Sellers see it only after you publish it.' })
       await loadOrders()
     } catch (err) {
       setBuyerError(err instanceof Error ? err.message : 'Unable to create order')
+      setDeskNotice({ lane: 'buyer', tone: 'danger', text: `The request was not recorded: ${err instanceof Error ? err.message : 'Unable to create order'}` })
     } finally {
       setCreating(false)
     }
@@ -108,48 +138,106 @@ export default function DiasporaReverseRfq() {
 
   const handlePublish = async (order: DiasporaBuyerOrder) => {
     setBuyerError('')
+    setDeskNotice(null)
     try {
       await api.publishDiasporaRfq(order.id)
+      setDeskNotice({ lane: 'buyer', tone: 'info', text: 'Published. Sellers can now see this request and submit quotes.' })
       await loadOrders()
       await loadRfqs()
       if (selectedOrder?.id === order.id) await selectOrder(order)
     } catch (err) {
       setBuyerError(err instanceof Error ? err.message : 'Unable to publish RFQ')
+      setDeskNotice({ lane: 'buyer', tone: 'danger', text: `Not published: ${err instanceof Error ? err.message : 'Unable to publish RFQ'}` })
     }
   }
 
   const handleAccept = async (quote: DiasporaQuote) => {
     if (!selectedOrder) return
     setBuyerError('')
+    setDeskNotice(null)
     try {
       await api.acceptDiasporaQuote(selectedOrder.id, quote.id)
+      setDeskNotice({ lane: 'buyer', tone: 'info', text: 'Quote accepted. The other submitted quotes on this request were rejected in the same step.' })
       await selectOrder(selectedOrder)
       await loadOrders()
     } catch (err) {
       setBuyerError(err instanceof Error ? err.message : 'Unable to accept quote')
+      setDeskNotice({ lane: 'buyer', tone: 'danger', text: `The quote was not accepted: ${err instanceof Error ? err.message : 'Unable to accept quote'}` })
     }
   }
 
   const handleSellerQuote = async (rfqOrder: DiasporaBuyerOrder) => {
     setSellerError('')
+    setDeskNotice(null)
     const amount = Number(quoteAmounts[rfqOrder.id])
     if (!(amount > 0)) {
       setSellerError('Enter a positive quote amount')
+      setDeskNotice({ lane: 'seller', tone: 'danger', text: 'Enter a quote amount greater than zero.' })
       return
     }
     setQuotingId(rfqOrder.id)
     try {
       await api.createDiasporaQuote(rfqOrder.id, { quote_amount: amount, submit: true, idempotencyKey: genKey() })
       setQuoteAmounts((prev) => ({ ...prev, [rfqOrder.id]: '' }))
+      setDeskNotice({ lane: 'seller', tone: 'info', text: `Quote of ${formatAmount(amount, 'USD') ?? amount} submitted to the buyer.` })
       await loadRfqs()
     } catch (err) {
       setSellerError(err instanceof Error ? err.message : 'Unable to submit quote')
+      setDeskNotice({ lane: 'seller', tone: 'danger', text: `The quote was not submitted: ${err instanceof Error ? err.message : 'Unable to submit quote'}` })
     } finally {
       setQuotingId('')
     }
   }
 
   const selectedAcceptedId = useMemo(() => selectedOrder?.metadata?.rfq?.acceptedQuoteId, [selectedOrder])
+
+  if (isUnifiedUiEnabled()) {
+    // RX-06: the same reads, state and handlers, arranged as a sourcing desk.
+    return (
+      <SourcingDeskView
+        model={{
+          authLoading,
+          signedIn: isAuthenticated,
+          role,
+          isBuyer,
+          isSeller,
+          notice: deskNotice,
+          buyer: {
+            orders,
+            read: ordersRead,
+            onRetry: () => { setOrdersRead(READ_LOADING); void loadOrders() },
+            selected: selectedOrder,
+            detail: detailRead,
+            quotes,
+            matches,
+            acceptedQuoteId: selectedAcceptedId,
+            onSelect: selectOrder,
+            onPublish: handlePublish,
+            onAccept: handleAccept,
+            compose: {
+              origin: newOrigin,
+              make: newMake,
+              model: newModel,
+              setOrigin: setNewOrigin,
+              setMake: setNewMake,
+              setModel: setNewModel,
+              creating,
+              onSubmit: () => { void handleCreate() },
+            },
+          },
+          seller: {
+            rfqs,
+            read: rfqsRead,
+            onRetry: () => { setRfqsRead(READ_LOADING); void loadRfqs() },
+            amounts: quoteAmounts,
+            setAmount: (orderId, value) => setQuoteAmounts((p) => ({ ...p, [orderId]: value })),
+            quotingId,
+            onQuote: (order) => { void handleSellerQuote(order) },
+          },
+        }}
+      />
+    )
+  }
 
   if (authLoading) {
     return <div className="flex min-h-[50vh] items-center justify-center text-orange-600"><Loader2 className="h-5 w-5 animate-spin" /></div>

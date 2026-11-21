@@ -25,6 +25,9 @@ import { EntitlementDenialPanel } from '@/components/diaspora/subscription/Entit
 import { currentPlan, canManageSubscriptionUi, classifyEntitlement, humanizeFeatureKey } from '@/components/diaspora/subscription/subscriptionHelpers'
 import { parseEntitlementDenial } from '@/components/diaspora/subscription/entitlementDenial'
 import type { Plan, SubscriptionStatus, EffectiveEntitlementsEnvelope, UsageResponse, StructuredEntitlementDenial } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { SubscriptionDeskView } from '@/components/trade/account/SubscriptionDeskView'
+import { errorMessage, errorStatus } from '@/components/trade/sourcing/deskKit'
 
 export default function DiasporaSubscription() {
   const flagEnabled = subscriptionUiEnabled()
@@ -42,6 +45,10 @@ export default function DiasporaSubscription() {
   const [loadError, setLoadError] = useState<StructuredEntitlementDenial | null>(null)
   const [actionDenial, setActionDenial] = useState<StructuredEntitlementDenial | null>(null)
   const [outcome, setOutcome] = useState<string | null>(null)
+  // RX-06 unified view only (the legacy view never reads these): the raw HTTP status of a failed
+  // backbone read (so a 429 is never shown as "not permitted"), and whether the backbone has answered.
+  const [loadFailure, setLoadFailure] = useState<{ status: number | null; message: string | null } | null>(null)
+  const [answered, setAnswered] = useState(false)
 
   const canView = flagEnabled && isAuthenticated
 
@@ -49,13 +56,19 @@ export default function DiasporaSubscription() {
     if (!canView) return
     setLoading(true)
     setLoadError(null)
+    setLoadFailure(null)
     try {
-      // Plans + status are the page's backbone; entitlements + usage enrich it.
-      const [planList, statusRes] = await Promise.all([
+      // Plans + status are the page's backbone; entitlements + usage enrich it. Both are requested
+      // together as before; the plan catalogue is kept even when the tenant-scoped status read fails
+      // (the legacy view still shows only the denial — it renders nothing else while loadError is set).
+      const [planResult, statusResult] = await Promise.allSettled([
         api.getDiasporaSubscriptionPlans(),
         api.getDiasporaSubscriptionStatus(),
       ])
-      setPlans(planList)
+      if (planResult.status === 'fulfilled') setPlans(planResult.value)
+      if (planResult.status === 'rejected') throw planResult.reason
+      if (statusResult.status === 'rejected') throw statusResult.reason
+      const statusRes = statusResult.value
       setStatus(statusRes)
       // Best-effort enrichments — a failure here must not blank the whole page (partial state).
       try { setEntitlements(await api.getDiasporaEntitlements()) } catch { /* keep prior */ }
@@ -65,8 +78,10 @@ export default function DiasporaSubscription() {
       catch { setUsage(null); setUsageUnreadable(true) }
     } catch (err) {
       setLoadError(parseEntitlementDenial(err, { requestedOperation: 'load subscription' }))
+      setLoadFailure({ status: errorStatus(err), message: errorMessage(err) })
     } finally {
       setLoading(false)
+      setAnswered(true)
     }
   }, [api, canView])
 
@@ -126,6 +141,37 @@ export default function DiasporaSubscription() {
     (atPeriodEnd: boolean) => wrapAction('cancel subscription', undefined, () => api.cancelDiasporaSubscription(atPeriodEnd), 'Cancellation scheduled at period end through the sandbox provider. Access continues until then.')(),
     [api, wrapAction],
   )
+
+  if (isUnifiedUiEnabled()) {
+    // RX-06: the same reads, state and sandbox handlers, arranged as a plan & entitlements desk.
+    return (
+      <SubscriptionDeskView
+        model={{
+          flagEnabled,
+          authLoading,
+          signedIn: isAuthenticated,
+          role,
+          isManager,
+          plans,
+          status,
+          entitlements,
+          usage,
+          usageUnreadable,
+          loading,
+          answered,
+          loadError,
+          loadFailure,
+          onRetry: () => { void load() },
+          actionDenial,
+          outcome,
+          onCheckout: handleCheckout,
+          onPortal: handlePortal,
+          onChangePlan: handleChangePlan,
+          onCancel: handleCancel,
+        }}
+      />
+    )
+  }
 
   // ── Flag OFF: fail closed with an explicit unavailable state. ──
   if (!flagEnabled) {

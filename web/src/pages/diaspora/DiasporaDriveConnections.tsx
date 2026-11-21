@@ -9,6 +9,10 @@ import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { DiasporaDriveStatus, DiasporaDriveFile, DiasporaDriveAuthUrl, DiasporaDriveSyncAttempt } from '@/types'
 import { describeSyncAttempt } from './driveSyncHelpers'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { DriveConnectionsView } from '@/components/trade/account/DriveConnectionsView'
+import { errorMessage, errorStatus } from '@/components/trade/sourcing/deskKit'
+import type { DriveHistory, DriveNotice, DriveRead } from '@/components/trade/account/driveDesk'
 
 const allowedRoles = new Set(['owner', 'dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'reviewer'])
 
@@ -36,6 +40,11 @@ export default function DiasporaDriveConnections() {
   const [durableTracking, setDurableTracking] = useState(true)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  // RX-06 unified view only (the legacy view never reads these): which read failed and with what
+  // status, whose sync history is open, and a receipt/refusal for the last action.
+  const [driveRead, setDriveRead] = useState<DriveRead>({ phase: 'idle' })
+  const [history, setHistory] = useState<DriveHistory>({ fileId: null, phase: 'idle' })
+  const [driveNotice, setDriveNotice] = useState<DriveNotice | null>(null)
   // Synchronous single-flight guard: collapses overlapping loads from effects, rapid clicks and
   // StrictMode's double-invoked effects without itself causing a render.
   const inFlight = useRef(false)
@@ -46,17 +55,21 @@ export default function DiasporaDriveConnections() {
     inFlight.current = true
     setLoading(true)
     setError('')
+    let stage: 'status' | 'files' = 'status'
     try {
       const s = await fetchDiasporaDriveStatus()
       setStatus(s)
+      stage = 'files'
       if (s.connection?.connected) {
         setFiles(await fetchDiasporaDriveFiles())
       } else {
         setFiles([])
         setAttempts([])
       }
+      setDriveRead({ phase: 'ready' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load Drive status')
+      setDriveRead({ phase: 'failed', stage, status: errorStatus(err), message: errorMessage(err) })
     } finally {
       setLoading(false)
       inFlight.current = false
@@ -70,32 +83,81 @@ export default function DiasporaDriveConnections() {
   const showAttempts = async (file: DiasporaDriveFile) => {
     setError('')
     if (!file.linkedEntityType || !file.linkedEntityId) return
+    setHistory({ fileId: file.id, phase: 'loading' })
     try {
       const result = await fetchDiasporaDriveSyncAttempts(file.linkedEntityType, file.linkedEntityId)
       setAttempts(result.attempts || [])
       setDurableTracking(result.durableTracking !== false)
+      setHistory({ fileId: file.id, phase: 'ready' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load sync history')
+      setHistory({ fileId: file.id, phase: 'failed', status: errorStatus(err), message: errorMessage(err) })
     }
   }
 
   const handleConnect = async () => {
     setError('')
+    setDriveNotice(null)
     try {
       setAuthUrl(await fetchDiasporaDriveAuthorizeUrl())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to start Drive authorization')
+      setDriveNotice({ tone: 'danger', text: `Authorisation could not start: ${err instanceof Error ? err.message : 'Unable to start Drive authorization'}` })
     }
   }
 
   const handleDisconnect = async () => {
     setError('')
-    try { await disconnectDiasporaDrive(); setAuthUrl(null); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Disconnect failed') }
+    setDriveNotice(null)
+    try {
+      await disconnectDiasporaDrive(); setAuthUrl(null)
+      setDriveNotice({ tone: 'info', text: 'Disconnected. CarUp dropped its stored credential and asked Google to revoke access.' })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Disconnect failed')
+      setDriveNotice({ tone: 'danger', text: `Not disconnected: ${err instanceof Error ? err.message : 'Disconnect failed'}` })
+    }
   }
 
   const handleSync = async () => {
     setError('')
-    try { await syncDiasporaDrive(); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Sync failed') }
+    setDriveNotice(null)
+    try {
+      await syncDiasporaDrive()
+      setDriveNotice({ tone: 'info', text: 'Sync requested. The connection shown is the server’s latest answer.' })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sync failed')
+      setDriveNotice({ tone: 'danger', text: `Sync failed: ${err instanceof Error ? err.message : 'Sync failed'}` })
+    }
+  }
+
+  if (isUnifiedUiEnabled()) {
+    // RX-06: the same reads, state and handlers, arranged as an account connection desk.
+    return (
+      <DriveConnectionsView
+        model={{
+          authLoading,
+          signedIn: isAuthenticated,
+          role,
+          canView,
+          status,
+          read: driveRead,
+          loading,
+          onRetry: () => { void load() },
+          files,
+          authUrl,
+          onConnect: handleConnect,
+          onSync: handleSync,
+          onDisconnect: handleDisconnect,
+          history,
+          attempts,
+          durableTracking,
+          onShowHistory: showAttempts,
+          notice: driveNotice,
+        }}
+      />
+    )
   }
 
   if (authLoading) return <div className="flex min-h-[50vh] items-center justify-center text-orange-600"><Loader2 className="h-5 w-5 animate-spin" /></div>
