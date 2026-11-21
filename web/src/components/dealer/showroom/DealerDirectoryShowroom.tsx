@@ -263,7 +263,7 @@ export function DealerDirectoryShowroom(props: DealerDirectoryShowroomProps) {
         </div>
 
         {seen.tiers.length > 0 && (
-          <ul className="-mx-4 mt-6 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-2 md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0" aria-label="What a listing’s standing means" data-testid="dealer-directory-legend">
+          <ul tabIndex={0} className="-mx-4 mt-6 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0" aria-label="What a listing’s standing means" data-testid="dealer-directory-legend">
             {seen.tiers.map(item => {
               const standing = standingForTier(item)
               if (!standing) return null
