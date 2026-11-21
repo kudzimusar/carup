@@ -32,7 +32,9 @@ export function DeskHeader({ eyebrow, title, description, meta, actions, route, 
 }) {
   return (
     <header data-testid={testId} className="flex flex-col gap-4 border-b border-carup-line pb-5 md:flex-row md:items-end md:justify-between md:gap-6">
-      <div className="min-w-0">
+      {/* LR02: the title takes the remaining width and the actions at most half, so long action labels wrap
+          instead of crushing the title (seen on the RFQ guest explainer at 768 px). */}
+      <div className="min-w-0 md:flex-1">
         <p className={cn('flex items-center gap-2', WS_EYEBROW)}>
           <span aria-hidden="true" className="h-3 w-0.5 rounded-full bg-carup-raw-orange-signal" />
           {eyebrow}
@@ -44,7 +46,7 @@ export function DeskHeader({ eyebrow, title, description, meta, actions, route, 
         {description && <p className="mt-2 max-w-2xl text-sm leading-6 text-carup-text-2">{description}</p>}
         {meta && <div className="mt-3 flex flex-wrap items-center gap-2">{meta}</div>}
       </div>
-      {actions && <div className="flex shrink-0 flex-wrap gap-2 [&>*]:flex-1 sm:[&>*]:flex-none">{actions}</div>}
+      {actions && <div className="flex flex-wrap gap-2 [&>*]:flex-1 sm:[&>*]:flex-none md:max-w-[50%] md:justify-end">{actions}</div>}
     </header>
   )
 }
