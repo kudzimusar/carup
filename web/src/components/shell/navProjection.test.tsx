@@ -141,6 +141,13 @@ describe('RX03-P2 — Trade and review rails', () => {
       expect(group?.items.map(i => i.href)).toEqual(['/diaspora/safetrade'])
       const refused = projectTradeRail({ role: 'owner', effectiveStates: { 'diaspora.safetrade': { ...hidden, accessible: false } } })
       expect(refused.flatMap(s => s.items.map(i => i.href))).not.toContain('/diaspora/safetrade')
+      // The operations console is listed for operator roles only (registry roles: admin, government).
+      const opsHidden = { ...hidden, featureId: 'diaspora.safetrade-operations' }
+      const states = { 'diaspora.safetrade': hidden, 'diaspora.safetrade-operations': opsHidden }
+      const admin = projectTradeRail({ role: 'admin', effectiveStates: states })
+      expect(admin.find(s => s.title === 'Built · not yet released')?.items.map(i => i.href)).toEqual(['/diaspora/safetrade', '/diaspora/safetrade/operations'])
+      const importer = projectTradeRail({ role: 'owner', effectiveStates: states })
+      expect(importer.flatMap(s => s.items.map(i => i.href))).not.toContain('/diaspora/safetrade/operations')
     } finally {
       vi.unstubAllEnvs()
       vi.resetModules()

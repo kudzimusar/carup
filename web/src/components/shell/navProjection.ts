@@ -209,6 +209,8 @@ export function projectTradeRail(
   const listed = new Set(sections.flatMap(s => s.items.map(i => i.href)))
   const unreleased = [
     unreleasedItem('safetrade', 'SafeTrade', '/diaspora/safetrade', sessionCtx),
+    // Operator roles only (registry: admin, government); shares SafeTrade's release flag.
+    unreleasedItem('safetrade-operations', 'SafeTrade operations', '/diaspora/safetrade/operations', sessionCtx),
     unreleasedItem('subscription', 'Plan & entitlements', '/diaspora/subscription', sessionCtx),
     unreleasedItem('trade-graph', 'Trade graph', '/diaspora/trade-graph', sessionCtx),
     unreleasedItem('workbook-import', 'Workbook import', '/diaspora/workbook/import', sessionCtx),
