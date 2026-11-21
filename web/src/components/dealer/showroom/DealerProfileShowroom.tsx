@@ -288,6 +288,37 @@ const CLAIM_STEPS: Array<[string, string]> = [
 export function DealerProfileShowroom(props: DealerProfileShowroomProps) {
   const { claimMode, loaded, profile, redirectedFrom, onRetry } = props
 
+  // RX05 perf (CLS): while the profile loads, reserve the dark identity frame at a stable height with
+  // the breadcrumb exactly where the loaded hero puts it, and render nothing below it. Content then
+  // arrives INTO the frame; nothing that was on screen moves (the A/B measured CLS 0.57 on phones
+  // when a light skeleton block was pushed down by the arriving hero).
+  if (loaded === 'loading') {
+    return (
+      <main className="min-h-screen bg-carup-bg text-carup-text" data-testid="dealer-public-profile" data-presentation="showroom">
+        <section className="bg-carup-raw-ink text-carup-raw-paper" aria-busy="true" aria-label="Loading dealership profile">
+          <div className={cn(PAGE_WIDTH, 'min-h-[40rem] pb-20 pt-4 sm:pt-6 lg:min-h-[36rem] lg:pb-28')}>
+            <nav aria-label="Breadcrumb" className="text-sm">
+              <ol className="flex min-w-0 items-center gap-1.5 text-white/70">
+                <li>
+                  <Link to="/dealers" className="inline-flex min-h-11 items-center gap-1.5 rounded-control font-semibold hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-raw-orange-signal">
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />Dealers
+                  </Link>
+                </li>
+              </ol>
+            </nav>
+            {/* Keyed so React mounts the loaded hero columns fresh instead of reusing (and "moving") these nodes. */}
+            <div key="profile-skeleton" className="mt-4 space-y-4 lg:mt-8" aria-hidden="true">
+              <div className="h-20 w-20 animate-pulse rounded-card bg-white/10 motion-reduce:animate-none" />
+              <div className="h-10 w-3/4 max-w-xl animate-pulse rounded-control bg-white/10 motion-reduce:animate-none" />
+              <div className="h-5 w-1/2 max-w-sm animate-pulse rounded-control bg-white/10 motion-reduce:animate-none" />
+            </div>
+            <p key="profile-loading-status" role="status" className="mt-6 text-sm text-white/75">Loading reviewed research profile…</p>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   if (loaded !== 'ready' || !profile) {
     return (
       <main className="min-h-screen bg-carup-bg text-carup-text" data-testid="dealer-public-profile" data-presentation="showroom">
