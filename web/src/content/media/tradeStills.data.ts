@@ -4,8 +4,8 @@
  *
  * Every still is an ILLUSTRATION: unbadged vehicles, no readable text/plates/documents, no identifiable faces,
  * shown with a disclosure, and NEVER placed as a vehicle, document, shipment or customs record. Masters and
- * hashes: ~/carup-launch-evidence/rx06/media/. `review` stays 'owner-review' until the Owner approves the
- * exact image; production builds show only 'approved' stills (see tradeStills.ts).
+ * hashes: ~/carup-launch-evidence/rx06/media/. The Owner approved all ten exact images in chat on 2026-11-21
+ * ("Approve all 10"); production builds show only 'approved' stills (see tradeStills.ts).
  */
 export type StillReview = 'approved' | 'owner-review'
 export interface TradeStillAsset {
@@ -27,7 +27,7 @@ const AUTH = 'Owner chat decision 2026-11-21: "Stills, up to 10 credits" (CARUP-
 
 export const TRADE_STILLS: Record<string, TradeStillAsset> = {
   portDawn: {
-    key: 'portDawn', alt: "Export port at dawn: lanes of unbadged cars on a quay, cranes against an orange sky", placement: 'entry', review: 'owner-review', disclosure: DISCLOSURE,
+    key: 'portDawn', alt: "Export port at dawn: lanes of unbadged cars on a quay, cranes against an orange sky", placement: 'entry', review: 'approved', disclosure: DISCLOSURE,
     width: 1344, height: 752,
     sources: [
       { src: '/media/trade/trade-port-dawn-800.jpg', width: 800, sha256: '64e6185ea4f6721a2fa4bd5d47c4ee748c9ecb052c6a72f27da446c8138ce090', bytes: 82444 },
@@ -37,7 +37,7 @@ export const TRADE_STILLS: Record<string, TradeStillAsset> = {
     rights: RIGHTS,
   },
   containerLift: {
-    key: 'containerLift', alt: "A container with an unbadged pickup inside being lifted at dusk", placement: 'phase:loading', review: 'owner-review', disclosure: DISCLOSURE,
+    key: 'containerLift', alt: "A container with an unbadged pickup inside being lifted at dusk", placement: 'phase:loading', review: 'approved', disclosure: DISCLOSURE,
     width: 1344, height: 752,
     sources: [
       { src: '/media/trade/trade-container-lift-800.jpg', width: 800, sha256: 'b8eba3ece730245701fc100abcc837f3e9cccb4f7b25ccd2dfde6298f94746c2', bytes: 79596 },
@@ -47,7 +47,7 @@ export const TRADE_STILLS: Record<string, TradeStillAsset> = {
     rights: RIGHTS,
   },
   seaCrossing: {
-    key: 'seaCrossing', alt: "A container ship crossing open ocean at golden hour", placement: 'phase:sea', review: 'owner-review', disclosure: DISCLOSURE,
+    key: 'seaCrossing', alt: "A container ship crossing open ocean at golden hour", placement: 'phase:sea', review: 'approved', disclosure: DISCLOSURE,
     width: 1344, height: 752,
     sources: [
       { src: '/media/trade/trade-sea-crossing-800.jpg', width: 800, sha256: 'd3779cd5505ccd5050e9cc841a3692b955b206e7c5e69d71f64e5e9ea28e5cb0', bytes: 76720 },
@@ -57,7 +57,7 @@ export const TRADE_STILLS: Record<string, TradeStillAsset> = {
     rights: RIGHTS,
   },
   borderGate: {
-    key: 'borderGate', alt: "A car-carrier truck waiting at a border barrier at dusk, an officer in silhouette", placement: 'phase:customs', review: 'owner-review', disclosure: DISCLOSURE,
+    key: 'borderGate', alt: "A car-carrier truck waiting at a border barrier at dusk, an officer in silhouette", placement: 'phase:customs', review: 'approved', disclosure: DISCLOSURE,
     width: 1344, height: 752,
     sources: [
       { src: '/media/trade/trade-border-gate-800.jpg', width: 800, sha256: '2a9ba52171c5fde28bf9594f5732f4c6dc4cea37b011e4e8d94eb9fa0e3b5bb3', bytes: 66128 },
@@ -67,7 +67,7 @@ export const TRADE_STILLS: Record<string, TradeStillAsset> = {
     rights: RIGHTS,
   },
   documentsDesk: {
-    key: 'documentsDesk', alt: "A closed blank folder, a car key, a pen and tea on a dark desk", placement: 'phase:documents', review: 'owner-review', disclosure: DISCLOSURE,
+    key: 'documentsDesk', alt: "A closed blank folder, a car key, a pen and tea on a dark desk", placement: 'phase:documents', review: 'approved', disclosure: DISCLOSURE,
     width: 1344, height: 752,
     sources: [
       { src: '/media/trade/trade-documents-desk-800.jpg', width: 800, sha256: '87142b9dedc789723c88dce038580f43413040ce101cf49ac9aa546ce81ec040', bytes: 63613 },
@@ -77,7 +77,7 @@ export const TRADE_STILLS: Record<string, TradeStillAsset> = {
     rights: RIGHTS,
   },
   roadworthyBay: {
-    key: 'roadworthyBay', alt: "A sedan on a workshop lift, gloved hands with an inspection lamp", placement: 'phase:ready', review: 'owner-review', disclosure: DISCLOSURE,
+    key: 'roadworthyBay', alt: "A sedan on a workshop lift, gloved hands with an inspection lamp", placement: 'phase:ready', review: 'approved', disclosure: DISCLOSURE,
     width: 1344, height: 752,
     sources: [
       { src: '/media/trade/trade-roadworthy-bay-800.jpg', width: 800, sha256: '6dbb59b32ea9d087c36ca1afa5087f653f4842d1ab52e71355d340da29b3fd0c', bytes: 67564 },
@@ -87,7 +87,7 @@ export const TRADE_STILLS: Record<string, TradeStillAsset> = {
     rights: RIGHTS,
   },
   handoverHarare: {
-    key: 'handoverHarare', alt: "Two hands passing a car key under a jacaranda tree in Harare", placement: 'phase:handover', review: 'owner-review', disclosure: DISCLOSURE,
+    key: 'handoverHarare', alt: "Two hands passing a car key under a jacaranda tree in Harare", placement: 'phase:handover', review: 'approved', disclosure: DISCLOSURE,
     width: 1344, height: 752,
     sources: [
       { src: '/media/trade/trade-handover-harare-800.jpg', width: 800, sha256: '03f5809e90e3694ba2242bbf16c5eb32eb7bf8d286415a35f1329b5becfa28e0', bytes: 95327 },
@@ -97,7 +97,7 @@ export const TRADE_STILLS: Record<string, TradeStillAsset> = {
     rights: RIGHTS,
   },
   auctionYard: {
-    key: 'auctionYard', alt: "Rows of unbadged compact cars in a misty auction yard at sunrise", placement: 'phase:request', review: 'owner-review', disclosure: DISCLOSURE,
+    key: 'auctionYard', alt: "Rows of unbadged compact cars in a misty auction yard at sunrise", placement: 'phase:request', review: 'approved', disclosure: DISCLOSURE,
     width: 1344, height: 752,
     sources: [
       { src: '/media/trade/trade-auction-yard-800.jpg', width: 800, sha256: '4073a81292bec00e19c1bd08199d9b90d9e662562b8f1d2287a8e4231c3abe18', bytes: 62410 },
@@ -107,7 +107,7 @@ export const TRADE_STILLS: Record<string, TradeStillAsset> = {
     rights: RIGHTS,
   },
   containerYard: {
-    key: 'containerYard', alt: "A container yard at blue hour, one open container with two cars inside", placement: 'tool:containers', review: 'owner-review', disclosure: DISCLOSURE,
+    key: 'containerYard', alt: "A container yard at blue hour, one open container with two cars inside", placement: 'tool:containers', review: 'approved', disclosure: DISCLOSURE,
     width: 1344, height: 752,
     sources: [
       { src: '/media/trade/trade-container-yard-800.jpg', width: 800, sha256: '40f92633a33e0672ce3884c34e7e3941cce9dbcc978058bbffd036b7f2db3f87', bytes: 55754 },
@@ -117,7 +117,7 @@ export const TRADE_STILLS: Record<string, TradeStillAsset> = {
     rights: RIGHTS,
   },
   dealerForecourt: {
-    key: 'dealerForecourt', alt: "Five unbadged cars under a dealer canopy at dusk", placement: 'tool:stock', review: 'owner-review', disclosure: DISCLOSURE,
+    key: 'dealerForecourt', alt: "Five unbadged cars under a dealer canopy at dusk", placement: 'tool:stock', review: 'approved', disclosure: DISCLOSURE,
     width: 1344, height: 752,
     sources: [
       { src: '/media/trade/trade-dealer-forecourt-800.jpg', width: 800, sha256: 'ef4ce777a5493b5824abf076041eaee8a67fa266ccff9dff6e4e50f3c762d385', bytes: 80058 },
