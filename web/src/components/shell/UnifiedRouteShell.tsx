@@ -160,7 +160,7 @@ function PublicUnifiedShell({ legacy }: { legacy: ReactElement }) {
   const pathname = location.pathname
   // RX03-P2 — workspace-registered routes that are routed under MainLayout.
   if (isDealerOpsSlicePath(pathname)) return <WorkspaceDealerUnifiedShell lifecycleBoundary />
-  if (matchPath('/diaspora/imports/new', pathname)) return <FocusedImportFlowShell legacy={legacy} />
+  if (matchPath('/diaspora/imports/new', pathname)) return <FocusedImportFlowShell />
   if (matchPath('/sell', pathname)) return <FocusedSellerStudioShell exitTo="/" />
   if (isTradeWorkspacePath(pathname)) return <WorkspaceTradeUnifiedShell legacy={legacy} />
   // R2-3: off-slice public paths keep the preserved legacy composition.
@@ -404,18 +404,22 @@ function WorkspaceTradeUnifiedShell({ legacy }: { legacy: ReactElement }) {
 /**
  * RX03-P2 — the import request as a Focused flow (register R039:
  * FocusedShell, mode "flow": one goal per view, save-and-exit). Same
- * lifecycle-only boundary as legacy; guests keep the legacy composition.
+ * lifecycle-only boundary as legacy.
+ *
+ * LR02 (Owner decision, 2026-11-21): a signed-out visitor prepares the request in the SAME focused flow, as
+ * guest Sell does. The page never calls the API for a guest; sending asks them to sign in. Exit goes to the
+ * public Trade entry for a visitor and to the order ledger for an account.
  */
-function FocusedImportFlowShell({ legacy }: { legacy: ReactElement }) {
+function FocusedImportFlowShell() {
   const identity = useIdentity()
   const navigate = useNavigate()
   if (identity.bootstrapping) return <AuthBootstrapLoading />
-  if (!identity.isAuthenticated) return legacy
+  const signedIn = identity.isAuthenticated
   return (
     <FocusedShell
-      identity={{ displayName: identity.displayName, roleTitle: 'Signed in' }}
+      identity={{ displayName: identity.displayName, roleTitle: signedIn ? 'Signed in' : 'Visitor' }}
       title="Start an import order"
-      onExit={() => navigate('/diaspora/imports')}
+      onExit={() => navigate(signedIn ? '/diaspora/imports' : '/diaspora')}
     >
       <RegistryRouteBoundary enforceAuth={false}>
         <Outlet />

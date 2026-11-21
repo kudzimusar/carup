@@ -48,16 +48,21 @@ import {
 } from '@/components/trade/order/orderModel'
 import { TradeEntryView } from '@/components/trade/entry/TradeEntryView'
 import { offeredCapabilities } from '@/components/trade/entry/entryModel'
-import { NewImportRequestFlow } from '@/components/trade/entry/NewImportRequestFlow'
+import { NewImportRequestFlow, type ImportRequestGuest } from '@/components/trade/entry/NewImportRequestFlow'
 import {
   INITIAL_IMPORT_REQUEST as initialForm,
+  NO_IMPORT_DRAFT,
   clearImportDraft,
   hasImportDraftContent,
+  importDraftOwner,
   importRequestErrors,
   importRequestPayload,
-  readImportDraft,
+  restoreImportDraft,
+  restoredDraftStep,
   writeImportDraft,
 } from '@/components/trade/entry/importRequest'
+import { GUEST_EXIT_TO, guestRegisterHref, guestSignInHref, restoredDraftNotice } from '@/components/trade/entry/guestRequest'
+import { AuthBootstrapLoading } from '@/components/routing/RegistryRouteBoundary'
 
 const timelineSteps = [
   'IMPORT_REQUESTED',
@@ -786,18 +791,26 @@ export function NewDiasporaImportOrder() {
   const { createDiasporaImportOrder } = useCarUpApi()
   const unified = isUnifiedUiEnabled()
   // RX-06 (unified only): the focused flow resumes this tab's unsent answers; nothing is sent before submit.
-  const [draft] = useState(() => (unified ? readImportDraft() : null))
+  // LR02: a signed-out visitor may PREPARE the request here; only a signed-in account sends it. The tab's
+  // draft belongs to whoever opened the page ('guest' or the account id) and comes back only to them — a
+  // guest's draft also to the account that signs in from this tab — until it expires.
+  const { user, isAuthenticated, loading: authLoading } = useAuth()
+  const [draftOwner] = useState(() => (unified ? importDraftOwner(isAuthenticated, user?.id) : null))
+  const [restored] = useState(() => (unified && draftOwner ? restoreImportDraft(draftOwner) : NO_IMPORT_DRAFT))
+  const draft = restored.kind === 'none' ? null : restored.draft
   const [form, setForm] = useState<DiasporaImportOrderPayload>(() => draft?.form ?? initialForm)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
-  const [flowStep, setFlowStep] = useState(draft?.step ?? 0)
+  // A guest's draft opened after signing in lands on the review (or the first step still needing an answer).
+  const [flowStep, setFlowStep] = useState(() => (restored.kind === 'from-guest' ? restoredDraftStep(restored.draft.form) : draft?.step ?? 0))
   const [flowKey, setFlowKey] = useState(0)
+  const [showRestored, setShowRestored] = useState(restored.kind === 'from-guest')
   const draftKept = unified && (hasImportDraftContent(form) || flowStep > 0)
 
   useEffect(() => {
-    if (!unified || !(hasImportDraftContent(form) || flowStep > 0)) return
-    writeImportDraft(form, flowStep)
-  }, [unified, form, flowStep])
+    if (!unified || !draftOwner || !(hasImportDraftContent(form) || flowStep > 0)) return
+    writeImportDraft(form, flowStep, undefined, draftOwner)
+  }, [unified, draftOwner, form, flowStep])
 
   const set = (field: keyof DiasporaImportOrderPayload, value: string | number | undefined) => {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -816,6 +829,9 @@ export function NewDiasporaImportOrder() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
+    // LR02 (unified): only a signed-in account sends. A guest's "Send" opens the sign-in boundary in the
+    // flow and never gets here; this guard keeps the create call unreachable for a guest regardless.
+    if (unified && !isAuthenticated) return
     if (!validate()) return
     setSubmitting(true)
     try {
@@ -836,27 +852,43 @@ export function NewDiasporaImportOrder() {
       setForm(initialForm)
       setErrors({})
       setFlowStep(0)
+      setShowRestored(false)
       setFlowKey(k => k + 1)
     }
+    // LR02: no sign-in wall in front of the flow. A guest prepares a draft; their "Send" writes it to this
+    // tab and opens the sign-in boundary (sign in, or create a free personal account, then come back).
+    if (authLoading) return <AuthBootstrapLoading />
+    const guest: ImportRequestGuest | undefined = isAuthenticated ? undefined : {
+      signInHref: guestSignInHref(),
+      registerHref: guestRegisterHref(),
+      persistDraft: () => draftOwner !== null && writeImportDraft(form, flowStep, undefined, draftOwner) !== null,
+    }
+    const restoredNotice = showRestored && restored.kind === 'from-guest'
+      ? restoredDraftNotice(Object.keys(importRequestErrors(restored.draft.form)).length === 0)
+      : undefined
+    const flow = (
+      <NewImportRequestFlow
+        key={flowKey}
+        form={form}
+        errors={errors}
+        submitting={submitting}
+        onChange={set}
+        onSelectOrderType={selectOrderType}
+        onSubmit={handleSubmit}
+        initialStep={flowStep}
+        onStepChange={setFlowStep}
+        draftKept={draftKept}
+        onDiscardDraft={discardDraft}
+        exitTo={guest ? GUEST_EXIT_TO : '/diaspora/imports'}
+        guest={guest}
+        restoredNotice={restoredNotice}
+      />
+    )
     return (
-      <RequireDiasporaAuth>
-        <div data-testid="diaspora-new-import-route" data-presentation="trade-request-flow">
-          <NewImportRequestFlow
-            key={flowKey}
-            form={form}
-            errors={errors}
-            submitting={submitting}
-            onChange={set}
-            onSelectOrderType={selectOrderType}
-            onSubmit={handleSubmit}
-            initialStep={flowStep}
-            onStepChange={setFlowStep}
-            draftKept={draftKept}
-            onDiscardDraft={discardDraft}
-            exitTo="/diaspora/imports"
-          />
-        </div>
-      </RequireDiasporaAuth>
+      <div data-testid="diaspora-new-import-route" data-presentation="trade-request-flow" data-visitor={guest ? 'guest' : 'account'}>
+        {/* LR02: guests and accounts share the focused flow chrome (FocusedImportFlowShell names the task in its h1). */}
+        {flow}
+      </div>
     )
   }
 

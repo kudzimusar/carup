@@ -12,6 +12,7 @@
  */
 import type { UserRole } from '@shared/types'
 import { canRoleAccessRoute } from './featureRegistry'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 
 export type ShowroomAudience = 'everyone' | 'signed-in' | 'guest'
 
@@ -106,7 +107,7 @@ export const SHOWROOM_NAVIGATION: ShowroomNavGroup[] = [
     feature: { title: 'Source abroad. Arrive with the record.', copy: 'Request, documents and shipment on one import order.', href: '/diaspora', cta: 'How importing works', featureId: 'product.diaspora' },
     columns: [
       { title: 'Import', links: [
-        { id: 'import.start', label: 'Start an import request', description: 'Sign in to start', href: '/diaspora/imports/new', featureId: 'owner.start-import' },
+        { id: 'import.start', label: 'Start an import request', description: isUnifiedUiEnabled() ? 'No account needed to prepare it' : 'Sign in to start', href: '/diaspora/imports/new', featureId: 'owner.start-import' },
         { id: 'import.how', label: 'How importing works', href: '/diaspora', featureId: 'product.diaspora' },
         { id: 'import.orders', label: 'My import orders', href: '/diaspora/imports', featureId: 'owner.import-orders', audience: 'signed-in' },
       ] },

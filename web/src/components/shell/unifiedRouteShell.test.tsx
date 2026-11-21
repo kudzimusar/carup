@@ -1061,7 +1061,7 @@ describe('RX03-P2 — connected pilot slices', () => {
     expect(await screen.findByText('import list page')).toBeInTheDocument()
   })
 
-  it('a signed-out visitor on /diaspora/imports/new keeps the exact legacy composition (no focused chrome)', async () => {
+  it('LR02: a signed-out visitor on /diaspora/imports/new prepares the request in the same focused flow, and exit returns to the public Trade entry', async () => {
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => unauthenticatedAuth)
     const { UnifiedRouteShell } = await loadSwitch()
@@ -1070,13 +1070,20 @@ describe('RX03-P2 — connected pilot slices', () => {
         <Routes>
           <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
             <Route path="/diaspora/imports/new" element={<div>new import form</div>} />
+            <Route path="/diaspora" element={<div>public trade entry</div>} />
+            <Route path="/diaspora/imports" element={<div>import list page</div>} />
           </Route>
         </Routes>
       </MemoryRouter>,
     )
-    expect(screen.getByTestId('legacy-layout')).toBeInTheDocument()
-    expect(screen.queryByText('Start an import order')).toBeNull()
-    expect(screen.queryByTestId('shell-focused-exit')).toBeNull()
+    expect(screen.getByText('new import form')).toBeInTheDocument()
+    expect(screen.getByText('Start an import order')).toBeInTheDocument()
+    expect(screen.getByTestId('shell-focused-exit')).toBeInTheDocument()
+    expect(screen.queryByTestId('legacy-layout')).toBeNull()
+    await userEvent.click(screen.getByTestId('shell-focused-exit'))
+    // A visitor has no order ledger: exit goes to the public entry, never to an account page.
+    expect(await screen.findByText('public trade entry')).toBeInTheDocument()
+    expect(screen.queryByText('import list page')).toBeNull()
   })
 
   it('the lifecycle boundary still applies inside the Trade workspace (disabled feature blocks the page)', async () => {
