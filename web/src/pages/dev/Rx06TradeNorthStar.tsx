@@ -141,10 +141,12 @@ export default function Rx06TradeNorthStar() {
               {FIXTURE_ORDERS.map(f => {
                 const pos = positionOf(f.order.status)
                 const tag = pos.exception ? 'Exception' : `${pos.phaseIndex + 1}`
+                const active = f.key === fixture.key && readKind === 'ready'
                 return (
                   <li key={f.key}>
-                    <Chip to={tourUrl({ order: f.key, read: null })} active={f.key === fixture.key && readKind === 'ready'} testId={`rx06-tour-phase-${f.key}`}>
-                      <span className={cn('font-mono text-xs', pos.exception ? 'text-status-warning' : 'opacity-70')}>{tag}</span>
+                    <Chip to={tourUrl({ order: f.key, read: null })} active={active} testId={`rx06-tour-phase-${f.key}`}>
+                      {/* On the dark selected chip the tag inherits the chip's colour (amber on dark fails contrast). */}
+                      <span className={cn('font-mono text-xs', pos.exception && !active ? 'text-status-warning' : 'opacity-80')}>{tag}</span>
                       {f.label}
                     </Chip>
                   </li>
