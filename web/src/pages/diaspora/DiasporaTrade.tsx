@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type React from 'react'
-import { Link, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useLocation, useSearchParams } from 'react-router-dom'
 import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer, Upload, XCircle, CheckCircle, Eye } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,90 +10,54 @@ import { useAuth } from '@/context/AuthContext'
 import { buildLoginRedirect } from '@/lib/returnTo'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { isShowroomPagesEnabled } from '@/lib/presentationFlags'
+import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
 import TradeIntelligence from '@/components/intelligence/TradeIntelligence'
-import { VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
-import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument, DiasporaCargoReservation, DiasporaCargoReservationPayload, DiasporaShipment, DiasporaContainerShipment } from '@/types'
-
-const requiredDocuments = [
-  'Buyer identity document',
-  'Invoice or auction sheet',
-  'Export certificate',
-  'Bill of lading',
-  'ZIMRA duty assessment',
-]
-
-/**
- * RX03-P2-R4 — which uploaded document types satisfy each required row. The checklist used to
- * compare a prettified type ("Bill Of Lading") with the row name ("Bill of lading"), so no row
- * could ever show as uploaded. Presentation mapping only; RX-06 owns the governed requirement set.
- */
-const REQUIRED_DOCUMENT_TYPES: Record<string, string[]> = {
-  'Buyer identity document': ['passport', 'national_id', 'residence_card'],
-  'Invoice or auction sheet': ['commercial_invoice', 'auction_sheet'],
-  'Export certificate': ['export_certificate'],
-  'Bill of lading': ['bill_of_lading'],
-  'ZIMRA duty assessment': ['customs_declaration', 'duty_receipt'],
-}
-
-/** The state of one required row from the order's real documents (never assumed). */
-type RequiredDocumentState = 'Pending' | 'Uploaded' | 'Verified' | 'Rejected' | 'Flagged' | 'Review needed'
-
-/**
- * RX03-P2-R5 TRADE-01 — the state of one required row from the order's REAL documents.
- *
- * Backend lifecycle (services/diaspora/diasporaDocumentService.js): every upload INSERTS a new
- * row and a review updates that row's verification_status (MISSING, UPLOADED, OCR_EXTRACTED,
- * PENDING_REVIEW, VERIFIED, REJECTED, FLAGGED); rows can be soft-deleted. So per document type
- * the LATEST live submission is authoritative — a later rejection is never hidden by an earlier
- * verification. Same-type submissions that cannot be ordered (no created_at) and disagree are
- * "Review needed", never success. A requirement is Verified only when nothing it depends on is
- * rejected, flagged, ambiguous or still awaiting review.
- */
-function requiredDocumentState(name: string, documents: DiasporaTradeDocument[]): RequiredDocumentState {
-  const types = REQUIRED_DOCUMENT_TYPES[name] ?? []
-  const live = documents.filter(d => !(d as { deleted_at?: string | null }).deleted_at
-    && types.includes(String(d.document_type || '').toLowerCase()))
-  if (live.length === 0) return 'Pending'
-  const status = (d: DiasporaTradeDocument) => String(d.verification_status || 'UPLOADED').toUpperCase()
-  const perType: string[] = []
-  for (const type of types) {
-    const ofType = live.filter(d => String(d.document_type || '').toLowerCase() === type)
-    if (ofType.length === 0) continue
-    const distinct = new Set(ofType.map(status))
-    if (distinct.size > 1 && ofType.some(d => !d.created_at || Number.isNaN(Date.parse(d.created_at)))) {
-      perType.push('AMBIGUOUS')
-      continue
-    }
-    const latest = [...ofType].sort((a, b) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''))[0]
-    perType.push(status(latest))
-  }
-  if (perType.includes('REJECTED')) return 'Rejected'
-  if (perType.includes('FLAGGED')) return 'Flagged'
-  if (perType.includes('AMBIGUOUS')) return 'Review needed'
-  if (perType.some(st => st === 'MISSING') && !perType.some(st => st !== 'MISSING')) return 'Pending'
-  if (perType.some(st => st === 'VERIFIED') && perType.every(st => st === 'VERIFIED' || st === 'MISSING')) return 'Verified'
-  return 'Uploaded'
-}
-
-const documentTypeOptions = [
-  { value: 'passport', label: 'Passport' },
-  { value: 'national_id', label: 'National ID' },
-  { value: 'residence_card', label: 'Residence Card' },
-  { value: 'vehicle_registration', label: 'Vehicle Registration' },
-  { value: 'auction_sheet', label: 'Auction Sheet' },
-  { value: 'bill_of_lading', label: 'Bill of Lading' },
-  { value: 'commercial_invoice', label: 'Commercial Invoice' },
-  { value: 'export_certificate', label: 'Export Certificate' },
-  { value: 'customs_declaration', label: 'Customs Declaration' },
-  { value: 'inspection_certificate', label: 'Inspection Certificate' },
-  { value: 'insurance_certificate', label: 'Insurance Certificate' },
-  { value: 'duty_receipt', label: 'Duty Receipt' },
-  { value: 'packing_list', label: 'Packing List' },
-  { value: 'port_release_order', label: 'Port Release Order' },
-  { value: 'police_clearance', label: 'Police Clearance' },
-  { value: 'mechanical_report', label: 'Mechanical Report' },
-]
+import { VEHICLE_MAKES, modelsForMake } from '@/data/vehicleTaxonomy'
+import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument, DiasporaCargoReservation, DiasporaCargoReservationPayload, DiasporaShipment, DiasporaContainerShipment, DiasporaShipmentStageEvent } from '@/types'
+import type { UserRole } from '@shared/types'
+// RX-06 — the unified Trade views (pure, fed by this page's own state, reads and handlers) and the
+// rules they share with the legacy views below (lifted unchanged into the Trade model modules).
+import { ImportOrderView } from '@/components/trade/order/ImportOrderView'
+import { ImportOrderLedger } from '@/components/trade/order/ImportOrderLedger'
+import type { ImportOrderActions } from '@/components/trade/order/orderViewTypes'
+import { useTradeRead } from '@/components/trade/order/useTradeReads'
+import {
+  DOCUMENT_TYPE_OPTIONS as documentTypeOptions,
+  DOCUMENT_UPLOAD_ALLOWED_TYPES,
+  DOCUMENT_UPLOAD_MAX_BYTES,
+  READ_LOADING,
+  REQUIRED_DOCUMENTS as requiredDocuments,
+  SHIPMENT_COORDINATION_NOTE,
+  SHIPMENT_STAGES,
+  TRADE_OPERATOR_ROLES as adminRoles,
+  buildShipmentTimeline,
+  errorStatus,
+  isTradeOperator,
+  labelize,
+  orderRank,
+  readFromFailure,
+  readReady,
+  requiredDocumentState,
+  statusOutcome,
+  tabFromQuery,
+  truncateMessage,
+  type Read,
+  type TradeOrder,
+} from '@/components/trade/order/orderModel'
+import { TradeEntryView } from '@/components/trade/entry/TradeEntryView'
+import { offeredCapabilities } from '@/components/trade/entry/entryModel'
+import { NewImportRequestFlow } from '@/components/trade/entry/NewImportRequestFlow'
+import {
+  INITIAL_IMPORT_REQUEST as initialForm,
+  clearImportDraft,
+  hasImportDraftContent,
+  importRequestErrors,
+  importRequestPayload,
+  readImportDraft,
+  writeImportDraft,
+} from '@/components/trade/entry/importRequest'
 
 const timelineSteps = [
   'IMPORT_REQUESTED',
@@ -104,30 +68,6 @@ const timelineSteps = [
   'CUSTOMS_IN_PROGRESS',
   'ZIMBABWE_READY',
 ]
-
-const adminRoles = new Set(['admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer'])
-
-const initialForm: DiasporaImportOrderPayload = {
-  order_type: 'vehicle',
-  origin_country: '',
-  origin_city: '',
-  destination_country: 'Zimbabwe',
-  destination_city: '',
-  requested_make: '',
-  requested_model: '',
-  requested_year_min: new Date().getFullYear(),
-  requested_year_max: new Date().getFullYear(),
-  budget_amount: undefined,
-  budget_currency: 'USD',
-}
-
-function labelize(value?: string | null) {
-  if (!value) return 'Not set'
-  return value
-    .replace(/_/g, ' ')
-    .toLowerCase()
-    .replace(/\b\w/g, char => char.toUpperCase())
-}
 
 function formatMoney(amount?: string | number | null, currency = 'USD') {
   if (amount === undefined || amount === null || amount === '') return 'Budget pending'
@@ -466,8 +406,8 @@ function DocumentUploadForm({ importOrderId, onDocumentUploaded }: { importOrder
   const [uploadProgress, setUploadProgress] = useState<string>('')
   const [error, setError] = useState('')
 
-  const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
-  const maxSize = 10 * 1024 * 1024 // 10MB
+  const allowedTypes = DOCUMENT_UPLOAD_ALLOWED_TYPES
+  const maxSize = DOCUMENT_UPLOAD_MAX_BYTES // 10MB
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0]
@@ -667,198 +607,28 @@ function StatusTimeline({ currentStatus }: { currentStatus?: string }) {
   )
 }
 
-/* ── RX03-P2-R4 — order-first Trade reference (unified presentation only) ─────────────────── */
-
-type NextStep = { title: string; detail: string; cta?: { label: string; to: string } }
-
-/** The one next step for this order, derived only from its real status and documents. */
-/** Statuses whose position on the shipment path is not a progress point (backend constants). */
-function statusOutcome(status?: string | null): { title: string; detail: string; timeline: string } | null {
-  const st = String(status || '')
-  if (st === 'CANCELLED') return { title: 'This import order was cancelled', detail: 'No further documents, booking or shipment steps apply to a cancelled order.', timeline: 'Cancelled — progress is no longer tracked for this order.' }
-  if (st === 'DISPUTED') return { title: 'This import order is in dispute', detail: 'CarUp is handling the dispute. No shipment progress is shown while it is open.', timeline: 'In dispute — progress is paused while the dispute is open.' }
-  if (st === 'FLAGGED_FOR_REVIEW') return { title: 'This order is on hold for CarUp review', detail: 'A CarUp reviewer is checking this order. Nothing moves forward until the review is recorded.', timeline: 'On hold for review — the current milestone is not shown until the review is recorded.' }
-  if (!st || orderRank(st) < 0) return { title: 'Order status unavailable', detail: `CarUp does not recognise this order's current status${st ? ` (“${labelize(st)}”)` : ''}, so no progress or next step is shown.`, timeline: 'Status unavailable — no milestone is shown for an unrecognised status.' }
-  return null
-}
-
-/** The one next step for this order, derived only from its real status and documents. */
-function nextStepFor(order: DiasporaImportOrder): NextStep {
-  const outcome = statusOutcome(order.status)
-  if (outcome) return { title: outcome.title, detail: outcome.detail }
-  const documents = order.diaspora_trade_documents || []
-  const states = requiredDocuments.map(name => [name, requiredDocumentState(name, documents)] as const)
-  const named = (wanted: RequiredDocumentState[]) => states.filter(([, st]) => wanted.includes(st)).map(([name]) => name.toLowerCase())
-  const rejected = named(['Rejected', 'Flagged'])
-  const missing = named(['Pending'])
-  const ambiguous = named(['Review needed'])
-  const awaitingReview = named(['Uploaded'])
-  const rank = orderRank(order.status)
-  const base = `/diaspora/imports/${order.id}`
-  // A rejected or flagged document is consequential: it leads, and missing documents never hide it.
-  if (rejected.length > 0) {
-    return {
-      title: rejected.length === 1 ? 'A required document was rejected' : 'Required documents were rejected',
-      detail: `Rejected or flagged: ${rejected.join(', ')}. Upload a replacement for review.${missing.length ? ` Still missing: ${missing.join(', ')}.` : ''}`,
-      cta: { label: 'Open documents', to: `${base}/documents` },
-    }
-  }
-  if (ambiguous.length > 0) {
-    return { title: 'CarUp needs to confirm your documents', detail: `The records for ${ambiguous.join(', ')} disagree, so they are not treated as verified. CarUp will confirm which submission stands.`, cta: { label: 'View documents', to: `${base}/documents` } }
-  }
-  if (rank >= orderRank('CONTAINER_BOOKED')) {
-    return { title: 'Follow your shipment', detail: `${labelize(order.status)}. Shipment milestones are recorded by CarUp as logistics confirm them.`, cta: { label: 'Open shipment', to: `${base}/shipment` } }
-  }
-  if (missing.length > 0) {
-    return {
-      title: 'Add your trade documents',
-      detail: `${missing.length} of ${requiredDocuments.length} required documents are not uploaded yet: ${missing.join(', ')}.`,
-      cta: { label: 'Add documents', to: `${base}/documents` },
-    }
-  }
-  if (awaitingReview.length > 0) {
-    return { title: 'Your documents are with CarUp for review', detail: 'Nothing is verified until a reviewer has checked each original. You will see each result here.', cta: { label: 'View documents', to: `${base}/documents` } }
-  }
-  if (states.every(([, st]) => st === 'Verified')) {
-    return { title: 'Waiting for a container booking', detail: 'Required documents are verified. CarUp books a container slot next; nothing is scheduled until a booking is recorded.', cta: { label: 'View shipment', to: `${base}/shipment` } }
-  }
-  return { title: 'Document status unavailable', detail: 'CarUp could not establish the state of every required document, so none is treated as verified.' }
-}
-
-function ImportOrderOverview({ order, reload }: { order: DiasporaImportOrder; reload: () => Promise<void> }) {
-  const step = nextStepFor(order)
-  const documents = order.diaspora_trade_documents || []
-  const outcome = statusOutcome(order.status)
-  const booked = !outcome && orderRank(order.status) >= orderRank('CONTAINER_BOOKED')
-  const fact = (label: string, value: string, testId: string) => (
-    <div className="min-w-0" data-testid={testId}>
-      <dt className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">{label}</dt>
-      <dd className="mt-0.5 truncate font-semibold text-gray-950">{value}</dd>
-    </div>
-  )
-  return (
-    <div className="space-y-5" data-testid="trade-order-workbench">
-      <section className="rounded-2xl bg-[#0B1526] p-5 text-white sm:p-6" aria-labelledby="trade-next-step" data-testid="trade-next-step">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/65">Next step</p>
-        <h1 id="trade-next-step" className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">{step.title}</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80">{step.detail}</p>
-        {step.cta && (
-          <Link to={step.cta.to} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full bg-[#F97316] px-5 text-sm font-semibold text-[#0B1526] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B1526]" data-testid="trade-next-step-action">
-            {step.cta.label} <ArrowRight className="h-4 w-4" aria-hidden="true" />
-          </Link>
-        )}
-      </section>
-
-      <dl className="grid gap-4 rounded-2xl border border-gray-200 bg-white p-5 sm:grid-cols-2 lg:grid-cols-4" data-testid="diaspora-order-summary">
-        {fact('Cargo', labelize(order.order_type), 'diaspora-order-type')}
-        {fact('Origin', [order.origin_city, order.origin_country].filter(Boolean).join(', ') || 'Not set', 'diaspora-order-origin')}
-        {fact('Destination', [order.destination_city, order.destination_country].filter(Boolean).join(', ') || 'Not set', 'diaspora-order-destination')}
-        {fact('Budget', formatMoney(order.budget_amount, order.budget_currency || 'USD'), 'diaspora-order-budget')}
-      </dl>
-
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <DocumentChecklist documents={documents} />
-        <div className="space-y-5">
-          <section className="rounded-lg border border-gray-200 bg-white p-5" aria-labelledby="trade-shipment-state" data-testid="trade-shipment-state">
-            <div className="flex items-center justify-between gap-3">
-              <h2 id="trade-shipment-state" className="text-base font-semibold text-gray-900">Shipment</h2>
-              <Badge variant="outline" className={booked ? 'border-green-200 text-green-800' : ''}>{outcome ? 'Not shown' : booked ? 'Scheduled' : 'Not scheduled'}</Badge>
-            </div>
-            <p className="mt-2 text-sm text-gray-600">
-              {outcome
-                ? outcome.timeline
-                : booked
-                  ? `This order is at “${labelize(order.status)}”. The shipment page shows each recorded milestone.`
-                  : 'No container is booked for this order yet. A booking is only shown once CarUp records it.'}
-            </p>
-            <Link to={`/diaspora/imports/${order.id}/shipment`} className="mt-3 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-orange-700 hover:underline" data-testid="diaspora-open-shipment-button">
-              Shipment details <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </Link>
-          </section>
-          <StatusTimeline currentStatus={order.status} />
-        </div>
-      </div>
-      <Link to={`/diaspora/imports/${order.id}/documents`} className="sr-only" data-testid="diaspora-open-documents-button">Documents</Link>
-      <PaymentMilestonesCard
-        orderId={order.id}
-        milestones={order.diaspora_payment_milestones || []}
-        quotes={order.diaspora_import_quotes || []}
-        budgetAmount={order.budget_amount}
-        budgetCurrency={order.budget_currency}
-        onRefresh={reload}
-      />
-      <ReviewerActionsCard orderId={order.id} onRefresh={reload} />
-    </div>
-  )
-}
-
-function ImportOrderListUnified({ orders, loading, error }: { orders: DiasporaImportOrder[]; loading: boolean; error: string }) {
-  return (
-    <div className="space-y-5" data-testid="diaspora-import-list-route">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-950">Import orders</h1>
-          <p className="mt-1 text-sm text-gray-600">Each order keeps its documents, payments and shipment together.</p>
-        </div>
-        <Button asChild className="min-h-11 bg-orange-700 hover:bg-orange-800" data-testid="diaspora-new-import-button">
-          <Link to="/diaspora/imports/new"><Plus className="mr-2 h-4 w-4" />Start an import</Link>
-        </Button>
-      </header>
-      {loading && <div className="text-orange-700" data-testid="diaspora-import-list-loading">Loading import orders...</div>}
-      {error && <Alert className="border-red-200" data-testid="diaspora-import-list-error"><AlertCircle className="h-4 w-4" /><AlertTitle>Unable to load</AlertTitle><AlertDescription>{error} This is not an empty list.</AlertDescription></Alert>}
-      {!loading && !error && orders.length === 0 && (
-        <section className="rounded-2xl border border-gray-200 bg-white p-6" data-testid="diaspora-import-list-empty">
-          <h2 className="text-lg font-semibold text-gray-950">No import orders yet</h2>
-          <p className="mt-1 max-w-xl text-sm text-gray-600">An import order is where CarUp coordinates one vehicle or parts shipment for you. It moves through three stages:</p>
-          <ol className="mt-4 grid gap-3 sm:grid-cols-3">
-            {[['Request', 'Say what you want imported, from where, and your budget.'], ['Documents', 'Upload the trade documents each order needs; reviewers check every original.'], ['Shipment', 'Container booking and border milestones appear as they are recorded.']].map(([title, body], i) => (
-              <li key={title} className="rounded-xl bg-gray-50 p-4">
-                <p className="text-xs font-semibold text-orange-700">Step {i + 1}</p>
-                <p className="mt-1 font-semibold text-gray-950">{title}</p>
-                <p className="mt-1 text-sm text-gray-600">{body}</p>
-              </li>
-            ))}
-          </ol>
-          <Button asChild className="mt-5 min-h-11 bg-orange-700 hover:bg-orange-800">
-            <Link to="/diaspora/imports/new">Start your first import</Link>
-          </Button>
-        </section>
-      )}
-      {!loading && !error && orders.length > 0 && (
-        <ul className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3" data-testid="diaspora-import-list">
-          {orders.map(order => {
-            const docs = order.diaspora_trade_documents
-            const pending = docs ? requiredDocuments.filter(name => requiredDocumentState(name, docs) === 'Pending').length : null
-            const rejectedCount = docs ? requiredDocuments.filter(name => ['Rejected', 'Flagged'].includes(requiredDocumentState(name, docs))).length : 0
-            return (
-              <li key={order.id}>
-                <Link to={`/diaspora/imports/${order.id}`} className="flex h-full flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 transition hover:border-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600" data-testid="diaspora-import-row">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-base font-semibold text-gray-950">{order.requested_make || 'Import'} {order.requested_model || ''}</p>
-                      <p className="mt-0.5 font-mono text-xs text-gray-500">Order {order.id.slice(0, 8)}</p>
-                    </div>
-                    <StatusBadge status={order.status} />
-                  </div>
-                  <p className="text-sm text-gray-700">{labelize(order.order_type)} · {[order.origin_country, order.destination_country].filter(Boolean).join(' → ')}</p>
-                  {rejectedCount > 0
-                    ? <p className="text-xs font-semibold text-status-danger">{rejectedCount} required document{rejectedCount === 1 ? '' : 's'} rejected — action needed</p>
-                    : pending !== null && <p className="text-xs text-gray-600">{pending === 0 ? 'All required documents uploaded' : `${pending} required document${pending === 1 ? '' : 's'} still to upload`}</p>}
-                  <span className="mt-auto inline-flex items-center gap-1 text-sm font-semibold text-orange-700">Open order <ArrowRight className="h-4 w-4" aria-hidden="true" /></span>
-                </Link>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-      <section aria-label="Trade insights" className="pt-2">
-        <TradeIntelligence windowDays={30} />
-      </section>
-    </div>
-  )
-}
-
 export function DiasporaLanding() {
+  // RX-06: the showroom entry reads the signed-in account's own orders (only with the presentation on).
+  const { user, isAuthenticated, loading: authLoading } = useAuth()
+  const { fetchDiasporaImportOrders } = useCarUpApi()
+  const effectiveStates = useFeatureEffectiveStates()
+  const showroom = isShowroomPagesEnabled()
+  const signedIn = showroom && !authLoading && isAuthenticated
+  const entryOrders = useTradeRead<TradeOrder[]>(signedIn, user?.id ? `entry-orders:${user.id}` : null, () => fetchDiasporaImportOrders() as Promise<TradeOrder[]>)
+
+  if (showroom) {
+    return (
+      <div data-testid="diaspora-landing-route" data-presentation="trade-entry">
+        <TradeEntryView
+          signedIn={signedIn}
+          orders={signedIn ? entryOrders : undefined}
+          capabilities={offeredCapabilities({ isAuthenticated: signedIn, role: (user?.role ?? null) as UserRole | null, effectiveStates })}
+          loginHref={buildLoginRedirect('/diaspora/imports')}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="bg-gray-50" data-testid="diaspora-landing-route">
       <section className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-14">
@@ -940,18 +710,36 @@ export function DiasporaImportList() {
   const [orders, setOrders] = useState<DiasporaImportOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // RX-06 (unified view only): the refusal status and a retry, so a failed or refused read is never an
+  // empty ledger. The legacy view reads neither.
+  const [errorCode, setErrorCode] = useState<number | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     fetchDiasporaImportOrders()
       .then(setOrders)
-      .catch(err => setError(err instanceof Error ? err.message : 'Unable to load import orders'))
+      .catch(err => {
+        setError(err instanceof Error ? err.message : 'Unable to load import orders')
+        setErrorCode(errorStatus(err) ?? null)
+      })
       .finally(() => setLoading(false))
-  }, [fetchDiasporaImportOrders])
+  }, [fetchDiasporaImportOrders, attempt])
 
   if (isUnifiedUiEnabled()) {
+    const retry = () => {
+      setLoading(true)
+      setError('')
+      setErrorCode(null)
+      setAttempt(a => a + 1)
+    }
+    const read: Read<TradeOrder[]> = loading
+      ? READ_LOADING
+      : error ? readFromFailure(errorCode, error, retry) : readReady(orders as TradeOrder[])
     return (
       <RequireDiasporaAuth>
-        <ImportOrderListUnified orders={orders} loading={loading} error={error} />
+        <div data-testid="diaspora-import-list-route">
+          <ImportOrderLedger orders={read} insights={<TradeIntelligence windowDays={30} />} />
+        </div>
       </RequireDiasporaAuth>
     )
   }
@@ -996,9 +784,20 @@ export function DiasporaImportList() {
 export function NewDiasporaImportOrder() {
   const navigate = useNavigate()
   const { createDiasporaImportOrder } = useCarUpApi()
-  const [form, setForm] = useState<DiasporaImportOrderPayload>(initialForm)
+  const unified = isUnifiedUiEnabled()
+  // RX-06 (unified only): the focused flow resumes this tab's unsent answers; nothing is sent before submit.
+  const [draft] = useState(() => (unified ? readImportDraft() : null))
+  const [form, setForm] = useState<DiasporaImportOrderPayload>(() => draft?.form ?? initialForm)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [flowStep, setFlowStep] = useState(draft?.step ?? 0)
+  const [flowKey, setFlowKey] = useState(0)
+  const draftKept = unified && (hasImportDraftContent(form) || flowStep > 0)
+
+  useEffect(() => {
+    if (!unified || !(hasImportDraftContent(form) || flowStep > 0)) return
+    writeImportDraft(form, flowStep)
+  }, [unified, form, flowStep])
 
   const set = (field: keyof DiasporaImportOrderPayload, value: string | number | undefined) => {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -1009,15 +808,8 @@ export function NewDiasporaImportOrder() {
   }
 
   const validate = () => {
-    const nextErrors: Record<string, string> = {}
-    if (!form.order_type) nextErrors.order_type = 'Choose vehicle or parts.'
-    if (!form.origin_country?.trim()) nextErrors.origin_country = 'Origin country is required.'
-    if (!form.origin_city?.trim()) nextErrors.origin_city = 'Origin city is required.'
-    if (!form.destination_city?.trim()) nextErrors.destination_city = 'Destination city is required.'
-    if (!form.requested_make?.trim()) nextErrors.requested_make = 'Make is required.'
-    if (!form.requested_model?.trim()) nextErrors.requested_model = 'Model is required.'
-    if (!form.requested_year_min || !isValidVehicleYear(form.requested_year_min)) nextErrors.requested_year_min = 'Enter a valid vehicle year.'
-    if (!form.budget_amount || Number(form.budget_amount) <= 0) nextErrors.budget_amount = 'Budget is required.'
+    // Same rules and messages as before, shared with the focused flow (importRequest.ts).
+    const nextErrors: Record<string, string> = importRequestErrors(form)
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
   }
@@ -1027,17 +819,45 @@ export function NewDiasporaImportOrder() {
     if (!validate()) return
     setSubmitting(true)
     try {
-      const created = await createDiasporaImportOrder({
-        ...form,
-        requested_year_max: form.requested_year_min,
-        budget_amount: Number(form.budget_amount),
-      })
+      // Same body as before: one model year (max = min) and the budget as a number.
+      const created = await createDiasporaImportOrder(importRequestPayload(form))
+      if (unified) clearImportDraft()
       navigate(`/diaspora/imports/${created.id}`)
     } catch (err) {
       setErrors({ form: err instanceof Error ? err.message : 'Unable to create import order.' })
     } finally {
       setSubmitting(false)
     }
+  }
+
+  if (unified) {
+    const discardDraft = () => {
+      clearImportDraft()
+      setForm(initialForm)
+      setErrors({})
+      setFlowStep(0)
+      setFlowKey(k => k + 1)
+    }
+    return (
+      <RequireDiasporaAuth>
+        <div data-testid="diaspora-new-import-route" data-presentation="trade-request-flow">
+          <NewImportRequestFlow
+            key={flowKey}
+            form={form}
+            errors={errors}
+            submitting={submitting}
+            onChange={set}
+            onSelectOrderType={selectOrderType}
+            onSubmit={handleSubmit}
+            initialStep={flowStep}
+            onStepChange={setFlowStep}
+            draftKept={draftKept}
+            onDiscardDraft={discardDraft}
+            exitTo="/diaspora/imports"
+          />
+        </div>
+      </RequireDiasporaAuth>
+    )
   }
 
   return (
@@ -1149,14 +969,18 @@ function useDiasporaOrder(orderId?: string) {
   const [order, setOrder] = useState<DiasporaImportOrder | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // RX-06: the HTTP status of a failed read (unified view only: denied/not found are their own states).
+  const [errorCode, setErrorCode] = useState<number | null>(null)
 
   const reload = useCallback(async () => {
     if (!orderId) return
     try {
       setOrder(await fetchDiasporaImportOrder(orderId))
       setError('')
+      setErrorCode(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load import order')
+      setErrorCode(errorStatus(err) ?? null)
     } finally {
       setLoading(false)
     }
@@ -1168,13 +992,14 @@ function useDiasporaOrder(orderId?: string) {
     void reload()
   }, [reload])
 
-  return { order, loading, error, reload }
+  return { order, loading, error, errorCode, reload }
 }
 
-// Truncate server-thrown Error messages for inline display (apiClient throws message-only Errors).
-function truncateMessage(err: unknown, fallback: string) {
-  const message = err instanceof Error && err.message ? err.message : fallback
-  return message.length > 200 ? `${message.slice(0, 200)}…` : message
+/** RX-06: an order read as the unified views take it (ready / loading / failed / denied / not found). */
+function orderReadOf(state: { order: DiasporaImportOrder | null; loading: boolean; error: string; errorCode: number | null; reload: () => Promise<void> }): Read<TradeOrder> {
+  if (state.order) return readReady(state.order as TradeOrder)
+  if (state.loading) return READ_LOADING
+  return readFromFailure(state.errorCode, state.error || 'Unable to load import order', () => { void state.reload() })
 }
 
 // Privileged-only operational shortcuts on the import detail page. Backend authorization is the
@@ -1318,15 +1143,60 @@ function ReviewerActionsCard({ orderId, onRefresh }: { orderId: string; onRefres
 
 export function DiasporaImportDetail() {
   const { id } = useParams()
-  const { order, loading, error, reload } = useDiasporaOrder(id)
+  const orderState = useDiasporaOrder(id)
+  const { order, loading, error, reload } = orderState
+  // RX-06 (unified only): the tab lives in the URL (?tab=), and each tab's extra read runs only while
+  // that tab is open. The legacy view enables none of these reads.
+  const unified = isUnifiedUiEnabled()
+  const [searchParams] = useSearchParams()
+  const tab = tabFromQuery(searchParams.get('tab'))
+  const { user } = useAuth()
+  const api = useCarUpApi()
+  const [refreshing, setRefreshing] = useState(false)
+  const live = unified && Boolean(order) && Boolean(id)
+  const orders = useTradeRead<TradeOrder[]>(unified, 'orders', () => api.fetchDiasporaImportOrders() as Promise<TradeOrder[]>)
+  const handoff = useTradeRead(live && tab === 'overview', `handoff:${id}`, () => api.fetchDiasporaOwnershipHandoffStatus(id as string))
+  const footprint = useTradeRead(live && tab === 'customs', `footprint:${id}`, () => api.fetchDiasporaGovernmentFootprint(id as string))
+  const audit = useTradeRead(live && tab === 'activity', `audit:${id}`, () => api.fetchDiasporaOrderAudit(id as string))
 
-  if (isUnifiedUiEnabled()) {
+  if (unified) {
+    const orderId = id ?? ''
+    const after = async <T,>(result: T): Promise<T> => { await reload(); return result }
+    const actions: ImportOrderActions = {
+      // Same calls as PaymentMilestonesCard and ReviewerActionsCard; the backend authorizes each one.
+      recordMilestone: async payload => after(await api.addDiasporaPaymentMilestone(orderId, payload)),
+      ...(isTradeOperator(user?.role) ? {
+        assignSeller: async (sellerId: string) => after(await api.assignDiasporaSeller(orderId, { sellerId })),
+        markZimbabweReady: async () => after(await api.transitionDiasporaImportOrder(orderId, { nextStatus: 'ZIMBABWE_READY' })),
+        linkVehicleRecord: async ({ vin, chassis }: { vin: string; chassis?: string }) => after(await api.linkDiasporaVehicleImportRecord(orderId, {
+          vehicle_vin: vin,
+          chassis_number: chassis || undefined,
+          verification_status: 'VERIFIED',
+        })),
+        completeHandoff: async () => after(await api.completeDiasporaOwnershipHandoff(orderId)),
+      } : {}),
+    }
+    const refresh = () => {
+      setRefreshing(true)
+      void reload().finally(() => setRefreshing(false))
+    }
     return (
       <RequireDiasporaAuth>
-        <div data-testid="diaspora-import-detail-route">
-          {loading && <div className="text-orange-700" data-testid="diaspora-import-detail-loading">Loading import order...</div>}
-          {error && <Alert className="border-red-200" data-testid="diaspora-import-detail-error"><AlertCircle className="h-4 w-4" /><AlertTitle>This import order is not available</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
-          {order && <ImportOrderOverview order={order} reload={reload} />}
+        <div data-testid="diaspora-import-detail-route" data-presentation="trade-order">
+          <ImportOrderView
+            orderId={orderId}
+            mode={tab}
+            order={orderReadOf(orderState)}
+            viewer={{ id: user?.id, role: user?.role }}
+            orders={orders}
+            handoff={handoff}
+            footprint={footprint}
+            audit={audit}
+            actions={actions}
+            onRefresh={refresh}
+            refreshing={refreshing}
+            refreshError={order && error ? error : undefined}
+          />
         </div>
       </RequireDiasporaAuth>
     )
@@ -1371,10 +1241,16 @@ export function DiasporaImportDetail() {
 export function DiasporaImportDocuments() {
   const { id } = useParams()
   const { user } = useAuth()
-  const { fetchDiasporaTradeDocuments } = useCarUpApi()
+  const { fetchDiasporaTradeDocuments, uploadDiasporaDocument, createDiasporaTradeDocument, verifyDiasporaTradeDocument, rejectDiasporaTradeDocument, runDiasporaOcr, fetchDiasporaImportOrders } = useCarUpApi()
   const [documents, setDocuments] = useState<DiasporaTradeDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // RX-06 (unified only): the order behind the header, the refusal status of the documents read, and
+  // the account's orders for the switcher. The legacy view starts none of these reads.
+  const unified = isUnifiedUiEnabled()
+  const [errorCode, setErrorCode] = useState<number | null>(null)
+  const orderState = useDiasporaOrder(unified ? id : undefined)
+  const orders = useTradeRead<TradeOrder[]>(unified, 'orders', () => fetchDiasporaImportOrders() as Promise<TradeOrder[]>)
 
   const isReviewer = useMemo(() => {
     const role = user?.role || ''
@@ -1385,7 +1261,10 @@ export function DiasporaImportDocuments() {
     if (!id) return
     fetchDiasporaTradeDocuments(id)
       .then(setDocuments)
-      .catch(err => setError(err instanceof Error ? err.message : 'Unable to load documents'))
+      .catch(err => {
+        setError(err instanceof Error ? err.message : 'Unable to load documents')
+        setErrorCode(errorStatus(err) ?? null)
+      })
       .finally(() => setLoading(false))
   }, [fetchDiasporaTradeDocuments, id])
 
@@ -1398,6 +1277,57 @@ export function DiasporaImportDocuments() {
     fetchDiasporaTradeDocuments(id)
       .then(setDocuments)
       .catch(err => setError(err instanceof Error ? err.message : 'Unable to reload documents'))
+  }
+
+  if (unified) {
+    const orderId = id ?? ''
+    const retryDocuments = () => {
+      if (!id) return
+      setLoading(true)
+      setError('')
+      setErrorCode(null)
+      fetchDiasporaTradeDocuments(id)
+        .then(setDocuments)
+        .catch(err => {
+          setError(err instanceof Error ? err.message : 'Unable to load documents')
+          setErrorCode(errorStatus(err) ?? null)
+        })
+        .finally(() => setLoading(false))
+    }
+    const documentsRead: Read<DiasporaTradeDocument[]> = loading
+      ? READ_LOADING
+      : error ? readFromFailure(errorCode, error, retryDocuments) : readReady(documents)
+    const actions: ImportOrderActions = {
+      // The same two calls as the legacy upload form: store the file, then create the document record.
+      uploadDocument: async (file, documentType, onProgress) => {
+        const uploadResult = await uploadDiasporaDocument(file, documentType, orderId)
+        onProgress?.('Creating document record...')
+        return createDiasporaTradeDocument(orderId, { document_type: documentType, file_name: file.name, storage_path: uploadResult.storagePath })
+      },
+      onDocumentUploaded: handleDocumentUploaded,
+      onDocumentsChanged: handleStatusChange,
+      ...(isReviewer ? {
+        verifyDocument: (documentId: string, payload: { notes?: string }) => verifyDiasporaTradeDocument(documentId, payload),
+        rejectDocument: (documentId: string, payload: { reason: string; notes?: string }) => rejectDiasporaTradeDocument(documentId, payload),
+        runOcr: async (documentId: string) => (await runDiasporaOcr(documentId)).ocr,
+      } : {}),
+    }
+    return (
+      <RequireDiasporaAuth>
+        <div data-testid="diaspora-import-documents-route" data-presentation="trade-order">
+          <ImportOrderView
+            orderId={orderId}
+            mode="documents"
+            order={orderReadOf(orderState)}
+            viewer={{ id: user?.id, role: user?.role }}
+            orders={orders}
+            documents={documentsRead}
+            actions={actions}
+            onRefresh={() => { void orderState.reload(); handleStatusChange() }}
+          />
+        </div>
+      </RequireDiasporaAuth>
+    )
   }
 
   return (
@@ -1447,9 +1377,6 @@ export function DiasporaImportDocuments() {
   )
 }
 
-const SHIPMENT_COORDINATION_NOTE =
-  'CarUp coordinates shipment facilitation. Final carrier movement, customs clearance, and release depend on verified logistics and regulatory processing.'
-
 const RESERVATION_BADGE_TONE: Record<string, string> = {
   REQUESTED: 'bg-amber-100 text-amber-800',
   APPROVED: 'bg-green-100 text-green-800',
@@ -1470,51 +1397,6 @@ function routeLabel(city?: string | null, country?: string | null, port?: string
   return parts.join(' · ')
 }
 
-// Shipment stages the backend accepts (mirror of SHIPMENT_STATUSES) for the admin stage control.
-const SHIPMENT_STAGES = ['PLANNED', 'BOOKED', 'LOADING', 'IN_TRANSIT', 'ARRIVED', 'CUSTOMS_HOLD', 'RELEASED', 'COMPLETED', 'EXCEPTION']
-
-// Import-order lifecycle, in order, used to derive a read-only progress timeline for buyers.
-const ORDER_LIFECYCLE = [
-  'IMPORT_REQUESTED', 'QUOTE_ISSUED', 'SELLER_ASSIGNED', 'DOCUMENTS_PENDING', 'DOCUMENTS_VERIFIED',
-  'CONTAINER_BOOKED', 'READY_FOR_LOADING', 'LOADED', 'SHIPPED', 'ARRIVED_AT_BORDER', 'CUSTOMS_IN_PROGRESS',
-  'DUTY_PENDING', 'DUTY_PAID', 'RELEASED', 'REGISTRATION_PENDING', 'ROADWORTHINESS_PENDING', 'INSURANCE_PENDING', 'ZIMBABWE_READY',
-  // RX03-P2-R5: the two backend statuses after ZIMBABWE_READY (constants/diaspora/diasporaStatuses.js).
-  'LOCAL_LISTING_ENABLED', 'COMPLETED',
-]
-function orderRank(status?: string | null) {
-  const i = ORDER_LIFECYCLE.indexOf(status || '')
-  return i < 0 ? -1 : i
-}
-
-const TIMELINE_PHASES: { key: string; label: string; minStatus?: string }[] = [
-  { key: 'reservation_requested', label: 'Reservation requested' },
-  { key: 'reservation_confirmed', label: 'Reservation confirmed' },
-  { key: 'container_booked', label: 'Container booked', minStatus: 'CONTAINER_BOOKED' },
-  { key: 'loaded', label: 'Loaded', minStatus: 'LOADED' },
-  { key: 'shipped', label: 'Shipped', minStatus: 'SHIPPED' },
-  { key: 'arrived', label: 'Arrived', minStatus: 'ARRIVED_AT_BORDER' },
-  { key: 'customs', label: 'Customs in progress', minStatus: 'CUSTOMS_IN_PROGRESS' },
-  { key: 'released', label: 'Released', minStatus: 'RELEASED' },
-  { key: 'zimbabwe_ready', label: 'Zimbabwe ready', minStatus: 'ZIMBABWE_READY' },
-]
-
-// Derive timeline ONLY from real backend status — never fabricate progress.
-function buildShipmentTimeline(order: DiasporaImportOrder | null, reservations: DiasporaCargoReservation[]) {
-  const rank = orderRank(order?.status)
-  const hasReservation = reservations.length > 0
-  const reservationConfirmed = reservations.some(r => r.reservation_status === 'APPROVED') || rank >= orderRank('CONTAINER_BOOKED')
-  const steps = TIMELINE_PHASES.map(p => {
-    let reached: boolean
-    if (p.key === 'reservation_requested') reached = hasReservation || rank >= orderRank('CONTAINER_BOOKED')
-    else if (p.key === 'reservation_confirmed') reached = reservationConfirmed
-    else reached = rank >= orderRank(p.minStatus)
-    return { key: p.key, label: p.label, reached }
-  })
-  let currentIndex = -1
-  steps.forEach((s, i) => { if (s.reached) currentIndex = i })
-  return steps.map((s, i) => ({ ...s, current: i === currentIndex }))
-}
-
 function ShipmentContent({ orderId }: { orderId?: string }) {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
   const {
@@ -1526,6 +1408,8 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
     updateDiasporaReservationStatus,
     createDiasporaShipment,
     updateDiasporaShipmentStage,
+    fetchDiasporaShipmentTimeline,
+    fetchDiasporaImportOrders,
   } = useCarUpApi()
 
   const [order, setOrder] = useState<DiasporaImportOrder | null>(null)
@@ -1538,6 +1422,10 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
   const [submitting, setSubmitting] = useState(false)
   const [form, setForm] = useState({ container_id: '', cargo_type: 'vehicle', estimated_volume: '' })
   const [stage, setStage] = useState('')
+  // RX-06 (unified only): which list reads failed (the legacy view still treats a failure as an empty
+  // list, as before) and the refusal status of the order read.
+  const [readFailures, setReadFailures] = useState({ reservations: false, shipments: false, containers: false })
+  const [errorCode, setErrorCode] = useState<number | null>(null)
 
   const isReviewer = useMemo(() => adminRoles.has(user?.role || ''), [user?.role])
 
@@ -1547,19 +1435,23 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
   const reload = useCallback(async () => {
     if (!orderId) return
     try {
+      const failed = { reservations: false, shipments: false, containers: false }
       const [o, r, s, c] = await Promise.all([
         fetchDiasporaImportOrder(orderId),
-        fetchDiasporaReservations(orderId).catch(() => [] as DiasporaCargoReservation[]),
-        fetchDiasporaShipments(orderId).catch(() => [] as DiasporaShipment[]),
-        fetchDiasporaOpenContainers().catch(() => [] as DiasporaContainerShipment[]),
+        fetchDiasporaReservations(orderId).catch(() => { failed.reservations = true; return [] as DiasporaCargoReservation[] }),
+        fetchDiasporaShipments(orderId).catch(() => { failed.shipments = true; return [] as DiasporaShipment[] }),
+        fetchDiasporaOpenContainers().catch(() => { failed.containers = true; return [] as DiasporaContainerShipment[] }),
       ])
       setOrder(o)
       setReservations(r)
       setShipments(s)
       setContainers(c)
+      setReadFailures(failed)
       setError('')
+      setErrorCode(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load shipment details')
+      setErrorCode(errorStatus(err) ?? null)
     } finally {
       setLoading(false)
     }
@@ -1573,6 +1465,16 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void reload()
   }, [authLoading, isAuthenticated, orderId, reload])
+
+  // RX-06 (unified only): the milestone events of each shipment, and the account's orders for the switcher.
+  const unified = isUnifiedUiEnabled()
+  const stageKey = shipments.map(sh => `${sh.id}:${sh.status}`).join(',')
+  const stageEvents = useTradeRead<Record<string, DiasporaShipmentStageEvent[]>>(
+    unified && shipments.length > 0,
+    stageKey ? `stages:${stageKey}` : null,
+    () => Promise.all(shipments.map(sh => fetchDiasporaShipmentTimeline(sh.id).then(events => [sh.id, events] as const))).then(pairs => Object.fromEntries(pairs)),
+  )
+  const orders = useTradeRead<TradeOrder[]>(unified && isAuthenticated, 'orders', () => fetchDiasporaImportOrders() as Promise<TradeOrder[]>)
 
   const shipment = shipments[0]
   const activeReservation = reservations.find(r => r.reservation_status !== 'REJECTED' && r.reservation_status !== 'CANCELLED')
@@ -1638,6 +1540,41 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
   }
 
   const timeline = buildShipmentTimeline(order, reservations)
+
+  if (unified) {
+    const retry = () => { void reload() }
+    const listRead = <T,>(value: T, failedRead: boolean, label: string): Read<T> => loading
+      ? READ_LOADING
+      : failedRead ? { state: 'failed', message: `The ${label} could not be read.`, onRetry: retry } : readReady(value)
+    const orderRead: Read<TradeOrder> = order
+      ? readReady(order as TradeOrder)
+      : loading ? READ_LOADING : readFromFailure(errorCode, error || 'Unable to load shipment details', retry)
+    return (
+      <div data-testid="diaspora-import-shipment-route" data-presentation="trade-order">
+        <ImportOrderView
+          orderId={orderId ?? ''}
+          mode="shipping"
+          order={orderRead}
+          viewer={{ id: user?.id, role: user?.role }}
+          orders={orders}
+          stageEvents={shipments.length > 0 ? stageEvents : undefined}
+          logistics={{
+            reservations: listRead(reservations, readFailures.reservations, 'container reservations'),
+            shipments: listRead(shipments, readFailures.shipments, 'shipment records'),
+            containers: listRead(containers, readFailures.containers, 'open containers'),
+            // The page's own form state and handlers, unchanged.
+            reservationForm: { value: form, onChange: patch => setForm(prev => ({ ...prev, ...patch })), onSubmit: submitReservation, submitting },
+            stageForm: isReviewer ? { value: stage, onChange: setStage, onSubmit: updateStage } : undefined,
+            onCreateShipment: isReviewer ? createShipment : undefined,
+            onReviewReservation: reviewReservation,
+            actionError,
+          }}
+          onRefresh={retry}
+          refreshError={order && error ? error : undefined}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-shipment-route">

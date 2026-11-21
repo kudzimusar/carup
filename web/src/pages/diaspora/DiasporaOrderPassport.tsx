@@ -23,6 +23,11 @@ import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
 import { classifyActionError } from '@/components/diaspora/safetrade/safeTradeHelpers'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+// RX-06 — in the unified presentation the passport is a MODE of the Import Order (same reads as below).
+import { ImportOrderView } from '@/components/trade/order/ImportOrderView'
+import { useTradeRead } from '@/components/trade/order/useTradeReads'
+import { READ_LOADING, readReady, type Read, type TradeOrder } from '@/components/trade/order/orderModel'
 import type {
   DiasporaImportOrder,
   DiasporaGovernmentDocument,
@@ -149,7 +154,7 @@ function UnavailableNote({ testId, children }: { testId: string; children: React
 
 export default function DiasporaOrderPassport() {
   const { id = '' } = useParams<{ id: string }>()
-  const { isAuthenticated, loading: authLoading } = useAuth()
+  const { user, isAuthenticated, loading: authLoading } = useAuth()
   const api = useCarUpApi()
 
   const [order, setOrder] = useState<OrderPassportAggregate | null>(null)
@@ -198,6 +203,43 @@ export default function DiasporaOrderPassport() {
   // so depending on the api object (or a callback derived from it) would loop the effect forever.
   // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, id])
+
+  // RX-06 (unified only): the account's orders for the order switch. The legacy view starts no extra read.
+  const unified = isUnifiedUiEnabled()
+  const orders = useTradeRead<TradeOrder[]>(unified && isAuthenticated, 'orders', () => api.fetchDiasporaImportOrders() as Promise<TradeOrder[]>)
+
+  if (unified && isAuthenticated && !authLoading) {
+    const retry = () => { void load() }
+    const orderRead: Read<TradeOrder> = order
+      ? readReady(order as TradeOrder)
+      : fatal
+        ? fatal.kind === 'forbidden' ? { state: 'denied', message: fatal.message }
+          : fatal.kind === 'notfound' ? { state: 'unavailable', message: fatal.message }
+            : { state: 'failed', message: fatal.message, onRetry: retry }
+        : READ_LOADING
+    // Best-effort enrichments keep their legacy meaning: null = the read FAILED ("unavailable").
+    const firstLoad = !hasLoaded
+    const unavailable = { state: 'failed', message: 'Unavailable right now.', onRetry: retry } as const
+    const firstShipmentId = (order?.diaspora_shipments || []).find(s => s?.id)?.id
+    return (
+      <div data-testid="order-passport-route" data-presentation="trade-order">
+        <ImportOrderView
+          orderId={id}
+          mode="passport"
+          order={orderRead}
+          viewer={{ id: user?.id, role: user?.role }}
+          orders={orders}
+          footprint={footprint === null ? unavailable : firstLoad ? READ_LOADING : readReady(footprint)}
+          audit={audit === null ? unavailable : firstLoad ? READ_LOADING : readReady(audit)}
+          handoff={handoffFailed ? unavailable : handoff ? readReady(handoff) : firstLoad ? READ_LOADING : unavailable}
+          stageEvents={firstShipmentId ? (timeline === null ? unavailable : firstLoad ? READ_LOADING : readReady({ [firstShipmentId]: timeline })) : undefined}
+          onRefresh={retry}
+          refreshing={loading}
+          refreshError={order && fatal ? fatal.message : undefined}
+        />
+      </div>
+    )
+  }
 
   if (authLoading || (loading && !hasLoaded)) {
     return <div className="flex min-h-[40vh] items-center justify-center text-orange-600" data-testid="order-passport-loading"><Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /></div>
