@@ -72,6 +72,8 @@ const NESTED_ROUTE_OWNERS: ReadonlyArray<{ pattern: string; featureId: string }>
   { pattern: '/admin/communications/:section', featureId: 'admin.communications' },
   { pattern: '/dashboard/admin/communications/inbox/:threadId', featureId: 'admin.communications-alias' },
   { pattern: '/dashboard/admin/communications/:section', featureId: 'admin.communications-alias' },
+  // LR02 — the public, read-only Trade sample follows the Trade product (product.diaspora) lifecycle.
+  { pattern: '/diaspora/sample', featureId: 'product.diaspora' },
 ]
 
 /**

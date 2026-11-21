@@ -79,7 +79,7 @@ describe('ledger (/diaspora/imports)', () => {
     const row = await screen.findByTestId('diaspora-import-row')
     expect(row).toHaveAttribute('href', `/diaspora/imports/${ORDER.id}`)
     expect(row).toHaveTextContent('Phase 1 of 7 · Request & quotes')
-    expect(row).toHaveTextContent('Usually with the seller')
+    expect(row).toHaveTextContent('Usually with you')
     expect(screen.getByTestId('intel-stub')).toBeInTheDocument()
   })
   it('a failed read is not an empty ledger and can be retried; a refusal is its own state', async () => {

@@ -52,7 +52,7 @@ interface StateGuide { label: string; meaning: string; usuallyWith: Party }
 
 /** What each canonical state means for a person, and which party it usually waits on. */
 export const STATE_GUIDE: Record<ImportOrderState | ImportOrderException, StateGuide> = {
-  IMPORT_REQUESTED: { label: 'Request received', meaning: 'Your request is recorded. Sellers can now quote.', usuallyWith: 'seller' },
+  IMPORT_REQUESTED: { label: 'Request received', meaning: 'Your request is recorded. Sellers can quote once you publish it from Sourcing requests.', usuallyWith: 'you' },
   QUOTE_ISSUED: { label: 'Quote issued', meaning: 'At least one quote has been issued for you to review.', usuallyWith: 'you' },
   SELLER_ASSIGNED: { label: 'Seller assigned', meaning: 'A seller is assigned to this order.', usuallyWith: 'seller' },
   DOCUMENTS_PENDING: { label: 'Documents pending', meaning: 'Required documents are being collected and reviewed.', usuallyWith: 'seller' },

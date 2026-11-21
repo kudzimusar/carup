@@ -36,7 +36,7 @@ import {
   type Read,
   type TradeOrder,
 } from './orderModel'
-import { useOrderHref } from './orderLinks'
+import { useOrderHref, useOrderSurface } from './orderLinks'
 import type { TradeViewer } from './orderViewTypes'
 import { NotRecorded, Provenance, RefCode } from './TradeKit'
 
@@ -81,6 +81,7 @@ export function OrderPassportView({ order, viewer, footprint, audit, handoff, st
   handoff?: Read<DiasporaOwnershipHandoffStatus>
   stageEvents?: Read<Record<string, DiasporaShipmentStageEvent[]>>
 }) {
+  const { toolLinks } = useOrderSurface()
   const orderHref = useOrderHref()
   const zimReady = isZimbabweReadyOrLater(order.status)
   const participants = order.diaspora_import_order_participants ?? []
@@ -174,7 +175,7 @@ export function OrderPassportView({ order, viewer, footprint, audit, handoff, st
             <span className="inline-flex flex-wrap items-center justify-end gap-2"><span className="tabular-nums">{money(m.amount, m.currency) ?? 'Not set'}</span><StatusChip tone={recordStatusTone(m.status)}>{sentence(m.status)}</StatusChip></span>
           </Row>
         ))}
-        <p className="text-xs text-carup-text-3" data-testid="order-passport-milestones-note">Milestones record payment progress reported by the trade parties. CarUp does not hold, receive or guarantee funds. <Link to={orderHref(order.id, 'payments')} className={cn(WS_TEXT_ACTION, 'min-h-0 px-0 text-xs')}>Record one in Payments</Link></p>
+        <p className="text-xs text-carup-text-3" data-testid="order-passport-milestones-note">Milestones record payment progress reported by the trade parties. CarUp does not hold, receive or guarantee funds. {toolLinks && <Link to={orderHref(order.id, 'payments')} className={cn(WS_TEXT_ACTION, 'min-h-0 px-0 text-xs')}>Record one in Payments</Link>}</p>
       </Section>
 
       <Section index={7} title="Cargo reservation" testId="order-passport-reservations">

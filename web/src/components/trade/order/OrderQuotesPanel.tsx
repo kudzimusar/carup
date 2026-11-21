@@ -1,14 +1,17 @@
 /**
  * RX-06 — Import Order › Quotes. Every quote exactly as recorded: amount and currency, status, when it
- * was recorded, validity and the inclusions/exclusions only when the record carries them. There is no
- * accept/decline action for import-order quotes in CarUp today, so none is offered — the page says so.
+ * was recorded, validity and the inclusions/exclusions only when the record carries them. Quotes are
+ * accepted from Sourcing requests (the same diaspora_import_quotes records), so this page offers no button
+ * of its own and says where acceptance happens (LR02 correction of the LR01 wording).
  */
+import { Link } from 'react-router-dom'
 import { Inbox } from 'lucide-react'
 import { positionOf } from '@/components/trade/core/importOrderLifecycle'
 import { StatusChip } from '@/components/dealer/workspace/StatusChip'
 import { actorLabel, formatDay, money, recordStatusTone, sentence, timeOf, type TradeOrder, type TradeQuote } from './orderModel'
 import type { TradeViewer } from './orderViewTypes'
 import { NotRecorded, Panel, Provenance, RefCode } from './TradeKit'
+import { useOrderSurface } from './orderLinks'
 
 function terms(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -16,6 +19,7 @@ function terms(value: unknown): string[] {
 }
 
 export function OrderQuotesPanel({ order, viewer }: { order: TradeOrder; viewer: TradeViewer }) {
+  const { toolLinks } = useOrderSurface()
   const quotes = [...(order.diaspora_import_quotes ?? [])].sort((a, b) => (timeOf(b.created_at) ?? 0) - (timeOf(a.created_at) ?? 0))
   const budget = money(order.budget_amount, order.budget_currency)
   const own = Boolean(viewer.id && order.buyer_id && viewer.id === order.buyer_id)
@@ -48,7 +52,7 @@ export function OrderQuotesPanel({ order, viewer }: { order: TradeOrder; viewer:
         </Panel>
         <Panel title="How quotes work here" testId="trade-quotes-actions-note">
           <ul className="space-y-2 text-sm leading-6 text-carup-text-2">
-            <li>Accepting or declining an import-order quote is not available in CarUp yet, so this page offers no such button. The status shown is the one recorded.</li>
+            <li>Quotes are accepted from {toolLinks ? <Link to="/diaspora/rfq" className="font-semibold text-carup-action underline-offset-4 hover:underline">Sourcing requests</Link> : 'Sourcing requests'}: accepting asks you to confirm, and rejects the other submitted quotes in the same step. This page shows each quote as recorded and has no button of its own.</li>
             <li>An accepted quote’s amount becomes the cap for payment milestones recorded on this order.</li>
             <li>Freight, insurance and duty appear only when a quote records them; CarUp never estimates them.</li>
           </ul>

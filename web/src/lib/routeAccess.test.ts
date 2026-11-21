@@ -249,3 +249,11 @@ describe('evaluateRouteAccess (Milestone 5)', () => {
     expect(loginWithReturnTo('https://evil.com')).toBe('/login')
   })
 })
+
+describe('LR02 — the public Trade sample follows the Trade product lifecycle', () => {
+  it('renders for a signed-out visitor while Trade is live, and is disabled when Trade is disabled', () => {
+    expect(evaluateRouteAccess({ ...base, route: '/diaspora/sample' }).kind).toBe('render')
+    expect(evaluateRouteAccess({ ...base, route: '/diaspora/sample', effectiveStates: override('product.diaspora', 'disabled') }).kind).toBe('disabled')
+    expect(evaluateRouteAccess({ ...base, route: '/diaspora/sample', effectiveStates: override('product.diaspora', 'planned') }).kind).toBe('planned')
+  })
+})

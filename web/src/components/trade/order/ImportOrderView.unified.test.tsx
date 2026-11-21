@@ -46,7 +46,7 @@ describe('anchor layout', () => {
     expect(screen.getByTestId('trade-route')).toHaveTextContent('Yokohama, Japan')
     expect(screen.getByTestId('trade-lifecycle')).toBeInTheDocument()
     expect(screen.getByTestId('trade-next-step')).toHaveTextContent('Add your trade documents')
-    expect(screen.getByTestId('trade-usually-with')).toHaveTextContent('The seller')
+    expect(screen.getByTestId('trade-usually-with')).toHaveTextContent('You')
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     const tabs = within(screen.getByTestId('trade-order-tabs'))
     expect(tabs.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
@@ -182,7 +182,7 @@ describe('quotes, customs, payments, activity', () => {
     mount({ mode: 'quotes', order: ready({ ...ORDER, diaspora_import_quotes: [{ id: 'q1', quote_amount: 8450, quote_currency: 'USD', status: 'ISSUED', created_at: '2026-11-18T10:00:00Z' }] }) })
     expect(screen.getByTestId('trade-quote-row')).toHaveTextContent('USD 8,450')
     expect(screen.queryByRole('button', { name: /accept|decline/i })).toBeNull()
-    expect(screen.getByTestId('trade-quotes-actions-note')).toHaveTextContent('not available in CarUp yet')
+    expect(screen.getByTestId('trade-quotes-actions-note')).toHaveTextContent('Quotes are accepted from Sourcing requests')
   })
   it('customs: no duty is inferred; a failed footprint read says so', () => {
     mount({ mode: 'customs', footprint: { state: 'failed', message: 'x', onRetry: vi.fn() } })
