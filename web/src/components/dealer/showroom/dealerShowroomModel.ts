@@ -108,7 +108,8 @@ export function mergeCities(known: readonly string[], entries: ReadonlyArray<{ c
 
 /* ── Claim → compliance → legal → activation journey ─────────────────────── */
 
-export type JourneyState = 'done' | 'current' | 'waiting' | 'attention' | 'blocked' | 'upcoming' | 'unknown'
+/** `unconfirmed` (F-03): the stage's outcome is not shown to this account, so it is neither done nor pending. */
+export type JourneyState = 'done' | 'current' | 'waiting' | 'attention' | 'blocked' | 'upcoming' | 'unknown' | 'unconfirmed'
 export type JourneyStageKey = 'claim' | 'application' | 'legal' | 'activation'
 
 export interface JourneyStage {
@@ -248,7 +249,13 @@ export function deriveClaimJourney(input: ClaimJourneyInput): ClaimJourney {
   } else if (authority.state === 'DEALER_AUTHORITY_BLOCKED' && reasons.includes('COUNTRY_POLICY_NOT_CURRENT')) {
     legal = { key: 'legal', title: 'Legal review', state: 'attention', status: 'Country policy no longer current' }
   } else if (LEGAL_RECORDED_STATES.has(authority.state) || authority.state === 'DEALER_AUTHORITY_BLOCKED') {
-    legal = { key: 'legal', title: 'Legal review', state: 'done', status: 'Legal review recorded' }
+    // F-03 (Owner-approved wording, 2026-11-21; provisional pending Product/Legal): the claimant API carries
+    // no legal-review record, so a legal review is never inferred from operating authority. Operating
+    // authority stays in Stage 04 and the authority panel, from its own read.
+    legal = {
+      key: 'legal', title: 'Legal review', state: 'unconfirmed', status: 'Legal review not confirmed here',
+      detail: 'CarUp does not show legal-review decisions to claimants. Operating authority is shown separately below.',
+    }
   } else if (application.state === 'done') {
     legal = { key: 'legal', title: 'Legal review', state: 'waiting', status: 'Awaiting independent legal review' }
   } else {

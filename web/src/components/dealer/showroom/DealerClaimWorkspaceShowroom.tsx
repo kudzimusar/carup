@@ -155,6 +155,7 @@ const STAGE_LOOK: Record<JourneyState, { bar: string; dot: string; label: string
   blocked: { bar: 'bg-status-danger', dot: 'bg-status-danger text-carup-action-on', label: 'Blocked' },
   upcoming: { bar: 'bg-carup-line', dot: 'bg-carup-bg-surface-2 text-carup-text-3', label: 'Later' },
   unknown: { bar: 'bg-carup-line', dot: 'bg-carup-bg-surface-2 text-carup-text-3', label: 'Unknown' },
+  unconfirmed: { bar: 'bg-carup-line-strong', dot: 'bg-status-neutral-soft text-status-neutral ring-1 ring-carup-line-strong', label: 'Not confirmed here' },
 }
 
 function StageDot({ stage, index }: { stage: JourneyStage; index: number }) {

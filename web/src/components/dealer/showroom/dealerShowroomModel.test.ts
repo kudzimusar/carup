@@ -100,7 +100,10 @@ describe('deriveClaimJourney', () => {
       submissions: [{ intake_version: 1, preliminary_status: 'READY_FOR_REGULATORY_REVIEW', correction_reason: null }],
       authority: { state: 'CANONICAL_DEALER_ACTIVE', operational: true, public_storefront_approved: false, vehicle_listing_authority_granted: false },
     })
-    expect(journey.stages.map(stage => stage.state)).toEqual(['done', 'done', 'done', 'done'])
+    // F-03: the legal review is never inferred from operating authority — neither done nor pending.
+    expect(journey.stages.map(stage => stage.state)).toEqual(['done', 'done', 'unconfirmed', 'done'])
+    expect(journey.stages[2].status).toBe('Legal review not confirmed here')
+    expect(journey.stages[2].status).not.toMatch(/recorded/i)
     expect(journey.stages[3].detail).toBe('Public storefront not approved · vehicle listing authority not granted')
     expect(journey.next.href).toBe('/dealer/dashboard')
   })
