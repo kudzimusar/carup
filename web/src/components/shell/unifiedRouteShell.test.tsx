@@ -939,15 +939,12 @@ describe('RX03-P2 — connected pilot slices', () => {
     expect(screen.queryByText('tenant inventory page')).toBeNull()
   })
 
-  it('an import order renders in the Trade workspace with the SERVER-RETURNED order as the anchor and its real sections', async () => {
+  it('RX-06: an import order renders in the Trade workspace rail; the PAGE (not the chrome) owns the order header and tabs', async () => {
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner', 'Rudo Chikore'))
     const reads: string[] = []
     vi.doMock('@/lib/apiClient', () => ({
-      apiRequest: async ({ path }: { path: string }) => {
-        reads.push(path)
-        return { id: ORDER, order_type: 'vehicle', requested_make: 'Toyota', requested_model: 'Aqua', status: 'DOCUMENTS_PENDING', origin_country: 'Japan', destination_country: 'Zimbabwe' }
-      },
+      apiRequest: async ({ path }: { path: string }) => { reads.push(path); return {} },
       resolveApiBaseUrl: () => '/api',
       setUnauthorizedHandler: () => {},
       SessionExpiredError: class extends Error {},
@@ -964,25 +961,17 @@ describe('RX03-P2 — connected pilot slices', () => {
     )
     expect(screen.getByText('import order detail page')).toBeInTheDocument()
     expect(container.querySelector('[data-testid="legacy-layout"]')).toBeNull()
-    // The order identity comes from the participant-checked server read, not from the URL.
-    expect(await screen.findByText(`Order ${ORDER.slice(0, 8)}`)).toBeInTheDocument()
-    expect(screen.getByTestId('shell-ws-object-title')).toHaveTextContent('Toyota Aqua')
-    expect(reads).toContain(`/diaspora/import-orders/${encodeURIComponent(ORDER)}`)
     const family = Array.from(workspaceNav().querySelectorAll('a[href]')).map(a => a.getAttribute('href'))
-    expect(family).toEqual(expect.arrayContaining(['/diaspora/imports']))
-    const tabs = Array.from(screen.getByTestId('shell-ws-object-tabs').querySelectorAll('a[href]')).map(a => a.getAttribute('href'))
-    expect(tabs).toEqual(expect.arrayContaining([
-      `/diaspora/imports/${ORDER}`,
-      `/diaspora/imports/${ORDER}/documents`,
-      `/diaspora/imports/${ORDER}/shipment`,
-    ]))
-    // Exactly one current page: the order tab; the family destination is the current section.
-    expect(container.querySelectorAll('[aria-current="page"]:not([data-testid="shell-ws-bottom-nav"] *)')).toHaveLength(1)
+    expect(family).toEqual(expect.arrayContaining(['/diaspora/imports', '/diaspora/rfq', '/diaspora/containers']))
+    // The chrome adds no order header, no order tabs, and makes no import-order read of its own.
+    expect(screen.queryByTestId('shell-ws-object-title')).toBeNull()
+    expect(screen.queryByTestId('shell-ws-object-tabs')).toBeNull()
+    expect(reads.some(r => r.includes('/diaspora/import-orders/'))).toBe(false)
     // No primary action is invented by the chrome.
     expect(container.querySelector('[data-testid="shell-ws-primary-action"]')).toBeNull()
   })
 
-  it('a REFUSED import order gets no order navigation: the URL id alone never produces actionable order links', async () => {
+  it('the URL id alone never produces actionable order links from the chrome', async () => {
     window.sessionStorage.setItem(KEY, '1')
     vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner', 'Someone Else'))
     vi.doMock('@/lib/apiClient', () => ({
@@ -1001,11 +990,37 @@ describe('RX03-P2 — connected pilot slices', () => {
         </Routes>
       </MemoryRouter>,
     )
-    expect(await screen.findByText('Import order unavailable')).toBeInTheDocument()
-    expect(screen.queryByTestId('shell-ws-object-tabs')).toBeNull()
+    expect(screen.getByText('order documents page')).toBeInTheDocument()
     const hrefs = Array.from(container.querySelectorAll('a[href]')).map(a => a.getAttribute('href') ?? '')
     expect(hrefs.some(h => h.includes(ORDER))).toBe(false)
-    expect(screen.queryByText(`Order ${ORDER.slice(0, 8)}`)).toBeNull()
+  })
+
+  it('RX-06: every Trade tool route renders in the Trade workspace, and a SafeTrade case id is never read as an import order', async () => {
+    window.sessionStorage.setItem(KEY, '1')
+    vi.doMock('@/context/AuthContext', () => authenticatedAuth('owner', 'Rudo Chikore'))
+    const reads: string[] = []
+    vi.doMock('@/lib/apiClient', () => ({
+      apiRequest: async ({ path }: { path: string }) => { reads.push(path); return {} },
+      resolveApiBaseUrl: () => '/api',
+      setUnauthorizedHandler: () => {},
+      SessionExpiredError: class extends Error {},
+    }))
+    const { UnifiedRouteShell } = await loadSwitch()
+    for (const path of ['/diaspora/rfq', '/diaspora/containers', '/diaspora/safetrade/case-123']) {
+      const { container, unmount } = render(
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route element={<UnifiedRouteShell family="public" legacy={legacyMain} />}>
+              <Route path={path === '/diaspora/safetrade/case-123' ? '/diaspora/safetrade/:id' : path} element={<div>tool page</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>,
+      )
+      expect(screen.getByText('tool page')).toBeInTheDocument()
+      expect(container.querySelector('[data-testid="legacy-layout"]')).toBeNull()
+      unmount()
+    }
+    expect(reads.some(r => r.includes('/diaspora/import-orders/'))).toBe(false)
   })
 
   it('a signed-out visitor on an import route keeps the exact legacy composition', async () => {

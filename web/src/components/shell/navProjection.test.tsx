@@ -9,7 +9,7 @@
  *         ShellNavItem — items keep their OWN distinct icons instead of
  *         collapsing to a single fallback.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   getDashboardItems,
   getFeatureByRoute,
@@ -94,15 +94,57 @@ describe('R4-2 — dealer operations rail governance', () => {
 })
 
 describe('RX03-P2 — Trade and review rails', () => {
-  it('Trade rail lists the import-order routes and, for an open order, its real sub-routes', async () => {
+  it('RX-06 Trade rail groups every Trade capability this importer may use and, for an open order, its real sub-routes', async () => {
     const { projectTradeRail } = await import('./navProjection')
     const sections = projectTradeRail({ role: 'owner', orderId: 'abc 1' })
+    expect(sections.map(s => s.title)).toEqual(['Imports', 'Sourcing', 'Account & insight', 'This order'])
     const hrefs = sections.flatMap(s => s.items.map(i => i.href))
     expect(hrefs).toEqual([
       '/diaspora/imports', '/diaspora/imports/new',
+      '/diaspora/rfq', '/diaspora/containers',
+      '/diaspora/trade-profile', '/diaspora/drive',
       '/diaspora/imports/abc%201', '/diaspora/imports/abc%201/documents',
       '/diaspora/imports/abc%201/shipment', '/diaspora/imports/abc%201/passport',
     ])
+  })
+
+  it('RX-06 Trade rail gives a dealer/exporter the selling tools and never advertises importer-only or flag-off tools', async () => {
+    const { projectTradeRail } = await import('./navProjection')
+    const sections = projectTradeRail({ role: 'dealer' })
+    const hrefs = sections.flatMap(s => s.items.map(i => i.href))
+    expect(sections.map(s => s.title)).toContain('Selling')
+    expect(hrefs).toEqual(expect.arrayContaining(['/diaspora/stock', '/diaspora/ai-commands']))
+    // Release-flagged tools stay out of the rail while their fail-closed build flags are OFF (test default).
+    for (const off of ['/diaspora/safetrade', '/diaspora/subscription', '/diaspora/trade-graph', '/diaspora/workbook/import']) {
+      expect(hrefs).not.toContain(off)
+    }
+    // No empty section headings.
+    expect(sections.every(s => s.items.length > 0)).toBe(true)
+  })
+
+  it('RX-06: built tools that governance hides appear under "Built · not yet released" only when their release flag is ON', async () => {
+    const hidden = { featureId: 'diaspora.safetrade', state: 'hidden', enabled: true, visible: false, accessible: true, beta: false } as const
+    // Release flag OFF (the production default): the tool stays hidden.
+    {
+      const { projectTradeRail } = await import('./navProjection')
+      const sections = projectTradeRail({ role: 'owner', effectiveStates: { 'diaspora.safetrade': hidden } })
+      expect(sections.map(s => s.title)).not.toContain('Built · not yet released')
+      expect(sections.flatMap(s => s.items.map(i => i.href))).not.toContain('/diaspora/safetrade')
+    }
+    // Release flag ON (the preview build): listed, labelled, and only because the server says accessible.
+    vi.resetModules()
+    vi.stubEnv('VITE_DIASPORA_SAFETRADE_UI_ENABLED', 'true')
+    try {
+      const { projectTradeRail } = await import('./navProjection')
+      const shown = projectTradeRail({ role: 'owner', effectiveStates: { 'diaspora.safetrade': hidden } })
+      const group = shown.find(s => s.title === 'Built · not yet released')
+      expect(group?.items.map(i => i.href)).toEqual(['/diaspora/safetrade'])
+      const refused = projectTradeRail({ role: 'owner', effectiveStates: { 'diaspora.safetrade': { ...hidden, accessible: false } } })
+      expect(refused.flatMap(s => s.items.map(i => i.href))).not.toContain('/diaspora/safetrade')
+    } finally {
+      vi.unstubAllEnvs()
+      vi.resetModules()
+    }
   })
 
   it('Trade rail omits a governance-disabled import feature instead of advertising it', async () => {

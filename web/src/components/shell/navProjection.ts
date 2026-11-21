@@ -151,19 +151,69 @@ function governedItem(
 }
 
 /**
- * RX03-P2 — Trade workspace rail (register R038–R043). Projected from the
- * registry entries for the import-order routes; an open order adds its own
- * real sub-routes. Presentation only: every page keeps its own server checks.
+ * RX-06 (Owner decision, 2026-11-21) — a Trade tool that is built and that this account may open, but that
+ * governance still HIDES, is listed under "Built · not yet released" — and only in a build whose fail-closed
+ * release flag for it is ON (the preview). In a production build the flag is OFF (`isHidden`), so the tool
+ * stays hidden until it is released. Never shown to an account the server refuses.
+ */
+function unreleasedItem(id: string, label: string, href: string, ctx: NavigationContext): ShellNavItem | null {
+  const feature = getFeatureByRoute(href)
+  if (!feature || feature.isHidden) return null
+  const vis = resolveFeatureVisibility(feature, ctx)
+  if (vis.visible || !vis.accessible || vis.state !== 'hidden') return null
+  return { id, label, href, icon: feature.icon ?? null, planned: false }
+}
+
+/**
+ * RX-06 — Trade workspace rail (register R038–R056). Every Trade capability, grouped by what a trader is
+ * doing, and projected from the registry for THIS account: an importer sees imports + sourcing + account;
+ * a dealer/exporter also sees selling tools; an operator sees SafeTrade operations. A tool the account
+ * cannot use is omitted (never advertised); one switched off by governance or a release flag is omitted
+ * or shown as planned exactly as `governedItem` decides. An open order still adds its own real
+ * sub-routes (used only when the caller passes a server-confirmed order id). Presentation only: every page
+ * keeps its own server checks.
  */
 export function projectTradeRail(
   ctx: NavigationContext & { orderId?: string | null },
 ): ShellNavSection[] {
   const sessionCtx: NavigationContext = { isAuthenticated: true, ...ctx }
-  const imports = [
-    governedItem('imports', 'Import orders', '/diaspora/imports', sessionCtx),
-    governedItem('imports-new', 'Start an import', '/diaspora/imports/new', sessionCtx),
-  ].filter((x): x is ShellNavItem => x !== null)
-  const sections: ShellNavSection[] = [{ title: 'Imports', items: imports }]
+  const section = (title: string, items: Array<ShellNavItem | null>): ShellNavSection => ({
+    title,
+    items: items.filter((x): x is ShellNavItem => x !== null),
+  })
+  const sections: ShellNavSection[] = [
+    section('Imports', [
+      governedItem('imports', 'Import orders', '/diaspora/imports', sessionCtx),
+      governedItem('imports-new', 'Start an import', '/diaspora/imports/new', sessionCtx),
+    ]),
+    section('Sourcing', [
+      governedItem('rfq', 'Sourcing requests', '/diaspora/rfq', sessionCtx),
+      governedItem('containers', 'Shared containers', '/diaspora/containers', sessionCtx),
+    ]),
+    section('Selling', [
+      governedItem('stock', 'Stock', '/diaspora/stock', sessionCtx),
+      governedItem('workbook-import', 'Workbook import', '/diaspora/workbook/import', sessionCtx),
+      governedItem('ai-commands', 'AI command centre', '/diaspora/ai-commands', sessionCtx),
+    ]),
+    section('Protection', [
+      governedItem('safetrade', 'SafeTrade', '/diaspora/safetrade', sessionCtx),
+      governedItem('safetrade-operations', 'SafeTrade operations', '/diaspora/safetrade/operations', sessionCtx),
+    ]),
+    section('Account & insight', [
+      governedItem('trade-profile', 'Trade profile', '/diaspora/trade-profile', sessionCtx),
+      governedItem('subscription', 'Plan & entitlements', '/diaspora/subscription', sessionCtx),
+      governedItem('drive', 'Drive connections', '/diaspora/drive', sessionCtx),
+      governedItem('trade-graph', 'Trade graph', '/diaspora/trade-graph', sessionCtx),
+    ]),
+  ].filter(s => s.items.length > 0)
+  const listed = new Set(sections.flatMap(s => s.items.map(i => i.href)))
+  const unreleased = [
+    unreleasedItem('safetrade', 'SafeTrade', '/diaspora/safetrade', sessionCtx),
+    unreleasedItem('subscription', 'Plan & entitlements', '/diaspora/subscription', sessionCtx),
+    unreleasedItem('trade-graph', 'Trade graph', '/diaspora/trade-graph', sessionCtx),
+    unreleasedItem('workbook-import', 'Workbook import', '/diaspora/workbook/import', sessionCtx),
+  ].filter((x): x is ShellNavItem => x !== null && !listed.has(x.href))
+  if (unreleased.length) sections.push({ title: 'Built · not yet released', items: unreleased })
   const id = ctx.orderId
   if (id) {
     const base = `/diaspora/imports/${encodeURIComponent(id)}`

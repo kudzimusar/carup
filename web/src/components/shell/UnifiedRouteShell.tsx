@@ -30,7 +30,7 @@
  *
  * Rollback is presentation-only: flag off ⇒ legacy layout, zero data effect.
  */
-import { useEffect, useState, type ReactElement } from 'react'
+import { type ReactElement } from 'react'
 import { matchPath, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundary'
@@ -46,13 +46,11 @@ import { FocusedShell } from './FocusedShell'
 import { safeReturnTarget } from './safeReturn'
 import { FocusedEmbedContext } from './FocusedEmbedContext'
 import { isUnifiedUiEnabled } from './unifiedFlag'
-import { DEALER_UNIFIED_SLICE, projectDealerOperationsGroups, projectTradeOrderTabs, projectTradeRail } from './navProjection'
+import { DEALER_UNIFIED_SLICE, projectDealerOperationsGroups, projectTradeRail } from './navProjection'
 import { pickActiveHref } from './activeNav'
-import { apiRequest, resolveApiBaseUrl, type AuthHeaders } from '@/lib/apiClient'
-import type { DiasporaImportOrder } from '@/types'
 import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
 import { focusedTaskFor } from './focusedTitles'
-import type { ShellIdentity, ShellObjectIdentity } from './contracts'
+import type { ShellIdentity } from './contracts'
 import type { UserRole } from '@shared/types'
 
 type Family = 'public' | 'focused' | 'workspace-personal' | 'workspace-dealer'
@@ -123,22 +121,36 @@ function isDealerOpsSlicePath(pathname: string): boolean {
   return pathname !== '/dealer/dashboard' && DEALER_UNIFIED_SLICE.has(pathname)
 }
 
-const TRADE_WORKSPACE_PATTERNS: ReadonlyArray<string> = [
+// RX-06 — the Trade workspace covers the import-order routes AND every Trade tool the register places in
+// WorkspaceShell(trade) (R038, R040–R056). Order ids and tool ids are never mixed: only the import-order
+// pages carry an import-order id, and they read it themselves (participant-checked).
+const TRADE_ORDER_PATTERNS: ReadonlyArray<string> = [
   '/diaspora/imports', // R038
   '/diaspora/imports/:id', // R040
   '/diaspora/imports/:id/documents', // R041
   '/diaspora/imports/:id/shipment', // R042
   '/diaspora/imports/:id/passport', // R043
 ]
+const TRADE_TOOL_PATTERNS: ReadonlyArray<string> = [
+  '/diaspora/stock', // R044
+  '/diaspora/trade-profile', // R045
+  '/diaspora/stock/:id/passport', // R046
+  '/diaspora/rfq', // R047
+  '/diaspora/ai-commands', // R048
+  '/diaspora/containers', // R049
+  '/diaspora/drive', // R050
+  '/diaspora/subscription', // R051
+  '/diaspora/safetrade', // R052
+  '/diaspora/safetrade/:id', // R053
+  '/diaspora/trade-graph', // R054
+  '/diaspora/safetrade/operations', // R055
+  '/diaspora/workbook/import', // R056
+]
 
-/** The import order id of a Trade workspace path, '' for the list, null when off-slice. */
-function tradeWorkspaceOrderId(pathname: string): string | null {
-  if (matchPath('/diaspora/imports/new', pathname)) return null // R039 is the focused flow
-  for (const pattern of TRADE_WORKSPACE_PATTERNS) {
-    const m = matchPath(pattern, pathname)
-    if (m) return m.params.id ?? ''
-  }
-  return null
+/** True for every Trade workspace route; R039 (/diaspora/imports/new) is the focused flow instead. */
+function isTradeWorkspacePath(pathname: string): boolean {
+  if (matchPath('/diaspora/imports/new', pathname)) return false
+  return [...TRADE_ORDER_PATTERNS, ...TRADE_TOOL_PATTERNS].some(pattern => matchPath(pattern, pathname) !== null)
 }
 
 /** Public showroom chrome over the first-slice public pages. */
@@ -150,8 +162,7 @@ function PublicUnifiedShell({ legacy }: { legacy: ReactElement }) {
   if (isDealerOpsSlicePath(pathname)) return <WorkspaceDealerUnifiedShell lifecycleBoundary />
   if (matchPath('/diaspora/imports/new', pathname)) return <FocusedImportFlowShell legacy={legacy} />
   if (matchPath('/sell', pathname)) return <FocusedSellerStudioShell exitTo="/" />
-  const orderId = tradeWorkspaceOrderId(pathname)
-  if (orderId !== null) return <WorkspaceTradeUnifiedShell legacy={legacy} orderId={orderId || null} />
+  if (isTradeWorkspacePath(pathname)) return <WorkspaceTradeUnifiedShell legacy={legacy} />
   // R2-3: off-slice public paths keep the preserved legacy composition.
   if (!isPublicSlicePath(pathname)) return legacy
   // RX03-P2 — the Owner-accepted RX-03 showroom chrome (P1b navigation) IS the
@@ -342,82 +353,30 @@ function WorkspaceDealerUnifiedShell({ lifecycleBoundary = false }: { lifecycleB
 }
 
 /**
- * RX03-P2 — Trade workspace (register R038, R040–R043: WorkspaceShell(trade)).
- * The import-order pages keep the SAME lifecycle-only boundary their legacy
- * MainLayout parent applied; every order read/write stays server-authorized
- * (import-order participant/role checks). Guests keep the exact legacy
+ * RX-06 — the Trade workspace (register R038, R040–R056: WorkspaceShell(trade)).
+ *
+ * ONE family rail for every Trade tool, projected from the feature registry for THIS account (importer,
+ * dealer/exporter, operator): a capability the account may use is never hidden by the chrome, and one it
+ * may not use is never advertised. The Import Order pages own their single object header and section
+ * tabs, built from their own participant-checked server read — a URL id alone never produces order
+ * navigation, and the chrome adds no order links of its own. Every page keeps its own server checks and
+ * the same lifecycle-only boundary its legacy MainLayout parent applied. Guests keep the exact legacy
  * composition, so signed-out behaviour is unchanged.
  */
-function tradeLabel(value?: string | null): string {
-  if (!value) return 'Not set'
-  return value.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
-}
-
-function orderTitle(order: DiasporaImportOrder): string {
-  if (order.order_type !== 'vehicle') return `${tradeLabel(order.order_type)} import`
-  const name = [order.requested_make, order.requested_model].filter(Boolean).join(' ')
-  return name || 'Vehicle import'
-}
-
-type ConfirmedOrder = { id: string; state: 'loading' | 'ready' | 'refused'; order: DiasporaImportOrder | null }
-
-function WorkspaceTradeUnifiedShell({ legacy, orderId }: { legacy: ReactElement; orderId: string | null }) {
+function WorkspaceTradeUnifiedShell({ legacy }: { legacy: ReactElement }) {
   const identity = useIdentity()
-  const { user, token, logout } = useAuth()
+  const { logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const effectiveStates = useFeatureEffectiveStates()
-  const [confirmed, setConfirmed] = useState<ConfirmedOrder | null>(null)
-  const userId = user?.id
-  const userRole = user?.role
-  const tenantId = (user as { active_tenant_id?: string | null } | null)?.active_tenant_id ?? null
-  // RX03-P2-R4 — the order header and its section tabs come ONLY from the order the server returns
-  // to this session (the same participant-checked read the order pages use). A URL id alone never
-  // produces order navigation, so a refused or unknown order shows no actionable order links.
-  useEffect(() => {
-    if (!orderId || !identity.isAuthenticated) return
-    let active = true
-    setConfirmed(current => (current && current.id === orderId && current.state === 'ready' ? current : { id: orderId, state: 'loading', order: null }))
-    // Same identity headers and endpoint as useCarUpApi().fetchDiasporaImportOrder.
-    const authHeaders: AuthHeaders = {}
-    if (token) authHeaders['x-session-token'] = token
-    if (userId) authHeaders['x-user-id'] = userId
-    if (userRole) authHeaders['x-stakeholder-role'] = userRole
-    if (tenantId) authHeaders['x-tenant-id'] = tenantId
-    Promise.resolve()
-      .then(() => apiRequest<DiasporaImportOrder>({
-        baseUrl: resolveApiBaseUrl(import.meta.env.VITE_API_URL, typeof window === 'undefined' ? undefined : window.location.hostname),
-        path: `/diaspora/import-orders/${encodeURIComponent(orderId)}`,
-        authHeaders,
-      }))
-      .then(order => {
-        if (!active) return
-        setConfirmed(order && order.id === orderId ? { id: orderId, state: 'ready', order } : { id: orderId, state: 'refused', order: null })
-      })
-      .catch(() => { if (active) setConfirmed({ id: orderId, state: 'refused', order: null }) })
-    return () => { active = false }
-  }, [orderId, identity.isAuthenticated, token, userId, userRole, tenantId, location.pathname])
 
   if (identity.bootstrapping) return <AuthBootstrapLoading />
   if (!identity.isAuthenticated) return legacy
   const role = identity.role ?? undefined
   const familySections = projectTradeRail({ role, effectiveStates })
-  const current = orderId && confirmed?.id === orderId ? confirmed : null
-  const order = current?.state === 'ready' ? current.order : null
-  const object: ShellObjectIdentity | undefined = !orderId
-    ? undefined
-    : order
-      ? {
-          title: orderTitle(order),
-          reference: `Order ${order.id.slice(0, 8)}`,
-          statusLabel: tradeLabel(order.status),
-          statusTone: 'info',
-          meta: [[order.origin_country, order.destination_country].filter(Boolean).join(' → ')].filter(Boolean),
-        }
-      : current?.state === 'refused'
-        ? { title: 'Import order unavailable', reference: '', statusLabel: 'Not available to this account', statusTone: 'warning' }
-        : { title: 'Import order', reference: '', statusLabel: 'Checking access…', statusTone: 'neutral' }
-  const objectTabs = order ? projectTradeOrderTabs({ role, effectiveStates, orderId: order.id }) : undefined
+  // Home = the first Trade destination this account can actually open (importers: their orders;
+  // dealers/exporters: their stock), never a page the account is refused.
+  const home = familySections.flatMap(section => section.items).find(item => !item.planned)
   return (
     <WorkspaceShell
       family="trade"
@@ -426,12 +385,10 @@ function WorkspaceTradeUnifiedShell({ legacy, orderId }: { legacy: ReactElement;
         roleTitle: identity.role ? getRoleMetadata(identity.role).title : 'Trade',
       }}
       currentPath={location.pathname}
-      object={object}
-      objectTabs={objectTabs}
       railSections={familySections}
-      navStyle="tabs"
-      overviewHref="/diaspora/imports"
-      homeLabel="Import orders"
+      navStyle="rail"
+      overviewHref={home?.href ?? '/diaspora'}
+      homeLabel={home?.label ?? 'Trade'}
       onSignOut={() => {
         logout()
         navigate('/')
