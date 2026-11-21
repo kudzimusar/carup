@@ -84,12 +84,15 @@ export function firstStepWithError(errors: Record<string, string>): number {
 export const IMPORT_DRAFT_KEY = 'carup-trade-import-draft'
 
 /**
- * LR02 — a draft is restorable for 12 hours after its last change. sessionStorage already ends with
- * the tab, but a tab can stay open — or be restored with its storage — for days. 12 hours covers a
- * same-day detour through sign-in or registration (a break included) and stops a draft left in an
- * open tab overnight, for example on a shared computer, from greeting the next person.
+ * LR02 — a draft is restorable for 7 days after its last change. The Owner asked for longer than the first
+ * 12 hours (2026-11-21). sessionStorage already ends with the tab, but a tab can stay open — or be restored
+ * with its storage — for days; 7 days covers coming back to the same tab after a weekend or a busy week.
+ * The draft holds only whitelisted, non-sensitive fields. It is restored only to its owner, or, for a guest
+ * draft, to the account that signs in from this tab, which must still review it and press Send.
  */
-export const IMPORT_DRAFT_TTL_MS = 12 * 60 * 60 * 1000
+export const IMPORT_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000
+/** The same period in words, for the copy that tells people how long a draft is kept. */
+export const IMPORT_DRAFT_TTL_LABEL = '7 days'
 /** Clock adjustments tolerated when checking that an expiry is no further away than a fresh one. */
 const DRAFT_CLOCK_SLACK_MS = 5 * 60 * 1000
 
@@ -154,7 +157,7 @@ export function readImportDraft(storage: Pick<Storage, 'getItem'> | null | undef
 }
 
 /**
- * Keeps the answers in this tab (whitelisted fields only) with an expiry 12 hours on. `owner` is
+ * Keeps the answers in this tab (whitelisted fields only) with an expiry IMPORT_DRAFT_TTL_MS (7 days) on. `owner` is
  * 'guest' or the signed-in account id; a draft written without an owner is never restored.
  */
 export function writeImportDraft(

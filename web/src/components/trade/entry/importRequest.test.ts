@@ -97,7 +97,7 @@ describe('LR02 draft owner and expiry', () => {
     const raw = stored(s)
     expect(raw.owner).toBe('guest')
     expect(Date.parse(raw.expiresAt) - NOW).toBe(IMPORT_DRAFT_TTL_MS)
-    expect(IMPORT_DRAFT_TTL_MS).toBe(12 * HOUR)
+    expect(IMPORT_DRAFT_TTL_MS).toBe(7 * 24 * HOUR)
     expect(Object.keys(raw.form).sort()).toEqual(['budget_amount', 'destination_city', 'order_type', 'origin_city', 'origin_country', 'requested_make', 'requested_model', 'requested_year_min'])
     // A stored draft that carries metadata anyway never gives it back.
     s.store.set(IMPORT_DRAFT_KEY, JSON.stringify({ ...raw, form: { ...raw.form, metadata: { injected: 'x' }, budget_currency: 'ZWG' } }))
@@ -141,13 +141,13 @@ describe('LR02 draft owner and expiry', () => {
     expect(s.store.has(IMPORT_DRAFT_KEY)).toBe(false)
   })
 
-  it('expires 12 hours after the last change and is then discarded; an expiry further out than that is not trusted', () => {
+  it('expires 7 days after the last change and is then discarded; an expiry further out than that is not trusted', () => {
     const s = memoryStorage()
     writeImportDraft(FILLED, 4, s, GUEST_DRAFT_OWNER, NOW)
-    expect(restoreImportDraft('guest', s, NOW + 12 * HOUR - 1).kind).toBe('own')
-    expect(restoreImportDraft('guest', s, NOW + 12 * HOUR)).toEqual({ kind: 'none', discarded: 'expired' })
+    expect(restoreImportDraft('guest', s, NOW + 7 * 24 * HOUR - 1).kind).toBe('own')
+    expect(restoreImportDraft('guest', s, NOW + 7 * 24 * HOUR)).toEqual({ kind: 'none', discarded: 'expired' })
     expect(s.store.has(IMPORT_DRAFT_KEY)).toBe(false)
-    expect(isImportDraftLive({ expiresAt: new Date(NOW + 13 * HOUR).toISOString() }, NOW)).toBe(false)
+    expect(isImportDraftLive({ expiresAt: new Date(NOW + 7 * 24 * HOUR + HOUR).toISOString() }, NOW)).toBe(false)
     expect(isImportDraftLive({ expiresAt: null }, NOW)).toBe(false)
     expect(isImportDraftLive({ expiresAt: 'not a date' }, NOW)).toBe(false)
   })

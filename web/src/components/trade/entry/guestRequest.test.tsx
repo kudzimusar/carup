@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { buildLoginRedirect, isSafeReturnTo } from '@/lib/returnTo'
-import { IMPORT_DRAFT_KEY, INITIAL_IMPORT_REQUEST, writeImportDraft } from './importRequest'
+import { IMPORT_DRAFT_KEY, IMPORT_DRAFT_TTL_MS, INITIAL_IMPORT_REQUEST, writeImportDraft } from './importRequest'
 
 const fx = vi.hoisted(() => ({
   unified: true,
@@ -264,7 +264,7 @@ describe('after signing in', () => {
   })
 
   it('an expired guest draft is discarded, not shown', async () => {
-    writeImportDraft(FILLED, 4, sessionStorage, 'guest', Date.now() - 13 * 60 * 60 * 1000)
+    writeImportDraft(FILLED, 4, sessionStorage, 'guest', Date.now() - IMPORT_DRAFT_TTL_MS - 60 * 60 * 1000)
     signInAs(BUYER)
     await openRequest()
     expect(screen.getByTestId('diaspora-import-form')).toHaveAttribute('data-step', 'cargo')

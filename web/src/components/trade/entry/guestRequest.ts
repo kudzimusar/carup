@@ -7,6 +7,7 @@
  * boundary: the ordinary sign-in and the ordinary personal registration, both returning to the flow.
  */
 import { buildLoginRedirect, isSafeReturnTo } from '@/lib/returnTo'
+import { IMPORT_DRAFT_TTL_LABEL } from './importRequest'
 
 /** The flow's own path: where sign-in and registration bring the person back. */
 export const IMPORT_REQUEST_PATH = '/diaspora/imports/new'
@@ -42,7 +43,7 @@ export const GUEST_REQUEST_COPY = {
   boundaryBody: 'Sending creates an import order in a CarUp account, so this is where you sign in. A free personal account is all you need — not a dealership or company account.',
   boundaryKept: [
     'Your draft is kept in this browser tab only. It is not in a CarUp account until you send it.',
-    'Closing this tab discards it, and so do 12 hours without a change.',
+    `Closing this tab discards it, and so do ${IMPORT_DRAFT_TTL_LABEL} without a change.`,
     'Sign in from this tab and you come back to this review to press Send.',
   ],
   boundaryNotKept: 'This browser is not keeping drafts right now (private browsing or blocked storage), so you would need to enter these answers again after signing in.',
