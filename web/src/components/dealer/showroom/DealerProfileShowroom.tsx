@@ -330,15 +330,6 @@ export function DealerProfileShowroom(props: DealerProfileShowroomProps) {
           </div>
         </div>
         <div className={cn(PAGE_WIDTH, 'py-10')}>
-          {loaded === 'loading' && (
-            <div aria-busy="true">
-              <div className="grid gap-8 lg:grid-cols-2">
-                <div className="space-y-4"><SkeletonBlock className="h-20 w-20" /><SkeletonBlock className="h-10 w-3/4" /><SkeletonBlock className="h-5 w-1/2" /></div>
-                <SkeletonBlock className="aspect-[16/10] w-full" />
-              </div>
-              <p role="status" className="mt-6 text-sm text-carup-text-2">Loading reviewed research profile…</p>
-            </div>
-          )}
           {loaded === 'error' && (
             <div className="max-w-2xl">
               <h1 className="text-2xl font-bold tracking-[-0.02em]">Dealership profile unavailable</h1>
