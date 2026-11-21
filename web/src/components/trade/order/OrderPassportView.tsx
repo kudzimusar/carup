@@ -25,7 +25,6 @@ import {
   governmentRecordStatus,
   isZimbabweReadyOrLater,
   money,
-  orderHref,
   place,
   recordStatusTone,
   sentence,
@@ -37,6 +36,7 @@ import {
   type Read,
   type TradeOrder,
 } from './orderModel'
+import { useOrderHref } from './orderLinks'
 import type { TradeViewer } from './orderViewTypes'
 import { NotRecorded, Provenance, RefCode } from './TradeKit'
 
@@ -81,6 +81,7 @@ export function OrderPassportView({ order, viewer, footprint, audit, handoff, st
   handoff?: Read<DiasporaOwnershipHandoffStatus>
   stageEvents?: Read<Record<string, DiasporaShipmentStageEvent[]>>
 }) {
+  const orderHref = useOrderHref()
   const zimReady = isZimbabweReadyOrLater(order.status)
   const participants = order.diaspora_import_order_participants ?? []
   const quotes = order.diaspora_import_quotes ?? []

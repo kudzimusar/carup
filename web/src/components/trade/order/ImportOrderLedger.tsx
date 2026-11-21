@@ -14,7 +14,6 @@ import { WS_PRIMARY } from '@/components/dealer/workspace/workspaceStyles'
 import {
   cargoLabel,
   formatDay,
-  orderHref,
   orderStatusTone,
   orderTitle,
   phaseLine,
@@ -27,6 +26,7 @@ import {
   type Read,
   type TradeOrder,
 } from './orderModel'
+import { useOrderHref } from './orderLinks'
 import { RouteGlyph } from './TradeKit'
 
 function nextMoveLine(order: TradeOrder): string {
@@ -79,6 +79,7 @@ export function ImportOrderLedger({ orders, insights }: { orders: Read<TradeOrde
 }
 
 function Ledger({ orders }: { orders: TradeOrder[] }) {
+  const orderHref = useOrderHref()
   const sorted = [...orders].sort((a, b) => (timeOf(b.updated_at ?? b.created_at) ?? 0) - (timeOf(a.updated_at ?? a.created_at) ?? 0))
   const byPhase = new Map<string, number>()
   for (const o of orders) {

@@ -28,7 +28,6 @@ import {
   latestSubmissionFor,
   milestoneSummary,
   money,
-  orderHref,
   orderRank,
   place,
   requiredDocumentState,
@@ -42,6 +41,7 @@ import {
   type Read,
   type TradeOrder,
 } from './orderModel'
+import { useOrderHref } from './orderLinks'
 import type { ImportOrderActions, TradeViewer } from './orderViewTypes'
 import { Fact, NotRecorded, Panel, Provenance, RefCode } from './TradeKit'
 
@@ -169,6 +169,7 @@ function JourneyLedger({ order, documents, handoff, viewer }: {
   handoff?: Read<DiasporaOwnershipHandoffStatus>
   viewer: TradeViewer
 }) {
+  const orderHref = useOrderHref()
   const pos = positionOf(order.status)
   return (
     <Panel
@@ -213,6 +214,7 @@ function JourneyLedger({ order, documents, handoff, viewer }: {
 /* ── Required documents (compact) ─────────────────────────────────────────────────────────────── */
 
 function RequiredDocumentsSummary({ order, documents }: { order: TradeOrder; documents: DiasporaTradeDocument[] }) {
+  const orderHref = useOrderHref()
   return (
     <Panel
       title="Required documents"
@@ -309,6 +311,7 @@ function Participants({ order, viewer }: { order: TradeOrder; viewer: TradeViewe
 }
 
 function PaymentsSummary({ order }: { order: TradeOrder }) {
+  const orderHref = useOrderHref()
   const milestones = order.diaspora_payment_milestones ?? []
   const summary = milestoneSummary(milestones, order.diaspora_import_quotes, order.budget_amount, order.budget_currency)
   return (
@@ -330,6 +333,7 @@ function PaymentsSummary({ order }: { order: TradeOrder }) {
 }
 
 function LatestActivity({ order, viewer, documents }: { order: TradeOrder; viewer: TradeViewer; documents: DiasporaTradeDocument[] }) {
+  const orderHref = useOrderHref()
   const events = buildActivity({ order, documents }).slice(0, 3)
   return (
     <Panel

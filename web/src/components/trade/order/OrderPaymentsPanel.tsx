@@ -19,16 +19,17 @@ import {
   milestonePayload,
   milestoneSummary,
   money,
-  orderHref,
   recordStatusTone,
   sentence,
   timeOf,
   type TradeOrder,
 } from './orderModel'
+import { useOrderHref } from './orderLinks'
 import type { ImportOrderActions, TradeViewer } from './orderViewTypes'
 import { NotRecorded, Panel, Provenance } from './TradeKit'
 
 export function OrderPaymentsPanel({ order, actions }: { order: TradeOrder; viewer: TradeViewer; actions?: ImportOrderActions }) {
+  const orderHref = useOrderHref()
   const milestones = [...(order.diaspora_payment_milestones ?? [])].sort((a, b) => (timeOf(b.created_at) ?? 0) - (timeOf(a.created_at) ?? 0))
   const summary = milestoneSummary(milestones, order.diaspora_import_quotes, order.budget_amount, order.budget_currency)
   return (

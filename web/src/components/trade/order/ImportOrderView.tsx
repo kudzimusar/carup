@@ -28,7 +28,6 @@ import {
   isTradeOperator,
   lastRecordedAt,
   nextStepFor,
-  orderHref,
   orderIdentifiers,
   orderStatusTone,
   orderTitle,
@@ -41,6 +40,7 @@ import {
   type OrderMode,
   type TradeOrder,
 } from './orderModel'
+import { useOrderHref } from './orderLinks'
 import type { ImportOrderViewProps } from './orderViewTypes'
 import type { DiasporaTradeDocument } from '@/types'
 import { Provenance, RefCode, RouteGlyph } from './TradeKit'
@@ -87,6 +87,7 @@ export function ImportOrderView(props: ImportOrderViewProps) {
 }
 
 function ReadyOrder(props: ImportOrderViewProps & { order: { state: 'ready'; data: TradeOrder } }) {
+  const orderHref = useOrderHref()
   const { mode, viewer, orders, onRefresh, refreshing } = props
   const order = props.order.data
   // The documents route reads the list on its own; every other view uses the order's embedded list.
@@ -126,7 +127,7 @@ function ReadyOrder(props: ImportOrderViewProps & { order: { state: 'ready'; dat
             >
               <div className="flex items-center gap-3">
                 <p className="min-w-0 flex-1 truncate text-sm font-semibold text-carup-text">{step.title}</p>
-                <Link to={stickyTarget.to} className={WS_PRIMARY} data-testid="trade-next-move-sticky-action">
+                <Link to={orderHref(order.id, stickyTarget.target)} className={WS_PRIMARY} data-testid="trade-next-move-sticky-action">
                   {stickyTarget.label} <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Link>
               </div>
@@ -239,6 +240,7 @@ function OrderHeader({ order, mode, documents, orders, onRefresh, refreshing }: 
 
 /** Order ⇄ Passport: the passport is a read-only MODE of the same order, not another product. */
 function ModeSwitch({ orderId, mode }: { orderId: string; mode: OrderMode }) {
+  const orderHref = useOrderHref()
   const passport = mode === 'passport'
   const item = (active: boolean) => cn(
     'inline-flex min-h-11 items-center gap-1.5 rounded-control px-3.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-carup-focus',
@@ -256,6 +258,7 @@ function ModeSwitch({ orderId, mode }: { orderId: string; mode: OrderMode }) {
 
 /** Quick switch between the account's orders, keeping the current tab. */
 function OrderSwitcher({ order, mode, orders, className }: { order: TradeOrder; mode: OrderMode; orders?: ImportOrderViewProps['orders']; className?: string }) {
+  const orderHref = useOrderHref()
   const navigate = useNavigate()
   if (!orders || orders.state === 'loading') return null
   if (orders.state !== 'ready') {
@@ -294,6 +297,7 @@ function NextMove({ order, documents, mode, operator, sectionRef }: {
   operator: boolean
   sectionRef: RefObject<HTMLElement | null>
 }) {
+  const orderHref = useOrderHref()
   const step = nextStepFor(order, documents)
   const pos = positionOf(order.status)
   const here = step.cta && step.cta.target === mode
@@ -307,7 +311,7 @@ function NextMove({ order, documents, mode, operator, sectionRef }: {
           <p className="mt-1.5 max-w-2xl text-sm leading-6 text-carup-text-2">{step.detail}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {step.cta && !here && (
-              <Link to={step.cta.to} className={WS_PRIMARY} data-testid="trade-next-step-action">
+              <Link to={orderHref(order.id, step.cta.target)} className={WS_PRIMARY} data-testid="trade-next-step-action">
                 {step.cta.label} <ArrowRight className="h-4 w-4" aria-hidden="true" />
               </Link>
             )}
@@ -337,6 +341,7 @@ function NextMove({ order, documents, mode, operator, sectionRef }: {
 /* ── Section tabs: a horizontally scrollable segmented control ────────────────────────────────── */
 
 function OrderTabs({ order, documents, mode }: { order: TradeOrder; documents: DiasporaTradeDocument[]; mode: OrderMode }) {
+  const orderHref = useOrderHref()
   const counts = useMemo<Partial<Record<string, number>>>(() => ({
     quotes: order.diaspora_import_quotes?.length ?? 0,
     documents: documents.length,

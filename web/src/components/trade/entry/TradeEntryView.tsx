@@ -25,7 +25,6 @@ import {
   REQUIRED_DOCUMENT_TYPES,
   documentTypeLabel,
   formatDay,
-  orderHref,
   orderStatusTone,
   orderTitle,
   phaseLine,
@@ -34,6 +33,7 @@ import {
   type Read,
   type TradeOrder,
 } from '@/components/trade/order/orderModel'
+import { useOrderHref } from '@/components/trade/order/orderLinks'
 import { CAPABILITY_GROUP_LABEL, JOURNEY_COPY, PHASE_STILL, type CapabilityGroup, type OfferedCapability } from './entryModel'
 
 const PAGE = 'mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-10'
@@ -99,6 +99,7 @@ function Hero({ signedIn, loginHref }: { signedIn: boolean; loginHref: string })
 }
 
 function Desk({ orders }: { orders: Read<TradeOrder[]> }) {
+  const orderHref = useOrderHref()
   return (
     <section className="border-b border-carup-line bg-carup-bg-raised" aria-labelledby="trade-entry-desk-title" data-testid="trade-entry-desk">
       <div className={cn(PAGE, 'py-6 sm:py-8')}>
