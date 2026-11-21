@@ -298,14 +298,15 @@ export function NewImportRequestFlow({
                 ['route', 'Route', `${place(form.origin_city, form.origin_country) ?? 'Origin not given'} → ${place(form.destination_city, form.destination_country) ?? 'Zimbabwe'}`],
                 ['budget', 'Budget', money(form.budget_amount, form.budget_currency) ?? 'Not given'],
               ] as const).map(([key, label, value]) => (
-                <div key={key} className="flex items-start justify-between gap-3 px-4 py-3">
-                  <div className="min-w-0">
-                    <dt className="text-xs font-medium text-carup-text-3">{label}</dt>
-                    <dd className="text-sm font-semibold text-carup-text [overflow-wrap:anywhere]">{value}</dd>
-                  </div>
-                  <button type="button" className={cn(WS_TEXT_ACTION, 'shrink-0')} onClick={() => setStep(IMPORT_REQUEST_STEPS.findIndex(s => s.key === key))} aria-label={`Change ${label.toLowerCase()}`}>
-                    <Pencil className="h-4 w-4" aria-hidden="true" /> Change
-                  </button>
+                // A <dl> group may hold only <dt>/<dd> (axe definition-list / dlitem): the Change action sits in its own <dd>.
+                <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 px-4 py-3">
+                  <dt className="col-start-1 row-start-1 text-xs font-medium text-carup-text-3">{label}</dt>
+                  <dd className="col-start-1 row-start-2 min-w-0 text-sm font-semibold text-carup-text [overflow-wrap:anywhere]">{value}</dd>
+                  <dd className="col-start-2 row-span-2 row-start-1 self-start">
+                    <button type="button" className={cn(WS_TEXT_ACTION, 'shrink-0')} onClick={() => setStep(IMPORT_REQUEST_STEPS.findIndex(s => s.key === key))} aria-label={`Change ${label.toLowerCase()}`}>
+                      <Pencil className="h-4 w-4" aria-hidden="true" /> Change
+                    </button>
+                  </dd>
                 </div>
               ))}
             </dl>
