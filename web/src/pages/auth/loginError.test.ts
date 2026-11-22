@@ -13,6 +13,12 @@ describe('classifyLoginStatus', () => {
     expect(classifyLoginStatus(403)).toBe('invalid_credentials')
   })
 
+  it('says a throttled sign-in (429) is throttled — neither a server fault nor a wrong password (RX06-LR04, LR04-F06)', () => {
+    expect(classifyLoginStatus(429)).toBe('throttled')
+    expect(LOGIN_ERROR_MESSAGES.throttled).toMatch(/too many requests/i)
+    expect(LOGIN_ERROR_MESSAGES.throttled).not.toMatch(/on our end|password|email/i)
+  })
+
   it('treats server/session failures as server_error', () => {
     expect(classifyLoginStatus(500)).toBe('server_error')
     expect(classifyLoginStatus(502)).toBe('server_error')
