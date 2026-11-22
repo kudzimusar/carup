@@ -9,6 +9,7 @@
  * available-actions projection only, with its disabled reasons. SafeTrade is non-custodial and a
  * sandbox simulation: totals are "declared", never "held", and the assurance notice is always shown.
  */
+import { SignInLink } from '@/components/trade/core/SignInLink'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Ban, Check, Circle, CircleDot, Loader2, RefreshCw } from 'lucide-react'
@@ -171,7 +172,7 @@ export function SafeTradeCaseView({ model }: { model: SafeTradeCaseModel }) {
 function CaseFatal({ model }: { model: SafeTradeCaseModel }) {
   const kind = caseFatalKind(model.fatal?.kind ?? 'error', model.fatalFailure)
   const header = <DeskHeader eyebrow="Trade · Protection" title="SafeTrade case" />
-  if (kind === 'session') return <>{header}<DeskState kind="signin" title="Your session has expired" action={<><Link to="/login" className={WS_PRIMARY} data-testid="trade-safetrade-case-signin-link">Sign in</Link>{BACK}</>} testId="trade-safetrade-case-fatal">Sign in again to view this case. Nothing on it has changed.</DeskState></>
+  if (kind === 'session') return <>{header}<DeskState kind="signin" title="Your session has expired" action={<><SignInLink className={WS_PRIMARY} testId="trade-safetrade-case-signin-link">Sign in</SignInLink>{BACK}</>} testId="trade-safetrade-case-fatal">Sign in again to view this case. Nothing on it has changed.</DeskState></>
   if (kind === 'unavailable') return <>{header}<DeskState kind="unavailable" title="SafeTrade is not switched on for this server" action={BACK} testId="trade-safetrade-case-fatal">The server answered that SafeTrade is not enabled (404).</DeskState></>
   if (kind === 'notfound') return <>{header}<DeskState kind="empty" title="This SafeTrade case was not found" action={BACK} testId="trade-safetrade-case-fatal">Check the link. A case you are not part of may also not be visible to you.</DeskState></>
   if (kind === 'forbidden') return <>{header}<DeskState kind="denied" title="You do not have access to this SafeTrade case" action={BACK} testId="trade-safetrade-case-fatal">Only the case’s buyer, its seller and CarUp reviewers can open it. The server refused this account (403).</DeskState></>

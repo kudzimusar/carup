@@ -5,6 +5,7 @@
  * sealed ledger, timestamps, verification and trust as CarUp recorded them), or not recorded at all.
  * Read-only: there is no edit affordance anywhere. Fed by DiasporaStockPassport's own reads.
  */
+import { SignInLink } from '@/components/trade/core/SignInLink'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Camera, RefreshCw } from 'lucide-react'
@@ -31,7 +32,7 @@ export function StockPassportView({ model }: { model: StockPassportModel }) {
     return (
       <div className={PAGE}>
         <DeskState kind="signin" title="Sign in to view this stock passport" testId="trade-passport-signin"
-          action={<Link to="/login" className={DESK_PRIMARY}>Sign in</Link>}>
+          action={<SignInLink className={DESK_PRIMARY}>Sign in</SignInLink>}>
           A stock passport is shown to signed-in trade accounts only.
         </DeskState>
       </div>

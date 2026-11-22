@@ -104,23 +104,36 @@ export default function DiasporaContainerMarketplace() {
       setBoardNotice({ tone: 'danger', text: 'Enter the space you need in CBM — a number greater than zero.' })
       return
     }
+    // RX06-LR03 (TF-69): the request's outcome comes from the POST alone. A failed re-read afterwards
+    // does not mean the request failed — it was recorded — so it is reported as a stale board instead.
     try {
       await api.requestDiasporaReservation(selected.id, { estimated_volume: v, source: 'ui' })
-      setVolume('')
-      setBoardNotice({ tone: 'info', text: `Space requested: ${formatCbm(v)}. It counts against capacity only once a CarUp logistics reviewer approves it.` })
-      await refreshSelected()
     } catch (err) {
       setReserveError(err instanceof Error ? err.message : 'Reservation rejected')
       setBoardNotice({ tone: 'danger', text: `Not requested: ${err instanceof Error ? err.message : 'Reservation rejected'}` })
+      return
+    }
+    setVolume('')
+    const requested = `Space requested: ${formatCbm(v)}. It counts against capacity only once a CarUp logistics reviewer approves it.`
+    setBoardNotice({ tone: 'info', text: requested })
+    try {
+      await refreshSelected()
+    } catch {
+      setBoardNotice({ tone: 'info', text: `${requested} The board could not be refreshed — reload to see the latest capacity.` })
     }
   }
 
   const act = async (fn: () => Promise<unknown>) => {
     setReserveError('')
     setBoardNotice(null)
-    try { await fn(); await refreshSelected() } catch (err) {
+    // RX06-LR03 (TF-73): a recorded decision stays reported as recorded even if the re-read fails.
+    try { await fn() } catch (err) {
       setReserveError(err instanceof Error ? err.message : 'Action failed')
       setBoardNotice({ tone: 'danger', text: err instanceof Error ? err.message : 'Action failed' })
+      return
+    }
+    try { await refreshSelected() } catch {
+      setBoardNotice(prev => ({ tone: 'info', text: `${prev?.text ?? 'Recorded.'} The board could not be refreshed — reload to see the latest state.` }))
     }
   }
 

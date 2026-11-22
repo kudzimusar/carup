@@ -12,7 +12,7 @@
  * for tracking only — CarUp does not hold, receive or guarantee funds.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, BookOpenCheck, CheckCircle2, Loader2, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -24,6 +24,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
 import { classifyActionError } from '@/components/diaspora/safetrade/safeTradeHelpers'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { buildLoginRedirect } from '@/lib/returnTo'
 // RX-06 — in the unified presentation the passport is a MODE of the Import Order (same reads as below).
 import { ImportOrderView } from '@/components/trade/order/ImportOrderView'
 import { useTradeRead } from '@/components/trade/order/useTradeReads'
@@ -153,6 +154,7 @@ function UnavailableNote({ testId, children }: { testId: string; children: React
 }
 
 export default function DiasporaOrderPassport() {
+  const location = useLocation()
   const { id = '' } = useParams<{ id: string }>()
   const { user, isAuthenticated, loading: authLoading } = useAuth()
   const api = useCarUpApi()
@@ -253,7 +255,7 @@ export default function DiasporaOrderPassport() {
           <AlertTitle>Sign in required</AlertTitle>
           <AlertDescription>
             Please sign in to view this order passport.
-            <Button asChild size="sm" variant="default" className="ml-2"><Link to="/login">Sign in</Link></Button>
+            <Button asChild size="sm" variant="default" className="ml-2"><Link to={buildLoginRedirect(`${location.pathname}${location.search}`)} data-testid="order-passport-sign-in">Sign in</Link></Button>
           </AlertDescription>
         </Alert>
       </main>
@@ -582,7 +584,7 @@ export default function DiasporaOrderPassport() {
                     <li key={a.id} className="flex flex-wrap items-center justify-between gap-2" data-testid={`order-passport-audit-${a.id}`}>
                       <span className="font-medium">{labelize(a.action)}</span>
                       <span className="flex items-center gap-2 text-muted-foreground">
-                        <span>Actor {shortId(a.actor_id)}</span>
+                        <span>{a.actor_id ? `Actor ${shortId(a.actor_id)}` : a.actor_relation === "you" ? "You" : a.actor_relation === "system" ? "CarUp" : a.actor_relation === "other" ? "Another participant" : "Actor not recorded"}</span>
                         <span>{formatDate(a.created_at)}</span>
                       </span>
                     </li>

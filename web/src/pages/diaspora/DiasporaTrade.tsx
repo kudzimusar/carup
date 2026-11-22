@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { Link, Navigate, useNavigate, useParams, useLocation, useSearchParams } from 'react-router-dom'
 import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer, Upload, XCircle, CheckCircle, Eye } from 'lucide-react'
@@ -801,6 +801,9 @@ export function NewDiasporaImportOrder() {
   const [form, setForm] = useState<DiasporaImportOrderPayload>(() => draft?.form ?? initialForm)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  // RX06-LR03: a synchronous guard. `submitting` only disables the button after a re-render, so two
+  // clicks (or Enter + click) in the same frame could each POST and create two import orders.
+  const submittingRef = useRef(false)
   // A guest's draft opened after signing in lands on the review (or the first step still needing an answer).
   const [flowStep, setFlowStep] = useState(() => (restored.kind === 'from-guest' ? restoredDraftStep(restored.draft.form) : draft?.step ?? 0))
   const [flowKey, setFlowKey] = useState(0)
@@ -833,6 +836,8 @@ export function NewDiasporaImportOrder() {
     // flow and never gets here; this guard keeps the create call unreachable for a guest regardless.
     if (unified && !isAuthenticated) return
     if (!validate()) return
+    if (submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
     try {
       // Same body as before: one model year (max = min) and the budget as a number.
@@ -842,6 +847,7 @@ export function NewDiasporaImportOrder() {
     } catch (err) {
       setErrors({ form: err instanceof Error ? err.message : 'Unable to create import order.' })
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }

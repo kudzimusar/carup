@@ -1239,9 +1239,12 @@ export function useCarUpApi() {
   }, [request])
 
   const transitionDiasporaImportOrder = useCallback(async (importOrderId: string, payload: { nextStatus: string; metadata?: Record<string, unknown> }): Promise<DiasporaImportOrder> => {
+    // The backend contract is PATCH …/stages { status, metadata } (diasporaRoutes.js). This client used
+    // to post { nextStatus }, which the server refuses with 400 "status is required" — so every
+    // transition from the web (e.g. Mark Zimbabwe Ready) failed before RX06-LR03.
     return request<DiasporaImportOrder>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/stages`, {
       method: 'PATCH',
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ status: payload.nextStatus, metadata: payload.metadata ?? {} })
     })
   }, [request])
 

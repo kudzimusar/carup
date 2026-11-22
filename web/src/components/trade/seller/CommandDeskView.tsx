@@ -121,6 +121,12 @@ export function CommandDeskView({ model }: { model: CommandDeskModel }) {
             </DeskNotice>
           )}
           {actionError && <DeskNotice tone="danger" testId="trade-ai-error">{actionError}</DeskNotice>}
+          {model.commandsFailure && cmds.length > 0 && (
+            <DeskNotice tone="warning" testId="trade-ai-list-stale">
+              This list may be out of date: the latest refresh failed ({model.commandsFailure.message}). Statuses below are from the last successful read.{' '}
+              <button type="button" className={DESK_TEXT_ACTION} onClick={model.onRetryCommands} data-testid="trade-ai-list-stale-retry">Refresh again</button>
+            </DeskNotice>
+          )}
           {listUnread && model.commandsFailure ? (
             <ReadFailureState failure={model.commandsFailure} what="Your proposals" onRetry={model.onRetryCommands} testId="trade-ai-list-failed" />
           ) : !model.commandsLoaded && cmds.length === 0 ? (

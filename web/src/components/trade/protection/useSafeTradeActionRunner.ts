@@ -42,8 +42,16 @@ export function useSafeTradeActionRunner(transactionId: string, onDone: () => vo
     setError(null)
     try {
       const out = await submitSafeTradeAction(api, transactionId, action, { evaluationId })
-      if (out.evaluationId) setEvaluationId(out.evaluationId)
-      setResult(submittedText(action))
+      if (out.verdict) {
+        // RX06-LR03 (TF-03): report the server's verdict; only a passing evaluation unlocks approval.
+        setEvaluationId(out.verdict.eligible ? out.evaluationId : null)
+        setResult(out.verdict.eligible
+          ? 'Release evaluation passed (sandbox simulation; no real funds). Approval can now be requested.'
+          : `Release evaluation did not pass${out.verdict.blockers.length ? `: ${out.verdict.blockers.slice(0, 3).join('; ')}` : ''}. Approval stays blocked.`)
+      } else {
+        if (out.evaluationId) setEvaluationId(out.evaluationId)
+        setResult(submittedText(action))
+      }
       await onDone()
     } catch (err) {
       setError(classifyActionError(err).message)

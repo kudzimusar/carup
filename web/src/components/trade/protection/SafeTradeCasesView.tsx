@@ -7,6 +7,7 @@
  * always shown; totals are "declared", never "held"); a failed, refused, rate-limited or switched-off read
  * is never shown as "no cases".
  */
+import { SignInLink } from '@/components/trade/core/SignInLink'
 import { useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, ChevronRight, SlidersHorizontal } from 'lucide-react'
@@ -140,7 +141,7 @@ function ListFailure({ model }: { model: SafeTradeCasesModel }) {
   if (kind === 'missing') return <DeskState kind="unavailable" title="SafeTrade is not switched on for this server" testId="trade-safetrade-failed">The server answered that SafeTrade is not enabled (404). This is not a report that you have no cases.</DeskState>
   if (kind === 'tenant') return <DeskState kind="tenant" title="A tenant context is required to view SafeTrade cases" testId="trade-safetrade-failed">Your account carries no trading tenant, and the server scopes cases by tenant.</DeskState>
   if (kind === 'denied') return <DeskState kind="denied" title="The server refused SafeTrade cases to this account" testId="trade-safetrade-failed">This is a permission answer (403), not an empty list.</DeskState>
-  if (kind === 'session') return <DeskState kind="signin" title="Your session ended" action={<Link to="/login" className={WS_PRIMARY}>Sign in again</Link>} testId="trade-safetrade-failed">Sign in again to see your cases.</DeskState>
+  if (kind === 'session') return <DeskState kind="signin" title="Your session ended" action={<SignInLink className={WS_PRIMARY}>Sign in again</SignInLink>} testId="trade-safetrade-failed">Sign in again to see your cases.</DeskState>
   return <DeskState kind="failed" title="Your SafeTrade cases could not be loaded" onRetry={model.onRetry} testId="trade-safetrade-failed">This is not a report that you have none. Nothing on any case has changed.</DeskState>
 }
 

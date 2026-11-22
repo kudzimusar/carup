@@ -51,6 +51,30 @@ export function errorStatus(err: unknown): number | undefined {
   return typeof status === 'number' ? status : undefined
 }
 
+export const SESSION_ENDED_TEXT = 'Your session has ended. Sign in again to continue — nothing new was loaded or changed with the old session.'
+
+/** apiClient raises SessionExpiredError (status 401) when the server rejects the session. */
+export function isSessionEnded(err: unknown): boolean {
+  return errorStatus(err) === 401 || (err as { name?: unknown } | null)?.name === 'SessionExpiredError'
+}
+
+/**
+ * Plain words for a failed ACTION. A business refusal (400/409/422) keeps the caller's prefix
+ * (e.g. "Blocked: "); a refusal of permission, an ended session and an unconfirmed outcome are each
+ * said as what they are. After a 5xx or a network failure the outcome is unknown, so the text never
+ * claims that nothing changed — it asks the person to refresh and look.
+ */
+export function actionFailureText(err: unknown, businessPrefix = '', fallback = 'Action failed'): string {
+  const status = errorStatus(err)
+  const message = truncateMessage(err, fallback)
+  if (isSessionEnded(err)) return 'Your session has ended. Sign in again, then retry.'
+  if (status === 403) return `Not permitted: ${message}`
+  if (status === 404) return `Not found: ${message}`
+  if (status === 400 || status === 409 || status === 422) return `${businessPrefix}${message}`
+  if (status !== undefined && status >= 500) return 'CarUp could not confirm this change. Refresh to see the current state before trying again.'
+  return 'CarUp could not be reached, so this change was not confirmed. Refresh to see the current state before trying again.'
+}
+
 /**
  * Classify a failed read: a refusal (403) and a missing/feature-off resource (404) are their own
  * honest states, never "failed" and never "empty". Anything else is a failure with a retry.
@@ -58,6 +82,9 @@ export function errorStatus(err: unknown): number | undefined {
 export function readFromError(err: unknown, onRetry?: () => void, fallback = 'This could not be loaded.'): Read<never> {
   const status = errorStatus(err)
   const message = truncateMessage(err, fallback)
+  // A session that ended is not a failure to retry: retrying with the same (cleared) session cannot
+  // succeed. Protected routes redirect to sign-in with the return path; say what happened meanwhile.
+  if (isSessionEnded(err)) return { state: 'failed', message: SESSION_ENDED_TEXT }
   if (status === 403) return { state: 'denied', message }
   if (status === 404) return { state: 'unavailable', message }
   if (status === undefined && /forbidden|not authori[sz]ed|do not have access/i.test(message)) return { state: 'denied', message }
@@ -606,9 +633,23 @@ export interface ActivityEvent {
   title: string
   detail?: string
   actorId: string | null
+  /** Server-derived relation to the viewer when the redacted timeline omits actor ids (R2C). */
+  actorRelation?: 'you' | 'other' | 'system' | null
   source: 'audit' | 'record'
   sealed: boolean
   kind: ActivityKind
+}
+
+/**
+ * Who did it, in plain words. A redacted timeline (RX06-BE-01 R2C) carries no actor id, only whether
+ * the action was the viewer's own, someone else's, or the system's; never guess an identity.
+ */
+export function activityActorLabel(event: Pick<ActivityEvent, 'actorId' | 'actorRelation'>, viewerId?: string | null): string {
+  if (event.actorId) return actorLabel(event.actorId, viewerId)
+  if (event.actorRelation === 'you') return 'You'
+  if (event.actorRelation === 'system') return 'CarUp'
+  if (event.actorRelation === 'other') return 'Another participant'
+  return 'Not recorded'
 }
 
 const AUDIT_LABELS: Record<string, [string, ActivityKind]> = {
@@ -641,32 +682,51 @@ export function auditActionLabel(action?: string | null): string {
   return known ? known[0] : sentence(action, 'Recorded action')
 }
 
-type AuditRow = DiasporaAuditEntry & { previous_state?: Record<string, unknown> | null; new_state?: Record<string, unknown> | null }
+type AuditRow = DiasporaAuditEntry
 
 function str(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
-function auditDetail(entry: AuditRow): string | undefined {
+/** Records the viewer already holds on the order, used to describe a redacted audit entry. */
+interface AuditRecordLookup {
+  quotes: Map<string, TradeQuote>
+  documents: Map<string, DiasporaTradeDocument>
+  milestones: Map<string, NonNullable<TradeOrder['diaspora_payment_milestones']>[number]>
+}
+
+function auditDetail(entry: AuditRow, records?: AuditRecordLookup): string | undefined {
   const action = String(entry.action || '').toUpperCase()
   const before = entry.previous_state || {}
   const after = entry.new_state || {}
+  const ref = entry.resource_id ? String(entry.resource_id) : null
   if (action === 'IMPORT_ORDER_STATUS_CHANGED' || action === 'SHIPMENT_STAGE_CHANGED') {
-    const from = str(before.status)
-    const to = str(after.status)
+    // Raw rows (reviewers, older servers) carry the snapshots; the redacted timeline carries
+    // status_from/status_to only (R2C). Both describe the same transition.
+    const from = str(before.status) ?? str(entry.status_from)
+    const to = str(after.status) ?? str(entry.status_to)
     if (from && to) return `${statusLabel(from)} → ${statusLabel(to)}`
     if (to) return `Now: ${statusLabel(to)}`
   }
   if (action.startsWith('TRADE_DOCUMENT')) {
-    const type = str(after.document_type)
+    const type = str(after.document_type) ?? (ref ? str(records?.documents.get(ref)?.document_type) : null)
     if (type) return documentTypeLabel(type)
   }
   if (action === 'PAYMENT_MILESTONE_CREATED') {
-    const parts = [str(after.milestone_type) ? sentence(str(after.milestone_type)) : null, money(after.amount as number | string | null, str(after.currency))]
+    const m = entry.new_state ? null : ref ? records?.milestones.get(ref) : null
+    const type = str(after.milestone_type) ?? str(m?.milestone_type)
+    const amount = (after.amount as number | string | null | undefined) ?? m?.amount ?? null
+    const parts = [type ? sentence(type) : null, money(amount, str(after.currency) ?? str(m?.currency))]
     const text = parts.filter(Boolean).join(' · ')
     return text || undefined
   }
-  if (action === 'QUOTE_ISSUED') return money(after.quote_amount as number | string | null, str(after.quote_currency)) ?? undefined
+  if (action === 'QUOTE_ISSUED') {
+    if (entry.new_state) return money(after.quote_amount as number | string | null, str(after.quote_currency)) ?? undefined
+    // Redacted timeline: describe the quote only from the order's own quote record, which the
+    // server already returned to this viewer — the timeline never discloses an amount itself.
+    const q = ref ? records?.quotes.get(ref) : undefined
+    return q ? money(q.quote_amount, q.quote_currency) ?? undefined : undefined
+  }
   return undefined
 }
 
@@ -697,6 +757,11 @@ export function buildActivity({ order, audit, documents }: {
 }): ActivityEvent[] {
   const events: ActivityEvent[] = []
   const covered = new Set<string>()
+  const records: AuditRecordLookup = {
+    quotes: new Map((order.diaspora_import_quotes || []).map(q => [String(q.id), q])),
+    documents: new Map((documents ?? order.diaspora_trade_documents ?? []).map(d => [String(d.id), d])),
+    milestones: new Map((order.diaspora_payment_milestones || []).map(m => [String(m.id), m])),
+  }
   for (const raw of audit || []) {
     const entry = raw as AuditRow
     const action = String(entry.action || '').toUpperCase()
@@ -706,10 +771,11 @@ export function buildActivity({ order, audit, documents }: {
       id: `audit:${entry.id}`,
       at: entry.created_at ?? null,
       title: auditActionLabel(action),
-      detail: auditDetail(entry),
+      detail: auditDetail(entry, records),
       actorId: entry.actor_id ?? null,
+      actorRelation: entry.actor_relation ?? null,
       source: 'audit',
-      sealed: Boolean(entry.cryptographic_seal),
+      sealed: Boolean(entry.cryptographic_seal) || entry.sealed === true,
       kind,
     })
   }

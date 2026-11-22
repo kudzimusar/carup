@@ -18,7 +18,8 @@ const action = (actionKey: string, over: Partial<SafeTradeAvailableAction> = {})
 function fakeApi() {
   return {
     commitSafeTrade: vi.fn().mockResolvedValue({}),
-    evaluateSafeTradeRelease: vi.fn().mockResolvedValue({ evaluation: { id: 'eval-fictional-1' } }),
+    // RX06-LR03 (TF-03): a PASSING verdict — only a passing evaluation may unlock approve-release.
+    evaluateSafeTradeRelease: vi.fn().mockResolvedValue({ evaluation: { id: 'eval-fictional-1', eligible: true }, verdict: { eligible: true, blockers: [] } }),
     requestSafeTradeRelease: vi.fn().mockResolvedValue({}),
     approveSafeTradeRelease: vi.fn().mockResolvedValue({}),
     cancelSafeTrade: vi.fn().mockResolvedValue({}),

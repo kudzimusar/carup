@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl } from '@/lib/apiClient'
-import { resolvePostLoginRoute } from '@/lib/returnTo'
+import { isSafeReturnTo, resolvePostLoginRoute } from '@/lib/returnTo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -74,6 +74,9 @@ export default function Register() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = searchParams.get('returnTo')
+  // RX06-LR03: a visitor who created an account from the Trade import flow is returning to their import
+  // request, not a Seller draft. Only this path changes; every other registration keeps its copy.
+  const toImportRequest = isSafeReturnTo(returnTo) && returnTo.startsWith('/diaspora/imports/new')
   const [showPassword, setShowPassword] = useState(false)
   const [step, setStep] = useState(1)
   const [form, setForm] = useState(INITIAL)
@@ -177,7 +180,7 @@ export default function Register() {
         onboardingRequested: data.onboarding?.status === 'requested',
         role: data.user.role,
       })
-      toast.success('Account created. Your Seller draft is still waiting for you.')
+      toast.success(toImportRequest ? 'Account created. Your import request draft is still waiting for you.' : 'Account created. Your Seller draft is still waiting for you.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Registration failed')
     } finally {
@@ -221,16 +224,17 @@ export default function Register() {
             </div>
             <Heading className="mt-5 text-center text-2xl font-bold text-slate-950">Your account is ready</Heading>
             <p className="mt-2 text-center text-sm leading-6 text-slate-600">
-              We created a secure base account and kept your Seller handoff separate from any
-              privileged business access.
+              {toImportRequest
+                ? 'We created a secure base account. Your import request is kept in this tab — review it and send it when you are ready.'
+                : 'We created a secure base account and kept your Seller handoff separate from any privileged business access.'}
             </p>
 
             <div className="mt-6 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
               <div className="flex items-start gap-3">
                 <MailCheck className="mt-0.5 h-4 w-4 flex-none text-orange-600" />
-                <div>
+                <div className="min-w-0">
                   <p className="font-semibold text-slate-900">Verify your email</p>
-                  <p className="mt-0.5 text-slate-600">
+                  <p className="mt-0.5 text-slate-600 [overflow-wrap:anywhere]">
                     {registered.emailStatus === 'sent'
                       ? `A confirmation email was sent to ${registered.email}.`
                       : registered.emailStatus === 'queued'
@@ -260,7 +264,7 @@ export default function Register() {
                 onClick={() => navigate(continueRoute)}
                 data-testid="registration-continue"
               >
-                Continue to my Seller draft <ArrowRight className="ml-2 h-4 w-4" />
+                {toImportRequest ? 'Continue to my import request' : 'Continue to my Seller draft'} <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
               <Button type="button" variant="outline" onClick={resendVerification} disabled={resending}>
                 {resending ? 'Requesting…' : 'Resend verification email'}

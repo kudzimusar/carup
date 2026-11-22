@@ -118,12 +118,17 @@ export async function submitSafeTradeAction(
   transactionId: string,
   action: Pick<SafeTradeAvailableAction, 'actionKey'>,
   ctx: { evaluationId: string | null; idempotencyKey?: string },
-): Promise<{ evaluationId: string | null }> {
+): Promise<{ evaluationId: string | null; verdict?: { eligible: boolean; blockers: string[] } }> {
   const idempotencyKey = ctx.idempotencyKey ?? newIdempotencyKey()
   switch (action.actionKey) {
     case 'evaluate-release': {
       const resp = await api.evaluateSafeTradeRelease(transactionId, {})
-      return { evaluationId: resp?.evaluation?.id ?? null }
+      // RX06-LR03 (TF-03): the server's verdict decides. Only a PASSING evaluation is kept as the
+      // approval's evaluation id; an ineligible one is reported with its blockers and never unlocks
+      // "Approve sandbox release".
+      const eligible = resp?.verdict?.eligible === true || (resp?.verdict === undefined && resp?.evaluation?.eligible === true)
+      const blockers = (resp?.verdict?.blockers ?? resp?.evaluation?.blockers ?? []).map(b => b?.message || b?.code).filter((m): m is string => Boolean(m))
+      return { evaluationId: eligible ? resp?.evaluation?.id ?? null : null, verdict: { eligible, blockers } }
     }
     case 'request-release':
       await api.requestSafeTradeRelease(transactionId, { idempotencyKey })

@@ -8,6 +8,7 @@
  * Fed by DiasporaTradeGraph's own state and handlers. Every figure is a count the summary returned;
  * the graph is derived, never authored, so there is no edit affordance anywhere.
  */
+import { SignInLink } from '@/components/trade/core/SignInLink'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, ArrowDown, ArrowRight, Info, RefreshCw, Share2, Wrench } from 'lucide-react'
@@ -50,7 +51,7 @@ export function TradeGraphView({ model }: { model: TradeGraphModel }) {
     return (
       <div className={PAGE}>
         <DeskState kind="signin" title="Sign in to see your organisation’s trade graph" testId="tg-signin"
-          action={<Link to="/login" className={DESK_PRIMARY}>Sign in</Link>}>
+          action={<SignInLink className={DESK_PRIMARY}>Sign in</SignInLink>}>
           The graph is scoped to the organisation you trade for.
         </DeskState>
       </div>

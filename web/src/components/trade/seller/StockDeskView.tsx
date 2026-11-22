@@ -9,6 +9,7 @@
  * Fed entirely by DiasporaStockManager's own state and handlers. Quantities change only through
  * ledger movements; the publish check is a read-out of the server's gate, never a second authority.
  */
+import { SignInLink } from '@/components/trade/core/SignInLink'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Boxes, Check, Circle, FileText, History, PackagePlus, Plus } from 'lucide-react'
@@ -45,7 +46,7 @@ export function StockDeskView({ model }: { model: StockDeskModel }) {
     return (
       <div className={PAGE}>
         <DeskState kind="signin" title="Sign in to open your stock desk" testId="trade-stock-signin"
-          action={<Link to="/login" className={DESK_PRIMARY}>Sign in</Link>}>
+          action={<SignInLink className={DESK_PRIMARY}>Sign in</SignInLink>}>
           Stock lines, their ledgers and supply documents belong to a seller account.
         </DeskState>
       </div>

@@ -7,7 +7,7 @@
 import { cn } from '@/lib/utils'
 import { EmptyState } from '@/components/dealer/workspace/EmptyState'
 import type { DiasporaAuditEntry, DiasporaTradeDocument } from '@/types'
-import { actorLabel, buildActivity, formatDay, formatWhen, type ActivityKind, type Read, type TradeOrder } from './orderModel'
+import { activityActorLabel, buildActivity, formatDay, formatWhen, type ActivityKind, type Read, type TradeOrder } from './orderModel'
 import type { TradeViewer } from './orderViewTypes'
 import { Panel, Provenance } from './TradeKit'
 
@@ -60,7 +60,7 @@ export function OrderActivityPanel({ order, viewer, audit, documents }: {
                       <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-carup-text-3">
                         <span>{formatWhen(e.at)?.split(', ')[1] ?? 'time not recorded'}</span>
                         <span aria-hidden="true">·</span>
-                        <span>{actorLabel(e.actorId, viewer.id)}</span>
+                        <span>{activityActorLabel(e, viewer.id)}</span>
                         <span aria-hidden="true">·</span>
                         <span>{KIND_LABEL[e.kind]}</span>
                         <Provenance kind={e.source === 'audit' ? 'carup' : 'record'}>{e.source === 'audit' ? (e.sealed ? 'Audit trail · sealed' : 'Audit trail') : 'Order record'}</Provenance>

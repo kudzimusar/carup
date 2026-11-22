@@ -9,6 +9,7 @@
  * import is never dressed as a success; the one state where a retry could double-apply offers none.
  * Phones get the same order — review first — and no sticky import button.
  */
+import { SignInLink } from '@/components/trade/core/SignInLink'
 import { useId, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, CheckCircle2, Download, FileSpreadsheet, Loader2, ShieldAlert, XCircle } from 'lucide-react'
@@ -40,7 +41,7 @@ export function WorkbookImportView({ model }: { model: WorkbookImportModel }) {
   if (!model.isAuthenticated) {
     return (
       <div className={PAGE}>
-        <DeskState kind="signin" title="Sign in to import a workbook" testId="wi-signin" action={<Link to="/login" className={DESK_PRIMARY}>Sign in</Link>}>
+        <DeskState kind="signin" title="Sign in to import a workbook" testId="wi-signin" action={<SignInLink className={DESK_PRIMARY}>Sign in</SignInLink>}>
           An import writes into your organisation’s trade records, so it is always tied to a signed-in account.
         </DeskState>
       </div>

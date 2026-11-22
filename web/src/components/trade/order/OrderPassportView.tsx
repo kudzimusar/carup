@@ -16,6 +16,7 @@ import { StatusChip } from '@/components/dealer/workspace/StatusChip'
 import { WS_TEXT_ACTION } from '@/components/dealer/workspace/workspaceStyles'
 import type { DiasporaAuditEntry, DiasporaGovernmentDocument, DiasporaOwnershipHandoffStatus, DiasporaShipmentStageEvent } from '@/types'
 import {
+  activityActorLabel,
   actorLabel,
   auditActionLabel,
   cargoLabel,
@@ -255,9 +256,9 @@ export function OrderPassportView({ order, viewer, footprint, audit, handoff, st
                     <li key={a.id} className="flex flex-wrap items-center justify-between gap-2" data-testid={`order-passport-audit-${a.id}`}>
                       <span className="font-semibold text-carup-text">{auditActionLabel(a.action)}</span>
                       <span className="flex flex-wrap items-center gap-2 text-xs text-carup-text-2">
-                        <span>{actorLabel(a.actor_id, viewer.id)}</span>
+                        <span>{activityActorLabel({ actorId: a.actor_id ?? null, actorRelation: a.actor_relation ?? null }, viewer.id)}</span>
                         <span>{formatWhen(a.created_at) ?? 'Not recorded'}</span>
-                        {a.cryptographic_seal && <Provenance kind="carup">Sealed</Provenance>}
+                        {(a.cryptographic_seal || a.sealed) && <Provenance kind="carup">Sealed</Provenance>}
                       </span>
                     </li>
                   ))}

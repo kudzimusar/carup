@@ -274,7 +274,13 @@ export interface DiasporaGovernmentDocument {
   verifiedAt?: string | null;
 }
 
-/** Sealed diaspora audit row (GET /diaspora/import-orders/:id/audit). Read-only history. */
+/**
+ * Sealed diaspora audit row (GET /diaspora/import-orders/:id/audit). Read-only history.
+ * RX06-BE-01 R2C: ordinary order readers receive a redacted timeline (id, action, resource_type,
+ * created_at, plus resource_id for records already in the order read-model, status_from/status_to on
+ * status changes, actor_relation and sealed). Platform reviewers also receive the forensic fields
+ * (actor_id, previous_state, new_state, metadata, cryptographic_seal, …). Older servers send raw rows.
+ */
 export interface DiasporaAuditEntry {
   id: string;
   import_order_id?: string | null;
@@ -285,6 +291,12 @@ export interface DiasporaAuditEntry {
   created_at?: string | null;
   cryptographic_seal?: string | null;
   metadata?: Record<string, unknown> | null;
+  previous_state?: Record<string, unknown> | null;
+  new_state?: Record<string, unknown> | null;
+  status_from?: string | null;
+  status_to?: string | null;
+  actor_relation?: 'you' | 'other' | 'system' | null;
+  sealed?: boolean;
 }
 
 /** Shipment stage event (GET /diaspora/shipments/:id/timeline). */

@@ -102,6 +102,8 @@ export interface SubscriptionDeskModel {
   entitlements: EffectiveEntitlementsEnvelope | null
   usage: UsageResponse | null
   usageUnreadable: boolean
+  /** RX06-LR03 (TF-30): the entitlements read failed, so an empty map is unknown, not empty. */
+  entitlementsUnreadable: boolean
   loading: boolean
   answered: boolean
   loadError: StructuredEntitlementDenial | null

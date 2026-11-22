@@ -18,6 +18,8 @@ import {
   REQUIRED_DOCUMENTS,
   REQUIRED_DOCUMENT_TYPES,
   activeReservation,
+  actionFailureText,
+  activityActorLabel,
   actorLabel,
   buildActivity,
   cargoLabel,
@@ -33,7 +35,6 @@ import {
   requiredDocumentState,
   requiredDocumentTally,
   sentence,
-  truncateMessage,
   yearsLabel,
   formatAmount,
   type OrderTab,
@@ -348,7 +349,7 @@ function LatestActivity({ order, viewer, documents }: { order: TradeOrder; viewe
           {events.map(e => (
             <li key={e.id} className="text-sm">
               <p className="font-semibold text-carup-text">{e.title}</p>
-              <p className="text-xs text-carup-text-3">{formatWhen(e.at) ?? 'Time not recorded'} · {actorLabel(e.actorId, viewer.id)}</p>
+              <p className="text-xs text-carup-text-3">{formatWhen(e.at) ?? 'Time not recorded'} · {activityActorLabel(e, viewer.id)}</p>
             </li>
           ))}
         </ol>
@@ -376,7 +377,9 @@ function OperationsControls({ order, actions }: { order: TradeOrder; actions: Im
     try {
       setResult(await fn())
     } catch (err) {
-      setActionError(`${errorPrefix}${truncateMessage(err, 'Action failed')}`)
+      // RX06-LR03: only a business refusal carries the action's prefix ("Blocked: "); an ended
+      // session, a permission refusal and an unconfirmed outcome are each said as what they are.
+      setActionError(actionFailureText(err, errorPrefix, 'Action failed'))
     } finally {
       setBusy(false)
       setConfirming(null)

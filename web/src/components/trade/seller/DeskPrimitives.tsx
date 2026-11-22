@@ -10,8 +10,8 @@
  *    read automatically (not verified), derived from recorded events;
  *  - the pulse is ONE compact line of figures counted from what the read returned, with its scope.
  */
+import { SignInLink } from '@/components/trade/core/SignInLink'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { AlertTriangle, CircleSlash, Clock3, Inbox, Loader2, LockKeyhole, LogIn, RotateCw, SearchX } from 'lucide-react'
 import { useClaimBottomBar } from '@/lib/bottomBarClaim'
 import { DESK_EYEBROW, DESK_PANEL, DESK_PRIMARY, DESK_SECONDARY } from './deskStyles'
@@ -166,7 +166,7 @@ export function ReadFailureState({ failure, what, onRetry, testId, compact, deni
     case 'session':
       return (
         <DeskState kind="session" testId={testId} compact={compact} title="Your session has ended"
-          action={<Link to="/login" className={DESK_PRIMARY}>Sign in again</Link>}>
+          action={<SignInLink className={DESK_PRIMARY}>Sign in again</SignInLink>}>
           Sign in again to see {what.toLowerCase()}. Nothing was changed.
         </DeskState>
       )

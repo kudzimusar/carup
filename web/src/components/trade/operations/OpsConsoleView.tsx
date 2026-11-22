@@ -11,8 +11,8 @@
  * missing (404) or rate-limited (429) queue is said in its own words and is NEVER drawn as "none
  * waiting" or "everything reconciled". No decision is automatic and no amount is real money.
  */
+import { SignInLink } from '@/components/trade/core/SignInLink'
 import { useId, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Clock, RefreshCw, XCircle } from 'lucide-react'
 import {
   REVIEW_FIELD, REVIEW_HINT, REVIEW_LABEL, REVIEW_PRIMARY, REVIEW_SECONDARY,
@@ -66,7 +66,7 @@ export function OpsConsoleView({ model }: { model: OpsConsoleModel }) {
     return (
       <div className={PAGE}>
         <DeskState kind="signin" testId="ops-signin" title="Sign in to open the operations console"
-          action={<Link to="/login" className={DESK_PRIMARY}>Sign in</Link>}>
+          action={<SignInLink className={DESK_PRIMARY}>Sign in</SignInLink>}>
           SafeTrade operations are for CarUp reviewers and administrators.
         </DeskState>
       </div>

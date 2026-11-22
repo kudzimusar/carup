@@ -41,6 +41,7 @@ export default function DiasporaSubscription() {
   const [entitlements, setEntitlements] = useState<EffectiveEntitlementsEnvelope | null>(null)
   const [usage, setUsage] = useState<UsageResponse | null>(null)
   const [usageUnreadable, setUsageUnreadable] = useState(false)
+  const [entitlementsUnreadable, setEntitlementsUnreadable] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<StructuredEntitlementDenial | null>(null)
   const [actionDenial, setActionDenial] = useState<StructuredEntitlementDenial | null>(null)
@@ -71,7 +72,7 @@ export default function DiasporaSubscription() {
       const statusRes = statusResult.value
       setStatus(statusRes)
       // Best-effort enrichments — a failure here must not blank the whole page (partial state).
-      try { setEntitlements(await api.getDiasporaEntitlements()) } catch { /* keep prior */ }
+      try { setEntitlements(await api.getDiasporaEntitlements()); setEntitlementsUnreadable(false) } catch { setEntitlementsUnreadable(true) }
       try { setUsage(await api.getDiasporaUsage()); setUsageUnreadable(false) }
       // `null` alone was indistinguishable from an empty period, so a failed read
       // rendered as "no metered usage to report".
@@ -157,6 +158,7 @@ export default function DiasporaSubscription() {
           entitlements,
           usage,
           usageUnreadable,
+          entitlementsUnreadable,
           loading,
           answered,
           loadError,

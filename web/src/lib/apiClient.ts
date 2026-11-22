@@ -141,6 +141,10 @@ export const SESSION_INVALID_MESSAGE = 'Unauthorized. Session is invalid or expi
 
 /** Thrown when the backend rejects the request because the session is invalid/expired (401). */
 export class SessionExpiredError extends Error {
+  /** RX06-LR03: a session failure is an HTTP 401; callers that branch on .status (errorStatus) can now
+   *  tell an ended session from a generic failure instead of offering a retry that cannot succeed. */
+  readonly status = 401
+
   constructor(message: string = SESSION_INVALID_MESSAGE) {
     super(message)
     this.name = 'SessionExpiredError'

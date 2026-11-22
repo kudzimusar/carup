@@ -127,7 +127,14 @@ export function SubscriptionDeskView({ model }: { model: SubscriptionDeskModel }
                   {model.entitlements.source === 'config' && <SourceChip testId="trade-plan-entitlements-source">Resolved from the catalogue fallback</SourceChip>}
                 </p>
               )}
-              {featureKeys.length === 0 ? (
+              {model.entitlementsUnreadable && featureKeys.length > 0 && (
+                <p className="mb-3 text-xs text-carup-text-2" data-testid="trade-plan-entitlements-stale">The latest entitlements read failed; these are from the last successful read.</p>
+              )}
+              {featureKeys.length === 0 && model.entitlementsUnreadable ? (
+                <DeskState compact kind="failed" title="Entitlements could not be loaded" onRetry={model.onRetry} testId="trade-plan-entitlements-failed">
+                  The entitlement read failed. This page shows nothing rather than a guess.
+                </DeskState>
+              ) : featureKeys.length === 0 ? (
                 <DeskState compact kind="empty" title="Entitlement details are not available right now" testId="trade-plan-entitlements-empty">
                   The server returned no entitlement map for your tenant. This page will not guess one.
                 </DeskState>
