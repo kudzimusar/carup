@@ -292,6 +292,74 @@ function activityContextHeaders(): Record<string, string> {
 }
 
 /**
+ * RX06-LR05 — identical reads in flight at the same moment share one network request.
+ *
+ * Parts of a page often ask for the same thing at once (the owner's bell and dashboard both read
+ * /notifications/me; React's development double-mount runs every read twice). While the first such GET is
+ * still on its way, an identical one (same URL, same headers and therefore the same identity and page view,
+ * same fetch) waits for it instead of sending a second request. Each caller gets its own copy of the
+ * response, so no caller can change what another reads, and each runs its own error handling: an ended
+ * session still signals sign-out, and a 429 is still a 429. Nothing is kept: once the response has arrived
+ * the entry is gone, and the next read asks the server again, so authorization and revocation stay exactly
+ * as fresh as before. Writes are never shared, and neither is a read the caller can cancel or one that asks
+ * for its own cache handling.
+ */
+interface InflightRead {
+  response: Promise<Response>
+  waiters: number
+  originalTaken: boolean
+}
+const inflightReads = new WeakMap<FetchLike, Map<string, InflightRead>>()
+const SHAREABLE_READ_OPTIONS = new Set(['method', 'headers', 'credentials'])
+
+function isShareableRead(method: string, options: RequestInit | undefined): boolean {
+  if (method !== 'GET') return false
+  if (!options) return true
+  return Object.entries(options).every(([k, v]) => v === undefined || SHAREABLE_READ_OPTIONS.has(k))
+}
+
+function sharedRead(fetchImpl: FetchLike, url: string, init: RequestInit): Promise<Response> {
+  let byKey = inflightReads.get(fetchImpl)
+  if (!byKey) {
+    byKey = new Map()
+    inflightReads.set(fetchImpl, byKey)
+  }
+  const headers = Object.entries((init.headers as Record<string, string>) || {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  const key = JSON.stringify([url, init.credentials ?? null, headers])
+  let entry = byKey.get(key)
+  if (!entry) {
+    let response: Promise<Response>
+    try {
+      response = Promise.resolve(fetchImpl(url, init))
+    } catch (err) {
+      response = Promise.reject(err)
+    }
+    const created: InflightRead = { response, waiters: 0, originalTaken: false }
+    const map = byKey
+    // Registered first, so the entry is gone before any caller reads the response.
+    const settle = () => {
+      if (map.get(key) === created) map.delete(key)
+    }
+    response.then(settle, settle)
+    map.set(key, created)
+    entry = created
+  }
+  entry.waiters += 1
+  const shared = entry
+  return shared.response.then(res => {
+    if (shared.waiters === 1) return res
+    if (typeof res.clone === 'function') return res.clone()
+    // An answer that cannot be copied (e.g. a test double) is never read twice: one caller takes it and any
+    // other caller fetches its own, exactly as before this sharing existed.
+    if (!shared.originalTaken) {
+      shared.originalTaken = true
+      return res
+    }
+    return fetchImpl(url, init)
+  })
+}
+
+/**
  * Perform an API request. For unsafe methods it first obtains a correctly-bound CSRF token and
  * attaches it as x-csrf-token (with credentials). If the token cannot be obtained it throws a
  * clear error BEFORE the unsafe request is sent, so the caller never fires a request the server
@@ -328,13 +396,15 @@ export async function apiRequest<T = any>({
     fetchOptions.credentials = 'include'
   }
 
-  const response = await fetchImpl(`${baseUrl}${path}`, {
+  const url = `${baseUrl}${path}`
+  const init: RequestInit = {
     ...fetchOptions,
     headers: {
       ...headers,
       ...((fetchOptions.headers as Record<string, string>) || {}),
     },
-  })
+  }
+  const response = isShareableRead(method, options) ? await sharedRead(fetchImpl, url, init) : await fetchImpl(url, init)
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}))

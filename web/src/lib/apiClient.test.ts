@@ -217,6 +217,131 @@ describe('fetchCsrfToken caching', () => {
   })
 })
 
+describe('RX06-LR05: identical reads in flight at the same moment share one request', () => {
+  const jsonResponse = (body: unknown, status = 200): Response =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  function recordingFetch(answer: () => Response | Promise<Response>) {
+    const calls: RecordedCall[] = []
+    const impl = vi.fn(async (url: unknown, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} })
+      return answer()
+    }) as unknown as typeof fetch
+    return { impl, calls }
+  }
+  const read = <T = unknown,>(impl: typeof fetch, path = '/notifications/me', authHeaders: AuthHeaders = BUYER, options?: RequestInit) =>
+    apiRequest<T>({ baseUrl: BASE, path, options, authHeaders, fetchImpl: impl })
+
+  it('two identical GETs at once → one request; each caller gets its own copy of the answer', async () => {
+    const { impl, calls } = recordingFetch(() => jsonResponse({ items: [3, 1, 2] }))
+    const [a, b] = await Promise.all([read<{ items: number[] }>(impl), read<{ items: number[] }>(impl)])
+    expect(calls).toHaveLength(1)
+    expect(a).toEqual({ items: [3, 1, 2] })
+    expect(b).toEqual({ items: [3, 1, 2] })
+    a.items.sort()
+    expect(b.items).toEqual([3, 1, 2]) // one caller can never change what another reads
+  })
+
+  it('nothing is kept: once the answer has arrived, the next identical read asks the server again', async () => {
+    const { impl, calls } = recordingFetch(() => jsonResponse({ n: 1 }))
+    await read(impl)
+    await read(impl)
+    expect(calls).toHaveLength(2)
+  })
+
+  it('a different account, tenant, path or query never shares: each goes to the server with its own headers', async () => {
+    const { impl, calls } = recordingFetch(() => jsonResponse({}))
+    await Promise.all([
+      read(impl, '/vehicles/me'),
+      read(impl, '/vehicles/me', { 'x-user-id': 'admin-9', 'x-session-token': 'sess-9' }),
+      read(impl, '/vehicles/me', { ...BUYER, 'x-tenant-id': 'tenant-2' }),
+      read(impl, '/vehicles/me?window=7'),
+      read(impl, '/safepay/list'),
+    ])
+    expect(calls).toHaveLength(5)
+    expect(calls.map(c => (c.init.headers as Record<string, string>)['x-user-id'])).toEqual(['buyer-1', 'admin-9', 'buyer-1', 'buyer-1', 'buyer-1'])
+  })
+
+  it('writes are never shared, with or without a body: identical writes at once are separate requests, each carrying its CSRF token', async () => {
+    // Real, copyable responses that arrive a little later, so every write is still in flight when its twin is sent.
+    const { impl, calls } = recordingFetch(() => new Promise<Response>(resolve => setTimeout(() => resolve(jsonResponse({ csrfToken: 'csrf-tok-123' })), 20)))
+    const write = (path: string, options: RequestInit) => apiRequest({ baseUrl: BASE, path, options, authHeaders: BUYER, fetchImpl: impl })
+    await Promise.all([
+      write('/diaspora/import-orders', { method: 'POST', body: '{}' }),
+      write('/diaspora/import-orders', { method: 'POST', body: '{}' }),
+      // A body-less write (e.g. marking a thread read) must never ride on another caller's request either.
+      write('/communications/threads/t-1/read', { method: 'POST' }),
+      write('/communications/threads/t-1/read', { method: 'POST' }),
+      write('/saved/l-1', { method: 'DELETE' }),
+      write('/saved/l-1', { method: 'DELETE' }),
+    ])
+    const writes = calls.filter(c => !c.url.endsWith('/security/csrf-token'))
+    expect(writes.filter(c => c.url.endsWith('/diaspora/import-orders'))).toHaveLength(2)
+    expect(writes.filter(c => c.url.endsWith('/threads/t-1/read'))).toHaveLength(2)
+    expect(writes.filter(c => c.url.endsWith('/saved/l-1'))).toHaveLength(2)
+    for (const c of writes) expect((c.init.headers as Record<string, string>)['x-csrf-token']).toBe('csrf-tok-123')
+  })
+
+  it('a read the caller can cancel, or one asking for its own cache handling, is never shared', async () => {
+    const { impl, calls } = recordingFetch(() => jsonResponse({}))
+    await Promise.all([
+      read(impl),
+      read(impl, '/notifications/me', BUYER, { signal: new AbortController().signal }),
+      read(impl, '/notifications/me', BUYER, { cache: 'no-store' }),
+    ])
+    expect(calls).toHaveLength(3)
+  })
+
+  it('a shared refusal is still each caller\'s own: an ended session rejects both, and each one signals it', async () => {
+    const handler = vi.fn()
+    setUnauthorizedHandler(handler)
+    try {
+      const { impl, calls } = recordingFetch(() => jsonResponse({ error: SESSION_INVALID_MESSAGE }, 401))
+      const results = await Promise.allSettled([read(impl), read(impl)])
+      expect(calls).toHaveLength(1)
+      for (const r of results) {
+        expect(r.status).toBe('rejected')
+        expect((r as PromiseRejectedResult).reason).toBeInstanceOf(SessionExpiredError)
+      }
+      expect(handler).toHaveBeenCalledTimes(2)
+    } finally {
+      setUnauthorizedHandler(null)
+    }
+  })
+
+  it('a shared 429 reaches every caller as a 429 with the server\'s words', async () => {
+    const { impl, calls } = recordingFetch(() => jsonResponse({ error: 'Too many requests, please try again later.' }, 429))
+    const results = await Promise.allSettled([read(impl), read(impl)])
+    expect(calls).toHaveLength(1)
+    for (const r of results) {
+      const reason = (r as PromiseRejectedResult).reason as Error & { status?: number }
+      expect(reason.status).toBe(429)
+      expect(reason.message).toBe('Too many requests, please try again later.')
+    }
+  })
+
+  it('a network failure rejects every caller, and the next read asks again (nothing is left stuck)', async () => {
+    let down = true
+    const { impl, calls } = recordingFetch(() => {
+      if (down) throw new TypeError('Failed to fetch')
+      return jsonResponse({ ok: 1 })
+    })
+    const results = await Promise.allSettled([read(impl), read(impl)])
+    expect(calls).toHaveLength(1)
+    expect(results.map(r => r.status)).toEqual(['rejected', 'rejected'])
+    down = false
+    await expect(read(impl)).resolves.toEqual({ ok: 1 })
+    expect(calls).toHaveLength(2)
+  })
+
+  it('an answer that cannot be copied is never read twice: the other caller fetches its own', async () => {
+    const { impl, calls } = makeFetch({ api: () => makeResponse({ id: 'x' }) })
+    const [a, b] = await Promise.all([read(impl), read(impl)])
+    expect(a).toEqual({ id: 'x' })
+    expect(b).toEqual({ id: 'x' })
+    expect(calls).toHaveLength(2)
+  })
+})
+
 describe('resolveApiBaseUrl', () => {
   it('uses VITE_API_URL when set, on any host (staging → staging backend)', () => {
     expect(resolveApiBaseUrl('https://carup-backend-aca7.vercel.app/api', 'carup-staging.vercel.app'))
