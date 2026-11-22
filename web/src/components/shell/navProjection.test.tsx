@@ -148,6 +148,15 @@ describe('RX03-P2 — Trade and review rails', () => {
       expect(admin.find(s => s.title === 'Built · not yet released')?.items.map(i => i.href)).toEqual(['/diaspora/safetrade', '/diaspora/safetrade/operations'])
       const importer = projectTradeRail({ role: 'owner', effectiveStates: states })
       expect(importer.flatMap(s => s.items.map(i => i.href))).not.toContain('/diaspora/safetrade/operations')
+      // RX06-LR04: before the account's governance answer arrives (empty map) a built tool is not listed at all —
+      // never as an ordinary item that then jumps to "Built · not yet released".
+      const loading = projectTradeRail({ role: 'owner', effectiveStates: {} })
+      expect(loading.flatMap(s => s.items.map(i => i.href))).not.toContain('/diaspora/safetrade')
+      expect(loading.map(s => s.title)).not.toContain('Built · not yet released')
+      // Once governance releases it, it is an ordinary Protection item.
+      const released = projectTradeRail({ role: 'owner', effectiveStates: { 'diaspora.safetrade': { ...hidden, state: 'active', visible: true } } })
+      expect(released.find(s => s.title === 'Protection')?.items.map(i => i.href)).toContain('/diaspora/safetrade')
+      expect(released.map(s => s.title)).not.toContain('Built · not yet released')
     } finally {
       vi.unstubAllEnvs()
       vi.resetModules()

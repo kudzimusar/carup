@@ -139,6 +139,14 @@ function governedItem(
   registryRoute: string = href,
 ): ShellNavItem | null {
   const feature = getFeatureByRoute(registryRoute)
+  // RX06-LR04: a tool behind a release flag (registry `isHidden` defined) is BUILT, not released. In a flag-on build
+  // its static default reads "active", so it is listed as an ordinary item only once governance itself reports it
+  // active or beta. The governance map starts empty for each identity (and stays empty if its request fails); until
+  // then the tool is not listed at all, instead of flashing as released and then moving to "Built · not yet released".
+  if (feature && feature.isHidden !== undefined) {
+    const governed = ctx.effectiveStates?.[feature.id]?.state
+    if (governed !== 'active' && governed !== 'beta') return null
+  }
   const vis = feature ? resolveFeatureVisibility(feature, ctx) : null
   if (vis && !vis.visible) return null
   return {
