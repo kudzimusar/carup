@@ -1,10 +1,10 @@
 import { supabase } from '../../db/supabase.js';
 import { normalizeVehicleTaxonomyInput } from '../taxonomy/vehicleTaxonomyService.js';
 import { IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
-import { ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { CarUpError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { validateImportOrderPayload, validatePaymentMilestonePayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
-import { notifyDiasporaMilestone } from './diasporaNotificationService.js';
+import { notifyDiasporaMilestone, queueDiasporaNotification } from './diasporaNotificationService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
 import { assertCanReadImportOrder, assertCanTransitionImportOrder, isOrderOwner, isTenantAdminForRecord, isPlatformAdmin, isPlatformReviewer, requireUserContext } from './diasporaAuthorization.js';
 
@@ -62,7 +62,7 @@ export async function createImportOrder(payload, userContext = {}, req = null) {
   // B18: buyer and tenant identities are derived from the signed-in session,
   // not client JSON. No privileged on-behalf creation without a separate approved contract.
   if (payload.buyer_id != null && String(payload.buyer_id) !== context.id) {
-    throw new ForbiddenError('Cannot create another buyer's import order');
+    throw new ForbiddenError("Cannot create another buyer's import order");
   }
   if (payload.tenant_id != null && String(payload.tenant_id) !== String(context.tenantId)) {
     throw new ForbiddenError('Cannot create an import order for another tenant');
@@ -194,14 +194,72 @@ export async function assignSeller(importOrderId, { sellerId, roleType = 'seller
     throw new DatabaseError('Atomic import seller assignment could not be recorded');
   }
   if (!data?.order || !data?.participant) throw new DatabaseError('Atomic assignment returned an invalid receipt');
-  // The RPC durably appends one outbox event; do not duplicate it asynchronously.
+  // The RPC durably appends the domain events (outbox) in the same transaction as the participant,
+  // status change and audits. The buyer notifications below mirror the pre-R2 notifyDiasporaMilestone
+  // calls exactly (best-effort, after commit, never for a replay), so no behaviour is silently lost.
+  if (!data.idempotentReplay) {
+    const buyer = data.order.buyer_id || data.order.created_by;
+    if (data.statusChanged) {
+      await queueBuyerNotification({
+        recipientId: buyer, importOrderId: data.order.id, type: 'DIASPORA_SELLER_ASSIGNED',
+        title: 'Import order seller assigned',
+        message: `Your CarUp diaspora import order has moved from ${data.previousStatus} to SELLER_ASSIGNED.`,
+        metadata: { sellerId: String(sellerId) },
+      });
+    }
+    await queueBuyerNotification({
+      recipientId: buyer, importOrderId: data.order.id, type: 'DIASPORA_SELLER_ASSIGNED',
+      title: 'Seller assigned',
+      message: 'A verified diaspora seller/export participant has been assigned to your import order.',
+      metadata: { sellerId: String(sellerId) },
+    });
+  }
   return { order: data.order, participant: data.participant, idempotentReplay: Boolean(data.idempotentReplay) };
 }
 
-async function addQuote(importOrderId, payload, userContext = {}, req = null) {
+/** Best-effort, post-commit buyer notification — same channels and failure handling as before R2. */
+async function queueBuyerNotification({ recipientId, importOrderId, type, title, message, metadata }) {
+  try {
+    await queueDiasporaNotification({
+      recipientId, type, title, message, importOrderId,
+      channels: ['IN_APP', 'EMAIL_READY', 'SMS_READY', 'WHATSAPP_READY', 'PUSH_READY'],
+      metadata,
+    });
+  } catch (err) {
+    console.warn('Diaspora buyer notification skipped:', err?.message);
+  }
+}
+
+/**
+ * R6-F13 / C03 quotation command key. A quotation is a command that must not be duplicated by a
+ * network retry or a double click, so every HTTP quotation carries a client-generated key that the
+ * client REUSES when it retries the same quotation. A missing or malformed key is refused before
+ * any database read or write.
+ */
+export const QUOTE_COMMAND_KEY_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
+
+export function requireQuoteCommandKey(req) {
+  const raw = req?.headers?.['idempotency-key'];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === undefined || value === null || String(value).trim() === '') {
+    throw new CarUpError(
+      'An Idempotency-Key header is required to issue a quotation. Generate one key per quotation and reuse it when retrying.',
+      400, 'IDEMPOTENCY_KEY_REQUIRED');
+  }
+  const key = String(value).trim();
+  if (!QUOTE_COMMAND_KEY_PATTERN.test(key)) {
+    throw new CarUpError(
+      'The Idempotency-Key must be 8 to 128 characters: letters, digits, dot, underscore, colon or hyphen.',
+      400, 'IDEMPOTENCY_KEY_INVALID');
+  }
+  return key;
+}
+
+export async function addQuote(importOrderId, payload, userContext = {}, req = null) {
   // R6-F13: authoritative pre-write guard even when an order is already
   // QUOTE_ISSUED. The SQL RPC independently re-verifies authority under lock.
   const context = requireUserContext(userContext);
+  const commandKey = requireQuoteCommandKey(req); // C03: refused before any database access
   const { data: order, error: orderError } = await supabase
     .from('diaspora_import_orders')
     .select('*')
@@ -218,7 +276,6 @@ async function addQuote(importOrderId, payload, userContext = {}, req = null) {
       && payload?.seller_id && String(payload.seller_id) !== context.id) {
     throw new ForbiddenError('You may not issue a quote in another seller\'s name');
   }
-  const commandKey = req?.headers?.['idempotency-key'] ?? null;
   const quoteInput = {
     seller_id: payload?.seller_id ?? null,
     quote_amount: payload?.quote_amount,
@@ -244,14 +301,27 @@ async function addQuote(importOrderId, payload, userContext = {}, req = null) {
     if (code === '42501' || /RX06_QUOTE_(ORDER_ACCESS_DENIED|SELLER_SPOOFING|SELLER_NOT_ASSIGNED|AUTH_REQUIRED)/.test(message))
       throw new ForbiddenError('You are not authorized to issue this import quotation');
     if (code === 'P0002') throw new NotFoundError('Diaspora import order or quote not found');
-    if (code === '23505') throw new ConflictError('Quotation idempotency key conflicts with an existing command');
+    if (code === '23505') {
+      throw new CarUpError('This Idempotency-Key was already used for a different quotation. Use a new key for a new quotation.',
+        409, 'IDEMPOTENCY_KEY_CONFLICT');
+    }
     if (code === '22023' || code === '22007') throw new ValidationError(message);
     throw new DatabaseError('Atomic import quotation could not be recorded');
   }
   if (!data?.order || !data?.quote) throw new DatabaseError('Atomic import quotation returned an invalid receipt');
 
   // The RPC writes the durable quote event into domain_events in the same transaction.
-  // Do not emit an additional event from the application or replayed request.
+  // Do not emit an additional event from the application or replayed request. The buyer
+  // notification mirrors the pre-R2 transition notification (best-effort, post-commit,
+  // only when the status actually changed, never for a replay).
+  if (!data.idempotentReplay && data.statusChanged) {
+    await queueBuyerNotification({
+      recipientId: data.order.buyer_id || data.order.created_by, importOrderId: data.order.id,
+      type: 'DIASPORA_QUOTE_ISSUED', title: 'Import order quote issued',
+      message: `Your CarUp diaspora import order has moved from ${data.previousStatus} to QUOTE_ISSUED.`,
+      metadata: { quoteId: data.quote.id },
+    });
+  }
   return { order: data.order, quote: data.quote, idempotentReplay: Boolean(data.idempotentReplay) };
 }
 

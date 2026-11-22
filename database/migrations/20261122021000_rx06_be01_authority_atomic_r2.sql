@@ -1,12 +1,24 @@
 -- +migrate Up
--- CARUP-RX06-BE-01-P0 LR02 R2. Standalone on f269ec03; R1 NOT required.
+-- CARUP-RX06-BE-01-P0 LR02 R2 (R2C corrected). Standalone on f269ec03; R1 NOT required.
 -- F13/F15 atomic mutations, F1/F16/F17 order/audit authorization. PRIVATE. NO SHARED DB.
--- Quote issue, order status, and both critical audit facts commit/rollback as one statement.
--- This RPC is service_role-only and independently authorizes against database-held identities.
+-- Quote issue, order status, both critical audit facts and the outbox event commit/rollback as one statement.
+-- These RPCs are service_role-only and independently authorize against database-held identities.
 -- Operator applies directly to disposable PostgreSQL using psql ON_ERROR_STOP=1.
 -- Safe to apply twice. SQL must be executed in a single transaction (BEGIN/COMMIT below).
+--
+-- R2C corrections in this file (see the R2C return for evidence):
+--  * No pgcrypto dependency. Hashes use the core sha256(bytea) function (PostgreSQL 11+), which
+--    resolves under the pinned search_path on every installation. R2 called pgcrypto's digest()
+--    under `search_path = pg_catalog, public, pg_temp`, which fails wherever pgcrypto lives in
+--    another schema (hosted Supabase installs it in `extensions`). gen_random_uuid() is core (13+).
+--  * C03: a quotation command key is mandatory (the API refuses a missing key before any read).
+--  * The idempotency payload hash renders valid_until in UTC, so it does not depend on TimeZone.
+--  * Audit seals follow the buildAuditSeal field order (actor|action|resource_type|resource_id|
+--    ISO-8601 UTC ms timestamp|{previousState,newState,metadata}); created_at is set to the sealed
+--    timestamp so the seal can be recomputed from the stored row (JSON segment = jsonb text form).
+--  * Outbox payloads match the pre-R2 notifyDiasporaMilestone payloads (title/message included).
+--  * The RPCs return previousStatus so the API can queue the pre-R2 buyer notifications.
 BEGIN;
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS public.diaspora_quote_issue_commands (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -56,7 +68,9 @@ DECLARE
   v_status_changed boolean;
   v_previous_status text;
   v_seal text;
+  v_audit_meta jsonb;
   v_ts timestamptz := clock_timestamp();
+  v_ts_iso text;
 BEGIN
   IF p_actor_id IS NULL OR length(p_actor_id) = 0 THEN
     RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'RX06_QUOTE_AUTH_REQUIRED';
@@ -64,8 +78,12 @@ BEGIN
   IF p_quote IS NULL OR jsonb_typeof(p_quote) IS DISTINCT FROM 'object' THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'RX06_QUOTE_INVALID_PAYLOAD';
   END IF;
-  IF p_command_key IS NOT NULL AND (
-      length(p_command_key) NOT BETWEEN 8 AND 128 OR p_command_key !~ '^[A-Za-z0-9._:-]+$') THEN
+  -- C03: a command key is mandatory. Without one a network retry or a double submit cannot be
+  -- recognised, so the database refuses the command (the API already refused it before any read).
+  IF p_command_key IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'RX06_QUOTE_COMMAND_KEY_REQUIRED';
+  END IF;
+  IF length(p_command_key) NOT BETWEEN 8 AND 128 OR p_command_key !~ '^[A-Za-z0-9._:-]+$' THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'RX06_QUOTE_INVALID_COMMAND_KEY';
   END IF;
   IF length(p_quote::text) > 16384 THEN
@@ -151,26 +169,27 @@ BEGIN
 
   -- Scoped, persistent idempotency; exact command returns its original quote.
   -- Different payload with the same key conflicts even when the order is already quoted.
-  v_payload_hash := encode(digest(
+  -- valid_until is rendered in UTC so the hash never depends on the session TimeZone.
+  v_payload_hash := encode(sha256(convert_to(
     jsonb_build_object('seller_id',v_seller,'quote_amount',v_amount,
-      'quote_currency',v_currency,'valid_until',v_valid_until,'inclusions',v_inclusions,
-      'exclusions',v_exclusions,'metadata',v_metadata)::text, 'sha256'), 'hex');
-  IF p_command_key IS NOT NULL THEN
-    SELECT * INTO v_existing FROM public.diaspora_quote_issue_commands
-      WHERE import_order_id = p_order_id AND actor_id = p_actor_id
-        AND command_key = p_command_key;
-    IF FOUND THEN
-      IF v_existing.payload_hash <> v_payload_hash THEN
-        RAISE EXCEPTION USING ERRCODE = '23505', MESSAGE = 'RX06_QUOTE_IDEMPOTENCY_CONFLICT';
-      END IF;
-      SELECT * INTO v_quote FROM public.diaspora_import_quotes
-        WHERE id = v_existing.quote_id AND deleted_at IS NULL;
-      IF NOT FOUND THEN
-        RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE = 'RX06_QUOTE_RECEIPT_MISSING';
-      END IF;
-      RETURN jsonb_build_object('order',to_jsonb(v_order),'quote',to_jsonb(v_quote),
-        'idempotentReplay',true,'statusChanged',false);
+      'quote_currency',v_currency,
+      'valid_until', CASE WHEN v_valid_until IS NULL THEN NULL
+                     ELSE to_char(v_valid_until AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') END,
+      'inclusions',v_inclusions,'exclusions',v_exclusions,'metadata',v_metadata)::text, 'UTF8')), 'hex');
+  SELECT * INTO v_existing FROM public.diaspora_quote_issue_commands
+    WHERE import_order_id = p_order_id AND actor_id = p_actor_id
+      AND command_key = p_command_key;
+  IF FOUND THEN
+    IF v_existing.payload_hash <> v_payload_hash THEN
+      RAISE EXCEPTION USING ERRCODE = '23505', MESSAGE = 'RX06_QUOTE_IDEMPOTENCY_CONFLICT';
     END IF;
+    SELECT * INTO v_quote FROM public.diaspora_import_quotes
+      WHERE id = v_existing.quote_id AND deleted_at IS NULL;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE = 'RX06_QUOTE_RECEIPT_MISSING';
+    END IF;
+    RETURN jsonb_build_object('order',to_jsonb(v_order),'quote',to_jsonb(v_quote),
+      'idempotentReplay',true,'statusChanged',false,'previousStatus',v_order.status);
   END IF;
 
   -- Only currently quote-issuing order states are legal for a NEW decision.
@@ -179,8 +198,9 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'RX06_QUOTE_ILLEGAL_ORDER_STATE';
   END IF;
   v_status_changed := v_order.status <> 'QUOTE_ISSUED';
+  v_ts_iso := to_char(v_ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
 
-  -- The following writes, including audit, are one PostgreSQL transaction.
+  -- The following writes, including audit and outbox, are one PostgreSQL transaction.
   INSERT INTO public.diaspora_import_quotes (
     import_order_id,tenant_id,seller_id,quote_amount,quote_currency,valid_until,
     inclusions,exclusions,metadata,created_by,updated_by
@@ -197,49 +217,52 @@ BEGIN
      WHERE id = v_order.id RETURNING * INTO v_order;
   END IF;
 
-  v_seal := encode(digest(
-      p_actor_id || '|QUOTE_ISSUED|diaspora_import_quote|' || v_quote.id::text || '|' || v_ts::text,
-      'sha256'), 'hex');
+  -- Seal recipe (buildAuditSeal field order): actor|action|resource_type|resource_id|ts|payload.
+  v_seal := encode(sha256(convert_to(
+      p_actor_id || '|QUOTE_ISSUED|diaspora_import_quote|' || v_quote.id::text || '|' || v_ts_iso || '|' ||
+      jsonb_build_object('previousState',NULL,'newState',to_jsonb(v_quote),'metadata','{}'::jsonb)::text,
+      'UTF8')), 'hex');
   INSERT INTO public.diaspora_import_audit_log (
     import_order_id,tenant_id,actor_id,action,resource_type,resource_id,
-    previous_state,new_state,metadata,cryptographic_seal,ip_address,user_agent
+    previous_state,new_state,metadata,cryptographic_seal,ip_address,user_agent,created_at
   ) VALUES (
     v_order.id,v_order.tenant_id,p_actor_id,'QUOTE_ISSUED','diaspora_import_quote',v_quote.id::text,
-    NULL,to_jsonb(v_quote),'{}'::jsonb,v_seal,left(p_ip_address,128),left(p_user_agent,512)
+    NULL,to_jsonb(v_quote),'{}'::jsonb,v_seal,left(p_ip_address,128),left(p_user_agent,512),v_ts
   );
 
   IF v_status_changed THEN
-    v_seal := encode(digest(
-      p_actor_id || '|IMPORT_ORDER_STATUS_CHANGED|diaspora_import_order|' || v_order.id::text || '|' || v_ts::text,
-      'sha256'), 'hex');
+    v_audit_meta := jsonb_build_object('quoteId',v_quote.id);
+    v_seal := encode(sha256(convert_to(
+      p_actor_id || '|IMPORT_ORDER_STATUS_CHANGED|diaspora_import_order|' || v_order.id::text || '|' || v_ts_iso || '|' ||
+      jsonb_build_object('previousState',jsonb_build_object('status',v_previous_status),
+        'newState',jsonb_build_object('status','QUOTE_ISSUED'),'metadata',v_audit_meta)::text,
+      'UTF8')), 'hex');
     INSERT INTO public.diaspora_import_audit_log (
       import_order_id,tenant_id,actor_id,action,resource_type,resource_id,
-      previous_state,new_state,metadata,cryptographic_seal,ip_address,user_agent
+      previous_state,new_state,metadata,cryptographic_seal,ip_address,user_agent,created_at
     ) VALUES (
       v_order.id,v_order.tenant_id,p_actor_id,'IMPORT_ORDER_STATUS_CHANGED',
       'diaspora_import_order',v_order.id::text,
       jsonb_build_object('status', v_previous_status),jsonb_build_object('status','QUOTE_ISSUED'),
-      jsonb_build_object('quoteId',v_quote.id),v_seal,left(p_ip_address,128),left(p_user_agent,512)
+      v_audit_meta,v_seal,left(p_ip_address,128),left(p_user_agent,512),v_ts
     );
-  END IF;
 
-  -- Transactional outbox: no client-side event before commit, no orphaned event on rollback.
-  IF v_status_changed THEN
+    -- Transactional outbox, same payload as the pre-R2 transition milestone (notifyDiasporaMilestone).
     INSERT INTO public.domain_events(event_type,payload,status,attempts,tenant_id)
     VALUES ('DIASPORA_QUOTE_ISSUED',
-      jsonb_build_object('importOrderId',v_order.id,'status',v_order.status,
-                         'actorId',p_actor_id,'quoteId',v_quote.id),
+      jsonb_build_object('importOrderId',v_order.id,'status',v_order.status,'actorId',p_actor_id,
+        'title','Import order quote issued',
+        'message','Your CarUp diaspora import order has moved from ' || v_previous_status || ' to QUOTE_ISSUED.',
+        'quoteId',v_quote.id),
       'pending',0,v_order.tenant_id::text);
   END IF;
 
-  IF p_command_key IS NOT NULL THEN
-    INSERT INTO public.diaspora_quote_issue_commands (
-      import_order_id,actor_id,command_key,payload_hash,quote_id
-    ) VALUES (v_order.id,p_actor_id,p_command_key,v_payload_hash,v_quote.id);
-  END IF;
+  INSERT INTO public.diaspora_quote_issue_commands (
+    import_order_id,actor_id,command_key,payload_hash,quote_id
+  ) VALUES (v_order.id,p_actor_id,p_command_key,v_payload_hash,v_quote.id);
 
   RETURN jsonb_build_object('order',to_jsonb(v_order),'quote',to_jsonb(v_quote),
-    'idempotentReplay',false,'statusChanged',v_status_changed);
+    'idempotentReplay',false,'statusChanged',v_status_changed,'previousStatus',v_previous_status);
 END;
 $quote$;
 
@@ -255,7 +278,6 @@ END $grant_quote$;
 
 -- Direct authenticated PostgREST table inserts/updates could bypass the governed
 -- API transaction. All quote mutations in this architecture use the service role.
--- Do not revoke SELECT: order/participant read-models remain governed separately.
 REVOKE INSERT, UPDATE, DELETE ON public.diaspora_import_quotes FROM anon, authenticated;
 
 
@@ -282,7 +304,9 @@ DECLARE
   v_old_status text;
   v_change boolean;
   v_seal text;
+  v_meta jsonb;
   v_ts timestamptz := clock_timestamp();
+  v_ts_iso text;
 BEGIN
   IF p_actor_id IS NULL OR btrim(p_actor_id) = '' THEN
     RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='RX06_ASSIGN_AUTH_REQUIRED';
@@ -333,9 +357,10 @@ BEGIN
     ORDER BY created_at ASC LIMIT 1 FOR UPDATE;
   IF FOUND THEN
     RETURN jsonb_build_object('order',to_jsonb(v_order),'participant',to_jsonb(v_part),
-      'idempotentReplay',true,'statusChanged',false);
+      'idempotentReplay',true,'statusChanged',false,'previousStatus',v_order.status);
   END IF;
 
+  v_ts_iso := to_char(v_ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
   INSERT INTO public.diaspora_import_order_participants (
     tenant_id, import_order_id, user_id, participant_role, notes, created_by, updated_by
   ) VALUES (v_order.tenant_id,v_order.id,p_seller_id,p_role_type,p_notes,p_actor_id,p_actor_id)
@@ -349,34 +374,51 @@ BEGIN
             jsonb_build_object('last_transition',jsonb_build_object('sellerId',p_seller_id))
       WHERE id=v_order.id RETURNING * INTO v_order;
   END IF;
-  v_seal:=encode(digest(p_actor_id||'|SELLER_ASSIGNED|diaspora_import_order_participant|'||
-        v_part.id::text||'|'||v_ts::text,'sha256'),'hex');
+  v_meta := jsonb_build_object('sellerId',p_seller_id);
+  v_seal:=encode(sha256(convert_to(
+        p_actor_id||'|SELLER_ASSIGNED|diaspora_import_order_participant|'||v_part.id::text||'|'||v_ts_iso||'|'||
+        jsonb_build_object('previousState',jsonb_build_object('status',v_old_status),
+          'newState',to_jsonb(v_part),'metadata',v_meta)::text,
+        'UTF8')),'hex');
   INSERT INTO public.diaspora_import_audit_log(
     import_order_id,tenant_id,actor_id,action,resource_type,resource_id,
-    new_state,metadata,cryptographic_seal,ip_address,user_agent)
+    previous_state,new_state,metadata,cryptographic_seal,ip_address,user_agent,created_at)
   VALUES(v_order.id,v_order.tenant_id,p_actor_id,'SELLER_ASSIGNED',
     'diaspora_import_order_participant',v_part.id::text,
-    to_jsonb(v_part),jsonb_build_object('sellerId',p_seller_id),v_seal,
-    left(p_ip_address,128),left(p_user_agent,512));
+    jsonb_build_object('status',v_old_status),to_jsonb(v_part),v_meta,v_seal,
+    left(p_ip_address,128),left(p_user_agent,512),v_ts);
   IF v_change THEN
-    v_seal:=encode(digest(p_actor_id||'|IMPORT_ORDER_STATUS_CHANGED|diaspora_import_order|'||
-      v_order.id::text||'|'||v_ts::text,'sha256'),'hex');
+    v_seal:=encode(sha256(convert_to(
+      p_actor_id||'|IMPORT_ORDER_STATUS_CHANGED|diaspora_import_order|'||v_order.id::text||'|'||v_ts_iso||'|'||
+      jsonb_build_object('previousState',jsonb_build_object('status',v_old_status),
+        'newState',jsonb_build_object('status',v_order.status),'metadata',v_meta)::text,
+      'UTF8')),'hex');
     INSERT INTO public.diaspora_import_audit_log(
       import_order_id,tenant_id,actor_id,action,resource_type,resource_id,
-      previous_state,new_state,metadata,cryptographic_seal,ip_address,user_agent)
+      previous_state,new_state,metadata,cryptographic_seal,ip_address,user_agent,created_at)
     VALUES(v_order.id,v_order.tenant_id,p_actor_id,'IMPORT_ORDER_STATUS_CHANGED',
       'diaspora_import_order',v_order.id::text,
       jsonb_build_object('status',v_old_status),jsonb_build_object('status',v_order.status),
-      jsonb_build_object('sellerId',p_seller_id),v_seal,
-      left(p_ip_address,128),left(p_user_agent,512));
+      v_meta,v_seal,left(p_ip_address,128),left(p_user_agent,512),v_ts);
+    -- Outbox, same payload as the pre-R2 transition milestone.
+    INSERT INTO public.domain_events(event_type,payload,status,attempts,tenant_id)
+    VALUES('DIASPORA_SELLER_ASSIGNED',
+      jsonb_build_object('importOrderId',v_order.id,'status',v_order.status,'actorId',p_actor_id,
+        'title','Import order seller assigned',
+        'message','Your CarUp diaspora import order has moved from ' || v_old_status || ' to SELLER_ASSIGNED.',
+        'sellerId',p_seller_id),
+      'pending',0,v_order.tenant_id::text);
   END IF;
+  -- Outbox, same payload as the pre-R2 assignSeller milestone (emitted for every new assignment).
   INSERT INTO public.domain_events(event_type,payload,status,attempts,tenant_id)
   VALUES('DIASPORA_SELLER_ASSIGNED',
-    jsonb_build_object('importOrderId',v_order.id,'status',v_order.status,
-       'actorId',p_actor_id,'sellerId',p_seller_id),
+    jsonb_build_object('importOrderId',v_order.id,'status',v_order.status,'actorId',p_actor_id,
+      'title','Seller assigned',
+      'message','A verified diaspora seller/export participant has been assigned to your import order.',
+      'sellerId',p_seller_id),
     'pending',0,v_order.tenant_id::text);
   RETURN jsonb_build_object('order',to_jsonb(v_order),'participant',to_jsonb(v_part),
-    'idempotentReplay',false,'statusChanged',v_change);
+    'idempotentReplay',false,'statusChanged',v_change,'previousStatus',v_old_status);
 END;
 $assign$;
 

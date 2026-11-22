@@ -37,9 +37,17 @@ test('F15: soft-deleted and wrong-tenant participant denied',()=>{
   assert.equal(canReadImportOrder(mkOrder(),[p('VERIFIED',{tenant_id:'tenant-2'})],assignedSeller),false);
 });
 const auditRow={id:'audit-1',import_order_id:'order-1',tenant_id:'tenant-1',actor_id:'buyer-1',action:'QUOTE_ISSUED',resource_type:'diaspora_import_quote',resource_id:'quote-1',previous_state:{secret:'previous'},new_state:{budget_amount:60000},metadata:{token:'fictional'},cryptographic_seal:'abc123',ip_address:'198.51.100.1',user_agent:'test',verification_status:'VERIFIED',created_at:'2026-11-22T00:00:00Z'};
-test('B16: safe audit projection only allows four keys; reviewer sees forensic fields',()=>{
+test('C01 (R2C): the patched import-order service module itself loads and exports addQuote',async()=>{
+  // R2 as delivered never imported this module, so a generated syntax error and the missing
+  // addQuote export both passed this suite. Loading it here makes either failure fatal.
+  const svc=await import('../services/diaspora/diasporaImportOrderService.js');
+  assert.equal(typeof svc.addQuote,'function');
+  assert.equal(typeof svc.assignSeller,'function');
+});
+test('B16 (R2C contract): safe audit projection = four redacted keys plus derived non-sensitive fields; reviewer sees forensic fields',()=>{
   const sanitized=projectDiasporaAudit(auditRow,buyer);
-  assert.deepEqual(Object.keys(sanitized).sort(),['id','action','resource_type','created_at'].sort());
+  assert.deepEqual(Object.keys(sanitized).sort(),['id','action','resource_type','created_at','actor_relation','sealed'].sort());
+  for(const k of ['previous_state','new_state','metadata','actor_id','ip_address','user_agent','cryptographic_seal','tenant_id','resource_id']) assert.equal(k in sanitized,false,k);
   assert.equal(JSON.stringify(sanitized).includes('budget_amount'),false);
   assert.equal(JSON.stringify(sanitized).includes('198.51.100'),false);
   assert.equal(projectDiasporaAudit(auditRow,reviewer).new_state.budget_amount,60000);

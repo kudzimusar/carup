@@ -34,15 +34,38 @@ const authOrder = Object.freeze({
   status: IMPORT_ORDER_STATUSES.IMPORT_REQUESTED,
 });
 
+// RX06-BE-01 R2C: participants carry their order's tenant, exactly as assignSeller (the only
+// creation path, before and after R2) writes them. R2 binds participant authority to the order's
+// tenant, so the fixture now matches real rows; the wrong-tenant denial is pinned below.
 const authParticipants = Object.freeze([
   {
     id: 'participant-1',
     import_order_id: 'order-1',
+    tenant_id: 'tenant-1',
     user_id: 'seller-1',
     participant_role: 'seller',
     verification_status: 'VERIFIED',
   },
 ]);
+
+test('RX06-BE-01: a participant whose tenant differs from (or is missing for) the order tenant has no authority', () => {
+  for (const tenant_id of ['tenant-2', null, undefined]) {
+    const participants = [{ ...authParticipants[0], tenant_id }];
+    assert.equal(canReadImportOrder(authOrder, participants, { id: 'seller-1', role: 'seller' }), false, String(tenant_id));
+    assert.equal(
+      canTransitionImportOrderForContext(authOrder, participants, IMPORT_ORDER_STATUSES.QUOTE_ISSUED, { id: 'seller-1', role: 'seller' }),
+      false, String(tenant_id),
+    );
+  }
+});
+
+test('RX06-BE-01 F16: the last updater of an order gains no owner authority', () => {
+  assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'updater-1', role: 'member' }), false);
+  assert.equal(
+    canTransitionImportOrderForContext(authOrder, authParticipants, IMPORT_ORDER_STATUSES.CANCELLED, { id: 'updater-1', role: 'member' }),
+    false,
+  );
+});
 
 const authDocument = Object.freeze({
   id: 'document-1',

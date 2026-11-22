@@ -12,7 +12,8 @@ import diasporaSubscriptionRoutes from './diasporaSubscriptionRoutes.js';
 import diasporaSafeTradeRouter from './diasporaSafeTradeRoutes.js';
 import diasporaTradeGraphRouter from './diasporaTradeGraphRoutes.js';
 import diasporaSchedulerRouter from './diasporaSchedulerRoutes.js';
-import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
+import { listDiasporaAudit, listDiasporaAuditForReviewer } from '../services/diaspora/diasporaAuditService.js';
+import { PLATFORM_REVIEW_ROLES } from '../services/diaspora/diasporaAuthorization.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
 import { completeOwnershipHandoff, getOwnershipHandoffStatus } from '../services/diaspora/diasporaOwnershipHandoffService.js';
@@ -33,6 +34,9 @@ const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const auth = authorizeRole();
 const reviewerAuth = authorizeRole(['admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer', 'dealer']);
+// C02: coarse route filter for the reviewer-wide audit. The service (listDiasporaAuditForReviewer)
+// is the authority boundary and re-checks the server-derived platform role.
+const platformReviewerAuth = authorizeRole([...PLATFORM_REVIEW_ROLES]);
 
 function pagination(req) {
   return {
@@ -105,7 +109,9 @@ router.post('/import-orders/:id/assign-seller', auth, asyncHandler(async (req, r
 }));
 
 router.post('/import-orders/:id/quotes', auth, asyncHandler(async (req, res) => {
-  res.status(201).json(await addQuote(req.params.id, req.body, req.userContext, req));
+  const result = await addQuote(req.params.id, req.body, req.userContext, req);
+  if (result.idempotentReplay) res.set('Idempotency-Replayed', 'true');
+  res.status(201).json(result);
 }));
 
 router.get('/import-orders/:id/documents', auth, asyncHandler(async (req, res) => {
@@ -334,6 +340,6 @@ router.get('/reviews', auth, asyncHandler(async (req, res) => res.json({ data: a
 router.get('/reputation', auth, asyncHandler(async (req, res) => res.json({ data: await listReputationRecords({ tradeProfileId: req.query.tradeProfileId, importOrderId: req.query.importOrderId, ...pagination(req) }) })));
 router.post('/reputation', auth, asyncHandler(async (req, res) => res.status(201).json(await createReputationRecord(req.body, req.userContext, req))));
 router.get('/notifications', auth, asyncHandler(async (req, res) => res.json({ data: await listNotificationPreferences(req.userContext.id) })));
-router.get('/audit', reviewerAuth, asyncHandler(async (req, res) => res.json({ data: await listDiasporaAudit({ importOrderId: req.query.importOrderId, limit: Number(req.query.limit || 100) }) })));
+router.get('/audit', platformReviewerAuth, asyncHandler(async (req, res) => res.json({ data: await listDiasporaAuditForReviewer({ importOrderId: req.query.importOrderId ?? null, limit: Number(req.query.limit || 100), userContext: req.userContext }) })));
 
 export default router;
