@@ -5,6 +5,18 @@ import { IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses
 import { assertCanReadImportOrder, isPlatformReviewer, requireUserContext } from './diasporaAuthorization.js';
 
 const KNOWN_ORDER_STATUSES = new Set(Object.values(IMPORT_ORDER_STATUSES));
+/**
+ * Resource types whose rows an authorized order reader already receives in the order read-model
+ * (getImportOrder embeds participants, quotes, trade documents, cargo reservations, shipments,
+ * compliance reviews and payment milestones). Only for these does the redacted timeline carry
+ * resource_id, so the UI can de-duplicate and describe entries from records it already holds.
+ * Government documents, vehicle import records, SafeTrade, stock, Drive, AI and workbook rows are
+ * NOT in the read-model, so their identifiers stay forensic-only.
+ */
+const ORDER_READ_MODEL_RESOURCE_TYPES = new Set([
+  'diaspora_import_order', 'diaspora_import_quote', 'diaspora_import_order_participant', 'diaspora_trade_document',
+  'diaspora_cargo_reservation', 'diaspora_shipment', 'diaspora_compliance_review', 'diaspora_payment_milestone',
+]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function buildAuditSeal({ actorId, action, resourceType, resourceId, timestamp, payload }) {
@@ -101,6 +113,7 @@ export function projectDiasporaAudit(row, userContext = {}) {
     id: row.id,
     action: row.action,
     resource_type: row.resource_type,
+    ...(ORDER_READ_MODEL_RESOURCE_TYPES.has(row.resource_type) && row.resource_id != null ? { resource_id: String(row.resource_id) } : {}),
     created_at: row.created_at,
     ...derivedTimelineFields(row, context),
   };

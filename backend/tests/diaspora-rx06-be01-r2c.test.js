@@ -119,12 +119,12 @@ const row = (extra = {}) => ({
   ip_address: '198.51.100.7', user_agent: 'Fictional/1.0', verification_status: 'VERIFIED',
   created_at: '2026-11-22T00:00:00Z', ...extra,
 });
-const FORBIDDEN = ['tenant_id', 'import_order_id', 'actor_id', 'resource_id', 'previous_state', 'new_state', 'metadata',
+const FORBIDDEN = ['tenant_id', 'import_order_id', 'actor_id', 'previous_state', 'new_state', 'metadata',
   'cryptographic_seal', 'ip_address', 'user_agent', 'verification_status', 'updated_at', 'deleted_at'];
 
 test('B16: an ordinary reader gets the redacted timeline plus derived, non-sensitive fields only', () => {
   const p = audit.projectDiasporaAudit(row(), buyer);
-  assert.deepEqual(Object.keys(p).sort(), ['action', 'actor_relation', 'created_at', 'id', 'resource_type', 'sealed', 'status_from', 'status_to'].sort());
+  assert.deepEqual(Object.keys(p).sort(), ['action', 'actor_relation', 'created_at', 'id', 'resource_id', 'resource_type', 'sealed', 'status_from', 'status_to'].sort());
   for (const k of FORBIDDEN) assert.equal(k in p, false, `${k} is not disclosed`);
   assert.equal(p.status_from, 'IMPORT_REQUESTED');
   assert.equal(p.status_to, 'QUOTE_ISSUED');
@@ -142,6 +142,16 @@ test('B16: status_from/status_to appear only on status changes and only as canon
   assert.equal(forged.status_from, null);
   assert.equal(forged.status_to, null);
   assert.ok(Object.values(IMPORT_ORDER_STATUSES).includes('QUOTE_ISSUED'));
+});
+
+test('B16: resource_id is disclosed only for records already in the order read-model', () => {
+  for (const type of ['diaspora_import_order', 'diaspora_import_quote', 'diaspora_import_order_participant', 'diaspora_trade_document',
+    'diaspora_cargo_reservation', 'diaspora_shipment', 'diaspora_compliance_review', 'diaspora_payment_milestone']) {
+    assert.equal(audit.projectDiasporaAudit(row({ resource_type: type, resource_id: 'rec-1' }), buyer).resource_id, 'rec-1', type);
+  }
+  for (const type of ['vehicle_government_document', 'vehicle_import_record', 'diaspora_safetrade_transaction', 'diaspora_trade_document_extraction', 'diaspora_stock_item', null]) {
+    assert.equal('resource_id' in audit.projectDiasporaAudit(row({ resource_type: type, resource_id: 'secret-gov-doc-1' }), buyer), false, String(type));
+  }
 });
 
 test('B16: actor_relation never exposes an identifier', () => {
