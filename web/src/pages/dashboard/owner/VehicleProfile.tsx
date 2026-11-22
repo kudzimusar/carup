@@ -29,6 +29,9 @@ import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import { DataState, MoneyDisplay } from '@/components/truth'
 import { OWNER_FOCUS, OWNER_PRIMARY_ACTION, OWNER_SECONDARY_ACTION } from '@/components/owner/OwnerPageHeader'
 import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
+import { useTradeRead } from '@/components/trade/order/useTradeReads'
+import { VehicleImportsSection } from '@/components/trade/journey/VehicleImportsSection'
+import type { Journey } from '@/components/trade/journey/journeyTypes'
 
 // ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
 /**
@@ -128,7 +131,10 @@ function PassportEmpty({ children }: { children: ReactNode }) {
 export default function VehicleProfile() {
   const { id } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
+  const { fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchDiasporaJourney } = useCarUpApi()
+  // RX06-LR04 CAP S1c (unified only): which import orders carry this vehicle, for its owner — one read, by VIN.
+  // Refused or not served answers render nothing; a failed read says so and is never "none".
+  const importsRead = useTradeRead<Journey>(isUnifiedUiEnabled() && Boolean(id), id ? `vehicle-journey:${id}` : null, () => fetchDiasporaJourney('vehicle', id as string))
   const [passportData, setPassportData] = useState<VehiclePassport | null>(null)
   const [passportLoadState, setPassportLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [evidenceList, setEvidenceList] = useState<VehicleEvidence[]>([])
@@ -616,6 +622,7 @@ export default function VehicleProfile() {
           </div>
 
           <aside className="space-y-4 xl:sticky xl:top-16 xl:self-start">
+            <VehicleImportsSection read={importsRead} />
             <section className="rounded-2xl bg-carup-bg-raised p-5 ring-1 ring-carup-line" aria-labelledby="passport-summary-title">
               <h2 id="passport-summary-title" className="text-[15px] font-semibold text-carup-text">Summary</h2>
               <dl className="mt-3 space-y-2 text-[14px]">
