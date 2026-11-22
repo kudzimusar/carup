@@ -23,6 +23,7 @@ import type {
   DiasporaTradeDocument,
 } from '@/types'
 import { IMPORT_ORDER_LIFECYCLE, positionOf, statusLabel } from '@/components/trade/core/importOrderLifecycle'
+import { OFFLINE_TEXT, THROTTLED_TEXT, isNetworkFailure } from '@/components/trade/core/readFailure'
 
 /* ── Reads: loading / ready / failed / denied / unavailable are five different statements ──────── */
 
@@ -87,14 +88,21 @@ export function readFromError(err: unknown, onRetry?: () => void, fallback = 'Th
   if (isSessionEnded(err)) return { state: 'failed', message: SESSION_ENDED_TEXT }
   if (status === 403) return { state: 'denied', message }
   if (status === 404) return { state: 'unavailable', message }
+  // RX06-LR04: a throttled read is not a refusal, and a read that never reached CarUp is not an outage of the record.
+  if (status === 429) return { state: 'failed', message: THROTTLED_TEXT, onRetry }
+  if (isNetworkFailure(status, err instanceof Error ? err.message : null)) return { state: 'failed', message: OFFLINE_TEXT, onRetry }
   if (status === undefined && /forbidden|not authori[sz]ed|do not have access/i.test(message)) return { state: 'denied', message }
   return { state: 'failed', message, onRetry }
 }
 
 /** Same classification for a status + message pair kept in page state. */
 export function readFromFailure(status: number | null | undefined, message: string, onRetry?: () => void): Read<never> {
+  // RX06-LR04: an ended session is not retried with the same session (signing in is the way back).
+  if (status === 401) return { state: 'failed', message: SESSION_ENDED_TEXT }
   if (status === 403) return { state: 'denied', message }
   if (status === 404) return { state: 'unavailable', message }
+  if (status === 429) return { state: 'failed', message: THROTTLED_TEXT, onRetry }
+  if (isNetworkFailure(status, message)) return { state: 'failed', message: OFFLINE_TEXT, onRetry }
   return { state: 'failed', message, onRetry }
 }
 
