@@ -142,19 +142,22 @@ export function isOrderOwner(order = {}, userContext = {}) {
     order.userId,
     order.created_by,
     order.createdBy,
-    order.updated_by,
-    order.updatedBy,
   ].some((candidate) => normalizeId(candidate) === userId);
 }
 
-export function isAssignedParticipant(participants = [], userContext = {}) {
+export function isAssignedParticipant(participants = [], userContext = {}, order = null) {
   const userId = normalizeId(userContext.id ?? userContext.userId);
+  // Explicit order row is required to bind participant authority to the same tenant.
+  if (!order || !userId) return false;
+  const orderTenant = normalizeId(order.tenant_id ?? order.tenantId);
   return participants.some((participant) => {
-    const participantUserId = normalizeId(participant.user_id ?? participant.userId ?? participant.participant_id ?? participant.participantId);
-    const verificationStatus = String(participant.verification_status ?? participant.status ?? 'active').toLowerCase();
-    return participantUserId === userId
+    const participantUser = normalizeId(participant.user_id ?? participant.userId);
+    const status = String(participant.verification_status ?? participant.status ?? 'active').toLowerCase();
+    const participantTenant = normalizeId(participant.tenant_id ?? participant.tenantId);
+    return participantUser === userId
+      && participantTenant === orderTenant
       && !participant.deleted_at
-      && !INACTIVE_PARTICIPANT_STATES.has(verificationStatus);
+      && !['cancelled','deleted','inactive','rejected','removed','revoked','suspended'].includes(status);
   });
 }
 
@@ -163,7 +166,7 @@ export function canReadImportOrder(order, participants = [], userContext = {}) {
   if (isPlatformReviewer(userContext)) return true;
   if (isTenantAdminForRecord(order, userContext)) return true;
   if (isOrderOwner(order, userContext)) return true;
-  return isAssignedParticipant(participants, userContext);
+  return isAssignedParticipant(participants, userContext, order);
 }
 
 export function assertCanReadImportOrder(order, participants = [], userContext = {}) {
@@ -197,7 +200,7 @@ export function canTransitionImportOrderForContext(order, participants = [], nex
   if (isPlatformReviewer(userContext)) return true;
   if (isTenantAdminForRecord(order, userContext)) return true;
   if (isOrderOwner(order, userContext)) return BUYER_TRANSITION_STATUSES.has(nextStatus);
-  if (isAssignedParticipant(participants, userContext)) return PARTICIPANT_TRANSITION_STATUSES.has(nextStatus);
+  if (isAssignedParticipant(participants, userContext, order)) return PARTICIPANT_TRANSITION_STATUSES.has(nextStatus);
   return false;
 }
 

@@ -118,7 +118,9 @@ router.post('/import-orders/:id/documents', auth, asyncHandler(async (req, res) 
 
 router.get('/import-orders/:id/stages', auth, asyncHandler(async (req, res) => {
   const order = await getImportOrder(req.params.id, req.userContext);
-  res.json({ status: order.status, audit: await listDiasporaAudit({ importOrderId: req.params.id }) });
+  res.json({ status: order.status, audit: await listDiasporaAudit({
+    importOrderId: req.params.id, userContext: req.userContext, authorizedOrder: order,
+  }) });
 }));
 
 router.patch('/import-orders/:id/stages', auth, asyncHandler(async (req, res) => {
@@ -127,7 +129,11 @@ router.patch('/import-orders/:id/stages', auth, asyncHandler(async (req, res) =>
 }));
 
 router.get('/import-orders/:id/audit', auth, asyncHandler(async (req, res) => {
-  res.json({ data: await listDiasporaAudit({ importOrderId: req.params.id, limit: Number(req.query.limit || 100) }) });
+  const order = await getImportOrder(req.params.id, req.userContext); // F17: required before any audit query
+  res.json({ data: await listDiasporaAudit({
+    importOrderId: req.params.id, limit: Number(req.query.limit || 100),
+    userContext: req.userContext, authorizedOrder: order,
+  }) });
 }));
 
 // Payment milestone — a non-custodial reference record, not a payment API. `auth` is the coarse
@@ -154,6 +160,7 @@ router.get('/import-orders/:id/ownership-handoff', auth, asyncHandler(async (req
 }));
 
 router.get('/import-orders/:id/government-footprint', auth, asyncHandler(async (req, res) => {
+  await getImportOrder(req.params.id, req.userContext); // F1: 403 before document query; unknown order 404
   res.json({ data: await getGovernmentFootprint(req.params.id) });
 }));
 

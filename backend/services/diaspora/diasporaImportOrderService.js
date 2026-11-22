@@ -1,12 +1,12 @@
 import { supabase } from '../../db/supabase.js';
 import { normalizeVehicleTaxonomyInput } from '../taxonomy/vehicleTaxonomyService.js';
 import { IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
-import { DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { validateImportOrderPayload, validatePaymentMilestonePayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { notifyDiasporaMilestone } from './diasporaNotificationService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
-import { assertCanReadImportOrder, isPlatformAdmin, isPlatformReviewer, requireUserContext } from './diasporaAuthorization.js';
+import { assertCanReadImportOrder, assertCanTransitionImportOrder, isOrderOwner, isTenantAdminForRecord, isPlatformAdmin, isPlatformReviewer, requireUserContext } from './diasporaAuthorization.js';
 
 function cleanOrderPayload(payload, userContext) {
   validateImportOrderPayload(payload);
@@ -55,7 +55,19 @@ function cleanOrderPayload(payload, userContext) {
 }
 
 export async function createImportOrder(payload, userContext = {}, req = null) {
-  const orderPayload = cleanOrderPayload(payload, userContext);
+  const context = requireUserContext(userContext);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new ValidationError('Import order payload must be an object');
+  }
+  // B18: buyer and tenant identities are derived from the signed-in session,
+  // not client JSON. No privileged on-behalf creation without a separate approved contract.
+  if (payload.buyer_id != null && String(payload.buyer_id) !== context.id) {
+    throw new ForbiddenError('Cannot create another buyer's import order');
+  }
+  if (payload.tenant_id != null && String(payload.tenant_id) !== String(context.tenantId)) {
+    throw new ForbiddenError('Cannot create an import order for another tenant');
+  }
+  const orderPayload = cleanOrderPayload(payload, context);
   const { data, error } = await supabase
     .from('diaspora_import_orders')
     .insert(orderPayload)
@@ -150,8 +162,46 @@ export async function getImportOrder(id, userContext = {}) {
 }
 
 export async function assignSeller(importOrderId, { sellerId, roleType = 'seller', notes = null }, userContext = {}, req = null) {
+  const context = requireUserContext(userContext);
   if (!sellerId) throw new ValidationError('sellerId is required');
+  // Defense in depth: the PostgreSQL function repeats every authority check under lock.
+  const { data: order, error: orderError } = await supabase
+    .from('diaspora_import_orders').select('*').eq('id', importOrderId)
+    .is('deleted_at', null).single();
+  if (orderError || !order) throw new NotFoundError('Diaspora import order not found');
+  if (!(isPlatformReviewer(context) || isTenantAdminForRecord(order, context) || isOrderOwner(order, context))) {
+    throw new ForbiddenError('You are not authorized to assign a seller to this import order');
+  }
+  if (!['IMPORT_REQUESTED','QUOTE_ISSUED','SELLER_ASSIGNED'].includes(order.status)) {
+    throw new ValidationError('The order cannot accept seller assignments in its current state');
+  }
+  const { data, error } = await supabase.rpc('diaspora_assign_import_seller_atomic', {
+    p_order_id: importOrderId,
+    p_actor_id: context.id,
+    p_seller_id: String(sellerId),
+    p_role_type: roleType,
+    p_notes: notes,
+    p_ip_address: req?.ip || null,
+    p_user_agent: req?.headers?.['user-agent'] || null,
+  });
+  if (error) {
+    const code = String(error.code || '');
+    const message = String(error.message || '');
+    if (code === '42501' || /RX06_ASSIGN_(ORDER_ACCESS_DENIED|AUTH_REQUIRED|SELF_SELLER_DENIED)/.test(message))
+      throw new ForbiddenError('You are not authorized to assign this seller');
+    if (code === 'P0002') throw new NotFoundError('Diaspora import order not found');
+    if (code === '22023') throw new ValidationError('Invalid seller assignment or order state');
+    throw new DatabaseError('Atomic import seller assignment could not be recorded');
+  }
+  if (!data?.order || !data?.participant) throw new DatabaseError('Atomic assignment returned an invalid receipt');
+  // The RPC durably appends one outbox event; do not duplicate it asynchronously.
+  return { order: data.order, participant: data.participant, idempotentReplay: Boolean(data.idempotentReplay) };
+}
 
+async function addQuote(importOrderId, payload, userContext = {}, req = null) {
+  // R6-F13: authoritative pre-write guard even when an order is already
+  // QUOTE_ISSUED. The SQL RPC independently re-verifies authority under lock.
+  const context = requireUserContext(userContext);
   const { data: order, error: orderError } = await supabase
     .from('diaspora_import_orders')
     .select('*')
@@ -159,93 +209,50 @@ export async function assignSeller(importOrderId, { sellerId, roleType = 'seller
     .is('deleted_at', null)
     .single();
   if (orderError || !order) throw new NotFoundError('Diaspora import order not found');
+  const participants = await getImportOrderParticipants(importOrderId);
+  assertCanReadImportOrder(order, participants, context);
+  assertCanTransitionImportOrder(order, participants, IMPORT_ORDER_STATUSES.QUOTE_ISSUED, context);
 
-  const { data: participant, error } = await supabase
-    .from('diaspora_import_order_participants')
-    .insert({
-      import_order_id: importOrderId,
-      tenant_id: order.tenant_id,
-      user_id: sellerId,
-      participant_role: roleType,
-      notes,
-      created_by: userContext?.id,
-      updated_by: userContext?.id,
-    })
-    .select()
-    .single();
-  if (error) throw new DatabaseError(error.message);
-
-  await writeDiasporaAudit({
-    importOrderId,
-    tenantId: order.tenant_id,
-    actorId: userContext?.id,
-    action: 'SELLER_ASSIGNED',
-    resourceType: 'diaspora_import_order_participant',
-    resourceId: participant.id,
-    previousState: { status: order.status },
-    newState: participant,
-    req,
+  // Never let an ordinary participant impersonate another seller.
+  if (!isPlatformAdmin(context) && !isPlatformReviewer(context)
+      && payload?.seller_id && String(payload.seller_id) !== context.id) {
+    throw new ForbiddenError('You may not issue a quote in another seller\'s name');
+  }
+  const commandKey = req?.headers?.['idempotency-key'] ?? null;
+  const quoteInput = {
+    seller_id: payload?.seller_id ?? null,
+    quote_amount: payload?.quote_amount,
+    quote_currency: payload?.quote_currency ?? 'USD',
+    valid_until: payload?.valid_until ?? null,
+    inclusions: payload?.inclusions ?? [],
+    exclusions: payload?.exclusions ?? [],
+    metadata: payload?.metadata ?? {},
+  };
+  // One PostgREST RPC call is one PostgreSQL transaction. Quote, status,
+  // mandatory audits, and optional replay receipt either ALL commit or ALL roll back.
+  const { data, error } = await supabase.rpc('diaspora_issue_import_quote_atomic', {
+    p_order_id: importOrderId,
+    p_actor_id: context.id,
+    p_quote: quoteInput,
+    p_command_key: commandKey,
+    p_ip_address: req?.ip || null,
+    p_user_agent: req?.headers?.['user-agent'] || null,
   });
+  if (error) {
+    const code = String(error.code || '');
+    const message = String(error.message || '');
+    if (code === '42501' || /RX06_QUOTE_(ORDER_ACCESS_DENIED|SELLER_SPOOFING|SELLER_NOT_ASSIGNED|AUTH_REQUIRED)/.test(message))
+      throw new ForbiddenError('You are not authorized to issue this import quotation');
+    if (code === 'P0002') throw new NotFoundError('Diaspora import order or quote not found');
+    if (code === '23505') throw new ConflictError('Quotation idempotency key conflicts with an existing command');
+    if (code === '22023' || code === '22007') throw new ValidationError(message);
+    throw new DatabaseError('Atomic import quotation could not be recorded');
+  }
+  if (!data?.order || !data?.quote) throw new DatabaseError('Atomic import quotation returned an invalid receipt');
 
-  const updatedOrder = order.status === IMPORT_ORDER_STATUSES.SELLER_ASSIGNED
-    ? order
-    : await transitionImportOrder({ importOrderId, nextStatus: IMPORT_ORDER_STATUSES.SELLER_ASSIGNED, actorId: userContext?.id, userContext, metadata: { sellerId }, req });
-
-  await notifyDiasporaMilestone({
-    eventType: 'DIASPORA_SELLER_ASSIGNED',
-    importOrder: updatedOrder,
-    actorId: userContext?.id,
-    title: 'Seller assigned',
-    message: 'A verified diaspora seller/export participant has been assigned to your import order.',
-    metadata: { sellerId },
-  });
-
-  return { order: updatedOrder, participant };
-}
-
-export async function addQuote(importOrderId, payload, userContext = {}, req = null) {
-  const { data: order, error: orderError } = await supabase
-    .from('diaspora_import_orders')
-    .select('*')
-    .eq('id', importOrderId)
-    .single();
-  if (orderError || !order) throw new NotFoundError('Diaspora import order not found');
-
-  const { data: quote, error } = await supabase
-    .from('diaspora_import_quotes')
-    .insert({
-      import_order_id: importOrderId,
-      tenant_id: order.tenant_id,
-      seller_id: payload.seller_id || null,
-      quote_amount: payload.quote_amount,
-      quote_currency: payload.quote_currency || 'USD',
-      valid_until: payload.valid_until || null,
-      inclusions: payload.inclusions || [],
-      exclusions: payload.exclusions || [],
-      metadata: payload.metadata || {},
-      created_by: userContext?.id,
-      updated_by: userContext?.id,
-    })
-    .select()
-    .single();
-  if (error) throw new DatabaseError(error.message);
-
-  await writeDiasporaAudit({
-    importOrderId,
-    tenantId: order.tenant_id,
-    actorId: userContext?.id,
-    action: 'QUOTE_ISSUED',
-    resourceType: 'diaspora_import_quote',
-    resourceId: quote.id,
-    newState: quote,
-    req,
-  });
-
-  const updatedOrder = order.status === IMPORT_ORDER_STATUSES.QUOTE_ISSUED
-    ? order
-    : await transitionImportOrder({ importOrderId, nextStatus: IMPORT_ORDER_STATUSES.QUOTE_ISSUED, actorId: userContext?.id, userContext, metadata: { quoteId: quote.id }, req });
-
-  return { order: updatedOrder, quote };
+  // The RPC writes the durable quote event into domain_events in the same transaction.
+  // Do not emit an additional event from the application or replayed request.
+  return { order: data.order, quote: data.quote, idempotentReplay: Boolean(data.idempotentReplay) };
 }
 
 /** Milestone statuses that still count against the order's payment allocation. */
