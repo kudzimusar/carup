@@ -70,7 +70,7 @@ export function ImportOrderView(props: ImportOrderViewProps) {
         {order.state === 'failed' && (
           <EmptyState kind="error" title="This import order could not be loaded" onRetry={order.onRetry} testId="trade-order-failed">
             {order.message && <span className="[overflow-wrap:anywhere]">{order.message} </span>}
-            Nothing about the order has changed. Try again; CarUp support sees the same record.
+            Nothing about the order has changed.{order.onRetry ? ' Try again; CarUp support sees the same record.' : ''}
           </EmptyState>
         )}
         {order.state === 'denied' && (

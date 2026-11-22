@@ -6,6 +6,8 @@
  * date, an amount or a count: an absent value is reported as absent ("Not recorded"), never guessed.
  */
 
+import { OFFLINE_TEXT, isNetworkFailure } from '@/components/trade/core/readFailure'
+
 /** Where one read stands. `failed` carries the HTTP status the API client attached (null = no status). */
 export type ReadPhase = 'idle' | 'loading' | 'ready' | 'failed'
 export interface ReadState {
@@ -25,7 +27,10 @@ export function errorStatus(err: unknown): number | null {
 }
 
 export function errorMessage(err: unknown): string | null {
-  return err instanceof Error && err.message ? err.message : null
+  const message = err instanceof Error && err.message ? err.message : null
+  // RX06-LR04: a request that never reached CarUp is said in plain words, not as the browser's "Failed to fetch".
+  if (isNetworkFailure(errorStatus(err), message)) return OFFLINE_TEXT
+  return message
 }
 
 /** A failed read as the state a person needs to see. */

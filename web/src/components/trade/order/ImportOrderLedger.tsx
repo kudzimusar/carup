@@ -59,9 +59,14 @@ export function ImportOrderLedger({ orders, insights }: { orders: Read<TradeOrde
           This is a failed read, not an empty list — your orders are unchanged.
         </EmptyState>
       )}
-      {(orders.state === 'denied' || orders.state === 'unavailable') && (
+      {orders.state === 'denied' && (
         <EmptyState kind="denied" title="Import orders are not available to this account" testId="diaspora-import-list-denied">
           CarUp refused to list import orders for the signed-in account. Import orders belong to the importer who requested them and the participants CarUp assigns.
+        </EmptyState>
+      )}
+      {orders.state === 'unavailable' && (
+        <EmptyState kind="denied" title="Import orders are not available on this server" testId="diaspora-import-list-unavailable">
+          The server answered “not found” (404) for the import order list. The feature may be switched off here; this is not a report that you have no orders.
         </EmptyState>
       )}
       {orders.state === 'ready' && (orders.data.length === 0 ? <EmptyLedger /> : <Ledger orders={orders.data} />)}
