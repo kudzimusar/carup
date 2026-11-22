@@ -14,9 +14,13 @@ import { AskCarUpMark } from '@/components/showroom/launch/AskCarUpMark'
 function FeatureTile({ group, launchPreview }: { group: ShowroomNavGroup; launchPreview: boolean }) {
   const f = group.feature
   const scanPreview = group.id === 'sell' && launchPreview
-  const tone = group.id === 'import'
-    ? 'bg-[#09122A] text-white'
-    : group.id === 'explore' || group.id === 'intelligence' ? 'bg-[#09122A] text-white' : 'bg-[#F6F4F0] text-[#09122A]'
+  // The tile keeps its own colours when it holds focus (hover moves focus in a Radix menu, and a keyboard
+  // open focuses the tile first): the menu item's generic focus:bg-accent turned the navy tiles peach with
+  // unreadable white copy (axe color-contrast 1.12:1). The `!` is needed because the item classes sit on the Radix
+  // Item and these on the Slot child, so stylesheet order decides otherwise. The ring below still shows keyboard focus.
+  const tone = group.id === 'import' || group.id === 'explore' || group.id === 'intelligence'
+    ? 'bg-[#09122A] text-white focus:!bg-[#09122A] focus:!text-white'
+    : 'bg-[#F6F4F0] text-[#09122A] focus:!bg-[#F6F4F0] focus:!text-[#09122A]'
   return (
     <DropdownMenuItem asChild>
       <Link
@@ -77,12 +81,14 @@ export function ShowroomMegaNav({ groups, launchPreview }: { groups: ShowroomNav
             <div className="grid grid-cols-[250px_minmax(0,1fr)] gap-4">
               <FeatureTile group={group} launchPreview={launchPreview} />
               <div className="grid content-start gap-x-6 gap-y-5 p-2" style={{ gridTemplateColumns: `repeat(${Math.min(group.columns.length, 3)}, minmax(0, 1fr))` }}>
-                {group.columns.map(column => (
+                {group.columns.map((column, columnIndex) => (
                   <div key={column.title} className="min-w-0">
-                    <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#C2410C]">{column.title}</p>
-                    <ul className="mt-2 space-y-0.5">
+                    <p id={`showroom-nav-${group.id}-col-${columnIndex}`} className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#C2410C]">{column.title}</p>
+                    {/* Inside role="menu" a column is a labelled group of menu items (axe aria-required-children /
+                        aria-required-parent): the list keeps its layout, not list semantics. */}
+                    <ul role="group" aria-labelledby={`showroom-nav-${group.id}-col-${columnIndex}`} className="mt-2 space-y-0.5">
                       {column.links.map(link => (
-                        <li key={link.id}>
+                        <li key={link.id} role="none">
                           <DropdownMenuItem asChild>
                             <Link
                               to={link.href}
@@ -91,7 +97,7 @@ export function ShowroomMegaNav({ groups, launchPreview }: { groups: ShowroomNav
                               data-testid={`showroom-nav-link-${link.id}`}
                             >
                               <span className="font-medium">{link.label}</span>
-                              {link.description && <span className="text-[12px] text-slate-500">{link.description}</span>}
+                              {link.description && <span className="text-[12px] text-slate-600">{link.description}</span>}
                             </Link>
                           </DropdownMenuItem>
                         </li>

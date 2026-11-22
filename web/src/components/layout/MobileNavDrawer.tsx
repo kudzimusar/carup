@@ -204,10 +204,10 @@ export default function MobileNavDrawer({ showroom = false }: { showroom?: boole
                       onClick={close}
                       data-testid={`sheet-link-${link.id}`}
                       aria-current={isActive(link.href) ? 'page' : undefined}
-                      className={`flex min-h-[44px] items-center justify-between gap-3 rounded-xl px-3 py-2 text-[15px] transition-colors ${isActive(link.href) ? 'bg-[#09122A] font-semibold text-white' : 'text-[#09122A] hover:bg-[#F1EFEA]'}`}
+                      className={`flex min-h-[44px] flex-col justify-center gap-0.5 rounded-xl px-3 py-2 text-[15px] transition-colors ${isActive(link.href) ? 'bg-[#09122A] font-semibold text-white' : 'text-[#09122A] hover:bg-[#F1EFEA]'}`}
                     >
                       <span>{link.label}</span>
-                      {link.description && <span className={`text-[12px] ${isActive(link.href) ? 'text-white/70' : 'text-slate-500'}`}>{link.description}</span>}
+                      {link.description && <span className={`text-[12px] ${isActive(link.href) ? 'text-white/70' : 'text-slate-600'}`}>{link.description}</span>}
                     </Link>
                   ))}
                 </div>
