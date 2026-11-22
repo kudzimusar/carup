@@ -124,6 +124,10 @@ export function ContainerBoardView({ model }: { model: ContainerBoardModel }) {
 
 function ListFailure({ model }: { model: ContainerBoardModel }) {
   const kind = failureKind(model.read)
+  // RX06-LR04: an ended session is said as such, with the way back — not as a failure to retry.
+  if (kind === 'session') {
+    return <DeskState kind="signin" title="Your session has ended" action={<Link to={buildLoginRedirect('/diaspora/containers')} className={WS_PRIMARY}>Sign in again</Link>} testId="trade-containers-failed">Sign in again to see the shared containers. Nothing has been booked or changed.</DeskState>
+  }
   if (kind === 'denied') {
     return <DeskState kind="denied" title="The server refused to show containers to this account" testId="trade-containers-failed">This is a permission answer (403), not an empty board.</DeskState>
   }

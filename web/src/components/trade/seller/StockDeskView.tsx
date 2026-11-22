@@ -187,7 +187,7 @@ function StockLinesPanel({ model, onCompose }: { model: StockDeskModel; onCompos
       <>
         {model.listFailure && (
           <DeskNotice tone="warning" testId="trade-stock-list-stale">
-            The list could not be refreshed, so this is the last list CarUp returned.{model.listFailure.message ? ` The server said: “${model.listFailure.message}”` : ''}
+            The list could not be refreshed, so this is the last list CarUp returned.{model.listFailure.offline ? ` ${model.listFailure.message}` : model.listFailure.message ? ` The server said: “${model.listFailure.message}”` : ''}
           </DeskNotice>
         )}
         <ul aria-label="Stock lines" className="divide-y divide-carup-line" data-testid="trade-stock-list">

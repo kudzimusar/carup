@@ -5,6 +5,7 @@
  * Every helper only re-shapes what the API returned. None of them invents a date, an amount, a count
  * or a status: an absent value comes back as `null` so the caller can say "not recorded".
  */
+import { OFFLINE_TEXT, isNetworkFailure } from '@/components/trade/core/readFailure'
 import { SessionExpiredError } from '@/lib/apiClient'
 import { dealerDateTime } from '@/lib/dealerDates'
 
@@ -26,6 +27,8 @@ export interface ReadFailure {
   status: number | null
   /** The server's own words, verbatim (never paraphrased into something it did not say). */
   message: string
+  /** RX06-LR04: no HTTP answer at all — the request never reached CarUp, so there are no server words to quote. */
+  offline?: boolean
 }
 
 export function readFailureOf(err: unknown): ReadFailure {
@@ -37,6 +40,8 @@ export function readFailureOf(err: unknown): ReadFailure {
   if (status === 404) return { kind: 'unavailable', status, message }
   if (status === 429) return { kind: 'limited', status, message }
   if (status !== null) return { kind: 'failed', status, message }
+  // RX06-LR04: the browser's "Failed to fetch" is not the server speaking — the request never reached CarUp.
+  if (isNetworkFailure(status, message)) return { kind: 'failed', status, message: OFFLINE_TEXT, offline: true }
   // No status on the error (a thrown string, a mocked rejection): classify by the server's words.
   if (/too many requests|\b429\b/i.test(message)) return { kind: 'limited', status, message }
   if (/session (is )?(invalid|expired)|session has expired/i.test(message)) return { kind: 'session', status, message }

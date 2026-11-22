@@ -174,7 +174,8 @@ export function ReadFailureState({ failure, what, onRetry, testId, compact, deni
       return (
         <DeskState kind="failed" testId={testId} compact={compact} onRetry={onRetry}
           title={`${what} could not be loaded`}>
-          This is not an empty result — the read itself failed.{said}
+          {/* RX06-LR04: an offline failure has no server words to quote — it is said in plain words (readFailureOf). */}
+          This is not an empty result — the read itself failed.{failure.offline ? ` ${failure.message}` : said}
         </DeskState>
       )
   }
