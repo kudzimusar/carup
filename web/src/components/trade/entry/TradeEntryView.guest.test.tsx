@@ -42,7 +42,7 @@ describe('guest: what do you want to do?', () => {
     renderEntry(false)
     const expected: Array<[string, string, string]> = [
       ['source', 'Source a vehicle for me', 'Available · sign in to send'],
-      ['move', 'I already own a vehicle — help me move it', 'Planned · pending approval'],
+      ['move', 'I already own a vehicle — help me move it', 'Built · awaiting approval to join'],
       ['learn', 'Understand the import process', 'Available now · no account needed'],
       ['sell', 'I sell or export vehicles or parts', 'For approved seller accounts'],
     ]
@@ -66,12 +66,15 @@ describe('guest: what do you want to do?', () => {
     expect(card).toHaveTextContent('No quote, seller or supplier commitment exists until CarUp’s server records one')
   })
 
-  it('B (planned, E-4) offers no form and no action, only the sample’s Shipping & CAP and a mention of shared containers', () => {
+  it('B (built elsewhere, awaiting approval to join — E-4) offers no form and no action, only the sample’s Shipping & CAP and a mention of shared containers', () => {
     renderEntry(false)
     const card = screen.getByTestId('trade-intent-move')
     expect(card.querySelectorAll('form, input, select, textarea, button')).toHaveLength(0)
     expect(hrefsIn(card)).toEqual(['/diaspora/sample?order=sea&mode=shipping'])
     expect(card).toHaveTextContent('Shared containers (co-loading) already exist for signed-in importers')
+    // RX06-LR04: T3 was built and Owner-accepted on the unmerged Trade OS line — never called "planned".
+    expect(card).not.toHaveTextContent(/\bplanned\b/i)
+    expect(card).toHaveTextContent('built and tested separately')
   })
 
   it('C walks the sample; D is a quiet seller sign-in, never dealer onboarding', () => {
@@ -116,7 +119,7 @@ describe('guest: services at a glance and what an import involves', () => {
     expect(screen.getByTestId('trade-services-public-status')).toHaveTextContent(/^Available to explore now$/)
     expect(screen.getByTestId('trade-services-account-status')).toHaveTextContent(/^Available after sign-in$/)
     expect(screen.getByTestId('trade-services-unreleased-status')).toHaveTextContent(/^Built · not yet released$/)
-    expect(screen.getByTestId('trade-services-planned-status')).toHaveTextContent(/^Planned · pending approval$/)
+    expect(screen.getByTestId('trade-services-planned-status')).toHaveTextContent(/^Built · awaiting approval to join$/)
     const account = screen.getByTestId('trade-services-account')
     for (const name of ['Your import orders', 'Your requests and quotes', 'Documents on your orders', 'Shared containers (co-loading)', 'Your trade profile']) {
       expect(account).toHaveTextContent(name)
@@ -127,6 +130,8 @@ describe('guest: services at a glance and what an import involves', () => {
     const planned = screen.getByTestId('trade-services-planned')
     expect(hrefsIn(planned)).toEqual([])
     expect([...planned.querySelectorAll('[data-extraction]')].map(e => e.getAttribute('data-extraction'))).toEqual(['E-4', 'E-1', 'E-3'])
+    // RX06-LR04: E-4, E-1 and E-3 were built and tested; the board never calls them planned.
+    expect(planned).not.toHaveTextContent(/\bplanned\b/i)
     expect(hrefsIn(screen.getByTestId('trade-services-public')).every(isPublicTrade)).toBe(true)
   })
 

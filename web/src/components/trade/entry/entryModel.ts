@@ -150,8 +150,9 @@ export const PREPARE_REQUEST_LABEL = 'Prepare a request — no account needed to
 /**
  * "What do you want to do?" — four intentions, in the order an importer needs them.
  *  A · status: preparing is public; POST /diaspora/import-orders needs a session (backend authorizeRole()).
- *  B · status: extraction E-4 (logistics RFQ, "I already own it, move it") is planned, pending approval
- *      (rx06 EXTRACTION-AND-NATIVE-REGISTERS.md; LR02 brief). Not built here: no action, no form.
+ *  B · status: extraction E-4 (logistics RFQ, "I already own it, move it") was BUILT and Owner-accepted on the
+ *      unmerged Trade OS line (T3, PR #207, frozen b446d8ea) and waits for approval to join (OD-11). RX06-LR04:
+ *      it is not "planned". Not in this build: no action, no form.
  *  C · status: /diaspora/sample is public (unregistered, non-dashboard path → isPublicRoute) and static.
  *  D · status: the seller endpoints admit only seller/operator roles (backend diasporaBuyerOrderRoutes
  *      sellerAuth), and public registration always creates an importer ('owner') account, so a seller
@@ -178,9 +179,9 @@ export const TRADE_INTENTIONS: readonly TradeIntention[] = [
     key: 'move',
     letter: 'B',
     title: 'I already own a vehicle — help me move it',
-    status: 'Planned · pending approval',
+    status: 'Built · awaiting approval to join',
     tone: 'neutral',
-    lead: 'Asking for shipping and logistics quotes for a vehicle you already own is planned and waiting for approval. It is not available yet, so there is nothing to fill in here.',
+    lead: 'Shipping and logistics quotes for a vehicle you already own were built and tested separately, and are waiting for approval to join CarUp Trade. They are not available here, so there is nothing to fill in.',
     points: [
       'How the shipping part works: container space is requested first and approved by CarUp logistics before anything is booked. Departure, arrival, customs and release are then recorded as they happen — the CAP journey.',
       'Shared containers (co-loading) already exist for signed-in importers: space on a container CarUp coordinates, reserved only when a request is approved.',
@@ -245,7 +246,9 @@ export interface ServiceGroup {
  *    diaspora.reverse-rfq, diaspora.container-marketplace, diaspora.trade-profile; documents live on an order).
  *  - Built · not yet released: the Trade rail's unreleased list (components/shell/navProjection.ts) behind the
  *    fail-closed release flags (SafeTrade, subscription, Trade graph, workbook import).
- *  - Planned · pending approval: extractions E-4, E-1, E-3 (rx06 EXTRACTION-AND-NATIVE-REGISTERS.md).
+ *  - Built · awaiting approval to join: extractions E-4 (T3 logistics RFQ, Owner-accepted), E-1 (CAP Journey & Arrival,
+ *    R2 accepted) and E-3 (T6 rates/FX/landed cost, Owner-accepted 2026-09-07) — all built and tested on the unmerged
+ *    Trade OS line (PR #207 / #243 / #244), none in this build. RX06-LR04: they were never "planned".
  */
 export const SERVICE_GROUPS: readonly ServiceGroup[] = [
   {
@@ -288,9 +291,9 @@ export const SERVICE_GROUPS: readonly ServiceGroup[] = [
   },
   {
     key: 'planned',
-    status: 'Planned · pending approval',
+    status: 'Built · awaiting approval to join',
     tone: 'neutral',
-    note: 'Not available. Nothing here is offered until it is approved.',
+    note: 'Built and tested outside this version of CarUp Trade, and waiting for approval to join it. Not available here.',
     items: [
       { title: 'Logistics quotes for a vehicle you already own', detail: 'Move a vehicle you have, without buying through CarUp.', extraction: 'E-4' },
       { title: 'CAP journey history', detail: 'The full shipping and arrival history on each order.', extraction: 'E-1' },

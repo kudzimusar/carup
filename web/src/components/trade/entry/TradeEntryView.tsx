@@ -440,7 +440,7 @@ function ServicesAtAGlance() {
     <section className={cn(PAGE, 'py-12 sm:py-16')} aria-labelledby="trade-entry-services-title" data-testid="trade-entry-services">
       <p className={EYEBROW}>Where each service stands</p>
       <h2 id="trade-entry-services-title" className={SECTION_TITLE}>Services at a glance</h2>
-      <p className={SECTION_LEAD}>Every service with its true status. Anything built but not yet released, or still planned, cannot be opened here.</p>
+      <p className={SECTION_LEAD}>Every service with its true status. Anything not yet released here, or still waiting to join, cannot be opened from this page.</p>
       <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {SERVICE_GROUPS.map(group => <ServiceGroupCard key={group.key} group={group} />)}
       </div>
