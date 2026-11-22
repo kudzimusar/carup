@@ -9,8 +9,9 @@
  *
  *   - Minimal. VIN and a display title. No owner, colour, mileage, chassis or price.
  *   - Audience-bound. A participant who is not the owner (a seller, a logistics provider, a reviewer) is sent
- *     the order exactly as before — byte for byte — so the response cannot be used to learn which vehicle an
- *     order concerns, or whether one is linked at all.
+ *     the order exactly as before — byte for byte: this adds nothing for them.
+ *     RX06-LR04 CAP S1: this does not decide what the order row itself carries to its other readers (its own
+ *     columns, `linked_vehicle_vin` among them); the order read governs that, unchanged by this file.
  *   - Additive and fault-isolated. A failed vehicle read returns the orders unchanged: the page falls back
  *     to its existing titles. It never fails the order response and never invents a title.
  *   - Read-only. One vehicles read per 100 linked VINs, however many orders.
