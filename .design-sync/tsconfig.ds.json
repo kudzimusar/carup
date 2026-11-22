@@ -1,0 +1,21 @@
+{
+  "extends": "../web/tsconfig.app.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./.cache/pkg/dist/types",
+    "rootDir": "..",
+    "baseUrl": "../web",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@shared/*": ["../shared/*"]
+    },
+    "tsBuildInfoFile": null,
+    "incremental": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["./ds-entry.ts"],
+  "exclude": []
+}

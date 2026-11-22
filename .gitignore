@@ -52,3 +52,10 @@ issue164-golden-vehicles-receipt.json
 
 # Issue #158 mutation-testing artifacts (written and removed by the test run)
 backend/services/blockchain/__mutant__*.js
+
+# Claude Design sync (design-sync): staged scripts, build output, machine state
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules

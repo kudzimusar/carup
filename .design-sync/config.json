@@ -1,0 +1,449 @@
+{
+  "projectId": "9f109243-986f-4a55-96e8-aabd79e406c1",
+  "shape": "package",
+  "pkg": "@carup/design-system",
+  "globalName": "CarUp",
+  "entry": ".design-sync/.cache/pkg/dist/index.js",
+  "buildCmd": "node .design-sync/build-ds.mjs",
+  "srcDir": "../../../web/src/components",
+  "cssEntry": "dist/styles.css",
+  "componentSrcMap": {
+    "MemoryRouter": null,
+    "AccordionContent": null,
+    "AccordionItem": null,
+    "AccordionTrigger": null,
+    "AlertDescription": null,
+    "AlertDialogAction": null,
+    "AlertDialogCancel": null,
+    "AlertDialogContent": null,
+    "AlertDialogDescription": null,
+    "AlertDialogFooter": null,
+    "AlertDialogHeader": null,
+    "AlertDialogOverlay": null,
+    "AlertDialogPortal": null,
+    "AlertDialogTitle": null,
+    "AlertDialogTrigger": null,
+    "AlertTitle": null,
+    "AvatarFallback": null,
+    "AvatarImage": null,
+    "BreadcrumbEllipsis": null,
+    "BreadcrumbItem": null,
+    "BreadcrumbLink": null,
+    "BreadcrumbList": null,
+    "BreadcrumbPage": null,
+    "BreadcrumbSeparator": null,
+    "ButtonGroupSeparator": null,
+    "ButtonGroupText": null,
+    "CalendarDayButton": null,
+    "CardAction": null,
+    "CardContent": null,
+    "CardDescription": null,
+    "CardFooter": null,
+    "CardHeader": null,
+    "CardTitle": null,
+    "CarouselContent": null,
+    "CarouselItem": null,
+    "CarouselNext": null,
+    "CarouselPrevious": null,
+    "ChartLegend": null,
+    "ChartLegendContent": null,
+    "ChartStyle": null,
+    "ChartTooltip": null,
+    "ChartTooltipContent": null,
+    "CollapsibleContent": null,
+    "CollapsibleTrigger": null,
+    "CommandDialog": null,
+    "CommandEmpty": null,
+    "CommandGroup": null,
+    "CommandInput": null,
+    "CommandItem": null,
+    "CommandList": null,
+    "CommandSeparator": null,
+    "CommandShortcut": null,
+    "ContextMenuCheckboxItem": null,
+    "ContextMenuContent": null,
+    "ContextMenuGroup": null,
+    "ContextMenuItem": null,
+    "ContextMenuLabel": null,
+    "ContextMenuPortal": null,
+    "ContextMenuRadioGroup": null,
+    "ContextMenuRadioItem": null,
+    "ContextMenuSeparator": null,
+    "ContextMenuShortcut": null,
+    "ContextMenuSub": null,
+    "ContextMenuSubContent": null,
+    "ContextMenuSubTrigger": null,
+    "ContextMenuTrigger": null,
+    "DialogClose": null,
+    "DialogContent": null,
+    "DialogDescription": null,
+    "DialogFooter": null,
+    "DialogHeader": null,
+    "DialogOverlay": null,
+    "DialogPortal": null,
+    "DialogTitle": null,
+    "DialogTrigger": null,
+    "DrawerClose": null,
+    "DrawerContent": null,
+    "DrawerDescription": null,
+    "DrawerFooter": null,
+    "DrawerHeader": null,
+    "DrawerOverlay": null,
+    "DrawerPortal": null,
+    "DrawerTitle": null,
+    "DrawerTrigger": null,
+    "DropdownMenuCheckboxItem": null,
+    "DropdownMenuContent": null,
+    "DropdownMenuGroup": null,
+    "DropdownMenuItem": null,
+    "DropdownMenuLabel": null,
+    "DropdownMenuPortal": null,
+    "DropdownMenuRadioGroup": null,
+    "DropdownMenuRadioItem": null,
+    "DropdownMenuSeparator": null,
+    "DropdownMenuShortcut": null,
+    "DropdownMenuSub": null,
+    "DropdownMenuSubContent": null,
+    "DropdownMenuSubTrigger": null,
+    "DropdownMenuTrigger": null,
+    "EmptyContent": null,
+    "EmptyDescription": null,
+    "EmptyHeader": null,
+    "EmptyMedia": null,
+    "EmptyTitle": null,
+    "FieldContent": null,
+    "FieldDescription": null,
+    "FieldError": null,
+    "FieldGroup": null,
+    "FieldLabel": null,
+    "FieldLegend": null,
+    "FieldSeparator": null,
+    "FieldSet": null,
+    "FieldTitle": null,
+    "FormControl": null,
+    "FormDescription": null,
+    "FormField": null,
+    "FormItem": null,
+    "FormLabel": null,
+    "FormMessage": null,
+    "HoverCardContent": null,
+    "HoverCardTrigger": null,
+    "InputGroupAddon": null,
+    "InputGroupButton": null,
+    "InputGroupInput": null,
+    "InputGroupText": null,
+    "InputGroupTextarea": null,
+    "InputOTPGroup": null,
+    "InputOTPSeparator": null,
+    "InputOTPSlot": null,
+    "ItemActions": null,
+    "ItemContent": null,
+    "ItemDescription": null,
+    "ItemFooter": null,
+    "ItemGroup": null,
+    "ItemHeader": null,
+    "ItemMedia": null,
+    "ItemSeparator": null,
+    "ItemTitle": null,
+    "KbdGroup": null,
+    "MenubarCheckboxItem": null,
+    "MenubarContent": null,
+    "MenubarGroup": null,
+    "MenubarItem": null,
+    "MenubarLabel": null,
+    "MenubarMenu": null,
+    "MenubarPortal": null,
+    "MenubarRadioGroup": null,
+    "MenubarRadioItem": null,
+    "MenubarSeparator": null,
+    "MenubarShortcut": null,
+    "MenubarSub": null,
+    "MenubarSubContent": null,
+    "MenubarSubTrigger": null,
+    "MenubarTrigger": null,
+    "NavigationMenuContent": null,
+    "NavigationMenuIndicator": null,
+    "NavigationMenuItem": null,
+    "NavigationMenuLink": null,
+    "NavigationMenuList": null,
+    "NavigationMenuTrigger": null,
+    "NavigationMenuViewport": null,
+    "PaginationContent": null,
+    "PaginationEllipsis": null,
+    "PaginationItem": null,
+    "PaginationLink": null,
+    "PaginationNext": null,
+    "PaginationPrevious": null,
+    "PopoverAnchor": null,
+    "PopoverContent": null,
+    "PopoverTrigger": null,
+    "RadioGroupItem": null,
+    "ResizableHandle": null,
+    "ResizablePanel": null,
+    "ScrollBar": null,
+    "SelectContent": null,
+    "SelectGroup": null,
+    "SelectItem": null,
+    "SelectLabel": null,
+    "SelectScrollDownButton": null,
+    "SelectScrollUpButton": null,
+    "SelectSeparator": null,
+    "SelectTrigger": null,
+    "SelectValue": null,
+    "SheetClose": null,
+    "SheetContent": null,
+    "SheetDescription": null,
+    "SheetFooter": null,
+    "SheetHeader": null,
+    "SheetTitle": null,
+    "SheetTrigger": null,
+    "SidebarContent": null,
+    "SidebarFooter": null,
+    "SidebarGroup": null,
+    "SidebarGroupAction": null,
+    "SidebarGroupContent": null,
+    "SidebarGroupLabel": null,
+    "SidebarHeader": null,
+    "SidebarInput": null,
+    "SidebarInset": null,
+    "SidebarMenu": null,
+    "SidebarMenuAction": null,
+    "SidebarMenuBadge": null,
+    "SidebarMenuButton": null,
+    "SidebarMenuItem": null,
+    "SidebarMenuSkeleton": null,
+    "SidebarMenuSub": null,
+    "SidebarMenuSubButton": null,
+    "SidebarMenuSubItem": null,
+    "SidebarProvider": null,
+    "SidebarRail": null,
+    "SidebarSeparator": null,
+    "SidebarTrigger": null,
+    "TableBody": null,
+    "TableCaption": null,
+    "TableCell": null,
+    "TableFooter": null,
+    "TableHead": null,
+    "TableHeader": null,
+    "TableRow": null,
+    "TabsContent": null,
+    "TabsList": null,
+    "TabsTrigger": null,
+    "ToggleGroupItem": null,
+    "TooltipContent": null,
+    "TooltipProvider": null,
+    "TooltipTrigger": null
+  },
+  "provider": {
+    "component": "MemoryRouter"
+  },
+  "docsDir": "../../docs",
+  "overrides": {
+    "Dialog": {
+      "cardMode": "single",
+      "viewport": "720x520",
+      "primaryStory": "EnquiryDialog"
+    },
+    "AlertDialog": {
+      "cardMode": "single",
+      "viewport": "720x460",
+      "primaryStory": "ConfirmWithdrawal"
+    },
+    "Sheet": {
+      "cardMode": "single",
+      "viewport": "1000x620",
+      "primaryStory": "MobileFilters"
+    },
+    "Drawer": {
+      "cardMode": "single",
+      "viewport": "720x560",
+      "primaryStory": "ContactSeller"
+    },
+    "Popover": {
+      "cardMode": "single",
+      "viewport": "560x420",
+      "primaryStory": "PriceAlert"
+    },
+    "HoverCard": {
+      "cardMode": "single",
+      "viewport": "560x380",
+      "primaryStory": "SellerProfile"
+    },
+    "Tooltip": {
+      "cardMode": "single",
+      "viewport": "480x260",
+      "primaryStory": "CompareHint"
+    },
+    "DropdownMenu": {
+      "cardMode": "single",
+      "viewport": "560x460",
+      "primaryStory": "ListingActions"
+    },
+    "ContextMenu": {
+      "cardMode": "single",
+      "viewport": "560x460",
+      "primaryStory": "PhotoManager"
+    },
+    "Menubar": {
+      "cardMode": "single",
+      "viewport": "720x460",
+      "primaryStory": "ListingMenu"
+    },
+    "Select": {
+      "cardMode": "single",
+      "viewport": "520x460",
+      "primaryStory": "Open"
+    },
+    "NavigationMenu": {
+      "cardMode": "single",
+      "viewport": "1000x520",
+      "primaryStory": "BuyMegaMenu"
+    },
+    "Toaster": {
+      "cardMode": "single",
+      "viewport": "720x420",
+      "primaryStory": "AfterSavingVehicle"
+    },
+    "PublicShell": {
+      "cardMode": "single",
+      "viewport": "1280x800",
+      "primaryStory": "GuestMarketplace"
+    },
+    "WorkspaceShell": {
+      "cardMode": "single",
+      "viewport": "1280x800",
+      "primaryStory": "PersonalVehicle"
+    },
+    "FocusedShell": {
+      "cardMode": "single",
+      "viewport": "1280x800",
+      "primaryStory": "SignIn"
+    },
+    "Sidebar": {
+      "cardMode": "single",
+      "viewport": "1280x848",
+      "primaryStory": "OwnerWorkspace"
+    },
+    "Table": {
+      "cardMode": "column",
+      "primaryStory": "VehicleComparison"
+    },
+    "ChartContainer": {
+      "cardMode": "column",
+      "primaryStory": "EnquiriesBar"
+    },
+    "Carousel": {
+      "cardMode": "column",
+      "primaryStory": "VehicleGallery"
+    },
+    "ResizablePanelGroup": {
+      "cardMode": "column",
+      "primaryStory": "EnquiryWorkspace"
+    },
+    "Pagination": {
+      "cardMode": "column",
+      "primaryStory": "MarketplaceResults"
+    },
+    "Command": {
+      "cardMode": "column",
+      "primaryStory": "BuyerSearch"
+    },
+    "ButtonGroup": {
+      "cardMode": "column"
+    },
+    "Accordion": {
+      "cardMode": "column"
+    },
+    "AspectRatio": {
+      "cardMode": "column"
+    },
+    "Avatar": {
+      "cardMode": "column"
+    },
+    "Card": {
+      "cardMode": "column"
+    },
+    "Collapsible": {
+      "cardMode": "column"
+    },
+    "Item": {
+      "cardMode": "column"
+    },
+    "Kbd": {
+      "cardMode": "column"
+    },
+    "Alert": {
+      "cardMode": "column"
+    },
+    "Empty": {
+      "cardMode": "column"
+    },
+    "Progress": {
+      "cardMode": "column"
+    },
+    "Skeleton": {
+      "cardMode": "column"
+    },
+    "Spinner": {
+      "cardMode": "column"
+    },
+    "Checkbox": {
+      "cardMode": "column"
+    },
+    "Field": {
+      "cardMode": "column"
+    },
+    "Form": {
+      "cardMode": "column"
+    },
+    "Input": {
+      "cardMode": "column"
+    },
+    "InputGroup": {
+      "cardMode": "column"
+    },
+    "Label": {
+      "cardMode": "column"
+    },
+    "RadioGroup": {
+      "cardMode": "column"
+    },
+    "Slider": {
+      "cardMode": "column"
+    },
+    "Switch": {
+      "cardMode": "column"
+    },
+    "Textarea": {
+      "cardMode": "column"
+    },
+    "ScrollArea": {
+      "cardMode": "column"
+    },
+    "Separator": {
+      "cardMode": "column"
+    },
+    "Tabs": {
+      "cardMode": "column"
+    },
+    "BrandMark": {
+      "cardMode": "column"
+    },
+    "DataState": {
+      "cardMode": "column"
+    },
+    "EvidenceLine": {
+      "cardMode": "column"
+    },
+    "MoneyDisplay": {
+      "cardMode": "column"
+    },
+    "TrustLens": {
+      "cardMode": "column"
+    },
+    "VehicleIdentity": {
+      "cardMode": "column"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}
