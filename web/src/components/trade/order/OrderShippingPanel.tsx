@@ -329,7 +329,7 @@ function StageEvents({ shipmentId, stageEvents, viewer }: {
                     <span className="min-w-0">
                       <span className="font-semibold text-carup-text">{sentence(e.stage)}</span>
                       {e.notes && <span className="block text-xs text-carup-text-2 [overflow-wrap:anywhere]">{e.notes}</span>}
-                      <span className="block text-xs text-carup-text-3">Recorded by {actorLabel(e.created_by, viewer.id)}</span>
+                      <span className="block text-xs text-carup-text-3">{actorLabel(e.created_by, viewer.id) === 'Not recorded' ? 'Recorder not recorded' : `Recorded by ${actorLabel(e.created_by, viewer.id)}`}</span>
                     </span>
                   </li>
                 ))}

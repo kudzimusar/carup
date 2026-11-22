@@ -121,8 +121,10 @@ function JourneyBody({ orderId, data }: { orderId: string; data: Journey }) {
   const etaBasis = eta?.current ? (eta.basis === 'revision' ? 'Latest revised estimate' : 'From the shipment record') : null
   const hasEstimate = Boolean(dates && (eta?.current || dates.estimated_arrival))
   const references = shipping?.references ?? null
-  // Movement is CONFIRMED only by CarUp's own observations: an observed departure or arrival, or a recorded movement event.
-  const movementConfirmed = Boolean(dates?.observed_departure || dates?.observed_arrival || data.timeline.length > 0)
+  // Movement is CONFIRMED only by CarUp's own derived state (on its way / arrived) or an observed departure or arrival —
+  // never by the mere presence of a recorded event: "Shipment set up" is recorded, and it is a plan, not a movement
+  // (found on the Owner's real import order in the LR05 real-account walk).
+  const movementConfirmed = data.state === 'IN_TRANSIT' || data.state === 'ARRIVED' || Boolean(dates?.observed_departure || dates?.observed_arrival)
 
   return (
     <div className="space-y-4" data-testid="journey-body" data-state={data.state} data-viewer={data.viewer?.kind}>
@@ -135,7 +137,7 @@ function JourneyBody({ orderId, data }: { orderId: string; data: Journey }) {
         </div>
         <p className="text-sm leading-6 text-carup-text [overflow-wrap:anywhere]" data-testid="journey-sentence">{data.sentence}</p>
         <p className="text-xs text-carup-text-3" data-testid="journey-last-update">
-          Last movement CarUp recorded: {last.label}{last.at ? ` · ${when(last.at)}` : ''}
+          Last update CarUp recorded: {last.label}{last.at ? ` · ${when(last.at)}` : ''}
         </p>
       </div>
 
@@ -174,8 +176,8 @@ function JourneyBody({ orderId, data }: { orderId: string; data: Journey }) {
             provenance={<Provenance kind="carup">{movementConfirmed ? 'Confirmed by CarUp' : 'Not confirmed by CarUp'}</Provenance>}
           >
             {movementConfirmed
-              ? <span data-testid="journey-movement-value">CarUp has recorded movement — see “Movement CarUp has recorded”.</span>
-              : <span data-testid="journey-movement-value">Not confirmed. CarUp has recorded no departure, loading or arrival.</span>}
+              ? <span data-testid="journey-movement-value">Confirmed by CarUp: {ui.label}.</span>
+              : <span data-testid="journey-movement-value">Not confirmed. CarUp has recorded no departure or arrival.</span>}
           </Fact>
           {reported && (
             <Fact
@@ -241,8 +243,8 @@ function JourneyBody({ orderId, data }: { orderId: string; data: Journey }) {
         </Part>
       )}
 
-      {/* 3 — CarUp's own movement events, before anything reported by others */}
-      <Part title="Movement CarUp has recorded" icon={Ship} testId="journey-recorded" chip={<Provenance kind="carup">Recorded by CarUp</Provenance>}>
+      {/* 3 — what CarUp itself recorded (a plan is labelled as a plan), before anything reported by others */}
+      <Part title="What CarUp has recorded" icon={Ship} testId="journey-recorded" chip={<Provenance kind="carup">Recorded by CarUp</Provenance>}>
         {data.timeline.length ? (
           <ol className="space-y-2" data-testid="journey-timeline">
             {data.timeline.map((e, i) => (
@@ -373,9 +375,9 @@ function ReportedGroup({ group: g, defaultOpen, multipleSources }: { group: Jour
       <div id={panelId} hidden={!open} className="border-t border-carup-line px-3 py-2">
         {g.rows.length ? (
           <>
-            {undated > 0 && g.rows.length > 1 && (
+            {undated > 0 && (
               <p className="mb-1 text-xs text-carup-text-3" data-testid={`journey-progress-dates-${g.code}`}>
-                {undated === g.rows.length ? `No dates were supplied for these ${g.rows.length} steps.` : `No dates were supplied for ${undated} of these ${g.rows.length} steps.`}
+                {g.rows.length === 1 ? 'No date was supplied for this step.' : undated === g.rows.length ? `No dates were supplied for these ${g.rows.length} steps.` : `No dates were supplied for ${undated} of these ${g.rows.length} steps.`}
               </p>
             )}
             <ul className="divide-y divide-carup-line">
@@ -393,10 +395,9 @@ function ReportedGroup({ group: g, defaultOpen, multipleSources }: { group: Jour
                     </p>
                     <StatusChip tone={r.origin === 'carup' ? toneFromClasses(progressRowTone(r.status)) : 'neutral'}>{r.origin === 'carup' ? r.status_label : `${r.status_label} (reported)`}</StatusChip>
                   </div>
-                  {(r.time || r.origin === 'carup' || multipleSources || (g.rows.length === 1 && !r.time)) && (
+                  {(r.time || r.origin === 'carup' || multipleSources) && (
                     <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-carup-text-2">
                       {r.time && <span data-testid="journey-progress-row-date">{when(r.time.value)}{r.time.basis ? ` · ${r.time.basis}` : ''}</span>}
-                      {!r.time && g.rows.length === 1 && <span>{r.time_note || 'No date was supplied for this step.'}</span>}
                       {(r.origin === 'carup' || multipleSources) && <Provenance kind={r.origin === 'carup' ? 'carup' : 'record'}>{originLabel(r.origin, r.source_label)}</Provenance>}
                     </p>
                   )}

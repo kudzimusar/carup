@@ -79,6 +79,23 @@ describe('RX06-LR05 — the order\'s read-only record mode is labelled "Order re
   })
 })
 
+describe('RX06-LR05 — shipment milestone events never read "Recorded by Not recorded"', () => {
+  it('an event with no recorder says so plainly; the viewer\'s own event says You', () => {
+    const shipment = { id: 'fxship01-0000-4000-8000-000000000001', import_order_id: ORDER.id, status: 'PLANNED', created_at: '2026-10-25T04:16:00Z' } as unknown as TradeOrder['diaspora_shipments'] extends (infer U)[] | undefined ? U : never
+    mount({
+      order: ready({ ...ORDER, diaspora_shipments: [shipment] }),
+      stageEvents: ready({ [shipment.id]: [
+        { id: 'ev1', shipment_id: shipment.id, stage: 'PLANNED', notes: 'Shipment created', created_by: null, created_at: '2026-10-25T04:16:00Z' },
+        { id: 'ev2', shipment_id: shipment.id, stage: 'LOADED', notes: null, created_by: 'fx-buyer', created_at: '2026-10-26T04:16:00Z' },
+      ] } as never),
+    })
+    const events = screen.getAllByTestId('trade-stage-event')
+    expect(events.map(e => e.textContent).join(' | ')).toContain('Recorder not recorded')
+    expect(events.map(e => e.textContent).join(' | ')).toContain('Recorded by You')
+    expect(screen.getByTestId('trade-stage-events')).not.toHaveTextContent('Recorded by Not recorded')
+  })
+})
+
 describe('CAP S1 — the linked vehicle', () => {
   it('titles the order with the vehicle the server linked for this viewer, without the requested year range', () => {
     mount({ order: ready(LINKED), mode: 'overview' })

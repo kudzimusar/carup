@@ -86,13 +86,13 @@ describe('CAP S1 — Journey & arrival', () => {
     expect(screen.getByTestId('journey-state-provenance')).toHaveTextContent('Recorded by CarUp')
     expect(screen.getByTestId('journey-sentence')).toHaveTextContent('A shipment has been set up. Nothing has been recorded as moving yet.')
     expect(state).not.toHaveTextContent(/reported complete/i)
-    expect(screen.getByTestId('journey-last-update')).toHaveTextContent('Last movement CarUp recorded:')
+    expect(screen.getByTestId('journey-last-update')).toHaveTextContent('Last update CarUp recorded:')
   })
 
   it('the ledger says what is known and on what basis: movement not confirmed; the report is the sender\'s', () => {
     mount(ready(journey()))
     expect(screen.getByTestId('journey-movement')).toHaveTextContent('Not confirmed by CarUp')
-    expect(screen.getByTestId('journey-movement-value')).toHaveTextContent('CarUp has recorded no departure, loading or arrival.')
+    expect(screen.getByTestId('journey-movement-value')).toHaveTextContent('CarUp has recorded no departure or arrival.')
     const reported = screen.getByTestId('journey-reported-summary')
     expect(reported).toHaveTextContent('Example Exporter reports 1 of 3 stages complete.')
     expect(reported).toHaveTextContent('Reported complete: Booking.')
@@ -100,11 +100,28 @@ describe('CAP S1 — Journey & arrival', () => {
     expect(screen.getByTestId('journey-reported-link')).toHaveAttribute('href', '#journey-reported')
   })
 
-  it('movement is confirmed only by CarUp\'s own records', () => {
-    const j = journey({ timeline: [{ kind: 'MOVEMENT', stage: 'DEPARTED', event_time: '2026-11-26T00:00:00Z', location: 'Yokohama', source: 'carup' }] })
-    mount(ready(j))
+  it('a recorded plan is not movement: only CarUp\'s own state (on its way / arrived) or an observed date confirms it', () => {
+    // LR05 real-account finding: the Owner's real order had "Shipment set up" recorded — a plan, not a movement.
+    const { unmount } = mount(ready(journey({ timeline: [{ kind: 'MOVEMENT', stage: 'PLANNED', event_time: '2026-10-25T04:16:00Z', location: null, source: 'carup' }] })))
+    expect(screen.getByTestId('journey-movement')).toHaveTextContent('Not confirmed by CarUp')
+    expect(screen.getByTestId('journey-movement')).not.toHaveTextContent(/Confirmed by CarUp:/)
+    expect(screen.getByTestId('journey-timeline-entry')).toHaveTextContent('Shipment set up (a plan, not a movement)')
+    expect(screen.getByTestId('journey-last-update')).toHaveTextContent('Last update CarUp recorded: Shipment set up (a plan, not a movement)')
+    expect(within(screen.getByTestId('journey-recorded')).getByRole('heading', { level: 3, name: 'What CarUp has recorded' })).toBeInTheDocument()
+    unmount()
+    const moving = journey({ state: 'IN_TRANSIT' })
+    moving.shipping!.dates = { ...moving.shipping!.dates!, observed_departure: '2026-11-26T00:00:00Z' }
+    mount(ready(moving))
     expect(screen.getByTestId('journey-movement')).toHaveTextContent('Confirmed by CarUp')
-    expect(screen.getAllByTestId('journey-timeline-entry')).toHaveLength(1)
+    expect(screen.getByTestId('journey-movement-value')).toHaveTextContent('Confirmed by CarUp: On its way.')
+  })
+
+  it('a one-step stage says its missing date once, at stage level, like every other stage', () => {
+    const one = { ...PROGRESS, groups: [{ code: 'DEPARTURE', title: 'Departure', state: 'reported_completed', reported_count: 1, carup_count: 0,
+      rows: [{ ...PROGRESS.groups[0].rows[1], sequence: 1, text: 'Loading confirmed' }] }] } as JourneyProgress
+    mount(ready(journey({ sections: { progress: one } as Journey['sections'] })))
+    expect(screen.getByTestId('journey-progress-dates-DEPARTURE')).toHaveTextContent('No date was supplied for this step.')
+    expect(screen.getByTestId('journey-progress-row-DEPARTURE-external_report-1')).not.toHaveTextContent(/(no date was supplied|did not supply a date)/i)
   })
 
   it('without a report, shows only CarUp\'s own state, and an unknown state is never read as arrived', () => {
