@@ -21,6 +21,8 @@ const fx = vi.hoisted(() => ({
   listError: null as unknown,
   docsError: null as unknown,
   ledgerError: null as unknown,
+  pendingList: false,
+  pendingDocs: false,
   calls: [] as Array<{ fn: string; args: unknown[] }>,
 }))
 const auth = vi.hoisted(() => ({ user: { id: 'viewer-1', role: 'dealer' }, isAuthenticated: true, loading: false }))
@@ -31,8 +33,8 @@ vi.mock('@/context/AuthContext', () => ({ useAuth: () => auth }))
 const methods = vi.hoisted(() => {
   const log = (fn: string, args: unknown[]) => fx.calls.push({ fn, args })
   return {
-    fetchDiasporaStockItems: async (...a: unknown[]) => { log('list', a); if (fx.listError) throw fx.listError; return fx.items },
-    fetchDiasporaSupplyDocuments: async (...a: unknown[]) => { log('docs', a); if (fx.docsError) throw fx.docsError; return fx.docs },
+    fetchDiasporaStockItems: async (...a: unknown[]) => { log('list', a); if (fx.pendingList) return new Promise(() => {}); if (fx.listError) throw fx.listError; return fx.items },
+    fetchDiasporaSupplyDocuments: async (...a: unknown[]) => { log('docs', a); if (fx.pendingDocs) return new Promise(() => {}); if (fx.docsError) throw fx.docsError; return fx.docs },
     fetchDiasporaStockLedger: async (...a: unknown[]) => { log('ledger', a); if (fx.ledgerError) throw fx.ledgerError; return fx.ledger },
     appendDiasporaStockMovement: async (...a: unknown[]) => { log('move', a); return { ledgerEntry: {}, stockItem: fx.items[0] } },
     publishDiasporaStockItem: async (...a: unknown[]) => { log('publish', a); throw Object.assign(new Error('Cannot publish: missing required fields unit_price'), { status: 400 }) },
@@ -77,6 +79,8 @@ beforeEach(() => {
   fx.listError = null
   fx.docsError = null
   fx.ledgerError = null
+  fx.pendingList = false
+  fx.pendingDocs = false
   fx.calls = []
   auth.user = { id: 'viewer-1', role: 'dealer' }
   auth.isAuthenticated = true
@@ -223,5 +227,31 @@ describe('DiasporaStockManager — unified seller desk', () => {
     fireEvent.click(await screen.findByTestId('trade-stock-supply-unpublish-doc-live'))
     await waitFor(() => expect(count('unpublishDoc')).toBe(1))
     expect(screen.getByTestId('trade-stock-supply-publish-doc-1')).toBeInTheDocument()
+  })
+})
+
+describe('RX06-LR04 — a pending read is never counted or called "none"', () => {
+  it('while both reads are pending, the pulse shows no numbers and supply documents read as "reading"', async () => {
+    fx.pendingList = true
+    fx.pendingDocs = true
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('trade-stock-pulse')).toHaveTextContent('Reading your stock…'))
+    expect(screen.queryByTestId('trade-stock-pulse-lines')).toBeNull()
+    expect(screen.getByTestId('trade-stock-pulse')).not.toHaveTextContent(/\b0\b/)
+    expect(screen.queryByTestId('trade-stock-supply-empty')).toBeNull()
+    expect(screen.getByTestId('trade-stock-supply-loading')).toHaveTextContent('Reading your supply documents…')
+  })
+  it('once stock has answered but documents are still pending, documents show "—", not 0', async () => {
+    fx.items = [item()]
+    fx.pendingDocs = true
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('trade-stock-pulse-lines')).toHaveTextContent('1'))
+    expect(screen.getByTestId('trade-stock-pulse')).toHaveTextContent('supply documents (reading…)')
+    expect(screen.queryByTestId('trade-stock-supply-empty')).toBeNull()
+  })
+  it('after the documents read answers empty, "none yet" is said', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('trade-stock-supply-empty')).toBeInTheDocument())
+    expect(screen.queryByTestId('trade-stock-supply-loading')).toBeNull()
   })
 })

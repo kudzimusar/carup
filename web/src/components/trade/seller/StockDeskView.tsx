@@ -65,6 +65,9 @@ export function StockDeskView({ model }: { model: StockDeskModel }) {
   const { items, docs } = model
   const published = items.filter((i) => isPublished(i)).length
   const listUnread = Boolean(model.listFailure) && items.length === 0
+  // RX06-LR04: nothing is counted before its read has answered — a pending read is never "0".
+  const listPending = model.listLoading && items.length === 0 && !model.listFailure
+  const docsPending = model.docsLoading && docs.length === 0 && !model.docsFailure
   // First run: the read SUCCEEDED and returned no stock lines. Only then does the editorial still
   // appear — it is never placed behind (or beside) stock units, ledgers or any recorded figure.
   const firstRun = items.length === 0 && !model.listLoading && !model.listFailure
@@ -85,11 +88,11 @@ export function StockDeskView({ model }: { model: StockDeskModel }) {
           </>
         )}
         pulse={(
-          <DeskPulse testId="trade-stock-pulse" scope={listUnread ? 'Stock not loaded' : 'In this read'}
-            items={listUnread ? [] : [
+          <DeskPulse testId="trade-stock-pulse" scope={listUnread ? 'Stock not loaded' : listPending ? 'Reading your stock…' : 'In this read'}
+            items={listUnread || listPending ? [] : [
               { label: items.length === 1 ? 'stock line' : 'stock lines', value: items.length, testId: 'trade-stock-pulse-lines' },
               { label: 'published', value: published, testId: 'trade-stock-pulse-published' },
-              { label: model.docsFailure ? 'supply documents (not loaded)' : docs.length === 1 ? 'supply document' : 'supply documents', value: model.docsFailure ? '—' : docs.length },
+              { label: model.docsFailure ? 'supply documents (not loaded)' : docsPending ? 'supply documents (reading…)' : docs.length === 1 ? 'supply document' : 'supply documents', value: model.docsFailure || docsPending ? '—' : docs.length },
             ]} />
         )}
       />
@@ -235,6 +238,7 @@ function NewStockComposer({ model, onClose }: { model: StockDeskModel; onClose: 
   const ids = useId()
   const docs = model.docs
   const docsUnread = Boolean(model.docsFailure) && docs.length === 0
+  const docsPending = model.docsLoading && docs.length === 0 && !model.docsFailure
   return (
     <section aria-label="New stock line" className={`${DESK_PANEL} p-4 sm:p-5`} data-testid="trade-stock-composer">
       <div className="flex items-start justify-between gap-2">
@@ -257,7 +261,7 @@ function NewStockComposer({ model, onClose }: { model: StockDeskModel; onClose: 
           <label htmlFor={`${ids}-doc`} className={DESK_LABEL}>Supply document <span className="font-normal text-carup-text-3">(optional)</span></label>
           <select id={`${ids}-doc`} className={DESK_FIELD} value={c.supplyDocId} onChange={(e) => c.setSupplyDocId(e.target.value)} data-testid="trade-stock-create-doc"
             disabled={docs.length === 0}>
-            <option value="">{docsUnread ? 'Supply documents could not be read' : docs.length === 0 ? 'No supply documents to link yet' : 'Not linked'}</option>
+            <option value="">{docsUnread ? 'Supply documents could not be read' : docsPending ? 'Reading your supply documents…' : docs.length === 0 ? 'No supply documents to link yet' : 'Not linked'}</option>
             {docs.map((d) => <option key={d.id} value={d.id}>{d.document_number} — {d.title} ({humanize(d.status)})</option>)}
           </select>
           <p className={DESK_HINT}>A link can only be set when the line is created. A linked document must itself be published or verified before this line can be published.</p>
@@ -645,6 +649,8 @@ function SupplyDocsPanel({ model }: { model: StockDeskModel }) {
         <div className="min-w-0">
           {model.docsFailure && model.docs.length === 0 ? (
             <ReadFailureState failure={model.docsFailure} what="Your supply documents" onRetry={model.onRetryDocs} compact testId="trade-stock-supply-failed" />
+          ) : model.docsLoading && model.docs.length === 0 ? (
+            <p className="text-sm text-carup-text-2" role="status" data-testid="trade-stock-supply-loading">Reading your supply documents…</p>
           ) : model.docs.length === 0 ? (
             <p className="text-sm text-carup-text-2" data-testid="trade-stock-supply-empty">No supply documents yet. A draft you create here stays private until you publish it.</p>
           ) : (

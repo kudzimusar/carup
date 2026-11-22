@@ -83,6 +83,8 @@ export default function DiasporaStockManager() {
   // per-document busy marker. Unset, they leave every legacy request byte-identical.
   const [listFailure, setListFailure] = useState<ReadFailure | null>(null)
   const [docsFailure, setDocsFailure] = useState<ReadFailure | null>(null)
+  // RX06-LR04: until the supply-documents read has answered, the desk must not count them or call them "none".
+  const [docsLoading, setDocsLoading] = useState(true)
   const [actionReason, setActionReason] = useState('')
   const [newSupplyDocId, setNewSupplyDocId] = useState('')
   const [supplyBusyId, setSupplyBusyId] = useState<string | null>(null)
@@ -109,13 +111,16 @@ export default function DiasporaStockManager() {
   }, [fetchDiasporaStockItems, canView])
 
   const loadDocs = useCallback(async () => {
-    if (!canView) return
+    if (!canView) { setDocsLoading(false); return }
+    setDocsLoading(true)
     try {
       setDocs(await fetchDiasporaSupplyDocuments())
       setDocsFailure(null)
     } catch (err) {
       setDocError(err instanceof Error ? err.message : 'Unable to load supply documents')
       setDocsFailure(readFailureOf(err))
+    } finally {
+      setDocsLoading(false)
     }
   }, [fetchDiasporaSupplyDocuments, canView])
 
@@ -319,7 +324,7 @@ export default function DiasporaStockManager() {
         items, listLoading, listFailure, onRetryList: () => { void loadList() },
         selected, onSelect: (item) => { void selectItem(item) }, onClearSelection: () => setSelected(null),
         ledger, ledgerUnreadable, onRetryLedger: () => { if (selected) void loadLedger(selected.id) },
-        docs, docsFailure, onRetryDocs: () => { void loadDocs() },
+        docs, docsLoading, docsFailure, onRetryDocs: () => { void loadDocs() },
         create: {
           name: newName, setName: setNewName, qty: newQty, setQty: setNewQty,
           supplyDocId: newSupplyDocId, setSupplyDocId: setNewSupplyDocId,

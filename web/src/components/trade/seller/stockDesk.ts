@@ -211,6 +211,8 @@ export interface StockDeskModel {
   ledgerUnreadable: boolean
   onRetryLedger: () => void
   docs: DiasporaSupplyDocument[]
+  /** True until the supply-documents read has answered (and while it is re-read). */
+  docsLoading: boolean
   docsFailure: ReadFailure | null
   onRetryDocs: () => void
   create: {
