@@ -22,6 +22,7 @@ import {
   statusLabel,
   statusOutcome,
   timeOf,
+  titledByLinkedVehicle,
   yearsLabel,
   type Read,
   type TradeOrder,
@@ -99,7 +100,7 @@ function Ledger({ orders }: { orders: TradeOrder[] }) {
         </div>
         <ul className="divide-y divide-carup-line" data-testid="diaspora-import-list">
           {sorted.map(order => {
-            const years = yearsLabel(order.requested_year_min, order.requested_year_max)
+            const years = titledByLinkedVehicle(order) ? null : yearsLabel(order.requested_year_min, order.requested_year_max)
             const last = formatDay(order.updated_at ?? order.created_at)
             return (
               <li key={order.id}>

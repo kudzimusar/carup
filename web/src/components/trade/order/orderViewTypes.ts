@@ -20,6 +20,7 @@ import type {
   DiasporaTradeDocument,
 } from '@/types'
 import type { OrderMode, Read, TradeOrder } from './orderModel'
+import type { Journey } from '../journey/journeyTypes'
 
 /** Who is looking: their id labels "You"; their role only gates which controls are SHOWN. */
 export interface TradeViewer {
@@ -99,6 +100,8 @@ export interface ImportOrderViewProps {
   /** Stage events per shipment id (GET /diaspora/shipments/:id/timeline). */
   stageEvents?: Read<Record<string, DiasporaShipmentStageEvent[]>>
   logistics?: OrderLogistics
+  /** RX06-LR04 CAP S1: the Journey projection (GET /diaspora/journeys/import_order/:id), Shipping tab only. */
+  journey?: Read<Journey>
   actions?: ImportOrderActions
   /** Re-read the order (and this mode's reads). */
   onRefresh?: () => void

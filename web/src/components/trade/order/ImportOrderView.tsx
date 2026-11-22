@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BookOpenCheck, LayoutList, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpenCheck, CarFront, LayoutList, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ImportOrderLifecycle, UsuallyWith } from '@/components/trade/core/ImportOrderLifecycleRail'
 import { positionOf } from '@/components/trade/core/importOrderLifecycle'
@@ -36,6 +36,8 @@ import {
   requiredDocumentTally,
   shortRef,
   statusLabel,
+  titledByLinkedVehicle,
+  vehiclePassportHref,
   yearsLabel,
   type OrderMode,
   type TradeOrder,
@@ -152,7 +154,7 @@ function ModePanel(props: Omit<ImportOrderViewProps, 'order' | 'documents'> & {
     case 'documents':
       return <OrderDocumentsPanel order={order} viewer={viewer} documents={props.documentsRead ?? { state: 'ready', data: documents }} actions={actions} />
     case 'shipping':
-      return <OrderShippingPanel order={order} viewer={viewer} logistics={props.logistics} stageEvents={props.stageEvents} />
+      return <OrderShippingPanel order={order} viewer={viewer} logistics={props.logistics} stageEvents={props.stageEvents} journey={props.journey} />
     case 'customs':
       return <OrderCustomsPanel order={order} viewer={viewer} documents={documents} footprint={props.footprint} />
     case 'payments':
@@ -174,7 +176,8 @@ function OrderHeader({ order, mode, documents, orders, onRefresh, refreshing }: 
   onRefresh?: () => void
   refreshing?: boolean
 }) {
-  const years = yearsLabel(order.requested_year_min, order.requested_year_max)
+  // A title from the linked vehicle already carries its year; the requested range is not shown beside it.
+  const years = titledByLinkedVehicle(order) ? null : yearsLabel(order.requested_year_min, order.requested_year_max)
   const identifiers = orderIdentifiers(order)
   const match = catalogueMatch(order)
   const tally = requiredDocumentTally(documents)
@@ -212,6 +215,14 @@ function OrderHeader({ order, mode, documents, orders, onRefresh, refreshing }: 
             {match === 'unmatched' && <Provenance kind="unverified">Not matched to CarUp’s catalogue — recorded as typed</Provenance>}
           </div>
           <RouteGlyph className="mt-3" origin={place(order.origin_city, order.origin_country)} destination={place(order.destination_city, order.destination_country)} />
+          {/* CAP S1: only the vehicle's owner or current seller is sent `linked_vehicle`; the sample shows no tool links. */}
+          {surface.toolLinks && order.linked_vehicle?.vin && (
+            <p className="mt-3">
+              <Link to={vehiclePassportHref(order.linked_vehicle.vin)} className={WS_TEXT_ACTION} data-testid="trade-order-vehicle-passport">
+                <CarFront className="h-4 w-4" aria-hidden="true" /> Vehicle Passport
+              </Link>
+            </p>
+          )}
           {identifiers.length > 0 && (
             <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-2" data-testid="trade-order-identifiers">
               {identifiers.map(id => (

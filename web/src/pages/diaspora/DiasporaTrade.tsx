@@ -23,6 +23,7 @@ import { ImportOrderView } from '@/components/trade/order/ImportOrderView'
 import { ImportOrderLedger } from '@/components/trade/order/ImportOrderLedger'
 import type { ImportOrderActions } from '@/components/trade/order/orderViewTypes'
 import { useTradeRead } from '@/components/trade/order/useTradeReads'
+import type { Journey } from '@/components/trade/journey/journeyTypes'
 import {
   DOCUMENT_TYPE_OPTIONS as documentTypeOptions,
   DOCUMENT_UPLOAD_ALLOWED_TYPES,
@@ -1448,6 +1449,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
     updateDiasporaShipmentStage,
     fetchDiasporaShipmentTimeline,
     fetchDiasporaImportOrders,
+    fetchDiasporaJourney,
   } = useCarUpApi()
 
   const [order, setOrder] = useState<DiasporaImportOrder | null>(null)
@@ -1513,6 +1515,15 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
     () => Promise.all(shipments.map(sh => fetchDiasporaShipmentTimeline(sh.id).then(events => [sh.id, events] as const))).then(pairs => Object.fromEntries(pairs)),
   )
   const orders = useTradeRead<TradeOrder[]>(unified && isAuthenticated, 'orders', () => fetchDiasporaImportOrders() as Promise<TradeOrder[]>)
+  // RX06-LR04 CAP S1 (unified only): the order's Journey projection, read from the server once the order and
+  // its shipments have loaded (not before, so it is not read twice), and only for an order this account can
+  // read. It is read again when a shipment's status changes (an operator recorded a stage), so the two never
+  // disagree on screen.
+  const journey = useTradeRead<Journey>(
+    unified && isAuthenticated && Boolean(orderId) && !loading && Boolean(order),
+    orderId ? `journey:${orderId}|${stageKey}` : null,
+    () => fetchDiasporaJourney('import_order', orderId as string),
+  )
 
   const shipment = shipments[0]
   const activeReservation = reservations.find(r => r.reservation_status !== 'REJECTED' && r.reservation_status !== 'CANCELLED')
@@ -1596,6 +1607,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
           viewer={{ id: user?.id, role: user?.role }}
           orders={orders}
           stageEvents={shipments.length > 0 ? stageEvents : undefined}
+          journey={journey}
           logistics={{
             reservations: listRead(reservations, readFailures.reservations, 'container reservations'),
             shipments: listRead(shipments, readFailures.shipments, 'shipment records'),

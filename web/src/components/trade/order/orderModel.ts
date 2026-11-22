@@ -126,6 +126,11 @@ export interface TradeOrder extends DiasporaImportOrder {
   chassis_number?: string | null
   auction_lot_number?: string | null
   linked_vehicle_vin?: string | null
+  /**
+   * RX06-LR04 CAP S1 — the vehicle this order is linked to, attached by the server ONLY for the vehicle's
+   * owner or current seller (the standing that opens its Vehicle Passport). Absent for everyone else.
+   */
+  linked_vehicle?: { vin: string; title: string | null } | null
   created_by?: string | null
   updated_by?: string | null
   taxonomy_resolution?: Record<string, string> | null
@@ -237,11 +242,30 @@ export function yearsLabel(min?: number | null, max?: number | null): string | n
 }
 
 /** The order's name from what the buyer asked for. */
-export function orderTitle(order: Pick<TradeOrder, 'order_type' | 'requested_make' | 'requested_model'>): string {
+/** What was REQUESTED (make and model as typed), whatever vehicle the order is later linked to. */
+export function requestTitle(order: Pick<TradeOrder, 'order_type' | 'requested_make' | 'requested_model'>): string {
   const name = [order.requested_make, order.requested_model].filter(Boolean).join(' ')
   if (order.order_type === 'vehicle') return name || 'Vehicle import'
   const kind = order.order_type === 'parts' ? 'Parts import' : `${labelize(order.order_type)} import`
   return name ? `${kind} · ${name}` : kind
+}
+
+/**
+ * The order's title: the linked vehicle's own title when the server sent one to this viewer (CAP S1), so an
+ * owner sees "2017 Toyota Fielder" rather than what was typed at request time; otherwise the request.
+ */
+export function orderTitle(order: Pick<TradeOrder, 'order_type' | 'requested_make' | 'requested_model' | 'linked_vehicle'>): string {
+  return order.linked_vehicle?.title?.trim() || requestTitle(order)
+}
+
+/** Whether the title is the linked vehicle's (then the requested year range is not shown beside it). */
+export function titledByLinkedVehicle(order: Pick<TradeOrder, 'linked_vehicle'>): boolean {
+  return Boolean(order.linked_vehicle?.title?.trim())
+}
+
+/** The Vehicle Passport (My Garage) of a vehicle. */
+export function vehiclePassportHref(vin: string): string {
+  return `/dashboard/garage/${encodeURIComponent(vin)}`
 }
 
 export function cargoLabel(type?: string | null): string {
@@ -805,7 +829,7 @@ export function buildActivity({ order, audit, documents }: {
     events.push({ ...event, source: 'record', sealed: false })
   }
 
-  add(`order:${order.id}`, { id: `order:${order.id}`, at: order.created_at ?? null, title: 'Import request recorded', detail: orderTitle(order), actorId: order.created_by ?? order.buyer_id ?? null, kind: 'order' })
+  add(`order:${order.id}`, { id: `order:${order.id}`, at: order.created_at ?? null, title: 'Import request recorded', detail: requestTitle(order), actorId: order.created_by ?? order.buyer_id ?? null, kind: 'order' })
   const created = timeOf(order.created_at)
   const updated = timeOf(order.updated_at)
   if (updated !== null && (created === null || updated - created > 1000) && !auditTimes.some(t => Math.abs(t - updated) <= 5000)) {

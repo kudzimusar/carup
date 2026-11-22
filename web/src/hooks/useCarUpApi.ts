@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
+import type { Journey } from '@/components/trade/journey/journeyTypes'
 import {
   fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
   fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
@@ -1128,6 +1129,15 @@ export function useCarUpApi() {
   const fetchDiasporaShipmentTimeline = useCallback(async (shipmentId: string): Promise<DiasporaShipmentStageEvent[]> => {
     const response = await request<{ data: DiasporaShipmentStageEvent[] }>(`/diaspora/shipments/${encodeURIComponent(shipmentId)}/timeline`)
     return response.data || []
+  }, [request])
+
+  // RX06-LR04 CAP S1 — the Journey projection of an import order (or of a vehicle, for its owner).
+  // A body without a state is not a journey: it is a failed read, never "nothing has happened".
+  const fetchDiasporaJourney = useCallback(async (subjectType: 'import_order' | 'vehicle', subjectId: string): Promise<Journey> => {
+    const response = await request<{ data?: Journey }>(`/diaspora/journeys/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    const journey = response?.data
+    if (!journey || typeof journey !== 'object' || !journey.state) throw new Error('The journey could not be read.')
+    return journey
   }, [request])
 
   const fetchDiasporaTradeProfile = useCallback(async (id: string): Promise<DiasporaTradeProfile> => {
@@ -2907,6 +2917,7 @@ export function useCarUpApi() {
     fetchDiasporaGovernmentFootprint,
     fetchDiasporaOrderAudit,
     fetchDiasporaShipmentTimeline,
+    fetchDiasporaJourney,
     fetchDiasporaTradeProfile,
     fetchOwnDiasporaTradeProfiles,
     submitDiasporaTradeProfileForReview,

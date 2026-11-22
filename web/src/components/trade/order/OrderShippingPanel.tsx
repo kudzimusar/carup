@@ -1,7 +1,9 @@
 /**
  * RX-06 — Import Order › Shipping & CAP.
  *
- *  - The CAP journey (reservation → booking → loading → departure → arrival → customs → release →
+ *  - RX06-LR04 CAP S1: "Journey & arrival" first — the CAP Journey projection, read from the server
+ *    (OrderJourneyPanel), when the page passes a `journey` read. Without one, nothing is drawn for it.
+ *  - The order status steps (reservation → booking → loading → departure → arrival → customs → release →
  *    Zimbabwe-ready) derived ONLY from the order status and the reservation records, each step saying
  *    which record it comes from.
  *  - Container allocation: the order's reservations, the buyer's request form (only while no active
@@ -17,6 +19,7 @@ import { StatusChip } from '@/components/dealer/workspace/StatusChip'
 import { WorkspaceNotice } from '@/components/dealer/workspace/EmptyState'
 import { WS_DANGER, WS_FIELD, WS_LABEL, WS_PRIMARY, WS_SECONDARY } from '@/components/dealer/workspace/workspaceStyles'
 import type { DiasporaCargoReservation, DiasporaContainerShipment, DiasporaShipment, DiasporaShipmentStageEvent } from '@/types'
+import type { Journey } from '../journey/journeyTypes'
 import {
   RESERVATION_CARGO_TYPES,
   SHIPMENT_COORDINATION_NOTE,
@@ -39,16 +42,19 @@ import {
 import type { OrderLogistics, TradeViewer } from './orderViewTypes'
 import { useOrderSurface } from './orderLinks'
 import { NotRecorded, Panel, Provenance, ReadGate, RefCode } from './TradeKit'
+import { OrderJourneyPanel } from './OrderJourneyPanel'
 
 function str(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
-export function OrderShippingPanel({ order, viewer, logistics, stageEvents }: {
+export function OrderShippingPanel({ order, viewer, logistics, stageEvents, journey }: {
   order: TradeOrder
   viewer: TradeViewer
   logistics?: OrderLogistics
   stageEvents?: Read<Record<string, DiasporaShipmentStageEvent[]>>
+  /** RX06-LR04 CAP S1: the server's Journey projection for this order (omitted: no journey section). */
+  journey?: Read<Journey>
 }) {
   const reservations: Read<DiasporaCargoReservation[]> = logistics?.reservations ?? readReady(order.diaspora_cargo_reservations ?? [])
   const shipments: Read<DiasporaShipment[]> = logistics?.shipments ?? readReady(order.diaspora_shipments ?? [])
@@ -59,6 +65,7 @@ export function OrderShippingPanel({ order, viewer, logistics, stageEvents }: {
         <Ship className="mt-1 h-4 w-4 shrink-0 text-carup-text-3" aria-hidden="true" />
         <span>{SHIPMENT_COORDINATION_NOTE} CarUp never estimates a departure or arrival date.</span>
       </p>
+      {journey && <OrderJourneyPanel orderId={order.id} journey={journey} />}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <CapJourney order={order} reservations={reservations} />
         <div className="min-w-0 space-y-5">
@@ -71,14 +78,14 @@ export function OrderShippingPanel({ order, viewer, logistics, stageEvents }: {
   )
 }
 
-/* ── CAP journey ──────────────────────────────────────────────────────────────────────────────── */
+/* ── Order status steps (the client-derived ladder; test ids kept from "CAP journey") ─────────── */
 
 function CapJourney({ order, reservations }: { order: TradeOrder; reservations: Read<DiasporaCargoReservation[]> }) {
   const known = reservations.state === 'ready'
   const steps = buildShipmentTimeline(order, known ? reservations.data : [])
   const outcome = statusOutcome(order.status)
   return (
-    <Panel title="CAP journey" eyebrow="From reservation to Zimbabwe-ready" testId="trade-cap-journey">
+    <Panel title="Order status steps" eyebrow="From reservation to Zimbabwe-ready" testId="trade-cap-journey">
       {outcome && <p className="mb-3 rounded-control bg-status-warning-soft px-3 py-2 text-sm text-carup-text" role="status" data-testid="trade-cap-outcome">{outcome.timeline}</p>}
       {!known && <p className="mb-3 text-xs text-carup-text-3" data-testid="trade-cap-reservations-unknown">The reservation records could not be read, so the first two steps are not known.</p>}
       <ol className="relative">
