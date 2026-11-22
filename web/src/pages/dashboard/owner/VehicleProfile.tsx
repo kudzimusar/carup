@@ -194,9 +194,11 @@ export default function VehicleProfile() {
     loadPassport()
     loadEvidence()
   }
+  // RX06-LR04 (RX-04 gate correction): the workspace shell already provides <main>; the Passport is a labelled
+  // section inside it, never a second main landmark (axe landmark-no-duplicate-main / landmark-main-is-top-level).
   if (unified && !passportData) {
     return (
-      <main className="mx-auto w-full max-w-[1320px] space-y-4" aria-labelledby="passport-state-title" data-presentation="rx04">
+      <section className="mx-auto w-full max-w-[1320px] space-y-4" aria-labelledby="passport-state-title" data-presentation="rx04">
         <Link to="/dashboard/garage" className={`inline-flex min-h-11 items-center gap-2 rounded-full text-[14px] font-semibold text-carup-text-2 hover:text-carup-text ${OWNER_FOCUS}`}>
           <ArrowLeft className="h-4 w-4" aria-hidden="true" /> My garage
         </Link>
@@ -204,7 +206,7 @@ export default function VehicleProfile() {
         {passportLoadState === 'error'
           ? <DataState state="error" subject="Vehicle Passport" description="CarUp could not load this Passport. This does not mean the vehicle has no records." action={{ label: 'Retry Passport', onClick: retryAll }} />
           : <DataState state="loading" subject="Vehicle Passport" />}
-      </main>
+      </section>
     )
   }
 
@@ -413,7 +415,7 @@ export default function VehicleProfile() {
     )
 
     return (
-      <main className="mx-auto w-full max-w-[1320px] space-y-6" aria-labelledby="vehicle-passport-title" data-presentation="rx04" data-testid="vehicle-passport-unified">
+      <section className="mx-auto w-full max-w-[1320px] space-y-6" aria-labelledby="vehicle-passport-title" data-presentation="rx04" data-testid="vehicle-passport-unified">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Link to="/dashboard/garage" className={`inline-flex min-h-11 items-center gap-2 rounded-full text-[14px] font-semibold text-carup-text-2 hover:text-carup-text ${OWNER_FOCUS}`}>
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> My garage
@@ -661,7 +663,7 @@ export default function VehicleProfile() {
             loadPassport()
           }}
         />
-      </main>
+      </section>
     )
   }
 
