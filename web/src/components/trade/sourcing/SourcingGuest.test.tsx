@@ -60,7 +60,10 @@ describe('Sourcing requests — guest explainer', () => {
     expect(screen.getByTestId('trade-rfq-guest-step-choose')).toHaveTextContent('only when you are signed in')
     // The seller list returns the published request as recorded, so the page never claims the budget is hidden.
     const sellersSee = screen.getByTestId('trade-rfq-guest-sellers-see')
-    expect(sellersSee).toHaveTextContent('your budget, if you add one')
+    expect(sellersSee).toHaveTextContent('the budget you stated')
+    // TF-71: the request flow this page opens requires a budget, so nothing here says it is optional or can be left out.
+    expect(screen.getByTestId('trade-rfq-guest')).not.toHaveTextContent(/budget is optional|leave the budget out|if you add one/i)
+    expect(screen.getByTestId('trade-rfq-guest-step-describe')).toHaveTextContent('where it should arrive and your budget')
     expect(sellersSee).not.toHaveTextContent(/never see your budget|budget is hidden|budget stays private/i)
 
     expect(screen.getByTestId('trade-rfq-guest-prepare')).toHaveAttribute('href', '/diaspora/imports/new')

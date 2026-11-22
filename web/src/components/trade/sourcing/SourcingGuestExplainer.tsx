@@ -22,7 +22,7 @@ import { sampleJourneyHref } from '@/content/trade/sampleJourneyLinks'
 import { DeskHeader, DeskPanel } from './TradeDesk'
 
 const STEPS = [
-  { key: 'describe', icon: PenLine, title: 'You describe what you want', body: 'The vehicle or parts, the years, where it should come from and where it should arrive. A budget is optional. You can prepare this without an account; sending it needs one.' },
+  { key: 'describe', icon: PenLine, title: 'You describe what you want', body: 'The vehicle or parts, the years, where it should come from, where it should arrive and your budget. You can prepare this without an account; sending it needs one.' },
   { key: 'publish', icon: Send, title: 'You publish it', body: 'Sellers cannot see a request until you publish it. Once it is published, sellers who can quote see it.' },
   { key: 'quote', icon: Scale, title: 'Sellers quote', body: 'A quote is only what a seller submits: an amount, its currency and any terms they add. CarUp adds no freight, duty or fees, converts no currency and never makes a quote up.' },
   { key: 'choose', icon: CheckCircle2, title: 'You choose', body: 'You compare the quotes and accept the one you want — only when you are signed in, and only a quote a seller actually submitted. Accepting one rejects the other submitted quotes on that request.' },
@@ -71,7 +71,7 @@ export function SourcingGuestExplainer() {
         <div className="min-w-0 space-y-5">
           <DeskPanel title="What sellers see" testId="trade-rfq-guest-sellers-see">
             <ul className="space-y-2.5 text-sm leading-6 text-carup-text-2">
-              <li className="flex gap-2.5"><Eye className="mt-1 h-4 w-4 shrink-0 text-carup-text-3" aria-hidden="true" />Sellers who can quote see a published request with everything in it: what you want, the years, the route — and your budget, if you add one. Leave the budget out if you would rather they did not see it.</li>
+              <li className="flex gap-2.5"><Eye className="mt-1 h-4 w-4 shrink-0 text-carup-text-3" aria-hidden="true" />Sellers who can quote see a published request with everything in it: what you want, the years, the route and the budget you stated.</li>
               <li className="flex gap-2.5"><Eye className="mt-1 h-4 w-4 shrink-0 text-carup-text-3" aria-hidden="true" />They never see a request you have not published, and a request leaves their list once you accept a quote.</li>
             </ul>
           </DeskPanel>

@@ -27,6 +27,7 @@ import {
   formatDay,
   formatWhen,
   isTradeOperator,
+  mayOfferOperatorAction,
   latestSubmissionFor,
   milestoneSummary,
   money,
@@ -53,14 +54,21 @@ export function OrderOverviewPanel({ order, viewer, documents, handoff, actions 
   handoff?: Read<DiasporaOwnershipHandoffStatus>
   actions?: ImportOrderActions
 }) {
-  const operator = isTradeOperator(viewer.role)
-  const hasOperatorActions = operator && Boolean(actions?.assignSeller || actions?.markZimbabweReady || actions?.linkVehicleRecord || actions?.completeHandoff)
+  // RX06-LR04: each control is offered only to roles the server accepts for that action (orderModel).
+  const offered: ImportOrderActions | undefined = actions && {
+    ...actions,
+    assignSeller: mayOfferOperatorAction('assignSeller', viewer.role) ? actions.assignSeller : undefined,
+    markZimbabweReady: mayOfferOperatorAction('markZimbabweReady', viewer.role) ? actions.markZimbabweReady : undefined,
+    linkVehicleRecord: mayOfferOperatorAction('linkVehicleRecord', viewer.role) ? actions.linkVehicleRecord : undefined,
+    completeHandoff: mayOfferOperatorAction('completeHandoff', viewer.role) ? actions.completeHandoff : undefined,
+  }
+  const hasOperatorActions = isTradeOperator(viewer.role) && Boolean(offered?.assignSeller || offered?.markZimbabweReady || offered?.linkVehicleRecord || offered?.completeHandoff)
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]" data-testid="trade-order-overview">
       <div className="min-w-0 space-y-5">
         <JourneyLedger order={order} documents={documents} handoff={handoff} viewer={viewer} />
         <RequiredDocumentsSummary order={order} documents={documents} />
-        {hasOperatorActions && actions && <OperationsControls order={order} actions={actions} />}
+        {hasOperatorActions && offered && <OperationsControls order={order} actions={offered} />}
       </div>
       <aside className="min-w-0 space-y-5" aria-label="Order facts">
         <RequestFacts order={order} viewer={viewer} />
@@ -456,7 +464,7 @@ function OperationsControls({ order, actions }: { order: TradeOrder; actions: Im
           <div className={row}>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-carup-text">Complete the ownership handoff</p>
-              <p className="text-xs leading-5 text-carup-text-2">Links a Zimbabwe-ready order and its verified import record to the vehicle’s CarUp identity. Repeating it is safe.</p>
+              <p className="text-xs leading-5 text-carup-text-2">Links a Zimbabwe-ready order and its verified import record to the vehicle’s CarUp identity.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {confirming === 'handoff' ? (

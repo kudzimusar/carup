@@ -287,6 +287,26 @@ export function isTradeOperator(role?: string | null): boolean {
   return TRADE_OPERATOR_ROLES.has(role || '')
 }
 
+/*
+ * RX06-LR04 — which operator action this account is OFFERED, per action, mirroring the server's own authority
+ * (backend/services/diaspora/diasporaAuthorization.js and the atomic order RPCs). Display only: the backend still
+ * authorizes every call. An action the server refuses for a role is never offered to it — a plain platform `admin`
+ * is a platform admin, not a platform reviewer. Rights granted per order tenant (tenant admins) or per order (the
+ * owner) are not visible to this client, so they are not offered from the operations controls.
+ *  - assign a seller, mark Zimbabwe-ready: platform reviewers;
+ *  - complete the ownership handoff: platform admins and platform reviewers;
+ *  - link the vehicle import record, verify / reject / read documents: platform reviewers (review duties).
+ */
+export const PLATFORM_REVIEW_ROLES = new Set(['platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer'])
+export const PLATFORM_ADMIN_ROLES = new Set(['admin', 'platform_admin', 'super_admin'])
+export type OrderOperatorAction = 'assignSeller' | 'markZimbabweReady' | 'linkVehicleRecord' | 'completeHandoff' | 'reviewDocuments'
+
+export function mayOfferOperatorAction(action: OrderOperatorAction, role?: string | null): boolean {
+  const r = String(role || '').toLowerCase()
+  if (PLATFORM_REVIEW_ROLES.has(r)) return true
+  return action === 'completeHandoff' && PLATFORM_ADMIN_ROLES.has(r)
+}
+
 /* ── Required documents (lifted unchanged from DiasporaTrade.tsx, RX03-P2-R4/R5) ────────────────── */
 
 export const REQUIRED_DOCUMENTS = [

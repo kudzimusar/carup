@@ -166,7 +166,7 @@ export const TRADE_INTENTIONS: readonly TradeIntention[] = [
     tone: 'info',
     lead: 'Describe the vehicle you want and let sellers come to you with quotes: a request in reverse.',
     points: [
-      'Say what you want: make, model, years, where it should come from and where it should arrive. A budget is optional.',
+      'Say what you want: make, model, years, where it should come from, where it should arrive and your budget.',
       'Sellers cannot see your request until you publish it. Once it is published, sellers who can quote see it and send quotes.',
       'You compare the quotes and accept the one you choose, signed in.',
       'No quote, seller or supplier commitment exists until CarUp’s server records one.',

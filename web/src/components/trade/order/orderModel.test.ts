@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  mayOfferOperatorAction,
   buildActivity,
   buildShipmentTimeline,
   documentFileProblem,
@@ -134,5 +135,20 @@ describe('government records', () => {
   it('MISSING reads as "not recorded yet", never as a failure', () => {
     expect(governmentRecordStatus('MISSING')).toEqual({ label: 'Not recorded yet', tone: 'neutral' })
     expect(governmentRecordStatus('VERIFIED').tone).toBe('success')
+  })
+})
+
+describe('operator actions offered per role (RX06-LR04, mirrors the server)', () => {
+  it('platform reviewers are offered every action; a plain admin only the handoff; others nothing', () => {
+    const actions = ['assignSeller', 'markZimbabweReady', 'linkVehicleRecord', 'completeHandoff', 'reviewDocuments'] as const
+    for (const role of ['platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer']) {
+      for (const a of actions) expect(mayOfferOperatorAction(a, role), `${role} ${a}`).toBe(true)
+    }
+    expect(actions.filter(a => mayOfferOperatorAction(a, 'admin'))).toEqual(['completeHandoff'])
+    for (const role of ['owner', 'dealer', 'seller', 'mechanic', '', null, undefined]) {
+      expect(actions.filter(a => mayOfferOperatorAction(a, role)), String(role)).toEqual([])
+    }
+    // Role names are matched as the server stores them, case-insensitively.
+    expect(mayOfferOperatorAction('assignSeller', 'Reviewer')).toBe(true)
   })
 })

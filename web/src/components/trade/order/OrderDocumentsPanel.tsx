@@ -26,6 +26,7 @@ import {
   documentTypeLabel,
   formatWhen,
   isTradeOperator,
+  mayOfferOperatorAction,
   latestSubmissionFor,
   requiredDocumentState,
   requirementFor,
@@ -141,8 +142,9 @@ function RequiredSet({ docs, viewer, onUpload }: { docs: DiasporaTradeDocument[]
 
 function Submissions({ docs, viewer, actions }: { docs: DiasporaTradeDocument[]; viewer: TradeViewer; actions?: ImportOrderActions }) {
   const sorted = [...docs].sort((a, b) => (timeOf(b.created_at) ?? 0) - (timeOf(a.created_at) ?? 0))
-  const operator = isTradeOperator(viewer.role)
-  const canReview = operator && Boolean(actions?.verifyDocument || actions?.rejectDocument || actions?.runOcr)
+  // RX06-LR04: document review is offered to platform reviewers only, the roles the review duty belongs to (orderModel).
+  const canReview = isTradeOperator(viewer.role) && mayOfferOperatorAction('reviewDocuments', viewer.role)
+    && Boolean(actions?.verifyDocument || actions?.rejectDocument || actions?.runOcr)
   return (
     <Panel title="Every submission" eyebrow={`${docs.length} on record`} testId="trade-submissions">
       {sorted.length === 0 ? (

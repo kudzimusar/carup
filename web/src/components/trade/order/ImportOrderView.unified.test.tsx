@@ -101,10 +101,32 @@ describe('overview', () => {
     unmount()
     mount({ actions, viewer: { id: 'fx-op', role: 'admin' } })
     expect(screen.getByTestId('diaspora-order-reviewer-actions')).toBeInTheDocument()
+    // TF-72: the client sends no idempotency key, so the row never promises that repeating the handoff is safe.
+    expect(screen.getByTestId('diaspora-order-reviewer-actions')).not.toHaveTextContent(/repeat(ing)? it is safe|safe to repeat/i)
     expect(screen.queryByTestId('diaspora-reviewer-link-vehicle')).toBeNull()
     fireEvent.click(screen.getByTestId('diaspora-reviewer-complete-handoff-start'))
     fireEvent.click(screen.getByTestId('diaspora-reviewer-complete-handoff'))
     return waitFor(() => expect(screen.getByTestId('diaspora-reviewer-result')).toHaveTextContent('idempotent replay'))
+  })
+  it('each operator action is offered only to roles the server accepts for it (RX06-LR04)', () => {
+    const all = { assignSeller: vi.fn(async () => ({})), markZimbabweReady: vi.fn(async () => ({})), linkVehicleRecord: vi.fn(async () => ({})), completeHandoff: vi.fn(async () => ({})) }
+    // A plain platform admin: the server refuses seller assignment, Zimbabwe-ready and record linking, and accepts the handoff.
+    const { unmount } = mount({ actions: all, viewer: { id: 'fx-admin', role: 'admin' } })
+    const panel = screen.getByTestId('diaspora-order-reviewer-actions')
+    expect(panel).not.toHaveTextContent('Assign a seller')
+    expect(screen.queryByTestId('diaspora-reviewer-zimbabwe-ready-start')).toBeNull()
+    expect(screen.queryByTestId('diaspora-reviewer-link-vehicle')).toBeNull()
+    expect(screen.getByTestId('diaspora-reviewer-complete-handoff-start')).toBeInTheDocument()
+    unmount()
+    // A platform reviewer is offered every action.
+    const r = mount({ actions: all, viewer: { id: 'fx-rev', role: 'reviewer' } })
+    expect(screen.getByTestId('diaspora-order-reviewer-actions')).toHaveTextContent('Assign a seller')
+    expect(screen.getByTestId('diaspora-reviewer-zimbabwe-ready-start')).toBeInTheDocument()
+    expect(screen.getByTestId('diaspora-reviewer-complete-handoff-start')).toBeInTheDocument()
+    r.unmount()
+    // A dealer is offered nothing.
+    mount({ actions: all, viewer: { id: 'fx-dealer', role: 'dealer' } })
+    expect(screen.queryByTestId('diaspora-order-reviewer-actions')).toBeNull()
   })
 })
 
@@ -151,6 +173,10 @@ describe('documents', () => {
     unmount()
     mount({ mode: 'documents', documents: ready(docs), viewer: { role: 'reviewer' }, actions: { verifyDocument: vi.fn(), rejectDocument: vi.fn() } })
     expect(screen.getAllByTestId('trade-review-toggle')).toHaveLength(2) // the verified one is terminal
+  })
+  it('a plain platform admin is not offered document review (RX06-LR04: review is a platform-reviewer duty)', () => {
+    mount({ mode: 'documents', documents: ready(docs), viewer: { id: 'fx-admin', role: 'admin' }, actions: { verifyDocument: vi.fn(), rejectDocument: vi.fn(), runOcr: vi.fn() } })
+    expect(screen.queryByTestId('trade-review-toggle')).toBeNull()
   })
 })
 

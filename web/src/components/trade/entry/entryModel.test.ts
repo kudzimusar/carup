@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { getFeatureByRoute, type EffectiveFeatureState } from '@/config/featureRegistry'
-import { TRADE_CAPABILITIES, offeredCapabilities } from './entryModel'
+import { TRADE_CAPABILITIES, TRADE_INTENTIONS, offeredCapabilities } from './entryModel'
 
 const state = (featureId: string, over: Partial<EffectiveFeatureState>): EffectiveFeatureState => ({
   featureId, state: 'active', enabled: true, visible: true, accessible: true, beta: false, ...over,
@@ -33,5 +33,15 @@ describe('offeredCapabilities', () => {
     const id = getFeatureByRoute('/diaspora/trade-profile')!.id
     const offered = offeredCapabilities({ isAuthenticated: true, role: 'owner', effectiveStates: { [id]: state(id, { state: 'hidden', visible: false, accessible: true }) } })
     expect(offered.find(c => c.route === '/diaspora/trade-profile')?.availability).toBe('unreleased')
+  })
+})
+
+describe('guest intentions copy (TF-71)', () => {
+  it('"Source a vehicle for me" asks for the budget its request flow requires, and never calls it optional', () => {
+    const source = TRADE_INTENTIONS.find(i => i.key === 'source')!
+    const text = [source.lead, ...source.points].join(' ')
+    expect(text).toMatch(/your budget/)
+    expect(text).not.toMatch(/budget is optional|leave the budget out|if you add one/i)
+    expect(source.primary?.href).toBe('/diaspora/imports/new')
   })
 })
