@@ -301,4 +301,46 @@ describe('passport mode (/diaspora/imports/:id/passport)', () => {
     expect(await screen.findByTestId('order-passport-title')).toHaveTextContent('Import order passport')
     expect(screen.queryByTestId('trade-order-view')).toBeNull()
   })
+  // RX06-LR05, Owner decision D3: the unified mode is the "Order record"; its failed read must not say "passport".
+  it('unified: a failed Order record read never says "passport"; throttled, offline and ended-session reads are worded as on the other modes', async () => {
+    const { THROTTLED_TEXT, OFFLINE_TEXT } = await import('@/components/trade/core/readFailure')
+    const { SESSION_ENDED_TEXT } = await import('@/components/trade/order/orderModel')
+    const { default: DiasporaOrderPassport } = await import('./DiasporaOrderPassport')
+    // [failure, the words shown, whether a retry is offered] — an ended session is not retried with the same session.
+    const cases: Array<[Error, string, boolean]> = [
+      [httpError(429, 'Too many requests, please try again later.'), THROTTLED_TEXT, true],
+      [new TypeError('Failed to fetch'), OFFLINE_TEXT, true],
+      [Object.assign(new Error('Session expired'), { status: 401, name: 'SessionExpiredError' }), SESSION_ENDED_TEXT, false],
+      [httpError(500, 'An unexpected internal server error occurred'), 'An unexpected internal server error occurred', true],
+    ]
+    for (const [err, words, retry] of cases) {
+      fx.api.fetchDiasporaImportOrder.mockRejectedValueOnce(err)
+      await at(`/diaspora/imports/${ORDER.id}/passport`, '/diaspora/imports/:id/passport', <DiasporaOrderPassport />)
+      const failed = await screen.findByTestId('trade-order-failed')
+      expect(failed).toHaveTextContent(words)
+      expect(screen.getByTestId('order-passport-route').textContent).not.toMatch(/order passport|this passport/i)
+      expect(within(failed).queryByRole('button', { name: /try again/i }) !== null).toBe(retry)
+      cleanup()
+    }
+  })
+  it('unified: refused and missing records keep their own states', async () => {
+    const { default: DiasporaOrderPassport } = await import('./DiasporaOrderPassport')
+    // Wait for whichever end state renders, then assert which one it is (a wrong state fails here, not by timeout).
+    const endState = /^trade-order-(denied|unavailable|failed)$/
+    fx.api.fetchDiasporaImportOrder.mockRejectedValueOnce(httpError(403, 'Forbidden'))
+    await at(`/diaspora/imports/${ORDER.id}/passport`, '/diaspora/imports/:id/passport', <DiasporaOrderPassport />)
+    expect(await screen.findByTestId(endState)).toHaveAttribute('data-testid', 'trade-order-denied')
+    cleanup()
+    fx.api.fetchDiasporaImportOrder.mockRejectedValueOnce(httpError(404, 'Not found'))
+    await at(`/diaspora/imports/${ORDER.id}/passport`, '/diaspora/imports/:id/passport', <DiasporaOrderPassport />)
+    expect(await screen.findByTestId(endState)).toHaveAttribute('data-testid', 'trade-order-unavailable')
+  })
+  it('flag OFF: a failed read keeps the legacy page\'s own words (the legacy page is unchanged)', async () => {
+    fx.unified = false
+    fx.api.fetchDiasporaImportOrder.mockRejectedValueOnce(httpError(500, 'An unexpected internal server error occurred'))
+    const { default: DiasporaOrderPassport } = await import('./DiasporaOrderPassport')
+    await at(`/diaspora/imports/${ORDER.id}/passport`, '/diaspora/imports/:id/passport', <DiasporaOrderPassport />)
+    expect(await screen.findByTestId('order-passport-error')).toHaveTextContent('Could not load this order passport. Please retry.')
+    expect(screen.queryByTestId('trade-order-view')).toBeNull()
+  })
 })

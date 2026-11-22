@@ -28,7 +28,7 @@ import { buildLoginRedirect } from '@/lib/returnTo'
 // RX-06 — in the unified presentation the passport is a MODE of the Import Order (same reads as below).
 import { ImportOrderView } from '@/components/trade/order/ImportOrderView'
 import { useTradeRead } from '@/components/trade/order/useTradeReads'
-import { READ_LOADING, readReady, type Read, type TradeOrder } from '@/components/trade/order/orderModel'
+import { READ_LOADING, isSessionEnded, readFromError, readReady, type Read, type TradeOrder } from '@/components/trade/order/orderModel'
 import type {
   DiasporaImportOrder,
   DiasporaGovernmentDocument,
@@ -170,7 +170,8 @@ export default function DiasporaOrderPassport() {
   const [loading, setLoading] = useState(false)
   const [hasLoaded, setHasLoaded] = useState(false)
   const loadingRef = useRef(false)
-  const [fatal, setFatal] = useState<{ kind: 'notfound' | 'forbidden' | 'session' | 'error'; message: string } | null>(null)
+  // `error` is kept for the unified presentation only (RX06-LR05); the legacy page shows `message`.
+  const [fatal, setFatal] = useState<{ kind: 'notfound' | 'forbidden' | 'session' | 'error'; message: string; error?: unknown } | null>(null)
 
   const canView = isAuthenticated
 
@@ -194,10 +195,10 @@ export default function DiasporaOrderPassport() {
       }
     } catch (err) {
       const { kind } = classifyActionError(err)
-      if (kind === 'session') setFatal({ kind: 'session', message: 'Your session has expired. Please sign in again to view this passport.' })
-      else if (kind === 'notfound') setFatal({ kind: 'notfound', message: 'This import order was not found.' })
-      else if (kind === 'forbidden') setFatal({ kind: 'forbidden', message: 'You do not have access to this import order.' })
-      else setFatal({ kind: 'error', message: 'Could not load this order passport. Please retry.' })
+      if (kind === 'session') setFatal({ kind: 'session', message: 'Your session has expired. Please sign in again to view this passport.', error: err })
+      else if (kind === 'notfound') setFatal({ kind: 'notfound', message: 'This import order was not found.', error: err })
+      else if (kind === 'forbidden') setFatal({ kind: 'forbidden', message: 'You do not have access to this import order.', error: err })
+      else setFatal({ kind: 'error', message: 'Could not load this order passport. Please retry.', error: err })
     } finally { setLoading(false); setHasLoaded(true); loadingRef.current = false }
   }, [api, canView, id])
 
@@ -212,13 +213,19 @@ export default function DiasporaOrderPassport() {
 
   if (unified && isAuthenticated && !authLoading) {
     const retry = () => { void load() }
+    // RX06-LR05 (Owner decision D3): this mode is the "Order record", so a failed read never says "passport"; an
+    // ended session, a throttled read and a lost connection are worded exactly as on the order's other modes
+    // (readFromError). Refused and missing keep their own states. The legacy page below keeps its own words.
+    // The words come from page state only; `retry` is added to the value handed to the view (an ended session gets none).
+    const recordFailure: Read<TradeOrder> | null = !fatal ? null
+      : fatal.kind === 'forbidden' ? { state: 'denied', message: fatal.message }
+        : fatal.kind === 'notfound' ? { state: 'unavailable', message: fatal.message }
+          : readFromError(fatal.error, undefined, 'This order record could not be loaded.')
     const orderRead: Read<TradeOrder> = order
       ? readReady(order as TradeOrder)
-      : fatal
-        ? fatal.kind === 'forbidden' ? { state: 'denied', message: fatal.message }
-          : fatal.kind === 'notfound' ? { state: 'unavailable', message: fatal.message }
-            : { state: 'failed', message: fatal.message, onRetry: retry }
-        : READ_LOADING
+      : !recordFailure ? READ_LOADING
+        : recordFailure.state === 'failed' && !isSessionEnded(fatal?.error) ? { ...recordFailure, onRetry: retry }
+          : recordFailure
     // Best-effort enrichments keep their legacy meaning: null = the read FAILED ("unavailable").
     const firstLoad = !hasLoaded
     const unavailable = { state: 'failed', message: 'Unavailable right now.', onRetry: retry } as const
@@ -237,7 +244,7 @@ export default function DiasporaOrderPassport() {
           stageEvents={firstShipmentId ? (timeline === null ? unavailable : firstLoad ? READ_LOADING : readReady({ [firstShipmentId]: timeline })) : undefined}
           onRefresh={retry}
           refreshing={loading}
-          refreshError={order && fatal ? fatal.message : undefined}
+          refreshError={order && recordFailure && 'message' in recordFailure ? recordFailure.message : undefined}
         />
       </div>
     )
