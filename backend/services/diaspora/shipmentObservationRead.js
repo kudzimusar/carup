@@ -20,9 +20,11 @@ function byObservedThenReceived(a, b) {
 
 /** Accepted and superseded estimate revisions of a shipment, oldest observation first. */
 export async function listEtaRevisionsForShipment(shipmentId, client) {
-  const { data } = await client.from(OBSERVATIONS).select('*')
+  const { data, error } = await client.from(OBSERVATIONS).select('*')
     .eq('shipment_id', shipmentId).eq('kind', 'ETA_REVISION').in('status', ['ACCEPTED', 'SUPERSEDED']);
-  return (data || []).slice().sort(byObservedThenReceived);
+  // RX06-LR04 (S1): a failed read is reported to the caller as such — never as "no revision".
+  if (error) return { ok: false, rows: [] };
+  return { ok: true, rows: (data || []).slice().sort(byObservedThenReceived) };
 }
 
 /** One revision as a participant may see it: the estimate, when it was observed, why, and who said so by kind. */

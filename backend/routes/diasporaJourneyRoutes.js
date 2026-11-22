@@ -10,7 +10,7 @@
  * merely not theirs.
  */
 import express from 'express';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, requireProvenIdentity } from '../middleware/authMiddleware.js';
 import { getJourney } from '../services/diaspora/journeyProjectionService.js';
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -18,13 +18,14 @@ const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, ne
 const participantAuth = authorizeRole(['owner', 'dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer']);
 
 /** A factory so tests can inject authentication and the service; production uses the defaults below. */
-export function createJourneyRouter({ auth = participantAuth, getJourneyFn = getJourney } = {}) {
+// RX06-LR04 (S1): the journey also requires a PROVEN identity (a verified session), exactly like R2C's protected reads.
+export function createJourneyRouter({ auth = participantAuth, proven = requireProvenIdentity(), getJourneyFn = getJourney } = {}) {
   const router = express.Router();
 
   // `subjectType` is `import_order`, `cargo_reservation` or `shipment`; the service validates it.
-  router.get('/journeys/:subjectType/:subjectId', auth, asyncHandler(async (req, res) => {
+  router.get('/journeys/:subjectType/:subjectId', auth, proven, asyncHandler(async (req, res) => {
     const data = await getJourneyFn(req.params.subjectType, req.params.subjectId, req.userContext, { req });
-    // Private to the viewer, and — for the vehicle's owner — it carries short-lived links to their photographs: never stored by a browser or a shared cache.
+    // Private to the viewer (RX06-LR04 S1 serves no media): never stored by a browser or a shared cache.
     res.set('Cache-Control', 'private, no-store');
     res.json({ data });
   }));

@@ -35,7 +35,6 @@
 import { DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import {
   requireUserContext,
-  isPlatformAdmin,
   isPlatformReviewer,
   isTenantAdminForRecord,
   canReadImportOrder,
@@ -44,15 +43,10 @@ import {
 import { resolveClient } from './diasporaServiceUtils.js';
 import { listLegsForShipment, projectLeg } from './shipmentLegRead.js';
 import { listEtaRevisionsForShipment, projectEta } from './shipmentObservationRead.js';
-import { buildDocumentWorkspace } from './tradeDocumentWorkspaceService.js';
-import { findCaseForSubject } from './customsCaseService.js';
-import { getMyCustomsStatus } from './customsProjectionService.js';
-import { projectLaneStatistics, projectOwnMetrics } from './journeyIntelligence.js';
 import {
   PURCHASE_PRICE_NOT_RECORDED, composeDocumentDelivery, composeImportantUpdate, composeParties, composePayments, composeProgress, composeSpecifications,
   deriveNativeProgress, readCapRecords,
 } from './journeyCapComposition.js';
-import { actorForGovernedMedia, createStorageSigner, readGovernedMedia } from '../evidence/governedVehicleMediaService.js';
 
 const ORDERS = 'diaspora_import_orders';
 const PARTICIPANTS = 'diaspora_import_order_participants';
@@ -103,7 +97,15 @@ const NOT_APPLICABLE = Object.freeze({ availability: 'not_applicable' });
 
 const DENIED = 'You do not have access to this journey';
 
-const privileged = (ctx) => isPlatformAdmin(ctx) || isPlatformReviewer(ctx);
+// RX06-LR04 (S1, adaptation 1): only a PLATFORM REVIEWER is privileged on a journey — the same role set R2C's order
+// read admits. A plain platform `admin` is a platform admin, not a reviewer; R2C refuses it an order it is not a party
+// to, and the journey must not be a way around that.
+const privileged = (ctx) => isPlatformReviewer(ctx);
+
+// RX06-LR04 (S1, adaptation 2): a vehicle's own identifiers (chassis and engine numbers) go only to a platform reviewer or
+// the vehicle's owner or current seller — never to an order viewer merely because the order is linked to that vehicle.
+const vehiclePrivateFor = (vehicle, ctx) => privileged(ctx)
+  || [vehicle?.owner_id, vehicle?.current_seller_id].map(normalizeId).filter(Boolean).includes(normalizeId(ctx?.id));
 
 function requireText(value, field) {
   const text = String(value ?? '').trim();
@@ -113,7 +115,7 @@ function requireText(value, field) {
 
 /**
  * A non-privileged caller gets the same refusal whether the subject is missing or merely not theirs,
- * so the endpoint cannot be used to find out which ids exist. A platform admin or reviewer is told
+ * so the endpoint cannot be used to find out which ids exist. A platform reviewer is told
  * the truth.
  */
 function missingOrDenied(context, what) {
@@ -168,7 +170,9 @@ function projectMovement(events = []) {
  */
 export function selectShipment(order, containerIds, byOrder = []) {
   const candidates = [...new Map((byOrder || []).filter((s) => s && !s.deleted_at).map((s) => [s.id, s])).values()];
-  const sails = (s) => containerIds.length > 0 && containerIds.includes(normalizeId(s.container_id));
+  // RX06-LR04 (S1, adaptation 4): a shipment recorded without a container (allowed on this line) does not contradict the
+  // order's booking; only a DIFFERENT container does.
+  const sails = (s) => containerIds.length > 0 && (!normalizeId(s.container_id) || containerIds.includes(normalizeId(s.container_id)));
   // The association is the ORDER. A shipment that merely sails on this order's container is some other
   // order's, and is never selected (D2).
   const mine = (s) => normalizeId(s.import_order_id) === normalizeId(order.id);
@@ -239,7 +243,7 @@ function viewerOf(order, participants, context) {
   return { kind: 'PARTICIPANT', privateAccess: false };
 }
 
-function projectAsset(order, vehicle, privateAccess) {
+function projectAsset(order, vehicle, privateAccess, vehiclePrivate = privateAccess) {
   const base = {
     make: vehicle?.make ?? null,
     model: vehicle?.model ?? null,
@@ -252,8 +256,9 @@ function projectAsset(order, vehicle, privateAccess) {
   if (!privateAccess) return base;
   return {
     ...base,
-    chassis_number: vehicle?.chassis_number ?? order.chassis_number ?? null,
-    engine_number: vehicle?.engine_number ?? null,
+    // The order's own recorded chassis number stays the order viewer's; the vehicle record's identifiers do not (adaptation 2).
+    chassis_number: (vehiclePrivate ? vehicle?.chassis_number : null) ?? order.chassis_number ?? null,
+    engine_number: vehiclePrivate ? (vehicle?.engine_number ?? null) : null,
   };
 }
 
@@ -309,49 +314,11 @@ export const JOURNEY_DOCUMENT_TYPES = Object.freeze([
  * WITHHELD, not as an error. If T8 cannot be read at all the section says UNAVAILABLE — it never fails
  * the journey, and it never implies there are no documents.
  */
+// RX06-LR04 (S1, adaptation 6): documents are T8's, which is not on this line. The section says so — it never implies
+// there are no documents, and nothing about a document is read here.
+// eslint-disable-next-line no-unused-vars
 async function composeDocuments(client, order, context, privateAccess = false) {
-  try {
-    const workspace = await buildDocumentWorkspace('import_order', order.id, context, { supabaseClient: client });
-    const byCode = new Map((workspace.items || []).map((i) => [i.document_type, i]));
-    const items = JOURNEY_DOCUMENT_TYPES.map((code) => byCode.get(code)).filter(Boolean).map((i) => ({
-      document_type: i.document_type,
-      display_name: i.display_name,
-      verification_required: Boolean(i.verification_required),
-      state: i.state,
-      note: i.note,
-      document: i.document ? {
-        // The id is forwarded ONLY to a viewer with private access, so the page can offer to open the document; the open route
-        // re-checks T8's own read rule, so holding an id grants nothing.
-        ...(privateAccess ? { id: i.document.id, can_open: true } : {}),
-        version: i.document.version,
-        supplied_at: i.document.supplied_at,
-        reviewed_at: i.document.reviewed_at,
-        has_extraction: i.document.has_extraction,
-        has_earlier_versions: i.document.has_earlier_versions,
-      } : null,
-    }));
-    const count = (state) => items.filter((i) => i.state === state).length;
-    return {
-      availability: 'composed',
-      items,
-      summary: {
-        total: items.length,
-        supplied: items.filter((i) => i.document).length,
-        verified: count('VERIFIED'),
-        awaiting_review: count('AWAITING_REVIEW'),
-        rejected: count('REJECTED'),
-        requested_outstanding: count('REQUESTED'),
-      },
-      disclaimer: workspace.disclaimer,
-    };
-  } catch (err) {
-    if (err instanceof ForbiddenError) {
-      return { availability: 'withheld', note: 'The documents for this order are not available to you here.' };
-    }
-    // eslint-disable-next-line no-console
-    console.warn('[journey] documents could not be read:', err?.message);
-    return { availability: 'unavailable', note: 'The documents could not be read right now. That does not mean there are none.' };
-  }
+  return NOT_YET_COMPOSED('T8');
 }
 
 /**
@@ -371,60 +338,10 @@ async function composeDocuments(client, order, context, privateAccess = false) {
  * The result is `{ section, agents }`: the clearing agent is named only by display name, and follows the
  * customs section's availability because it is read from the same case.
  */
+// RX06-LR04 (S1, adaptation 7): customs and clearing agents are T12's, which is not on this line.
+// eslint-disable-next-line no-unused-vars
 async function composeCustoms({ client, orderId, reservation, reservationCount, shipmentId, goodsNotOnShipment, context }) {
-  const closed = (availability, note) => ({ section: { availability, note }, agents: { availability, note } });
-  if (goodsNotOnShipment) {
-    return closed('not_applicable', 'Your cargo is not on a shipment, so there is no customs journey to follow.');
-  }
-  if (!reservation) {
-    return reservationCount > 1
-      ? closed('ambiguous', 'More than one cargo booking is on this order, so customs cannot be matched to one of them. Open the journey from a booking to see its customs status.')
-      : closed('not_applicable', 'Customs tracking follows a container booking, and this order has none.');
-  }
-  try {
-    const status = await getMyCustomsStatus('cargo_reservation', reservation.id, context, { supabaseClient: client });
-    if (status.state !== 'NO_CASE') {
-      const kase = await findCaseForSubject('cargo_reservation', reservation.id, { client });
-      const wrongShipment = Boolean(kase?.shipment_id) && String(kase.shipment_id) !== String(shipmentId || '');
-      const wrongOrder = Boolean(kase?.import_order_id) && String(kase.import_order_id) !== String(orderId);
-      if (wrongShipment || wrongOrder) {
-        return {
-          ...closed('disagrees', 'The customs case for this booking is linked to a different shipment or order than the one shown here, so none of it is shown. The records disagree.'),
-          mismatch: true,
-        };
-      }
-    }
-    return {
-      section: {
-        availability: 'composed',
-        state: status.state,
-        reference: status.reference ?? null,
-        sentence: status.sentence,
-        checklist: status.checklist,
-        assessment: status.assessment,
-        payment: status.payment,
-        release: status.release,
-        handoffs: status.handoffs,
-        timeline: status.timeline,
-        next_action: status.next_action,
-        note: status.note,
-        unknown_note: status.unknown_note,
-        link: { type: 'customs_status', subject: { type: 'cargo_reservation', id: reservation.id } },
-      },
-      agents: {
-        availability: 'composed',
-        items: status.agent ? [{ display_name: status.agent.display_name, role: 'Clearing agent', note: status.agent.note }] : [],
-        note: status.agent_note || (status.agent ? 'A clearing agent is named only where one has been appointed for this cargo.' : 'No clearing agent is recorded for this cargo yet.'),
-      },
-    };
-  } catch (err) {
-    if (err instanceof ForbiddenError) {
-      return closed('withheld', 'Customs status for this cargo is not available to you here.');
-    }
-    // eslint-disable-next-line no-console
-    console.warn('[journey] customs could not be read:', err?.message);
-    return closed('unavailable', 'Customs status could not be read right now. That does not mean nothing has happened.');
-  }
+  return { section: NOT_YET_COMPOSED('T12'), agents: NOT_YET_COMPOSED('T12') };
 }
 
 /**
@@ -531,16 +448,21 @@ export async function resolveJourneyShipment(client, order, aliasReservation = n
   let loadState = null;
   let loadRecord = null;
   if (ladderReservation?.container_id) {
-    const { data: loads } = await client.from(LOADS).select('*')
+    // RX06-LR04 (S1, adaptation 3): the T10 loading ladder is not on this line. If its tables are absent or a read
+    // fails, NOTHING is said about loading (loadState stays null) — never "not loaded yet" from a read that did not answer.
+    const { data: loads, error: loadsError } = await client.from(LOADS).select('*')
       .eq('container_id', ladderReservation.container_id).is('deleted_at', null);
-    loadRecord = (loads || []).find((l) => ['IN_PROGRESS', 'COMPLETED'].includes(String(l.status))) || null;
-    const { data: mine } = loadRecord
-      ? await client.from(LOAD_ITEMS).select('*').eq('load_id', loadRecord.id)
-        .eq('subject_type', 'cargo_reservation').eq('subject_id', ladderReservation.id).is('deleted_at', null).maybeSingle()
-      : { data: null };
-    if (mine?.outcome === 'LEFT_BEHIND') loadState = JOURNEY_STATES.LEFT_BEHIND;
-    else if (mine?.outcome === 'LOADED') loadState = JOURNEY_STATES.LOADED;
-    else loadState = JOURNEY_STATES.NOT_LOADED;
+    if (!loadsError && Array.isArray(loads)) {
+      loadRecord = loads.find((l) => ['IN_PROGRESS', 'COMPLETED'].includes(String(l.status))) || null;
+      const { data: mine, error: mineError } = loadRecord
+        ? await client.from(LOAD_ITEMS).select('*').eq('load_id', loadRecord.id)
+          .eq('subject_type', 'cargo_reservation').eq('subject_id', ladderReservation.id).is('deleted_at', null).maybeSingle()
+        : { data: null, error: null };
+      if (mineError) loadState = null;
+      else if (mine?.outcome === 'LEFT_BEHIND') loadState = JOURNEY_STATES.LEFT_BEHIND;
+      else if (mine?.outcome === 'LOADED') loadState = JOURNEY_STATES.LOADED;
+      else loadState = JOURNEY_STATES.NOT_LOADED;
+    }
   }
 
   const goodsNotOnShipment = loadState === JOURNEY_STATES.LEFT_BEHIND || loadState === JOURNEY_STATES.NOT_LOADED;
@@ -592,7 +514,7 @@ async function getVehicleJourney(client, vin, context, options) {
   const viewer = privileged(context) ? { kind: 'ADMIN', privateAccess: true } : { kind: 'OWNER', privateAccess: true };
   const base = emptyJourney({ type: 'vehicle', id: vehicle.vin, order_id: null }, viewer);
   const identity = {
-    asset: projectAsset({}, vehicle, viewer.privateAccess),
+    asset: projectAsset({}, vehicle, viewer.privateAccess, vehiclePrivateFor(vehicle, context)),
     provenance: { asset: { authority: 'vehicles', note: 'Only recorded fields.' } },
   };
   if (readable.length === 0) {
@@ -727,7 +649,9 @@ async function composeCap({ client, order, vehicle, viewer, context, options, no
   // The purchase's own reference number as the paperwork carries it; nothing about which system issued it.
   const reference = order.metadata?.external_reference?.reference ? { value: String(order.metadata.external_reference.reference) } : null;
   const specifications = composeSpecifications({
-    vehicle, specs: records.specs.rows, specsRead: records.specs.ok, externalReference: order.metadata?.external_reference || null, privateAccess,
+    // Adaptation 2: without standing on the vehicle itself, the vehicle record's identifiers are not composed.
+    vehicle: vehicle && !vehiclePrivateFor(vehicle, context) ? { ...vehicle, chassis_number: null, engine_number: null } : vehicle,
+    specs: records.specs.rows, specsRead: records.specs.ok, externalReference: order.metadata?.external_reference || null, privateAccess,
   });
   const parties = composeParties({ parties: records.parties.rows, partiesRead: records.parties.ok, privateAccess });
   const document_delivery = composeDocumentDelivery({ dispatches: records.dispatches.rows, dispatchesRead: records.dispatches.ok, parties: records.parties.rows, privateAccess });
@@ -737,23 +661,8 @@ async function composeCap({ client, order, vehicle, viewer, context, options, no
 
   // The vehicle's own photographs — only if THIS viewer may view THIS vehicle's media (its owner, or a platform role). A buyer who does not
   // own the vehicle is not shown its owner's private photographs just because they can read the order.
-  let media = null;
-  if (vehicle?.vin) {
-    try {
-      media = await readGovernedMedia({
-        client,
-        vehicle: { vin: vehicle.vin, owner_id: vehicle.owner_id },
-        actor: actorForGovernedMedia(context),
-        isPrivileged: privileged(context),
-        signer: options.governedMediaSigner || createStorageSigner(client),
-        now,
-      });
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.warn('[journey] governed media could not be read:', error?.message);
-      media = null;
-    }
-  }
+  // RX06-LR04 (S1, adaptation 9): governed vehicle media join in S2 (signing needs Supabase storage); none is shown here.
+  const media = null;
   return { reference, specifications, media, parties, document_delivery, progress, payments, important_update: composeImportantUpdate({ exceptions, deliverySection: document_delivery }) };
 }
 
@@ -802,7 +711,8 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
   let recordedMovement = [];
   let recordedDates = null;
   // CAP-09. Statistics exist only for a shipment the Journey plainly resolved; everything else says there are none.
-  let intelligence = NOT_APPLICABLE;
+  // RX06-LR04 (S1, adaptation 8): journey statistics are deferred (D8); intelligence stays not applicable.
+  const intelligence = NOT_APPLICABLE;
   const now = options.now ? new Date(options.now) : new Date();
 
   if (goodsNotOnShipment) {
@@ -862,15 +772,20 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       }
       // Vessel legs are DECLARED facts (CAP-04). They are listed and labelled as such, and they cannot
       // move the state above: nothing in a leg can say a vessel sailed or arrived.
-      const legRows = await listLegsForShipment(shipment.id, client);
-      const legs = {
+      // RX06-LR04 (S1, adaptation 5): a failed read is reported as unavailable, never as "no vessel declared".
+      const legRead = await listLegsForShipment(shipment.id, client);
+      const legRows = legRead.rows;
+      const legs = !legRead.ok ? {
+        availability: 'unavailable',
+        note: 'The vessel details could not be read just now. This is not a report that none are declared.',
+      } : {
         availability: 'composed',
         items: legRows.map(projectLeg),
         note: legRows.length
           ? 'Vessel and voyage details are declared, not observed. They do not record that the vessel sailed or arrived.'
           : 'No vessel or voyage has been declared for this shipment.',
       };
-      if (legRows.length && legsContradictShipmentPorts(legRows, shipment)) {
+      if (legRead.ok && legRows.length && legsContradictShipmentPorts(legRows, shipment)) {
         exceptions.push({
           code: 'LEG_PORT_MISMATCH',
           note: 'The vessel details name different ports than the shipment record. The records disagree.',
@@ -878,17 +793,11 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       }
       // The estimate, current BESIDE original. An accepted revision is an observation shown next to the
       // shipment record's own estimate, never written over it — and an estimate is never an arrival.
-      const eta = projectEta(shipment, await listEtaRevisionsForShipment(shipment.id, client));
-      // Derived only from RECORDED observations, and only where the association is plain: an inconsistent
-      // one is flagged on the Journey, so statistics about it would be statistics about a disagreement.
-      if (picked.association === 'order') {
-        intelligence = {
-          availability: 'composed',
-          own: projectOwnMetrics(dates, now),
-          lane: await projectLaneStatistics(client, shipment),
-          note: 'Derived from recorded dates only. It describes what has been recorded and what has already been completed, and predicts nothing.',
-        };
-      }
+      const etaRead = await listEtaRevisionsForShipment(shipment.id, client);
+      const eta = etaRead.ok ? projectEta(shipment, etaRead.rows) : {
+        availability: 'unavailable',
+        note: 'The arrival estimate could not be read just now. Nothing is shown in its place.',
+      };
       shipping = {
         association: picked.association,
         reference: shipmentReference(shipment.id),
@@ -939,7 +848,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
     state,
     sentence: SENTENCE[state],
     asset: {
-      ...projectAsset(order, vehicle, viewer.privateAccess),
+      ...projectAsset(order, vehicle, viewer.privateAccess, vehiclePrivateFor(vehicle, context)),
       reference: cap.reference,
       specifications: cap.specifications,
       ...(cap.media ? { media: cap.media } : {}),

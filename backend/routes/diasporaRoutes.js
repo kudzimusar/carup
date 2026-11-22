@@ -7,6 +7,8 @@ import diasporaStockRouter from './diasporaStockRoutes.js';
 import diasporaBuyerOrderRouter from './diasporaBuyerOrderRoutes.js';
 import diasporaAiCommandRouter from './diasporaAiCommandRoutes.js';
 import diasporaContainerMarketplaceRouter from './diasporaContainerMarketplaceRoutes.js';
+import diasporaJourneyRouter from './diasporaJourneyRoutes.js';
+import { attachLinkedVehicle, attachLinkedVehicles } from '../services/diaspora/orderVehicleContext.js';
 import diasporaDriveRouter from './diasporaDriveRoutes.js';
 import diasporaSubscriptionRoutes from './diasporaSubscriptionRoutes.js';
 import diasporaSafeTradeRouter from './diasporaSafeTradeRoutes.js';
@@ -63,6 +65,10 @@ router.use(diasporaAiCommandRouter);
 // Phase 6: Container co-loading marketplace (authoritative server-side capacity rules).
 router.use(diasporaContainerMarketplaceRouter);
 
+// RX06-LR04 CAP S1 — the read-only Journey & Arrival projection (one GET). The service is the authority boundary
+// (platform reviewers, the order's owner, its tenant admin and active participants; proven identity required).
+router.use(diasporaJourneyRouter);
+
 // Phase 7: Provider-abstracted Drive integration (feature-flagged; tokens never exposed).
 router.use(diasporaDriveRouter);
 
@@ -91,7 +97,9 @@ router.use('/scheduler', diasporaSchedulerRouter);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {
-  const data = await listImportOrders({ userContext: req.userContext, status: req.query.status, ...pagination(req) });
+  const orders = await listImportOrders({ userContext: req.userContext, status: req.query.status, ...pagination(req) });
+  // RX06-LR04 CAP S1: the vehicle's owner (only) sees which vehicle each order is about; everyone else, unchanged.
+  const data = await attachLinkedVehicles(orders, req.userContext);
   res.json({ data, pagination: pagination(req) });
 }));
 
@@ -101,7 +109,7 @@ router.post('/import-orders', auth, asyncHandler(async (req, res) => {
 }));
 
 router.get('/import-orders/:id', auth, asyncHandler(async (req, res) => {
-  res.json(await getImportOrder(req.params.id, req.userContext));
+  res.json(await attachLinkedVehicle(await getImportOrder(req.params.id, req.userContext), req.userContext));
 }));
 
 router.post('/import-orders/:id/assign-seller', auth, asyncHandler(async (req, res) => {

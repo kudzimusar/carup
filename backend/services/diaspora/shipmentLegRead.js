@@ -13,8 +13,10 @@ const LEGS = 'diaspora_shipment_legs';
 
 /** The live legs of a shipment in journey order. */
 export async function listLegsForShipment(shipmentId, client) {
-  const { data } = await client.from(LEGS).select('*').eq('shipment_id', shipmentId).is('deleted_at', null);
-  return (data || []).slice().sort((a, b) => a.leg_sequence - b.leg_sequence);
+  const { data, error } = await client.from(LEGS).select('*').eq('shipment_id', shipmentId).is('deleted_at', null);
+  // RX06-LR04 (S1): a failed read is reported to the caller as such — never as an empty list.
+  if (error) return { ok: false, rows: [] };
+  return { ok: true, rows: (data || []).slice().sort((a, b) => a.leg_sequence - b.leg_sequence) };
 }
 
 /** What a participant may be told about a leg. Never internals, never a claim that anything moved. */
