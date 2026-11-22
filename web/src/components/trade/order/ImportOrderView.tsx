@@ -4,7 +4,8 @@
  *   ONE object header (vehicle identity, references, route glyph, recorded status, pulse line)
  *   → the ONE lifecycle presentation (core ImportOrderLifecycle)
  *   → "Next move" (the order's real next step, where it stands, who it is usually with)
- *   → section tabs as a scrollable segmented control + the Passport mode switch
+ *   → section tabs as a scrollable segmented control + the "Order record" mode switch (RX06-LR05, Owner decision D3:
+ *     labelled "Order record" beside the Vehicle Passport link; the route, test ids and record semantics are unchanged)
  *   → the section itself.
  *
  * PURE: everything comes from props (see orderViewTypes.ts). No API call happens here; the pages wire
@@ -263,7 +264,7 @@ function ModeSwitch({ orderId, mode }: { orderId: string; mode: OrderMode }) {
     <nav aria-label="Order view" className="shrink-0" data-testid="trade-order-mode-switch">
       <ul className="inline-flex gap-1 rounded-control bg-carup-bg-surface p-1 ring-1 ring-carup-line">
         <li><Link to={orderHref(orderId, 'overview')} aria-current={!passport ? 'page' : undefined} className={item(!passport)}><LayoutList className="h-4 w-4" aria-hidden="true" />Order</Link></li>
-        <li><Link to={orderHref(orderId, 'passport')} aria-current={passport ? 'page' : undefined} className={item(passport)} data-testid="trade-order-passport-link"><BookOpenCheck className="h-4 w-4" aria-hidden="true" />Passport</Link></li>
+        <li><Link to={orderHref(orderId, 'passport')} aria-current={passport ? 'page' : undefined} className={item(passport)} data-testid="trade-order-passport-link"><BookOpenCheck className="h-4 w-4" aria-hidden="true" />Order record</Link></li>
       </ul>
     </nav>
   )

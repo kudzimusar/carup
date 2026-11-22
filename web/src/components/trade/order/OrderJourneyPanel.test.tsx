@@ -5,7 +5,7 @@
  * Fictional data only.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import type { Journey, JourneyProgress } from '../journey/journeyTypes'
 import { OrderJourneyPanel } from './OrderJourneyPanel'
@@ -75,16 +75,36 @@ function mount(read: Read<Journey>) {
 }
 
 describe('CAP S1 — Journey & arrival', () => {
-  it('headlines a sender\'s report as the sender\'s, with CarUp\'s own movement record beneath it, verbatim', () => {
+  it('RX06-LR05 truth-first: CarUp\'s own movement state is the headline, even when a sender reports stages complete', () => {
     mount(ready(journey()))
     const panel = screen.getByTestId('trade-journey')
     expect(within(panel).getByRole('heading', { level: 2, name: 'Journey & arrival' })).toBeInTheDocument()
-    expect(screen.getByTestId('journey-badge')).toHaveTextContent('1 of 3 steps reported complete')
-    expect(screen.getByTestId('journey-badge')).toHaveAttribute('data-tone', 'info')
-    expect(screen.getByTestId('journey-sentence')).toHaveTextContent('Example Exporter reports 1 of 3 steps as completed')
-    expect(screen.getByTestId('journey-sentence')).toHaveTextContent('not CarUp\'s own observation')
-    expect(screen.getByTestId('journey-carup-record')).toHaveTextContent('CarUp’s own movement record: Shipment set up — nothing moving yet. A shipment has been set up. Nothing has been recorded as moving yet.')
-    expect(screen.getByTestId('journey-last-update')).toHaveTextContent('Last update recorded by CarUp')
+    const state = screen.getByTestId('journey-state')
+    expect(state).toHaveTextContent('CarUp’s movement record')
+    expect(screen.getByTestId('journey-badge')).toHaveTextContent(/^Shipment set up — nothing moving yet$/)
+    expect(screen.getByTestId('journey-badge')).toHaveAttribute('data-tone', 'neutral')
+    expect(screen.getByTestId('journey-state-provenance')).toHaveTextContent('Recorded by CarUp')
+    expect(screen.getByTestId('journey-sentence')).toHaveTextContent('A shipment has been set up. Nothing has been recorded as moving yet.')
+    expect(state).not.toHaveTextContent(/reported complete/i)
+    expect(screen.getByTestId('journey-last-update')).toHaveTextContent('Last movement CarUp recorded:')
+  })
+
+  it('the ledger says what is known and on what basis: movement not confirmed; the report is the sender\'s', () => {
+    mount(ready(journey()))
+    expect(screen.getByTestId('journey-movement')).toHaveTextContent('Not confirmed by CarUp')
+    expect(screen.getByTestId('journey-movement-value')).toHaveTextContent('CarUp has recorded no departure, loading or arrival.')
+    const reported = screen.getByTestId('journey-reported-summary')
+    expect(reported).toHaveTextContent('Example Exporter reports 1 of 3 stages complete.')
+    expect(reported).toHaveTextContent('Reported complete: Booking.')
+    expect(reported).toHaveTextContent('Reported · not confirmed by CarUp')
+    expect(screen.getByTestId('journey-reported-link')).toHaveAttribute('href', '#journey-reported')
+  })
+
+  it('movement is confirmed only by CarUp\'s own records', () => {
+    const j = journey({ timeline: [{ kind: 'MOVEMENT', stage: 'DEPARTED', event_time: '2026-11-26T00:00:00Z', location: 'Yokohama', source: 'carup' }] })
+    mount(ready(j))
+    expect(screen.getByTestId('journey-movement')).toHaveTextContent('Confirmed by CarUp')
+    expect(screen.getAllByTestId('journey-timeline-entry')).toHaveLength(1)
   })
 
   it('without a report, shows only CarUp\'s own state, and an unknown state is never read as arrived', () => {
@@ -118,7 +138,8 @@ describe('CAP S1 — Journey & arrival', () => {
     expect(screen.getByTestId('journey-departure-headline')).toHaveTextContent(/^Departed /)
     expect(screen.getByTestId('journey-departure-provenance')).toHaveAttribute('data-provenance', 'record')
     expect(screen.getByTestId('journey-arrival-headline')).toHaveTextContent(/^Arrived /)
-    expect(screen.getByTestId('journey-arrival-provenance')).toHaveTextContent('Recorded as an actual arrival')
+    expect(screen.getByTestId('journey-arrival-provenance')).toHaveTextContent('Observed arrival · recorded by CarUp')
+    expect(screen.getByTestId('journey-departure-provenance')).toHaveTextContent('Observed departure · recorded by CarUp')
   })
 
   it('keeps the revised estimate BESIDE the original, never over it', () => {
@@ -164,17 +185,48 @@ describe('CAP S1 — Journey & arrival', () => {
     expect(screen.queryByTestId('journey-dates')).not.toBeInTheDocument()
   })
 
-  it('progress keeps the sender\'s report apart from CarUp\'s record, and an empty stage is not "not started"', () => {
+  it('reported milestones are a secondary section: never drawn as a success, dates said once per stage, CarUp rows apart', () => {
     mount(ready(journey()))
+    const section = screen.getByTestId('journey-progress')
+    expect(within(section).getByRole('heading', { level: 3, name: 'Reported milestones' })).toBeInTheDocument()
+    expect(screen.getByTestId('journey-progress-provenance')).toHaveTextContent('Reported · not confirmed by CarUp')
+    expect(screen.getByTestId('journey-progress-lead')).toHaveTextContent('Example Exporter reports these steps')
+    expect(screen.getByTestId('journey-progress-lead')).toHaveTextContent('No dates were supplied for 1 of the 2 steps.')
+    // A stage the sender reports complete is the sender's statement: info, never success.
     expect(screen.getByTestId('journey-progress-state-BOOKING')).toHaveTextContent('Completed (reported)')
+    expect(screen.getByTestId('journey-progress-state-BOOKING')).toHaveAttribute('data-tone', 'info')
     expect(screen.getByTestId('journey-progress-BOOKING')).toHaveTextContent('2 steps reported')
-    expect(screen.getByTestId('journey-progress-row-BOOKING-external_report-2')).toHaveTextContent('The source did not supply a date for this step')
-    expect(screen.getByTestId('journey-progress-row-BOOKING-external_report-1')).toHaveTextContent('Reported by Example Exporter')
+    // The missing date is said once for the stage, not on every row; a supplied date is shown on its row.
+    expect(screen.getByTestId('journey-progress-dates-BOOKING')).toHaveTextContent('No dates were supplied for 1 of these 2 steps.')
+    expect(screen.getByTestId('journey-progress-row-BOOKING-external_report-2')).not.toHaveTextContent(/(no date was supplied|did not supply a date)/i)
+    expect(within(screen.getByTestId('journey-progress-row-BOOKING-external_report-1')).getByTestId('journey-progress-row-date')).toBeInTheDocument()
+    expect(screen.getByTestId('journey-progress-row-BOOKING-external_report-1')).toHaveTextContent('Completed (reported)')
+    // CarUp's own step stays visibly CarUp's, and may be a success.
     const carupRow = screen.getByTestId('journey-progress-row-DISPATCH-carup-1')
     expect(carupRow).toHaveTextContent('Recorded by CarUp')
     expect(carupRow).toHaveAttribute('data-origin', 'carup')
+    expect(screen.getByTestId('journey-progress-state-DISPATCH')).toHaveAttribute('data-tone', 'success')
     expect(screen.getByTestId('journey-progress-DISPATCH')).toHaveTextContent('1 step recorded by CarUp')
     expect(screen.getByTestId('journey-progress-empty-DEPARTURE')).toHaveTextContent('That does not mean it has not happened.')
+  })
+
+  it('on a phone the reported stages start collapsed, and each opens on demand; on a desktop they start open', () => {
+    const original = window.matchMedia
+    try {
+      window.matchMedia = ((q: string) => ({ matches: q.includes('max-width: 767px'), media: q, addEventListener: () => {}, removeEventListener: () => {} })) as unknown as typeof window.matchMedia
+      const { unmount } = mount(ready(journey()))
+      const toggle = screen.getByTestId('journey-progress-toggle-BOOKING')
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.getByTestId('journey-progress-row-BOOKING-external_report-1')).not.toBeVisible()
+      fireEvent.click(toggle)
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByTestId('journey-progress-row-BOOKING-external_report-1')).toBeVisible()
+      unmount()
+    } finally {
+      window.matchMedia = original
+    }
+    mount(ready(journey()))
+    expect(screen.getByTestId('journey-progress-toggle-BOOKING')).toHaveAttribute('aria-expanded', 'true')
   })
 
   it('progress withheld from this viewer, or unread, is said as what it is', () => {

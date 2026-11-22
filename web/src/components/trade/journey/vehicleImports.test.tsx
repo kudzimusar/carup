@@ -42,13 +42,16 @@ describe('describeVehicleImports', () => {
     const view = describeVehicleImports(ready(journey()))
     expect(view).toEqual({
       kind: 'single', orderId: ORDER, headline: 'Shipment set up — nothing moving yet', tone: 'neutral',
-      orderHref: `/diaspora/imports/${ORDER}`, journeyHref: `/diaspora/imports/${ORDER}/shipment`,
+      orderHref: `/diaspora/imports/${ORDER}`, journeyHref: `/diaspora/imports/${ORDER}/shipment`, reportedLine: null,
     })
   })
 
-  it('a sender\'s report is headlined exactly as the order page headlines it', () => {
+  it('RX06-LR05: a sender\'s report never becomes the headline — CarUp\'s own state does; the report is a line apart', () => {
     const view = describeVehicleImports(ready(journey({ sections: { progress: REPORTED } as Journey['sections'] })))
-    expect(view).toMatchObject({ kind: 'single', headline: '1 of 2 steps reported complete', tone: 'info' })
+    expect(view).toMatchObject({
+      kind: 'single', headline: 'Shipment set up — nothing moving yet', tone: 'neutral',
+      reportedLine: 'Example Exporter reports 1 of 2 stages complete. CarUp has not confirmed them.',
+    })
   })
 
   it('several orders are offered, never chosen', () => {
@@ -98,6 +101,12 @@ function mount(read: Read<Journey>) {
 }
 
 describe('VehicleImportsSection', () => {
+  it('a report is shown as a separate line that says CarUp has not confirmed it', () => {
+    mount(ready(journey({ sections: { progress: REPORTED } as Journey['sections'] })))
+    expect(screen.getByTestId('passport-imports-state')).toHaveTextContent('Shipment set up — nothing moving yet')
+    expect(screen.getByTestId('passport-imports-reported')).toHaveTextContent('CarUp has not confirmed them.')
+  })
+
   it('one order: the state, then links to its Journey & arrival and to the order', () => {
     mount(ready(journey()))
     const section = screen.getByTestId('passport-imports')

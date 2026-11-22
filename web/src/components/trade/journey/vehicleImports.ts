@@ -7,12 +7,13 @@
  *   · none                 → no section at all, so nothing implies a journey is missing or broken;
  *   · a FAILED read        → "Import status unavailable", never "none" (T11-CAP-LR01-R3: unreadable ≠ none);
  *   · refused / not served → no section: this viewer has nothing to open here.
- * The headline is worded exactly as the order's own Journey & arrival badge, so the two pages never disagree.
+ * The headline is CarUp's own movement state, worded exactly as the order's Journey & arrival badge (RX06-LR05: never
+ * what an external party reports). A report, when there is one, is a separate line that says CarUp has not confirmed it.
  */
 import type { StatusTone } from '@/components/dealer/workspace/StatusChip'
 import { orderHref, type Read } from '../order/orderModel'
 import { JOURNEY_STATE_UI } from './journeyDisplay'
-import { reportedProgressSummary } from './capDisplay'
+import { reportedLine, reportedSummary } from './reportedProgress'
 import { toneFromClasses } from './journeyTone'
 import type { Journey } from './journeyTypes'
 
@@ -24,7 +25,7 @@ export interface VehicleImportCandidate {
 }
 
 export type VehicleImportsView =
-  | { kind: 'single'; orderId: string; headline: string; tone: StatusTone; orderHref: string; journeyHref: string }
+  | { kind: 'single'; orderId: string; headline: string; tone: StatusTone; orderHref: string; journeyHref: string; reportedLine: string | null }
   | { kind: 'multiple'; candidates: VehicleImportCandidate[] }
   | { kind: 'unavailable'; message?: string; onRetry?: () => void }
 
@@ -34,15 +35,15 @@ export function describeVehicleImports(read: Read<Journey>): VehicleImportsView 
   const journey = read.data
   const orderId = typeof journey.subject?.order_id === 'string' && journey.subject.order_id ? journey.subject.order_id : null
   if (orderId) {
-    const reported = reportedProgressSummary(journey)
     const ui = JOURNEY_STATE_UI[journey.state] ?? { label: 'Status unavailable', tone: '' }
     return {
       kind: 'single',
       orderId,
-      headline: reported ? reported.badge : ui.label,
-      tone: reported ? 'info' : toneFromClasses(ui.tone),
+      headline: ui.label,
+      tone: toneFromClasses(ui.tone),
       orderHref: orderHref(orderId),
       journeyHref: orderHref(orderId, 'shipping'),
+      reportedLine: reportedLine(reportedSummary(journey.sections?.progress)),
     }
   }
   const candidates = (journey.candidates ?? []).filter(c => typeof c?.order_id === 'string' && c.order_id)

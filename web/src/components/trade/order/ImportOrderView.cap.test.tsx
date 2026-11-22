@@ -68,6 +68,17 @@ describe('CAP S1 — the Shipping tab', () => {
   })
 })
 
+describe('RX06-LR05 — the order\'s read-only record mode is labelled "Order record" (Owner decision D3)', () => {
+  it('the mode switch says "Order record" beside the Vehicle Passport link; the route and test id are unchanged', () => {
+    mount({ order: ready(LINKED), mode: 'overview' })
+    const link = screen.getByTestId('trade-order-passport-link')
+    expect(link).toHaveTextContent(/^Order record$/)
+    expect(link).toHaveAttribute('href', `/diaspora/imports/${ORDER.id}/passport`)
+    expect(screen.getByTestId('trade-order-vehicle-passport')).toHaveTextContent('Vehicle Passport')
+    expect(screen.getByTestId('trade-order-mode-switch')).not.toHaveTextContent(/\bPassport\b/)
+  })
+})
+
 describe('CAP S1 — the linked vehicle', () => {
   it('titles the order with the vehicle the server linked for this viewer, without the requested year range', () => {
     mount({ order: ready(LINKED), mode: 'overview' })

@@ -3,24 +3,24 @@
  *
  * A VIEW over the Journey projection (GET /diaspora/journeys/import_order/:id), carried from CAP R2/R3
  * (6af11ac6) onto the R2C line. It records nothing and decides nothing. The wording is CAP's own, from the
- * ported files in components/trade/journey/, and three habits carry over unchanged:
+ * ported files in components/trade/journey/.
  *
- *   · a plan reads as a plan, an estimate as an estimate, and only an observed date as an event;
- *   · a part the projection did not compose, withheld from this viewer or could not read says so —
- *     never an empty list, because "not read" is not "nothing to report";
- *   · a sender's REPORTED progress is headlined as the sender's, and CarUp's own movement record is
- *     printed beneath it, verbatim.
- *
- * Documents, customs and payments keep their own tabs, which read their own records; this panel links
- * to them rather than repeating them. The vehicle card, parties and document delivery are S2.
+ * RX06-LR05 — truth-first hierarchy (Moderator review of the LR04 390/1280 evidence):
+ *   1. The PRIMARY status is CarUp's own movement record — never what someone else reports.
+ *   2. A short ledger says what is known and on what basis: a departure is planned or observed, an arrival is
+ *      estimated or observed, movement is confirmed by CarUp or not, and what an external party reports.
+ *   3. What an external party reports sits in a clearly SECONDARY section ("Reported milestones"): its
+ *      "completed" is the sender's own statement, so it is never drawn as a success, and a missing date is said
+ *      once per stage instead of on every row. On phones the stages start collapsed; every row stays one tap away.
+ * Documents, customs and payments keep their own tabs, which read their own records; this panel links to them.
  */
-import type { ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Anchor, Clock, ListChecks, MapPin, Ship, type LucideIcon } from 'lucide-react'
+import { Anchor, ChevronDown, Clock, MapPin, Ship, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { StatusChip } from '@/components/dealer/workspace/StatusChip'
+import { StatusChip, type StatusTone } from '@/components/dealer/workspace/StatusChip'
 import { WorkspaceNotice } from '@/components/dealer/workspace/EmptyState'
-import type { Journey, JourneyLegs, JourneyProgress } from '../journey/journeyTypes'
+import type { Journey, JourneyLegs, JourneyProgress, JourneyProgressGroup } from '../journey/journeyTypes'
 import {
   JOURNEY_STATE_UI,
   NOTHING_CONNECTED_YET,
@@ -44,15 +44,9 @@ import {
   timelineLabel,
   when,
 } from '../journey/journeyDisplay'
-import {
-  originLabel,
-  progressGroupCounts,
-  progressRowTone,
-  progressStateBadge,
-  progressTimeText,
-  reportedProgressSummary,
-} from '../journey/capDisplay'
+import { originLabel, progressGroupCounts, progressRowTone, progressStateBadge } from '../journey/capDisplay'
 import { toneFromClasses } from '../journey/journeyTone'
+import { reportedSummary } from '../journey/reportedProgress'
 import type { Read } from './orderModel'
 import { useOrderHref } from './orderLinks'
 import { Fact, NotRecorded, Panel, Provenance, ReadGate } from './TradeKit'
@@ -62,12 +56,26 @@ const QUIET_NOTE = 'rounded-control border border-dashed border-carup-line-stron
 
 export function OrderJourneyPanel({ orderId, journey }: { orderId: string; journey: Read<Journey> }) {
   return (
-    <Panel title="Journey & arrival" eyebrow="What has been recorded, and who said so" testId="trade-journey" id="trade-journey">
+    <Panel title="Journey & arrival" eyebrow="What CarUp has confirmed, and what others report" testId="trade-journey" id="trade-journey">
       <ReadGate read={journey} label="the journey" testId="trade-journey-read">
         {data => <JourneyBody orderId={orderId} data={data} />}
       </ReadGate>
     </Panel>
   )
+}
+
+/** Phones (< 768 px) start the reported stages collapsed. Read once at mount, then followed; no matchMedia = wide. */
+function useNarrowViewport(): boolean {
+  const query = '(max-width: 767px)'
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches)
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const mql = window.matchMedia(query)
+    const onChange = () => setNarrow(mql.matches)
+    mql.addEventListener?.('change', onChange)
+    return () => mql.removeEventListener?.('change', onChange)
+  }, [])
+  return narrow
 }
 
 /** One titled part of the journey (h3 under the panel's h2). */
@@ -100,9 +108,8 @@ function Unshown({ availability, note, testId }: { availability: string; note?: 
 function JourneyBody({ orderId, data }: { orderId: string; data: Journey }) {
   const href = useOrderHref()
   const ui = JOURNEY_STATE_UI[data.state] ?? { label: 'Status unavailable', tone: '' }
-  // When a sender has REPORTED progress, "shipment set up — nothing moving yet" alone would read as a journey that has not
-  // started. The sender's report is headlined as the sender's, and CarUp's own movement sentence stays beneath it, verbatim.
-  const reported = reportedProgressSummary(data)
+  const progress = data.sections?.progress
+  const reported = reportedSummary(progress)
   const last = lastRecordedUpdate(data.timeline)
   const shipping = data.shipping
   const dates = shipping?.dates ?? null
@@ -114,26 +121,79 @@ function JourneyBody({ orderId, data }: { orderId: string; data: Journey }) {
   const etaBasis = eta?.current ? (eta.basis === 'revision' ? 'Latest revised estimate' : 'From the shipment record') : null
   const hasEstimate = Boolean(dates && (eta?.current || dates.estimated_arrival))
   const references = shipping?.references ?? null
+  // Movement is CONFIRMED only by CarUp's own observations: an observed departure or arrival, or a recorded movement event.
+  const movementConfirmed = Boolean(dates?.observed_departure || dates?.observed_arrival || data.timeline.length > 0)
 
   return (
     <div className="space-y-4" data-testid="journey-body" data-state={data.state} data-viewer={data.viewer?.kind}>
-      {/* 1 — the state line */}
+      {/* 1 — the primary status: CarUp's own movement record */}
       <div className="space-y-2" data-testid="journey-state">
-        <StatusChip tone={reported ? 'info' : toneFromClasses(ui.tone)} testId="journey-badge">
-          {reported ? reported.badge : ui.label}
-        </StatusChip>
-        <p className="text-sm leading-6 text-carup-text [overflow-wrap:anywhere]" data-testid="journey-sentence">{reported ? reported.sentence : data.sentence}</p>
-        {reported && (
-          <p className="text-sm leading-6 text-carup-text-2 [overflow-wrap:anywhere]" data-testid="journey-carup-record">
-            <span className="font-semibold text-carup-text">CarUp’s own movement record: </span>{ui.label}. {data.sentence}
-          </p>
-        )}
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-carup-text-3">CarUp’s movement record</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusChip tone={toneFromClasses(ui.tone)} testId="journey-badge">{ui.label}</StatusChip>
+          <Provenance kind="carup" testId="journey-state-provenance">Recorded by CarUp</Provenance>
+        </div>
+        <p className="text-sm leading-6 text-carup-text [overflow-wrap:anywhere]" data-testid="journey-sentence">{data.sentence}</p>
         <p className="text-xs text-carup-text-3" data-testid="journey-last-update">
-          {reported ? 'Last update recorded by CarUp' : 'Last recorded update'}: {last.label}{last.at ? ` · ${when(last.at)}` : ''}
+          Last movement CarUp recorded: {last.label}{last.at ? ` · ${when(last.at)}` : ''}
         </p>
       </div>
 
-      {/* 2 — exceptions, in the projection's words */}
+      {/* 2 — what is known, and on what basis */}
+      {(dates || reported) && (
+        <dl className="grid gap-4 rounded-control bg-carup-bg-surface p-3 sm:grid-cols-2 sm:p-4" data-testid="journey-ledger">
+          {dates && (
+            <Fact
+              label={<span className="inline-flex items-center gap-1.5"><Anchor className="h-3.5 w-3.5" aria-hidden="true" />Leaving</span>}
+              testId="journey-departure"
+              provenance={departure.observed
+                ? <Provenance kind="record" testId="journey-departure-provenance">Observed departure · recorded by CarUp</Provenance>
+                : dates.planned_departure ? <Provenance kind="stated" testId="journey-departure-provenance">A plan, not a departure</Provenance> : null}
+            >
+              <span data-testid="journey-departure-headline">{departure.headline}</span>
+              {departure.detail && <span className="mt-0.5 block text-xs font-normal leading-5 text-carup-text-2" data-testid="journey-departure-detail">{departure.detail}</span>}
+            </Fact>
+          )}
+          {dates && (
+            <Fact
+              label={<span className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" aria-hidden="true" />Arriving</span>}
+              testId="journey-arrival"
+              provenance={arrival.observed
+                ? <Provenance kind="record" testId="journey-arrival-provenance">Observed arrival · recorded by CarUp</Provenance>
+                : hasEstimate ? <Provenance kind="unverified" testId="journey-arrival-provenance">An estimate, not an arrival</Provenance> : null}
+            >
+              <span data-testid="journey-arrival-headline">{arrival.headline}</span>
+              {arrival.detail && <span className="mt-0.5 block text-xs font-normal leading-5 text-carup-text-2" data-testid="journey-arrival-detail">{arrival.detail}</span>}
+              {etaBasis && <span className="mt-0.5 block text-xs font-normal text-carup-text-3" data-testid="journey-eta-basis">{etaBasis}</span>}
+              {eta && eta.current && eta.revision_count === 0 && <span className="mt-0.5 block text-xs font-normal text-carup-text-3" data-testid="journey-eta-no-revisions">{NO_ESTIMATE_REVISIONS}</span>}
+            </Fact>
+          )}
+          <Fact
+            label="Movement"
+            testId="journey-movement"
+            provenance={<Provenance kind="carup">{movementConfirmed ? 'Confirmed by CarUp' : 'Not confirmed by CarUp'}</Provenance>}
+          >
+            {movementConfirmed
+              ? <span data-testid="journey-movement-value">CarUp has recorded movement — see “Movement CarUp has recorded”.</span>
+              : <span data-testid="journey-movement-value">Not confirmed. CarUp has recorded no departure, loading or arrival.</span>}
+          </Fact>
+          {reported && (
+            <Fact
+              label="Reported by others"
+              testId="journey-reported-summary"
+              provenance={<Provenance kind="unverified">Reported · not confirmed by CarUp</Provenance>}
+            >
+              <span>{reported.sourceSentence} reports {reported.complete} of {reported.total} stages complete.</span>
+              {reported.completedTitles.length > 0 && (
+                <span className="mt-0.5 block text-xs font-normal leading-5 text-carup-text-2">Reported complete: {reported.completedTitles.join(', ')}.</span>
+              )}
+              <a href="#journey-reported" className={cn(LINK, 'mt-0.5 inline-block text-xs')} data-testid="journey-reported-link">See the reported milestones</a>
+            </Fact>
+          )}
+        </dl>
+      )}
+
+      {/* exceptions, in the projection's words */}
       {data.exceptions.map(e => (
         <WorkspaceNotice key={e.code} tone="warning" testId={`journey-exception-${e.code}`}>
           {exceptionText(e.code, e.note)}{e.recorded_at ? ` · ${when(e.recorded_at)}` : ''}
@@ -141,34 +201,6 @@ function JourneyBody({ orderId, data }: { orderId: string; data: Journey }) {
       ))}
 
       {!shipping && <p className={QUIET_NOTE} data-testid="journey-nothing-connected">{NOTHING_CONNECTED_YET}</p>}
-
-      {/* 3 — leaving and arriving: a plan is a plan, an estimate is an estimate */}
-      {dates && (
-        <dl className="grid gap-4 sm:grid-cols-2" data-testid="journey-dates">
-          <Fact
-            label={<span className="inline-flex items-center gap-1.5"><Anchor className="h-3.5 w-3.5" aria-hidden="true" />Leaving</span>}
-            testId="journey-departure"
-            provenance={departure.observed
-              ? <Provenance kind="record" testId="journey-departure-provenance">Recorded as an actual departure</Provenance>
-              : dates.planned_departure ? <Provenance kind="stated" testId="journey-departure-provenance">A plan, not a departure</Provenance> : null}
-          >
-            <span data-testid="journey-departure-headline">{departure.headline}</span>
-            {departure.detail && <span className="mt-0.5 block text-xs font-normal leading-5 text-carup-text-2" data-testid="journey-departure-detail">{departure.detail}</span>}
-          </Fact>
-          <Fact
-            label={<span className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" aria-hidden="true" />Arriving</span>}
-            testId="journey-arrival"
-            provenance={arrival.observed
-              ? <Provenance kind="record" testId="journey-arrival-provenance">Recorded as an actual arrival</Provenance>
-              : hasEstimate ? <Provenance kind="unverified" testId="journey-arrival-provenance">An estimate, not an arrival</Provenance> : null}
-          >
-            <span data-testid="journey-arrival-headline">{arrival.headline}</span>
-            {arrival.detail && <span className="mt-0.5 block text-xs font-normal leading-5 text-carup-text-2" data-testid="journey-arrival-detail">{arrival.detail}</span>}
-            {etaBasis && <span className="mt-0.5 block text-xs font-normal text-carup-text-3" data-testid="journey-eta-basis">{etaBasis}</span>}
-            {eta && eta.current && eta.revision_count === 0 && <span className="mt-0.5 block text-xs font-normal text-carup-text-3" data-testid="journey-eta-no-revisions">{NO_ESTIMATE_REVISIONS}</span>}
-          </Fact>
-        </dl>
-      )}
       {etaUnavailable && <WorkspaceNotice tone="warning" testId="journey-eta-unavailable">{etaUnavailable.note}</WorkspaceNotice>}
 
       {eta && eta.revision_count > 0 && (
@@ -193,7 +225,7 @@ function JourneyBody({ orderId, data }: { orderId: string; data: Journey }) {
         </Part>
       )}
 
-      {/* 4 — vessel and route: declared, never observed */}
+      {/* vessel and route: declared, never observed */}
       {shipping && <Legs legs={shipping.legs} hasDates={Boolean(dates)} />}
 
       {references && (
@@ -209,15 +241,12 @@ function JourneyBody({ orderId, data }: { orderId: string; data: Journey }) {
         </Part>
       )}
 
-      {/* 5 — progress: what the sender reported, kept apart from what CarUp recorded */}
-      <ProgressGroups progress={data.sections?.progress} />
-
-      {/* 6 — the movement CarUp has recorded (the Activity tab is the order's own audit) */}
-      <Part title="What has been recorded" icon={Ship} testId="journey-recorded">
+      {/* 3 — CarUp's own movement events, before anything reported by others */}
+      <Part title="Movement CarUp has recorded" icon={Ship} testId="journey-recorded" chip={<Provenance kind="carup">Recorded by CarUp</Provenance>}>
         {data.timeline.length ? (
           <ol className="space-y-2" data-testid="journey-timeline">
             {data.timeline.map((e, i) => (
-              <li key={`${e.kind}-${e.stage}-${e.event_time}-${i}`} className="min-w-0 border-l-2 border-carup-line pl-3" data-testid="journey-timeline-entry">
+              <li key={`${e.kind}-${e.stage}-${e.event_time}-${i}`} className="min-w-0 border-l-2 border-carup-text pl-3" data-testid="journey-timeline-entry">
                 <p className="text-sm font-semibold text-carup-text [overflow-wrap:anywhere]">{timelineLabel(e)}</p>
                 <p className="text-xs text-carup-text-2 [overflow-wrap:anywhere]">{when(e.event_time)}{e.location ? ` · ${e.location}` : ''} · {sourceLabel(e.source)}</p>
               </li>
@@ -227,6 +256,9 @@ function JourneyBody({ orderId, data }: { orderId: string; data: Journey }) {
           <p className="text-sm text-carup-text-2" data-testid="journey-timeline-empty">No movement has been recorded.</p>
         )}
       </Part>
+
+      {/* 4 — what others report: secondary, never the headline */}
+      <ReportedMilestones progress={progress} />
 
       <p className="text-sm leading-6 text-carup-text-2" data-testid="journey-elsewhere">
         Documents, customs and payments keep their own records, on their own tabs:{' '}
@@ -277,64 +309,105 @@ function Legs({ legs, hasDates }: { legs: JourneyLegs | undefined; hasDates: boo
   return null
 }
 
-/** The five stages with the real rows under each (CAP R2 §23.8), in Get 6's visual language. */
-function ProgressGroups({ progress }: { progress: JourneyProgress | undefined }) {
+/** What others report (CAP R2 §23.8 stages), kept visibly secondary to CarUp's own record. */
+function ReportedMilestones({ progress }: { progress: JourneyProgress | undefined }) {
+  const narrow = useNarrowViewport()
+  const headingId = useId()
   if (!progress) return null
   if (progress.availability !== 'composed') {
     return (
-      <Part title="Progress" icon={ListChecks} testId="journey-progress">
-        <Unshown availability={progress.availability} note={progress.note} testId="journey-progress-unshown" />
-      </Part>
+      <section className="min-w-0 rounded-control border border-dashed border-carup-line-strong p-3 sm:p-4" data-testid="journey-progress" aria-labelledby={headingId}>
+        <h3 id={headingId} className="text-sm font-semibold text-carup-text">Reported milestones</h3>
+        <div className="mt-2"><Unshown availability={progress.availability} note={progress.note} testId="journey-progress-unshown" /></div>
+      </section>
     )
   }
+  const summary = reportedSummary(progress)
+  const multipleSources = progress.sources.filter(s => s.origin !== 'carup').length > 1
   return (
-    <Part title="Progress" icon={ListChecks} testId="journey-progress">
-      <ol className="space-y-3">
-        {progress.groups.map(g => {
-          const badge = progressStateBadge(g.state)
-          return (
-            <li key={g.code} className="min-w-0 rounded-control bg-carup-bg-surface p-3" data-testid={`journey-progress-${g.code}`}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h4 className="min-w-0 text-sm font-semibold text-carup-text [overflow-wrap:anywhere]">{g.title}</h4>
-                <StatusChip tone={toneFromClasses(badge.tone)} testId={`journey-progress-state-${g.code}`}>{badge.label}</StatusChip>
-              </div>
-              <p className="mt-0.5 text-xs text-carup-text-3">{progressGroupCounts(g)}</p>
-              {g.rows.length ? (
-                <ul className="mt-2 divide-y divide-carup-line">
-                  {g.rows.map(r => (
-                    <li
-                      key={`${r.origin}-${r.sequence}`}
-                      className={cn('min-w-0 py-2 first:pt-0 last:pb-0', r.origin === 'carup' && 'border-l-2 border-carup-text pl-2')}
-                      data-testid={`journey-progress-row-${g.code}-${r.origin}-${r.sequence}`}
-                      data-origin={r.origin}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-                        <p className="min-w-0 text-sm text-carup-text [overflow-wrap:anywhere]">
-                          <span className="font-semibold">{r.action_taker.display_label}</span>
-                          <span className="text-carup-text-3"> — </span>{r.text}
-                        </p>
-                        <StatusChip tone={toneFromClasses(progressRowTone(r.status))}>{r.status_label}</StatusChip>
-                      </div>
-                      <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-carup-text-2">
-                        <span className="[overflow-wrap:anywhere]">{progressTimeText(r, when)}</span>
-                        <Provenance kind={r.origin === 'carup' ? 'carup' : 'record'}>{originLabel(r.origin, r.source_label)}</Provenance>
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-2 text-sm text-carup-text-2" data-testid={`journey-progress-empty-${g.code}`}>Nothing has been recorded for this stage. That does not mean it has not happened.</p>
-              )}
-            </li>
-          )
-        })}
+    <section id="journey-reported" className="min-w-0 scroll-mt-24 rounded-control border border-dashed border-carup-line-strong bg-carup-bg-surface p-3 sm:p-4" data-testid="journey-progress" aria-labelledby={headingId}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 id={headingId} className="text-sm font-semibold text-carup-text">Reported milestones</h3>
+        <Provenance kind="unverified" testId="journey-progress-provenance">Reported · not confirmed by CarUp</Provenance>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-carup-text-2 [overflow-wrap:anywhere]" data-testid="journey-progress-lead">
+        {summary
+          ? <>{summary.sourceSentence} reports these steps{summary.asOf ? `, as of ${when(summary.asOf)}` : ''}. “Completed” is the sender’s own statement about its work — CarUp has not observed it.{summary.undated > 0 ? ` ${summary.undated === summary.rows ? `No dates were supplied for any of the ${summary.rows} steps.` : `No dates were supplied for ${summary.undated} of the ${summary.rows} steps.`}` : ''}</>
+          : 'Nothing has been reported for these stages. That does not mean nothing has happened.'}
+      </p>
+      <ol className="mt-3 space-y-2">
+        {progress.groups.map(g => <ReportedGroup key={g.code} group={g} defaultOpen={!narrow} multipleSources={multipleSources} />)}
       </ol>
-      {progress.sources.length > 0 && (
-        <p className="mt-3 text-xs text-carup-text-3 [overflow-wrap:anywhere]" data-testid="journey-progress-sources">
-          {progress.sources.map(s => `${originLabel(s.origin, s.source_label)}${s.observed_at ? `, as of ${when(s.observed_at)}` : ''} (${s.row_count} ${s.row_count === 1 ? 'step' : 'steps'})`).join(' · ')}
-        </p>
-      )}
-      <p className="mt-2 text-xs text-carup-text-2 [overflow-wrap:anywhere]" data-testid="journey-progress-note">{progress.note}</p>
-    </Part>
+      <p className="mt-3 text-xs text-carup-text-2 [overflow-wrap:anywhere]" data-testid="journey-progress-note">{progress.note}</p>
+    </section>
+  )
+}
+
+function ReportedGroup({ group: g, defaultOpen, multipleSources }: { group: JourneyProgressGroup; defaultOpen: boolean; multipleSources: boolean }) {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
+  const open = userOpen ?? defaultOpen
+  const panelId = useId()
+  const badge = progressStateBadge(g.state)
+  // A stage someone else reports complete is the sender's statement: never drawn as a success. CarUp's own record may be.
+  const tone: StatusTone = g.state === 'carup_recorded' ? toneFromClasses(badge.tone) : g.state === 'not_recorded' ? 'neutral' : 'info'
+  const undated = g.rows.filter(r => !r.time).length
+  return (
+    <li className="min-w-0 rounded-control border border-carup-line bg-carup-bg-raised" data-testid={`journey-progress-${g.code}`} data-open={open ? 'true' : 'false'}>
+      <button
+        type="button"
+        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-control px-3 py-2 text-left"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setUserOpen(!open)}
+        data-testid={`journey-progress-toggle-${g.code}`}
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-carup-text [overflow-wrap:anywhere]">{g.title}</span>
+          <span className="block text-xs text-carup-text-3">{progressGroupCounts(g)}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          <StatusChip tone={tone} testId={`journey-progress-state-${g.code}`}>{badge.label}</StatusChip>
+          <ChevronDown className={cn('h-4 w-4 text-carup-text-3 transition-transform motion-reduce:transition-none', open && 'rotate-180')} aria-hidden="true" />
+        </span>
+      </button>
+      <div id={panelId} hidden={!open} className="border-t border-carup-line px-3 py-2">
+        {g.rows.length ? (
+          <>
+            {undated > 0 && g.rows.length > 1 && (
+              <p className="mb-1 text-xs text-carup-text-3" data-testid={`journey-progress-dates-${g.code}`}>
+                {undated === g.rows.length ? `No dates were supplied for these ${g.rows.length} steps.` : `No dates were supplied for ${undated} of these ${g.rows.length} steps.`}
+              </p>
+            )}
+            <ul className="divide-y divide-carup-line">
+              {g.rows.map(r => (
+                <li
+                  key={`${r.origin}-${r.sequence}`}
+                  className={cn('min-w-0 py-2 first:pt-1 last:pb-0', r.origin === 'carup' && 'border-l-2 border-carup-text pl-2')}
+                  data-testid={`journey-progress-row-${g.code}-${r.origin}-${r.sequence}`}
+                  data-origin={r.origin}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                    <p className="min-w-0 text-sm text-carup-text [overflow-wrap:anywhere]">
+                      <span className="font-semibold">{r.action_taker.display_label}</span>
+                      <span className="text-carup-text-3"> — </span>{r.text}
+                    </p>
+                    <StatusChip tone={r.origin === 'carup' ? toneFromClasses(progressRowTone(r.status)) : 'neutral'}>{r.origin === 'carup' ? r.status_label : `${r.status_label} (reported)`}</StatusChip>
+                  </div>
+                  {(r.time || r.origin === 'carup' || multipleSources || (g.rows.length === 1 && !r.time)) && (
+                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-carup-text-2">
+                      {r.time && <span data-testid="journey-progress-row-date">{when(r.time.value)}{r.time.basis ? ` · ${r.time.basis}` : ''}</span>}
+                      {!r.time && g.rows.length === 1 && <span>{r.time_note || 'No date was supplied for this step.'}</span>}
+                      {(r.origin === 'carup' || multipleSources) && <Provenance kind={r.origin === 'carup' ? 'carup' : 'record'}>{originLabel(r.origin, r.source_label)}</Provenance>}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="text-sm text-carup-text-2" data-testid={`journey-progress-empty-${g.code}`}>Nothing has been recorded for this stage. That does not mean it has not happened.</p>
+        )}
+      </div>
+    </li>
   )
 }

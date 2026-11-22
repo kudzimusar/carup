@@ -20,8 +20,10 @@ export function VehicleImportsSection({ read }: { read: Read<Journey> }) {
       <h2 id="passport-imports-title" className="text-[15px] font-semibold text-carup-text">Trade &amp; imports</h2>
       {view.kind === 'single' && (
         <>
-          <div className="mt-2"><StatusChip tone={view.tone} testId="passport-imports-state">{view.headline}</StatusChip></div>
-          <p className="mt-2 text-[13px] leading-5 text-carup-text-2">This vehicle is on an import order. Who reported what, and what CarUp recorded, is on its Journey &amp; arrival.</p>
+          <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-carup-text-3">CarUp’s movement record</p>
+          <div className="mt-1"><StatusChip tone={view.tone} testId="passport-imports-state">{view.headline}</StatusChip></div>
+          {view.reportedLine && <p className="mt-2 text-[13px] leading-5 text-carup-text-2" data-testid="passport-imports-reported">{view.reportedLine}</p>}
+          <p className="mt-2 text-[13px] leading-5 text-carup-text-2">This vehicle is on an import order. What CarUp recorded, and what others report, is on its Journey &amp; arrival.</p>
           <ul className="mt-1 text-[14px]">
             <li><Link to={view.journeyHref} className={ROW_LINK} data-testid="passport-imports-journey">Journey &amp; arrival<ArrowRight className="h-3.5 w-3.5 shrink-0 text-carup-text-3" aria-hidden="true" /></Link></li>
             <li><Link to={view.orderHref} className={ROW_LINK} data-testid="passport-imports-order">Import order <span className="sr-only">{shortRef(view.orderId)}</span><ArrowRight className="h-3.5 w-3.5 shrink-0 text-carup-text-3" aria-hidden="true" /></Link></li>

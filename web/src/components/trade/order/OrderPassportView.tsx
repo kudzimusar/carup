@@ -105,7 +105,7 @@ export function OrderPassportView({ order, viewer, footprint, audit, handoff, st
   return (
     <article className="overflow-hidden rounded-card border border-carup-line-strong bg-carup-bg-raised" data-testid="order-passport-page" aria-labelledby="order-passport-title">
       <div className="bg-carup-raw-ink px-4 py-5 text-white sm:px-6">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-carup-raw-orange-signal">CarUp Trade · Import order passport</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-carup-raw-orange-signal">CarUp Trade · Import order record</p>
         <h2 id="order-passport-title" className="mt-1.5 flex items-center gap-2 text-xl font-bold tracking-[-0.02em]" data-testid="order-passport-title">
           <BookOpenCheck className="h-5 w-5 shrink-0" aria-hidden="true" /> Read-only record of order {shortRef(order.id)}
         </h2>

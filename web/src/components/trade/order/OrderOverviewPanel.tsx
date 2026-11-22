@@ -96,7 +96,7 @@ const PHASE_TAB: Record<PhaseKey, { tab: OrderTab | 'passport'; label: string }>
   sea: { tab: 'shipping', label: 'Shipping & CAP' },
   customs: { tab: 'customs', label: 'Customs' },
   ready: { tab: 'customs', label: 'Government records' },
-  handover: { tab: 'passport', label: 'Passport' },
+  handover: { tab: 'passport', label: 'Order record' },
 }
 
 function phaseEvidence(key: PhaseKey, order: TradeOrder, documents: DiasporaTradeDocument[], handoff: Read<DiasporaOwnershipHandoffStatus> | undefined, viewerId?: string | null): ReactNode {
