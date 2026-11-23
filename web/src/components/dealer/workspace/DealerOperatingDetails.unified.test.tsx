@@ -13,6 +13,7 @@ const fx = vi.hoisted(() => ({
   requests: [] as Array<{ path: string; method: string; body: unknown }>,
   mediaDown: false,
   workspaceDown: false,
+  uploadFailure: null as unknown,
 }))
 const auth = vi.hoisted(() => ({ user: { id: 'fictional-owner', role: 'member' }, token: 'synthetic-session' }))
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => auth }))
@@ -29,6 +30,10 @@ vi.mock('@/lib/apiClient', () => ({
       if (fx.workspaceDown) throw Object.assign(new Error('HTTP 503'), { status: 503 })
       return { workspace: { operational: true, recorded_tenant_member_count: 2, vehicle_listing_authority: false,
         branches: [{ id: 'b1', dealer_id: 'd', name: 'FICTIONAL HARARE YARD', address: 'Test Lot 1 (not a real address)', created_at: '2026-10-01' }] } }
+    }
+    if (request.path === '/dealer/operational-media' && method === 'POST') {
+      if (fx.uploadFailure) throw fx.uploadFailure
+      return { receipt: { media_id: 'm-new', review_status: 'PENDING_INDEPENDENT_REVIEW' } }
     }
     if (request.path === '/dealer/operational-media' && method === 'GET') {
       if (fx.mediaDown) throw Object.assign(new Error('HTTP 503'), { status: 503 })
@@ -55,7 +60,7 @@ async function mount(unified = true) {
 }
 const fetchSpy = vi.fn()
 beforeEach(() => {
-  fx.requests = []; fx.mediaDown = false; fx.workspaceDown = false
+  fx.requests = []; fx.mediaDown = false; fx.workspaceDown = false; fx.uploadFailure = null
   // PrivateMediaThumb's own owner-session fetch; refused here so no image bytes exist in the test.
   fetchSpy.mockReset().mockResolvedValue({ ok: false, status: 404 })
   vi.stubGlobal('fetch', fetchSpy)
@@ -154,5 +159,38 @@ describe('DealerOperatingDetails — unified Dealer OS view', () => {
     fx.workspaceDown = false
     fireEvent.click(within(denied).getByRole('button', { name: /Try again/ }))
     expect(await screen.findByTestId('dealer-ws-branch-b1')).toBeInTheDocument()
+  })
+
+  // RX06-LR06 (Owner decision N1): a refused upload is worded plainly in the unified view; the legacy page keeps its words.
+  async function attemptUpload(unified: boolean) {
+    await mount(unified)
+    if (unified) fireEvent.click(await screen.findByTestId('dealer-ws-upload-toggle'))
+    else await screen.findByRole('heading', { name: 'Operate your verified dealership' })
+    fireEvent.change(document.querySelector('#dealer-media-caption')!, { target: { value: 'Fictional forecourt' } })
+    fireEvent.change(document.querySelector('#dealer-media-alt')!, { target: { value: 'Fictional forecourt view' } })
+    fireEvent.click(document.querySelector('#dealer-media-rights-attestation')!)
+    const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'fictional-forecourt.png', { type: 'image/png' })
+    fireEvent.change(document.querySelector('#dealer-media-file')!, { target: { files: [file] } })
+    const upload = screen.getByTestId('dealer-media-upload-button')
+    await waitFor(() => expect(upload).toBeEnabled())
+    fireEvent.click(upload)
+  }
+
+  it('a refused upload says what happened and what to do next, never the internal code', async () => {
+    fx.uploadFailure = Object.assign(new Error('MALWARE_SCANNER_UNAVAILABLE'), { status: 503 })
+    await attemptUpload(true)
+    // Wait for the refusal to be shown in either wording, then assert which one (fails fast on the wrong one).
+    await waitFor(() => expect(document.body.textContent).toMatch(/could not check this photo for viruses|MALWARE_SCANNER_UNAVAILABLE/), { timeout: 2500 })
+    expect(document.body.textContent).toMatch(/could not check this photo for viruses just now/)
+    expect(document.body.textContent).not.toMatch(/MALWARE_SCANNER_UNAVAILABLE/)
+    expect(fx.requests.filter(r => r.method === 'POST' && r.path === '/dealer/operational-media')).toHaveLength(1)
+  })
+
+  it('flag OFF: the legacy page keeps its own words for a refused upload (flags-off composition unchanged)', async () => {
+    fx.uploadFailure = Object.assign(new Error('MALWARE_SCANNER_UNAVAILABLE'), { status: 503 })
+    await attemptUpload(false)
+    await waitFor(() => expect(document.body.textContent).toMatch(/could not check this photo for viruses|MALWARE_SCANNER_UNAVAILABLE/), { timeout: 2500 })
+    expect(document.body.textContent).toMatch(/MALWARE_SCANNER_UNAVAILABLE/)
+    expect(document.body.textContent).not.toMatch(/could not check this photo for viruses/)
   })
 })

@@ -8,6 +8,7 @@ import {useAuth} from '@/context/AuthContext'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
 import {isUnifiedUiEnabled} from '@/components/shell/unifiedFlag'
 import {OperatingDetailsWorkspace} from '@/components/dealer/workspace/OperatingDetailsWorkspace'
+import {describeMediaUploadFailure} from '@/components/dealer/workspace/mediaUploadFailure'
 
 type Section='BUSINESS_OVERVIEW'|'BUYER_ASSURANCE'|'FINANCE_TERMS'|
   'SOURCING'|'WARRANTY_AFTERSALES'|'SERVICE_CAPABILITIES'
@@ -208,7 +209,10 @@ export default function DealerOperatingDetails(){
       setMediaCaption('');setMediaAltText('');setMediaDataUrl('');setMediaAttested(false)
       await reload()
     }catch(problem){
-      setError(problem instanceof Error?problem.message:'Could not upload dealership facility photo')
+      // RX06-LR06 (Owner decision N1): the unified Dealer OS view words a refusal plainly and never shows the
+      // server's internal code; the legacy page keeps its own words (flags-off composition unchanged).
+      setError(isUnifiedUiEnabled()?describeMediaUploadFailure(problem):
+        problem instanceof Error?problem.message:'Could not upload dealership facility photo')
     }finally{setBusy(false)}
   }
   async function save(){
