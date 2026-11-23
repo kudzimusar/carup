@@ -75,12 +75,13 @@ export default function Claims() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
+      {/* RX06-LR06 U10-S1 (unified only): the header and the status filters wrap on a phone (the row measured 555 px). */}
+      <div className={unified ? 'flex flex-wrap items-start justify-between gap-3' : 'flex items-center justify-between'}>
         <div>
           <h1 className="text-2xl font-bold">Claims Management</h1>
           <p className="text-gray-500">Process and track insurance claims</p>
         </div>
-        <div className="flex gap-2">
+        <div className={unified ? 'flex flex-wrap gap-2' : 'flex gap-2'} data-testid={unified ? 'claims-filters' : undefined}>
           {unified ? UNIFIED_CLAIM_FILTERS.map(([s, label]) => (
             <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter(s)} className={statusFilter === s ? 'bg-orange-700 hover:bg-orange-800 text-white' : ''} data-testid={`claims-filter-${s}`}>
               {label}
