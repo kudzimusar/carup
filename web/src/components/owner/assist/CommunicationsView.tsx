@@ -35,6 +35,7 @@ import { CommunicationMessagePartView } from '@/components/communications/Commun
 import { CommunicationMultimodalComposer } from '@/components/communications/CommunicationMultimodalComposer'
 import { DataState } from '@/components/truth'
 import { OWNER_FOCUS, OWNER_PRIMARY_ACTION, OWNER_SECONDARY_ACTION, OwnerPageHeader } from '@/components/owner/OwnerPageHeader'
+import { deliveryLabel } from '@/features/communications/communicationFormatting'
 
 type Api = ReturnType<typeof useCarUpApi>
 type ThreadSummary = Awaited<ReturnType<Api['fetchCommunicationThreads']>>['threads'][number]
@@ -108,6 +109,9 @@ export interface CommunicationsViewProps {
   onResendVerification: () => void
   onPreferenceChange: (key: string, checked: boolean) => void
   onSavePreferences: () => Promise<void>
+  /** RX06-LR06 (N3): the explicit mark-read action, and its state. Opening a conversation never marks it read. */
+  onMarkRead?: () => void
+  markReadState?: 'idle' | 'pending' | 'failed'
   onMarkNotificationRead: (id: string) => Promise<unknown>
 }
 
@@ -437,7 +441,19 @@ export function CommunicationsView(props: CommunicationsViewProps) {
             </p>
           )}
         </div>
+        {detailState === 'ready' && Number(threads.find(t => t.id === activeId)?.unread_count || 0) > 0 && props.onMarkRead && (
+          <button type="button" onClick={props.onMarkRead} disabled={props.markReadState === 'pending'}
+            className={`shrink-0 rounded-full border border-carup-line-strong px-3 py-1.5 text-[13px] font-semibold text-carup-text hover:bg-carup-bg-surface disabled:opacity-60 ${OWNER_FOCUS}`}
+            data-testid="communication-mark-read">
+            {props.markReadState === 'pending' ? 'Marking…' : 'Mark as read'}
+          </button>
+        )}
       </div>
+      {detailState === 'ready' && props.markReadState === 'failed' && (
+        <p role="status" className="border-b border-carup-line bg-carup-bg-raised px-4 py-2 text-[13px] text-carup-text-2" data-testid="communication-mark-read-failed">
+          This conversation could not be marked read, so it still shows as unread. Try again.
+        </p>
+      )}
 
       <div ref={scrollerRef} className="flex-1 space-y-3 bg-carup-bg px-3 py-4 sm:px-5 lg:min-h-0 lg:overflow-y-auto">
         {detailState === 'none' && (
@@ -475,7 +491,7 @@ export function CommunicationsView(props: CommunicationsViewProps) {
                   {at && <span className="tabular-nums">{at}</span>}
                   <span>{channelLabel(item.channel)}</span>
                   {item.ai_generated && <span className="font-semibold">AI-derived</span>}
-                  {item.status && <span>{item.status}</span>}
+                  {item.status && <span>{deliveryLabel(item.status)}</span>}
                 </p>
               </div>
             </div>

@@ -17,6 +17,7 @@ import {
 import { CommunicationMessagePartView } from '@/components/communications/CommunicationMessagePartView'
 import { CommunicationMultimodalComposer } from '@/components/communications/CommunicationMultimodalComposer'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { deliveryLabel } from '@/features/communications/communicationFormatting'
 import { CommunicationsView, type CommunicationSideRead } from '@/components/owner/assist/CommunicationsView'
 
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThreads']>>['threads'][number]
@@ -116,6 +117,8 @@ export default function Communications() {
   const [failedReads, setFailedReads] = useState<CommunicationSideRead[]>([])
   const [threadReadFailedId, setThreadReadFailedId] = useState<string | null>(null)
   const unified = isUnifiedUiEnabled()
+  // RX06-LR06 (Owner decision N3): in the unified view a conversation is marked read only when the reader asks.
+  const [markReadState, setMarkReadState] = useState<'idle' | 'pending' | 'failed'>('idle')
 
   const unreadCount = useMemo(
     () => threads.reduce((total, thread) => total + Number(thread.unread_count || 0), 0),
@@ -223,6 +226,9 @@ export default function Communications() {
         setDetail(result as ConversationDetail)
         setAiResult(null)
         setThreadReadFailedId(null)
+        // RX06-LR06 (Owner decision N3): the unified view never marks a conversation read because it was opened;
+        // the reader uses "Mark as read". The legacy page keeps marking it read when it is opened.
+        if (unified) return
         // Persist the read receipt before clearing the badge. Zeroing unread_count locally made the
         // conversation look read while last_read_at never moved, so the count came straight back on
         // the next load — and a failed mutation would have claimed a read state the server never had.
@@ -242,22 +248,41 @@ export default function Communications() {
         setThreadReadFailedId(activeId)
       })
     return () => { active = false }
-  }, [activeId, fetchCommunicationThread, markCommunicationThreadRead])
+  }, [activeId, fetchCommunicationThread, markCommunicationThreadRead, unified])
 
   function selectThread(threadId: string) {
     setActiveId(threadId)
     setAiResult(null)
+    setMarkReadState('idle')
+  }
+
+  // RX06-LR06 (Owner decision N3): the explicit "Mark as read" action. The unread badge is cleared only after the
+  // server confirms; a failure leaves it, because unread is the honest state until the server agrees.
+  async function markActiveThreadRead() {
+    if (!activeId) return
+    const threadId = activeId
+    setMarkReadState('pending')
+    try {
+      await markCommunicationThreadRead(threadId)
+      setThreads((current) => current.map((thread) => (thread.id === threadId ? { ...thread, unread_count: 0 } : thread)))
+      setMarkReadState('idle')
+    } catch {
+      setMarkReadState('failed')
+    }
   }
 
   async function submitReply() {
     if (!activeId || !message.trim()) return
     setStatus('Sending…')
     try {
-      await sendCommunicationMessage(activeId, { channel: 'in_app', message: message.trim() })
+      const sent = await sendCommunicationMessage(activeId, { channel: 'in_app', message: message.trim() })
       await refreshActiveConversation()
       setMessage('')
       setAiResult(null)
-      setStatus('Sent through CarUp')
+      // RX06-LR06 U09-S1: the unified view reports the server's own delivery state (a new message starts "Queued"),
+      // never "Sent" before the server says so. The legacy page keeps its words.
+      const serverStatus = (sent?.message as { status?: string } | undefined)?.status
+      setStatus(unified ? (serverStatus ? `Message recorded · ${deliveryLabel(serverStatus)}` : 'Message recorded. Its delivery state appears beside it.') : 'Sent through CarUp')
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Could not send message')
     }
@@ -318,6 +343,8 @@ export default function Communications() {
   if (unified) {
     return (
       <CommunicationsView
+        onMarkRead={markActiveThreadRead}
+        markReadState={markReadState}
         initialReadDone={initialReadDone}
         threadsUnavailable={threadsUnavailable}
         threads={threads}

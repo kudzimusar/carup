@@ -29,9 +29,13 @@ describe('owner conversation read receipt', () => {
     expect(method).not.toContain('/admin/')
   })
 
-  it('the owner inbox calls it when a conversation is opened', () => {
+  it('the legacy owner inbox calls it when a conversation is opened; the unified view does not (Owner decision N3)', () => {
     expect(page).toContain('markCommunicationThreadRead(activeId)')
-    expect(page).toMatch(/\}, \[activeId, fetchCommunicationThread, markCommunicationThreadRead\]\)/)
+    expect(page).toMatch(/\}, \[activeId, fetchCommunicationThread, markCommunicationThreadRead, unified\]\)/)
+    const effect = page.slice(page.indexOf('fetchCommunicationThread(activeId)'))
+    const unifiedReturn = effect.indexOf('if (unified) return')
+    expect(unifiedReturn).toBeGreaterThan(-1)
+    expect(unifiedReturn).toBeLessThan(effect.indexOf('await markCommunicationThreadRead(activeId)'))
   })
 
   it('clears the unread badge only AFTER the mutation resolves', () => {

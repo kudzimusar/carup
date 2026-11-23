@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { MapPin, Mic, Paperclip, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCommunicationProductApi } from '@/hooks/useCommunicationProductApi'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 
 type Props = {
   threadId: string
@@ -25,7 +26,7 @@ export function CommunicationMultimodalComposer({ threadId, caption, disabled, o
     onStatus('Uploading securely…')
     try {
       await uploadMedia(threadId, file, caption.trim(), capture || null)
-      onStatus('Media sent through the canonical CarUp conversation.')
+      onStatus(isUnifiedUiEnabled() ? 'Media recorded in this conversation. Its delivery state appears beside it.' : 'Media sent through the canonical CarUp conversation.')
       await onSent()
     } catch (err) {
       onStatus(err instanceof Error ? err.message : 'Secure media upload failed')
@@ -51,7 +52,7 @@ export function CommunicationMultimodalComposer({ threadId, caption, disabled, o
       async (position) => {
         try {
           await sendLocation(threadId, position.coords.latitude, position.coords.longitude, 'Shared location')
-          onStatus('Location sent through CarUp.')
+          onStatus(isUnifiedUiEnabled() ? 'Location recorded in this conversation. Its delivery state appears beside it.' : 'Location sent through CarUp.')
           await onSent()
         } catch (err) {
           onStatus(err instanceof Error ? err.message : 'Could not send location')

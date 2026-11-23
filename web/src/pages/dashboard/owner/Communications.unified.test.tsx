@@ -90,7 +90,8 @@ describe('Communications — unified presentation', () => {
     expect(await screen.findByText(/No conversations yet/)).toBeInTheDocument()
   })
 
-  it('lists conversations, opens one into a thread with a composer, and marks it read through the existing handler', async () => {
+  // RX06-LR06 (Owner decision N3: "EXPLICIT MARK AS READ"): opening a conversation never marks it read.
+  it('lists conversations and opens one into a thread with a composer, WITHOUT marking it read', async () => {
     api.fetchCommunicationThreads.mockResolvedValue({ threads: [thread] })
     api.fetchCommunicationThread.mockResolvedValue(detail)
     await renderPage()
@@ -100,8 +101,65 @@ describe('Communications — unified presentation', () => {
     expect(screen.getByText('With Fictional Buyer')).toBeInTheDocument()
     expect(screen.getByTestId('communication-reply-text')).toBeInTheDocument()
     expect(screen.getByTestId('communication-reply-send')).toBeDisabled()
-    await waitFor(() => expect(api.markCommunicationThreadRead).toHaveBeenCalledWith('thread-1'))
+    expect(api.markCommunicationThreadRead).not.toHaveBeenCalled()
+    expect(screen.getByText('1 conversation · 2 unread')).toBeInTheDocument()
     expect(api.sendCommunicationMessage).not.toHaveBeenCalled()
+  })
+
+  it('"Mark as read" is explicit: one call, and the unread count clears only after the server confirms', async () => {
+    api.fetchCommunicationThreads.mockResolvedValue({ threads: [thread] })
+    api.fetchCommunicationThread.mockResolvedValue(detail)
+    await renderPage()
+    fireEvent.click(await screen.findByTestId('communication-thread-thread-1'))
+    fireEvent.click(await screen.findByTestId('communication-mark-read'))
+    await waitFor(() => expect(api.markCommunicationThreadRead).toHaveBeenCalledTimes(1), { timeout: 2500 })
+    expect(api.markCommunicationThreadRead).toHaveBeenCalledWith('thread-1')
+    await waitFor(() => expect(screen.getByText('1 conversation · 0 unread')).toBeInTheDocument(), { timeout: 2500 })
+    expect(screen.queryByTestId('communication-mark-read')).toBeNull()
+  })
+
+  it('a failed "Mark as read" says so and leaves the conversation unread', async () => {
+    api.fetchCommunicationThreads.mockResolvedValue({ threads: [thread] })
+    api.fetchCommunicationThread.mockResolvedValue(detail)
+    api.markCommunicationThreadRead.mockRejectedValueOnce(Object.assign(new Error('Service unavailable'), { status: 503 }))
+    await renderPage()
+    fireEvent.click(await screen.findByTestId('communication-thread-thread-1'))
+    fireEvent.click(await screen.findByTestId('communication-mark-read'))
+    await waitFor(() => expect(screen.getByTestId('communication-mark-read-failed')).toBeInTheDocument(), { timeout: 2500 })
+    expect(screen.getByText('1 conversation · 2 unread')).toBeInTheDocument()
+  })
+
+  it('shows each message\'s delivery state as the server records it, in plain words', async () => {
+    api.fetchCommunicationThreads.mockResolvedValue({ threads: [thread] })
+    api.fetchCommunicationThread.mockResolvedValue({ ...detail, messages: [{ id: 'm-9', text: 'Fictional reply', author: { display_name: 'You', is_self: true }, channel: 'in_app', status: 'queued' }] })
+    await renderPage()
+    fireEvent.click(await screen.findByTestId('communication-thread-thread-1'))
+    expect(await screen.findByText('Fictional reply')).toBeInTheDocument()
+    expect(screen.getByText('Queued')).toBeInTheDocument()
+    expect(screen.queryByText('queued')).toBeNull()
+  })
+
+  it('a reply reports the server\'s own delivery state ("Queued"), never "Sent" before the server says so', async () => {
+    api.fetchCommunicationThreads.mockResolvedValue({ threads: [thread] })
+    api.fetchCommunicationThread.mockResolvedValue(detail)
+    api.sendCommunicationMessage.mockResolvedValueOnce({ message: { id: 'm-new', status: 'queued' } })
+    await renderPage()
+    fireEvent.click(await screen.findByTestId('communication-thread-thread-1'))
+    fireEvent.change(await screen.findByTestId('communication-reply-text'), { target: { value: 'Fictional reply text' } })
+    fireEvent.click(screen.getByTestId('communication-reply-send'))
+    await waitFor(() => expect(document.body.textContent).toMatch(/Message recorded · Queued|Sent through CarUp/), { timeout: 2500 })
+    expect(document.body.textContent).toMatch(/Message recorded · Queued/)
+    expect(document.body.textContent).not.toMatch(/Sent through CarUp/)
+  })
+
+  it('flags OFF: the legacy page still marks a conversation read when it is opened (unchanged)', async () => {
+    api.fetchCommunicationThreads.mockResolvedValue({ threads: [thread] })
+    api.fetchCommunicationThread.mockResolvedValue(detail)
+    vi.resetModules()
+    ;(globalThis as { __CARUP_UNIFIED_UI__?: unknown }).__CARUP_UNIFIED_UI__ = undefined
+    const Communications = (await import('./Communications')).default
+    render(<MemoryRouter><Communications /></MemoryRouter>)
+    await waitFor(() => expect(api.markCommunicationThreadRead).toHaveBeenCalledWith('thread-1'), { timeout: 2500 })
   })
 
   it('when the AI provider is unavailable, says so and renders no dead AI controls', async () => {
