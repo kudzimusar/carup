@@ -10,7 +10,7 @@ import { toast } from 'sonner'
 import type { RegistryVerification } from '@/types'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import { ReadFailedNotice } from '@/components/workbench/ReadFailedNotice'
-import { isReadRefusal, recordedDate, type RecordReadState } from '@/components/workbench/institutionalRecords'
+import { CHIP, isReadRefusal, recordedDate, type RecordReadState } from '@/components/workbench/institutionalRecords'
 
 /**
  * RX06-LR06 U10-S1: the registry read returns vin, status, notes, verification_date, created_at and the vehicle's
@@ -149,7 +149,7 @@ export default function RegistryVerification() {
                       <td className="p-4 font-mono text-xs text-gray-500">{v.vin}</td>
                       <td className="p-4 text-gray-600">{recordedDate(v.created_at) ?? 'Not recorded'}</td>
                       <td className="p-4">
-                        <Badge className={v.status === 'approved' || v.status === 'verified' ? 'bg-green-500 text-white' : v.status === 'pending' ? 'bg-amber-500 text-white' : v.status === 'rejected' ? 'bg-red-500 text-white' : 'bg-gray-500 text-white'}>
+                        <Badge className={CHIP[v.status === 'approved' || v.status === 'verified' ? 'positive' : v.status === 'pending' ? 'pending' : v.status === 'rejected' ? 'negative' : 'neutral']}>
                           {v.recorded_status || 'Status not recorded'}
                         </Badge>
                       </td>

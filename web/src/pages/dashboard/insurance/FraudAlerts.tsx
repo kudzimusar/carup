@@ -9,7 +9,7 @@ import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import { ReadFailedNotice } from '@/components/workbench/ReadFailedNotice'
-import { isReadRefusal, normalizedStatus, recordedDate, type RecordReadState } from '@/components/workbench/institutionalRecords'
+import { CHIP, isReadRefusal, normalizedStatus, recordedDate, type RecordReadState } from '@/components/workbench/institutionalRecords'
 
 /** The columns the fraud-alert read actually returns (fraud_alerts): "Open"/"Resolved", "High"/"Medium"/"Low". */
 type RecordedFraudAlert = FraudAlert & { alert_type?: string | null; created_at?: string | null; resolved_at?: string | null }
@@ -93,8 +93,8 @@ export default function FraudAlerts() {
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2 mb-1">
                           <h3 className="font-semibold">{alert.alert_type || alert.type || 'Alert type not recorded'}</h3>
-                          <Badge className={severity === 'high' ? 'bg-red-500' : severity === 'medium' ? 'bg-amber-500' : 'bg-gray-500'}>{alert.severity || 'Severity not recorded'}</Badge>
-                          <Badge className={isResolved ? 'bg-green-500' : 'bg-gray-500'} data-testid="fraud-alert-status">{alert.status || 'Status not recorded'}</Badge>
+                          <Badge className={CHIP[severity === 'high' ? 'negative' : severity === 'medium' ? 'pending' : 'neutral']}>{alert.severity || 'Severity not recorded'}</Badge>
+                          <Badge className={CHIP[isResolved ? 'positive' : 'neutral']} data-testid="fraud-alert-status">{alert.status || 'Status not recorded'}</Badge>
                         </div>
                         <p className="text-sm text-gray-700 mb-2">{alert.description || 'No description recorded'}</p>
                         <div className="flex flex-wrap gap-3 text-xs text-gray-500" data-testid="fraud-alert-recorded-fields">

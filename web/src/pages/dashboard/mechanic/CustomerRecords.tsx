@@ -29,7 +29,7 @@ export default function CustomerRecords() {
           <CardContent className="p-6 space-y-2">
             <h2 className="text-lg font-semibold">Customer records are not available yet</h2>
             <p className="text-gray-600">CarUp does not keep a separate customer list for garages yet, so nothing is shown here. The customers you serve appear on the work orders you record.</p>
-            <Link to="/mechanic/work-orders" className="inline-block text-sm font-semibold text-orange-600 hover:underline">Open your work orders</Link>
+            <Link to="/mechanic/work-orders" className="inline-block text-sm font-semibold text-orange-700 hover:underline">Open your work orders</Link>
           </CardContent>
         </Card>
       </div>

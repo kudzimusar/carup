@@ -10,7 +10,7 @@ import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import { ReadFailedNotice } from '@/components/workbench/ReadFailedNotice'
-import { isReadRefusal, normalizedStatus, recordedAmount, recordedDate, type RecordReadState } from '@/components/workbench/institutionalRecords'
+import { CHIP, isReadRefusal, normalizedStatus, recordedAmount, recordedDate, type RecordReadState } from '@/components/workbench/institutionalRecords'
 
 /** The columns the claims read actually returns (insurance_claims). The legacy Claim type names fields it never sends. */
 type RecordedClaim = Claim & { description?: string | null; incident_date?: string | null; created_at?: string | null; policy_id?: string | null }
@@ -82,7 +82,7 @@ export default function Claims() {
         </div>
         <div className="flex gap-2">
           {unified ? UNIFIED_CLAIM_FILTERS.map(([s, label]) => (
-            <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter(s)} className={statusFilter === s ? 'bg-orange-500 hover:bg-orange-600' : ''} data-testid={`claims-filter-${s}`}>
+            <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter(s)} className={statusFilter === s ? 'bg-orange-700 hover:bg-orange-800 text-white' : ''} data-testid={`claims-filter-${s}`}>
               {label}
             </Button>
           )) : ['all', 'pending', 'under-review', 'approved', 'rejected'].map(s => (
@@ -219,7 +219,7 @@ function UnifiedClaimRow({ claim, onDecide }: { claim: RecordedClaim; onDecide: 
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge className={stage === 'approved' ? 'bg-green-500' : stage === 'rejected' ? 'bg-red-500' : stage === 'awaiting' ? 'bg-amber-500' : 'bg-gray-500'} data-testid="claim-status">
+            <Badge className={CHIP[stage === 'approved' ? 'positive' : stage === 'rejected' ? 'negative' : stage === 'awaiting' ? 'pending' : 'neutral']} data-testid="claim-status">
               {claim.status || 'Status not recorded'}
             </Badge>
             <Button
