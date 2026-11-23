@@ -226,7 +226,9 @@ describe('LendingQueue', () => {
     expect(stale.getByTestId('lending-trust')).toHaveTextContent('Withheld (older calculation)')
     expect(stale.getByText('Applicant name not recorded')).toBeInTheDocument()
     expect(screen.getByTestId('lending-applications-title')).toHaveTextContent('Applications (3)')
-    expect(screen.getByText('Vehicle trust (not a credit score)')).toBeInTheDocument()
+    // RX06-LR07: the label appears twice in the DOM (table header + phone card); one of them is shown per width.
+    expect(within(screen.getByRole('table')).getByText('Vehicle trust (not a credit score)')).toBeInTheDocument()
+    expect(within(screen.getByTestId('lending-card-fx-app-1')).getByText('Vehicle trust (not a credit score)')).toBeInTheDocument()
     // VIN visibility unchanged (the legacy table already shows it): D6 HOLD.
     expect(unset.getByText(`VIN: ${FX_VIN}`)).toBeInTheDocument()
     expect(bodyText()).not.toContain('Risk & Trust Index')

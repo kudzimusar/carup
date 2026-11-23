@@ -5,6 +5,7 @@ import { Shield, FileText, AlertTriangle, DollarSign, ArrowRight, BarChart3 } fr
 import { Link } from 'react-router-dom'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { UNIFIED_PRIMARY_ACTION } from '@/components/workbench/institutionalRecords'
 
 // No claims read model backs this dashboard yet. The previous chart series and "recent claims" rows
 // were invented (fabricated policyholder names, vehicles and settlement amounts), so both render as
@@ -17,12 +18,12 @@ export default function InsuranceDashboard() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
+      <div className={isUnifiedUiEnabled() ? 'flex flex-wrap items-start justify-between gap-3' : 'flex items-center justify-between'}>
         <div>
           <h1 className="text-2xl font-bold">Insurance Dashboard</h1>
           <p className="text-gray-500">Insurer workspace</p>
         </div>
-        <Button className="bg-orange-500 hover:bg-orange-600 gap-1" asChild>
+        <Button className={isUnifiedUiEnabled() ? `${UNIFIED_PRIMARY_ACTION} gap-1` : 'bg-orange-500 hover:bg-orange-600 gap-1'} asChild>
           <Link to="/insurance-dash/claims"><FileText className="w-4 h-4" /> View Claims</Link>
         </Button>
       </div>

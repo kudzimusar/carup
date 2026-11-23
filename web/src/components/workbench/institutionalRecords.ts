@@ -35,5 +35,11 @@ export const CHIP: Record<ChipTone, string> = {
   neutral: 'border border-slate-200 bg-slate-50 text-slate-700',
 }
 
+/**
+ * RX06-LR07 — the primary action colour of the unified S1 pages: the brand orange at AA contrast (white on #C2410C is
+ * 5.2:1; the legacy orange-500 measured 2.8:1). Presentation only: the action, its label and its handler are unchanged.
+ */
+export const UNIFIED_PRIMARY_ACTION = 'bg-orange-700 hover:bg-orange-800 text-white'
+
 /** Case/space-insensitive status key: "Pending Review" → "pending-review", "OPEN" → "open". */
 export const normalizedStatus = (status: unknown): string => String(status ?? '').trim().toLowerCase().replace(/[\s_]+/g, '-')

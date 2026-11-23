@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -103,34 +103,43 @@ export default function GovernanceReviewQueue() {
     )
   }
 
-  return (
-    <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-center gap-2">
-        <ShieldCheck className="h-5 w-5 text-primary" aria-hidden />
-        <h1 className="text-xl font-semibold">{heading}</h1>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        Confirm, reject, amend, request more, mark inconclusive, or escalate AI/temporal/disclosure
-        findings, ambiguous identity, and pending evidence. Decisions are audited; trust scores are
-        never changed here.
-      </p>
+  // RX06-LR07 (unified only): below 1280 px each item is a card with its notes and ALL six decisions on screen (the
+  // table hid the notes and five decisions off-screen on a phone). Same notes state, same decide(item, value) calls and
+  // the same disabled rule as the table row. The legacy composition renders exactly as before.
+  const itemCards = (
+    <ul className="space-y-3 xl:hidden" aria-label="Pending review items">
+      {items.map((it) => {
+        const k = keyOf(it)
+        return (
+          <li key={k} className="rounded-lg border p-3" data-testid={`governance-item-${k}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">{it.task_type.replace(/_/g, ' ')}</Badge>
+              {it.severity ? <Badge variant={it.severity === 'high' || it.severity === 'critical' ? 'destructive' : 'outline'}>{it.severity}</Badge> : <span className="text-xs text-muted-foreground">Severity not recorded</span>}
+            </div>
+            <p className="mt-2 break-all font-mono text-xs">{it.vin || '—'}</p>
+            <p className="mt-1 break-words text-sm">{it.summary || '(no summary)'}</p>
+            <Textarea
+              aria-label={`Reviewer notes for ${k}`}
+              placeholder="Reviewer notes (optional)"
+              className="mt-2 h-16 text-sm"
+              value={notes[k] || ''}
+              onChange={(e) => setNotes((n) => ({ ...n, [k]: e.target.value }))}
+            />
+            <div className="mt-3 grid grid-cols-2 gap-2 min-[480px]:grid-cols-3">
+              {DECISIONS.map((d) => (
+                <Button key={d.value} size="sm" className="h-11" variant={d.tone === 'default' ? 'default' : d.tone === 'destructive' ? 'destructive' : 'secondary'}
+                  disabled={busy === k} onClick={() => decide(it, d.value)}>
+                  {d.label}
+                </Button>
+              ))}
+            </div>
+          </li>
+        )
+      })}
+    </ul>
+  )
 
-      <Tabs value={tab} onValueChange={(v) => { setTab(v as 'all' | GovernanceTaskType); setLoading(true) }}>
-        <TabsList>
-          {TASK_TABS.map((t) => <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>)}
-        </TabsList>
-      </Tabs>
-
-      {loading ? (
-        <div className="flex items-center gap-2 p-6 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading queue…</div>
-      ) : unified && readState === 'failed' ? (
-        <ReadFailedNotice subject="review items" refused={readRefused} onRetry={() => { setLoading(true); setAttempt((a) => a + 1) }} testId="governance-queue-read-failed" />
-      ) : items.length === 0 ? (
-        <Card><CardContent className="p-6 text-muted-foreground">Nothing pending review. 🎉</CardContent></Card>
-      ) : (
-        <Card>
-          <CardHeader><CardTitle className="text-base">Pending items</CardTitle></CardHeader>
-          <CardContent className="overflow-x-auto">
+  const queueTable = (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -176,9 +185,47 @@ export default function GovernanceReviewQueue() {
                 })}
               </TableBody>
             </Table>
+  )
+
+  const queue = loading ? (
+        <div className="flex items-center gap-2 p-6 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading queue…</div>
+      ) : unified && readState === 'failed' ? (
+        <ReadFailedNotice subject="review items" refused={readRefused} onRetry={() => { setLoading(true); setAttempt((a) => a + 1) }} testId="governance-queue-read-failed" />
+      ) : items.length === 0 ? (
+        <Card><CardContent className="p-6 text-muted-foreground">Nothing pending review. 🎉</CardContent></Card>
+      ) : (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Pending items</CardTitle></CardHeader>
+          <CardContent className={unified ? undefined : 'overflow-x-auto'}>
+            {unified && itemCards}
+            {unified ? <div className="hidden overflow-x-auto xl:block">{queueTable}</div> : queueTable}
           </CardContent>
         </Card>
-      )}
+      )
+
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="h-5 w-5 text-primary" aria-hidden />
+        <h1 className="text-xl font-semibold">{heading}</h1>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Confirm, reject, amend, request more, mark inconclusive, or escalate AI/temporal/disclosure
+        findings, ambiguous identity, and pending evidence. Decisions are audited; trust scores are
+        never changed here.
+      </p>
+
+      {/* RX06-LR07 (unified only): the queue is the active tab's panel, so the selected tab's aria-controls names an
+          element that exists (axe aria-valid-attr-value, critical); the tab row wraps instead of pushing a 279/360 px
+          phone to 390 px; the tab list has a name. The legacy composition below is unchanged. */}
+      <Tabs value={tab} onValueChange={(v) => { setTab(v as 'all' | GovernanceTaskType); setLoading(true) }}>
+        <TabsList {...(unified ? { 'aria-label': 'Review task types', className: 'h-auto flex-wrap justify-start' } : {})}>
+          {TASK_TABS.map((t) => <TabsTrigger key={t.value} value={t.value} {...(unified ? { className: 'h-11 flex-none sm:h-8' } : {})}>{t.label}</TabsTrigger>)}
+        </TabsList>
+        {unified && <TabsContent value={tab} className="mt-2">{queue}</TabsContent>}
+      </Tabs>
+
+      {!unified && queue}
     </div>
   )
 }

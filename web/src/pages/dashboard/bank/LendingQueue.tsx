@@ -34,6 +34,67 @@ function recordedTerms(app: RecordedApplication): string {
   return `Monthly ${monthly.toFixed(2)}${app.requested_currency ? ` ${app.requested_currency}` : ''} at ${apr}% APR`
 }
 
+/** The requested amount with the recorded currency, or said not to be recorded (one wording for the card and the row). */
+function recordedRequest(app: RecordedApplication): string {
+  const amount = recordedAmount(app.requested_amount)
+  return amount === null ? 'Amount not recorded' : app.requested_currency ? `${amount} ${app.requested_currency}` : `${amount} · currency not recorded`
+}
+
+/** The decision buttons' colours, as LR06 rendered them. */
+const DECISION_COLOUR = {
+  review: 'bg-amber-500 hover:bg-amber-600 text-white',
+  approve: 'bg-purple-500 hover:bg-purple-600 text-white',
+  disburse: 'bg-orange-500 hover:bg-orange-600 text-white',
+  activate: 'bg-indigo-500 hover:bg-indigo-600 text-white',
+}
+
+/**
+ * RX06-LR07 (unified only) — the legacy lending decision ladder, written ONCE for the phone card and the desktop row:
+ * the same labels, the same states requested through the same handler, offered for the same recorded statuses. A status
+ * the ladder does not name offers nothing, exactly as before. Nothing is added or activated.
+ */
+function LendingDecisions({ app, onUpdate, stacked }: { app: RecordedApplication; onUpdate: (id: string, next: string) => void; stacked?: boolean }) {
+  const id = String(app.id)
+  const size = stacked ? 'h-11 text-sm' : 'text-xs py-1 px-2.5'
+  return (
+    <div className={stacked ? 'grid grid-cols-1 gap-2 min-[360px]:grid-cols-2' : 'flex items-center justify-end gap-1'}>
+      {app.status === 'Pending' && (
+        <>
+          <Button size="sm" className={`${DECISION_COLOUR.review} ${size}`} onClick={() => onUpdate(id, 'Under Review')}>
+            Review
+          </Button>
+          <Button size="sm" variant="destructive" className={size} onClick={() => onUpdate(id, 'Rejected')}>
+            Reject
+          </Button>
+        </>
+      )}
+      {app.status === 'Under Review' && (
+        <Button size="sm" className={`${DECISION_COLOUR.approve} ${size}`} onClick={() => onUpdate(id, 'Approved')}>
+          Approve Loan
+        </Button>
+      )}
+      {app.status === 'Approved' && (
+        <Button size="sm" className={`${DECISION_COLOUR.disburse} ${size}`} onClick={() => onUpdate(id, 'Escrow Pending')}>
+          Disburse to Escrow
+        </Button>
+      )}
+      {app.status === 'Escrow Pending' && (
+        <Button size="sm" className={`${DECISION_COLOUR.activate} ${size}`} onClick={() => onUpdate(id, 'Active Loan')}>
+          Activate Asset
+        </Button>
+      )}
+      {app.status === 'Active Loan' && (
+        <Button size="sm" variant="outline" className={size} onClick={() => onUpdate(id, 'Closed')}>
+          Close Loan
+        </Button>
+      )}
+      {(app.status === 'Closed' || app.status === 'Rejected') && (
+        <span className="text-xs text-gray-600 italic">No actions</span>
+      )}
+    </div>
+  )
+}
+
 export default function LendingQueue() {
   const { fetchFinanceApplications, updateFinanceApplicationStatus } = useCarUpApi() 
   const [applications, setApplications] = useState<FinanceApplication[]>([])
@@ -104,7 +165,7 @@ export default function LendingQueue() {
             </h1>
             <p className="text-gray-500">Finance applications this account can see, with their recorded terms and status.</p>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchApplications}>
+          <Button variant="outline" size="sm" className="h-11 sm:h-8" onClick={fetchApplications}>
             Refresh Queue
           </Button>
         </div>
@@ -117,7 +178,7 @@ export default function LendingQueue() {
               </CardTitle>
               <div className="flex gap-2">
                 <select
-                  className="text-xs bg-white border border-gray-200 rounded px-3 py-1.5 outline-none hover:bg-gray-50 cursor-pointer"
+                  className="h-11 text-sm bg-white border border-gray-200 rounded px-3 outline-none hover:bg-gray-50 cursor-pointer sm:h-8 sm:text-xs"
                   value={filterMake}
                   onChange={(e) => setFilterMake(e.target.value)}
                   aria-label="Filter by make"
@@ -146,7 +207,45 @@ export default function LendingQueue() {
                 No finance applications are recorded for this account.
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                {/* RX06-LR07 (unified only): below 1280 px each application is a card, so every field and every
+                    decision is on screen without sideways scrolling (the table hid Review, Reject and Approve Loan
+                    off-screen up to 768 px). The decisions are the same LendingDecisions as the table row. */}
+                <ul className="divide-y divide-gray-100 xl:hidden" aria-label="Finance applications">
+                  {rows.map((app) => (
+                    <li key={app.id} className="space-y-3 p-4" data-testid={`lending-card-${app.id}`}>
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="break-words font-semibold text-gray-900">{app.users?.name || 'Applicant name not recorded'}</p>
+                          <p className="break-all text-xs text-gray-600">ID: {app.id}</p>
+                        </div>
+                        <Badge className={`${getStatusBadge(app.status)} shadow-none border-none`}>
+                          {app.status || 'Status not recorded'}
+                        </Badge>
+                      </div>
+                      <dl className="grid grid-cols-1 gap-3 text-sm min-[480px]:grid-cols-2">
+                        <div className="min-w-0">
+                          <dt className="text-xs font-medium text-gray-600">Vehicle</dt>
+                          <dd className="break-words font-medium text-gray-800">{[app.year, app.make, app.model].filter(Boolean).join(' ') || 'Vehicle not recorded'}</dd>
+                          <dd className="break-all text-xs text-gray-600">VIN: {app.vin}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs font-medium text-gray-600">Requested amount</dt>
+                          <dd data-testid="lending-amount">
+                            <p className="font-bold text-indigo-700">{recordedRequest(app)}</p>
+                            <p className="text-xs text-gray-600" data-testid="lending-terms">{recordedTerms(app)}</p>
+                          </dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs font-medium text-gray-600">Vehicle trust (not a credit score)</dt>
+                          <dd data-testid="lending-trust">{vehicleTrustLabel(app)}</dd>
+                        </div>
+                      </dl>
+                      <LendingDecisions app={app} onUpdate={handleUpdateStatus} stacked />
+                    </li>
+                  ))}
+                </ul>
+                <div className="hidden overflow-x-auto xl:block">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-gray-50 text-gray-500 text-xs font-semibold uppercase tracking-wider border-b">
@@ -161,7 +260,6 @@ export default function LendingQueue() {
                   <tbody className="divide-y divide-gray-100 text-sm">
                     {rows.map((app) => {
                       const applicant = app.users?.name || 'Applicant name not recorded'
-                      const amount = recordedAmount(app.requested_amount)
                       return (
                         <tr key={app.id} className="hover:bg-gray-50/50 transition-colors" data-testid={`lending-row-${app.id}`}>
                           <td className="px-6 py-4">
@@ -173,9 +271,7 @@ export default function LendingQueue() {
                             <p className="text-[10px] text-gray-500">VIN: {app.vin}</p>
                           </td>
                           <td className="px-6 py-4" data-testid="lending-amount">
-                            <p className="font-bold text-indigo-700">
-                              {amount === null ? 'Amount not recorded' : app.requested_currency ? `${amount} ${app.requested_currency}` : `${amount} · currency not recorded`}
-                            </p>
+                            <p className="font-bold text-indigo-700">{recordedRequest(app)}</p>
                             <p className="text-[10px] text-gray-500" data-testid="lending-terms">{recordedTerms(app)}</p>
                           </td>
                           <td className="px-6 py-4" data-testid="lending-trust">{vehicleTrustLabel(app)}</td>
@@ -185,51 +281,18 @@ export default function LendingQueue() {
                             </Badge>
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {app.status === 'Pending' && (
-                                <>
-                                  <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white text-xs py-1 px-2.5" onClick={() => handleUpdateStatus(String(app.id), 'Under Review')}>
-                                    Review
-                                  </Button>
-                                  <Button size="sm" variant="destructive" className="text-xs py-1 px-2.5" onClick={() => handleUpdateStatus(String(app.id), 'Rejected')}>
-                                    Reject
-                                  </Button>
-                                </>
-                              )}
-                              {app.status === 'Under Review' && (
-                                <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white text-xs py-1 px-2.5" onClick={() => handleUpdateStatus(String(app.id), 'Approved')}>
-                                  Approve Loan
-                                </Button>
-                              )}
-                              {app.status === 'Approved' && (
-                                <Button size="sm" className="bg-orange-500 hover:bg-orange-600 text-white text-xs py-1 px-2.5" onClick={() => handleUpdateStatus(String(app.id), 'Escrow Pending')}>
-                                  Disburse to Escrow
-                                </Button>
-                              )}
-                              {app.status === 'Escrow Pending' && (
-                                <Button size="sm" className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs py-1 px-2.5" onClick={() => handleUpdateStatus(String(app.id), 'Active Loan')}>
-                                  Activate Asset
-                                </Button>
-                              )}
-                              {app.status === 'Active Loan' && (
-                                <Button size="sm" variant="outline" className="text-xs py-1 px-2.5" onClick={() => handleUpdateStatus(String(app.id), 'Closed')}>
-                                  Close Loan
-                                </Button>
-                              )}
-                              {(app.status === 'Closed' || app.status === 'Rejected') && (
-                                <span className="text-xs text-gray-500 italic">No actions</span>
-                              )}
-                            </div>
+                            <LendingDecisions app={app} onUpdate={handleUpdateStatus} />
                           </td>
                         </tr>
                       )
                     })}
                   </tbody>
                 </table>
+                </div>
                 {rows.length === 0 && (
                   <div className="text-center py-8 text-gray-500" data-testid="lending-filter-empty">No applications match this make.</div>
                 )}
-              </div>
+              </>
             )}
           </CardContent>
         </Card>

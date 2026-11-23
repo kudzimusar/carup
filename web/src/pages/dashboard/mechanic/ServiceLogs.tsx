@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { UNIFIED_PRIMARY_ACTION } from '@/components/workbench/institutionalRecords'
 
 // Matches the DB CHECK constraint on partsentry_logs.action_type.
 const ACTION_TYPES = ['Replaced', 'Repaired', 'Inspected', 'Diagnosed'] as const
@@ -105,7 +106,7 @@ export default function ServiceLogs() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
+      <div className={unified ? 'flex flex-wrap items-start justify-between gap-3' : 'flex items-center justify-between'}>
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             Service Logs
@@ -116,7 +117,7 @@ export default function ServiceLogs() {
 
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-orange-500 hover:bg-orange-600 gap-1 text-white"><Plus className="w-4 h-4" /> Add Log</Button>
+            <Button className={unified ? `${UNIFIED_PRIMARY_ACTION} gap-1` : 'bg-orange-500 hover:bg-orange-600 gap-1 text-white'}><Plus className="w-4 h-4" /> Add Log</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>

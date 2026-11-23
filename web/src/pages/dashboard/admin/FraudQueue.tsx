@@ -9,7 +9,7 @@ import { toast } from 'sonner'
 import { getErrorMessage } from '@/lib/errorMessage'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import { ReadFailedNotice } from '@/components/workbench/ReadFailedNotice'
-import { isReadRefusal, recordedDate, type RecordReadState } from '@/components/workbench/institutionalRecords'
+import { CHIP, isReadRefusal, normalizedStatus, recordedDate, type ChipTone, type RecordReadState } from '@/components/workbench/institutionalRecords'
 
 export interface FraudCase {
   id: string
@@ -26,7 +26,10 @@ const SEV_COLORS: Record<string, string> = {
   medium: 'bg-amber-400 text-amber-900', low: 'bg-gray-300 text-gray-700',
 }
 
-export function FraudCaseCard({ fraudCase, onResolve, busy }: { fraudCase: FraudCase; onResolve: (id: string, resolution: string) => void; busy: boolean }) {
+type FraudCaseCardProps = { fraudCase: FraudCase; onResolve: (id: string, resolution: string) => void; busy: boolean }
+
+export function FraudCaseCard({ fraudCase, onResolve, busy }: FraudCaseCardProps) {
+  if (isUnifiedUiEnabled()) return <UnifiedFraudCaseCard fraudCase={fraudCase} onResolve={onResolve} busy={busy} />
   return (
     <Card className="border-0 card-shadow" data-testid="fraud-case-card">
       <CardContent className="p-4">
@@ -38,14 +41,7 @@ export function FraudCaseCard({ fraudCase, onResolve, busy }: { fraudCase: Fraud
               <Badge className={SEV_COLORS[fraudCase.highest_severity] || 'bg-gray-200'}>{fraudCase.highest_severity}</Badge>
               {fraudCase.blocks_publication && <Badge variant="outline" className="border-red-300 text-red-700">blocks publication</Badge>}
             </div>
-            {isUnifiedUiEnabled() ? (
-              // RX06-LR06 U10-S1 (unified only): an unrecorded signal count or date is said so, never shown as 0 / "Invalid Date".
-              <p className="text-xs text-gray-500 mt-1" data-testid="fraud-case-recorded-fields">
-                {typeof fraudCase.open_signal_count === 'number' ? `${fraudCase.open_signal_count} signal(s)` : 'Signal count not recorded'} · {fraudCase.status || 'Status not recorded'} · {recordedDate(fraudCase.created_at) ?? 'Date not recorded'}
-              </p>
-            ) : (
             <p className="text-xs text-gray-500 mt-1">{fraudCase.open_signal_count ?? 0} signal(s) · {fraudCase.status} · {new Date(fraudCase.created_at).toLocaleDateString()}</p>
-            )}
           </div>
           {fraudCase.status === 'open' || fraudCase.status === 'investigating' ? (
             <div className="flex gap-2">
@@ -57,6 +53,51 @@ export function FraudCaseCard({ fraudCase, onResolve, busy }: { fraudCase: Fraud
               </Button>
             </div>
           ) : <Badge variant="secondary">{fraudCase.status}</Badge>}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// RX06-LR07 (unified only): the recorded severity on an AA chip (the legacy white-on-orange "high" measured 2.8:1).
+const SEVERITY_TONE: Record<string, ChipTone> = { critical: 'negative', high: 'negative', medium: 'pending', low: 'neutral' }
+const chip = (tone: ChipTone) => `inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-semibold ${CHIP[tone]}`
+
+/**
+ * RX06-LR07 (unified only) — the same case, laid out for a phone. The VIN wraps (D6 HOLD: shown exactly as the legacy
+ * card shows it), the recorded fields are LR06's, and the two resolutions are the SAME buttons — same labels, same
+ * onResolve values, same disabled rule — stacked under the case on a phone instead of pushing the page to 660 px.
+ */
+function UnifiedFraudCaseCard({ fraudCase, onResolve, busy }: FraudCaseCardProps) {
+  const severity = typeof fraudCase.highest_severity === 'string' && fraudCase.highest_severity.trim() ? fraudCase.highest_severity : null
+  return (
+    <Card className="border-0 card-shadow" data-testid="fraud-case-card">
+      <CardContent className="p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-start gap-2">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-600" aria-hidden="true" />
+              <span className="min-w-0 break-all font-medium">VIN {fraudCase.vin}</span>
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <span className={chip(severity ? SEVERITY_TONE[normalizedStatus(severity)] ?? 'neutral' : 'neutral')} data-testid="fraud-case-severity">{severity ?? 'Severity not recorded'}</span>
+              {fraudCase.blocks_publication && <span className={chip('negative')}>blocks publication</span>}
+            </div>
+            {/* RX06-LR06 U10-S1: an unrecorded signal count or date is said so, never shown as 0 / "Invalid Date". */}
+            <p className="mt-1.5 text-xs text-gray-600" data-testid="fraud-case-recorded-fields">
+              {typeof fraudCase.open_signal_count === 'number' ? `${fraudCase.open_signal_count} signal(s)` : 'Signal count not recorded'} · {fraudCase.status || 'Status not recorded'} · {recordedDate(fraudCase.created_at) ?? 'Date not recorded'}
+            </p>
+          </div>
+          {fraudCase.status === 'open' || fraudCase.status === 'investigating' ? (
+            <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:flex sm:shrink-0" data-testid="fraud-case-actions">
+              <Button size="sm" variant="outline" className="h-11 sm:h-8" disabled={busy} onClick={() => onResolve(fraudCase.id, 'false_positive')}>
+                <CheckCircle className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> False positive
+              </Button>
+              <Button size="sm" variant="outline" className="h-11 border-red-300 text-red-700 sm:h-8" disabled={busy} onClick={() => onResolve(fraudCase.id, 'blocked')}>
+                <XCircle className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> Block listing
+              </Button>
+            </div>
+          ) : <span className={chip('neutral')}>{fraudCase.status || 'Status not recorded'}</span>}
         </div>
       </CardContent>
     </Card>
@@ -108,7 +149,7 @@ export default function FraudQueue() {
       </div>
       {loading ? [1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full" />)
         : unified && readState === 'failed' ? <ReadFailedNotice subject="open fraud cases" refused={readRefused} onRetry={() => void load()} testId="fraud-cases-read-failed" />
-        : cases.length === 0 ? <Card className="border-0 card-shadow"><CardContent className="py-10 text-center text-gray-400">No open fraud cases.</CardContent></Card>
+        : cases.length === 0 ? <Card className="border-0 card-shadow"><CardContent className={`py-10 text-center ${unified ? 'text-gray-600' : 'text-gray-400'}`}>No open fraud cases.</CardContent></Card>
         : cases.map(c => <FraudCaseCard key={c.id} fraudCase={c} onResolve={onResolve} busy={busy === c.id} />)}
     </div>
   )

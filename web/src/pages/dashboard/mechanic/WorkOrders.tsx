@@ -2,7 +2,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Wrench, Search, Plus, Calendar, User, DollarSign, Clock, Loader2 } from 'lucide-react'
+import { Wrench, Search, Plus, Calendar, User, DollarSign, Clock, Loader2, Receipt } from 'lucide-react'
 import { useCallback, useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
@@ -10,6 +10,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label'
 import type { WorkOrder } from '@/types'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { CHIP, UNIFIED_PRIMARY_ACTION, recordedAmount, type ChipTone } from '@/components/workbench/institutionalRecords'
+
+// RX06-LR07 (unified only): the recorded status in words, on an AA-contrast chip. The status itself is unchanged.
+const STATUS_WORDS: Partial<Record<WorkOrder['status'], string>> = { pending: 'Pending', 'in-progress': 'In progress', completed: 'Completed', cancelled: 'Cancelled' }
+const STATUS_TONE: Partial<Record<WorkOrder['status'], ChipTone>> = { pending: 'neutral', 'in-progress': 'pending', completed: 'positive', cancelled: 'negative' }
+const FILTERS = ['all', 'pending', 'in-progress', 'completed', 'cancelled'] as const
+const FILTER_WORDS: Record<(typeof FILTERS)[number], string> = { all: 'All', pending: 'Pending', 'in-progress': 'In progress', completed: 'Completed', cancelled: 'Cancelled' }
 
 export default function WorkOrders() {
   const { fetchMechanicWorkOrders, createMechanicWorkOrder, updateMechanicWorkOrder, loading } = useCarUpApi()
@@ -124,7 +131,7 @@ export default function WorkOrders() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
+      <div className={unified ? 'flex flex-wrap items-start justify-between gap-3' : 'flex items-center justify-between'}>
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             Work Orders
@@ -132,10 +139,10 @@ export default function WorkOrders() {
           </h1>
           <p className="text-gray-500">Manage service appointments and jobs</p>
         </div>
-        
+
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-orange-500 hover:bg-orange-600 gap-1 text-white" data-testid="new-workorder-button">
+            <Button className={unified ? `${UNIFIED_PRIMARY_ACTION} h-11 gap-1 sm:h-9` : 'bg-orange-500 hover:bg-orange-600 gap-1 text-white'} data-testid="new-workorder-button">
               <Plus className="w-4 h-4" /> New Order
             </Button>
           </DialogTrigger>
@@ -172,11 +179,22 @@ export default function WorkOrders() {
             placeholder="Search work orders..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="pl-10 bg-white"
+            className={unified ? 'pl-10 bg-white h-11 sm:h-9' : 'pl-10 bg-white'}
             data-testid="workorders-search-input"
             aria-label="Search work orders"
           />
         </div>
+        {unified ? (
+          // RX06-LR07 (unified only): the filters wrap instead of scrolling sideways (two were hidden off-screen on a
+          // phone), the one that is on is said so (aria-pressed), and the active colour meets AA contrast.
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter work orders by status" data-testid="workorders-filters">
+            {FILTERS.map(s => (
+              <Button key={s} variant={filter === s ? 'default' : 'outline'} size="sm" aria-pressed={filter === s} onClick={() => setFilter(s)} className={`h-11 sm:h-8 ${filter === s ? UNIFIED_PRIMARY_ACTION : ''}`}>
+                {FILTER_WORDS[s]}
+              </Button>
+            ))}
+          </div>
+        ) : (
         <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0">
           {['all', 'pending', 'in-progress', 'completed', 'cancelled'].map(s => (
             <Button key={s} variant={filter === s ? 'default' : 'outline'} size="sm" onClick={() => setFilter(s)} className={filter === s ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}>
@@ -184,10 +202,105 @@ export default function WorkOrders() {
             </Button>
           ))}
         </div>
+        )}
       </div>
 
       <div className="space-y-3" data-testid="workorders-table">
-        {filtered.map((order, idx) => (
+        {filtered.map((order, idx) => unified ? (
+          // RX06-LR07 (unified only): one card that fits a 279 px phone. The VIN wraps instead of pushing the row to
+          // 423 px; the status is a word on an AA chip; a recorded cost carries no currency the record does not hold;
+          // the actions are the SAME buttons (labels, handlers, values, test ids, disabled rules), stacked full width
+          // with 44 px targets on a phone.
+          <Card key={order.id + idx} className="border-0 card-shadow" data-testid={`workorder-row-${order.id}`}>
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-orange-100 min-[360px]:flex" aria-hidden="true">
+                  <Wrench className="h-5 w-5 text-orange-700" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                    <h3 className="min-w-0 break-all text-base font-semibold text-gray-900 sm:text-lg">{order.vehicle}</h3>
+                    <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-semibold ${CHIP[STATUS_TONE[order.status] ?? 'neutral']}`} data-testid={`workorder-status-${order.id}`}>
+                      {STATUS_WORDS[order.status] ?? order.status}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 font-mono text-xs text-gray-600">Order {order.id.substring(0, 11).toUpperCase()}</p>
+                  <p className="mt-2 break-words text-sm font-medium text-gray-700">{order.service}</p>
+                  <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 rounded-md bg-gray-50 p-2 text-xs text-gray-700 sm:grid-cols-2">
+                    <div className="flex min-w-0 items-center gap-1.5"><dt><User className="h-3.5 w-3.5" aria-hidden="true" /><span className="sr-only">Customer</span></dt><dd className="min-w-0 break-words">{order.customer}</dd></div>
+                    <div className="flex min-w-0 items-center gap-1.5"><dt><Calendar className="h-3.5 w-3.5" aria-hidden="true" /><span className="sr-only">Date</span></dt><dd>{order.date}</dd></div>
+                    {order.cost > 0 && (
+                      <div className="flex min-w-0 items-center gap-1.5" data-testid={`workorder-cost-${order.id}`}><dt><Receipt className="h-3.5 w-3.5" aria-hidden="true" /><span className="sr-only">Recorded cost</span></dt><dd>{recordedAmount(order.cost)} · currency not recorded</dd></div>
+                    )}
+                    <div className="flex min-w-0 items-center gap-1.5"><dt><Clock className="h-3.5 w-3.5" aria-hidden="true" /><span className="sr-only">Mechanic</span></dt><dd className="min-w-0 break-words">{order.mechanic}</dd></div>
+                  </dl>
+                  {(order.status === 'pending' || order.status === 'in-progress') && (
+                    <div className="mt-3 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-center" data-testid={`workorder-actions-${order.id}`}>
+                      {completingId === order.id ? (
+                        <>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="Total cost (optional)"
+                            value={completeCost}
+                            onChange={e => setCompleteCost(e.target.value)}
+                            className="h-11 w-full min-[360px]:col-span-2 sm:h-9 sm:w-44"
+                            data-testid={`workorder-cost-input-${order.id}`}
+                            aria-label="Total cost"
+                          />
+                          <Button
+                            size="sm"
+                            className="h-11 bg-green-600 text-white hover:bg-green-700 sm:h-9"
+                            onClick={() => void handleUpdateStatus(order.id, 'Completed', completeCost)}
+                            disabled={actionBusyId === order.id}
+                            data-testid={`workorder-confirm-complete-${order.id}`}
+                          >
+                            {actionBusyId === order.id ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                            Confirm completion
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-11 sm:h-9"
+                            onClick={() => { setCompletingId(null); setCompleteCost('') }}
+                            disabled={actionBusyId === order.id}
+                            data-testid={`workorder-complete-back-${order.id}`}
+                          >
+                            Back
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            size="sm"
+                            className="h-11 bg-green-600 text-white hover:bg-green-700 sm:h-9"
+                            onClick={() => { setCompletingId(order.id); setCompleteCost('') }}
+                            disabled={actionBusyId !== null}
+                            data-testid={`workorder-complete-${order.id}`}
+                          >
+                            Complete
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-11 border-red-200 text-red-700 hover:bg-red-50 sm:h-9"
+                            onClick={() => void handleUpdateStatus(order.id, 'Cancelled')}
+                            disabled={actionBusyId !== null}
+                            data-testid={`workorder-cancel-${order.id}`}
+                          >
+                            {actionBusyId === order.id ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                            Cancel order
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
           <Card key={order.id + idx} className="border-0 card-shadow transition-all hover:shadow-md" data-testid={`workorder-row-${order.id}`}>
             <CardContent className="p-4">
               <div className="flex items-center gap-4">

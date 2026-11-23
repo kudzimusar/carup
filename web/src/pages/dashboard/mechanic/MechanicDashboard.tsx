@@ -14,6 +14,7 @@ import ServiceIntelligence from '@/components/intelligence/ServiceIntelligence'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { UNIFIED_PRIMARY_ACTION } from '@/components/workbench/institutionalRecords'
 import type { WorkOrder } from '@/types'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -123,7 +124,7 @@ export default function MechanicDashboard() {
           <p className="text-gray-500">Workshop overview from your recorded work orders</p>
         </div>
         <Button
-          className="bg-orange-500 hover:bg-orange-600 text-white gap-1"
+          className={unified ? `${UNIFIED_PRIMARY_ACTION} gap-1` : 'bg-orange-500 hover:bg-orange-600 text-white gap-1'}
           onClick={() => setShowWorkOrderDialog(true)}
           data-testid="mechanic-dashboard-create-workorder-button"
         >
@@ -214,14 +215,14 @@ export default function MechanicDashboard() {
                 <div className="text-center py-8" data-testid="work-orders-empty">
                   <ClipboardList className="w-10 h-10 text-gray-200 mx-auto mb-2" />
                   <p className="text-sm text-gray-500">No work orders recorded yet.</p>
-                  <p className="text-xs text-gray-400 mt-1">Create a work order to start building your workshop history.</p>
+                  <p className={unified ? 'text-xs text-gray-600 mt-1' : 'text-xs text-gray-400 mt-1'}>Create a work order to start building your workshop history.</p>
                 </div>
               )}
               {workOrders.slice(0, 5).map((order) => (
                 <div key={order.id} className="flex justify-between items-center p-3.5 bg-gray-50 hover:bg-gray-100/40 rounded-xl transition-all border border-gray-100 text-xs">
                   <div>
                     <p className="font-semibold text-gray-800">{order.description || order.issue_description || order.service || 'Work order'}</p>
-                    <p className="text-[10px] text-gray-400 font-mono">{order.vin || order.vehicle} • {order.created_at ? new Date(order.created_at).toLocaleDateString() : ''}</p>
+                    <p className={unified ? 'break-all text-xs text-gray-600 font-mono' : 'text-[10px] text-gray-400 font-mono'}>{order.vin || order.vehicle} • {order.created_at ? new Date(order.created_at).toLocaleDateString() : ''}</p>
                   </div>
                   <div className="text-right">
                     <Badge className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[10px] shadow-none border-none">
@@ -240,7 +241,7 @@ export default function MechanicDashboard() {
               <div className="text-center py-6" data-testid="partsentry-ledger-pointer">
                 <Cpu className="w-10 h-10 text-gray-200 mx-auto mb-2" />
                 <p className="text-sm text-gray-500">{unified ? 'Service logs are recorded per vehicle.' : 'Signed service logs are recorded per vehicle.'}</p>
-                <Link to="/mechanic/service-logs" className="text-xs font-semibold text-emerald-600 hover:underline mt-1 inline-flex items-center gap-1">
+                <Link to="/mechanic/service-logs" className={`text-xs font-semibold ${unified ? 'text-emerald-700' : 'text-emerald-600'} hover:underline mt-1 inline-flex items-center gap-1`}>
                   Open Service Logs to load a vehicle's ledger <ArrowRight className="w-3 h-3" />
                 </Link>
               </div>
