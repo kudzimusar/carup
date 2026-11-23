@@ -1,10 +1,14 @@
-import {useEffect,useState} from 'react'
+import {useCallback,useEffect,useState} from 'react'
 import {Navigate,useLocation} from 'react-router-dom'
 import {useAuth} from '@/context/AuthContext'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import {AuthBootstrapLoading} from '@/components/routing/RegistryRouteBoundary'
 import {apiRequest,resolveApiBaseUrl,type AuthHeaders} from '@/lib/apiClient'
+import {isUnifiedUiEnabled} from '@/components/shell/unifiedFlag'
+import {loginWithReturnTo} from '@/lib/routeAccess'
 import {legacyDealerCanonicalTarget} from './legacyDealerRoutes'
+import {classifyDealerStatusFailure,type DealerStatusCheckFailure} from './useDealerOperationalWorkspace'
+import {DealerStatusCheckFailed} from './DealerStatusCheckFailed'
 
 /**
  * Dealership 1.0 R6 E — one coherent dealer journey.
@@ -27,8 +31,12 @@ const API=resolveApiBaseUrl(import.meta.env.VITE_API_URL,
 export default function LegacyDealerRouteGate(){
   const {user,token,loading}=useAuth()
   const location=useLocation()
-  const subject=user?.id&&token?user.id+':'+token+':'+location.pathname:null
-  const [checked,setChecked]=useState<{subject:string;canonical:boolean}>({subject:'',canonical:false})
+  // RX06-LR06 (Owner decision N2): in the unified presentation a check that could not be done is said so (with a
+  // retry) instead of quietly treating an approved owner as a non-dealer. The legacy presentation is unchanged.
+  const [attempt,setAttempt]=useState(0)
+  const retry=useCallback(()=>setAttempt(a=>a+1),[])
+  const subject=user?.id&&token?user.id+':'+token+':'+location.pathname+'#'+attempt:null
+  const [checked,setChecked]=useState<{subject:string;canonical:boolean;failure:DealerStatusCheckFailure|null}>({subject:'',canonical:false,failure:null})
   useEffect(()=>{
     if(!user?.id||!token||!subject)return
     let live=true
@@ -38,9 +46,10 @@ export default function LegacyDealerRouteGate(){
         if(!live)return
         const w=result.workspace
         setChecked({subject,canonical:w?.operational===true&&w.owner_membership_confirmed===true&&
-          w.actor_id===user.id&&Boolean(w.tenant_id&&w.organization_id&&w.dealer_profile_id)})
+          w.actor_id===user.id&&Boolean(w.tenant_id&&w.organization_id&&w.dealer_profile_id),failure:null})
       })
-      .catch(()=>{if(live)setChecked({subject,canonical:false})})
+      .catch(err=>{if(live)setChecked({subject,canonical:false,
+        failure:isUnifiedUiEnabled()?classifyDealerStatusFailure(err):null})})
     return()=>{live=false}
   },[subject,user?.id,token])
 
@@ -48,6 +57,8 @@ export default function LegacyDealerRouteGate(){
   if(loading)return <AuthBootstrapLoading />
   if(!user||!token)return <DashboardLayout role="dealer" />
   if(checked.subject!==subject)return <AuthBootstrapLoading />
+  if(checked.failure)return <DealerStatusCheckFailed failure={checked.failure} onRetry={retry}
+    signInHref={loginWithReturnTo(location.pathname)} />
   const target=legacyDealerCanonicalTarget(location.pathname)
   if(checked.canonical&&target)return <Navigate to={target+location.search} replace />
   return <DashboardLayout role="dealer" />

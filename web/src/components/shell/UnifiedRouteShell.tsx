@@ -38,6 +38,7 @@ import { getRoleMetadata } from '@/config/featureRegistry'
 import { loginWithReturnTo } from '@/lib/routeAccess'
 import { AuthBootstrapLoading } from '@/components/routing/RegistryRouteBoundary'
 import { useDealerOperationalWorkspace } from '@/components/dealer/useDealerOperationalWorkspace'
+import { DealerStatusCheckFailed } from '@/components/dealer/DealerStatusCheckFailed'
 import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import { PublicShell } from './PublicShell'
 import type { PublicIdentity } from './PublicShell'
@@ -275,7 +276,7 @@ function WorkspaceDealerUnifiedShell({ lifecycleBoundary = false }: { lifecycleB
   const { user, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
-  const { status, workspace } = useDealerOperationalWorkspace()
+  const { status, workspace, failure, retry } = useDealerOperationalWorkspace()
   // R4-2 — canonical loaded feature effective states for rail governance
   // (hook order is fixed: before any conditional return).
   const effectiveStates = useFeatureEffectiveStates()
@@ -284,6 +285,10 @@ function WorkspaceDealerUnifiedShell({ lifecycleBoundary = false }: { lifecycleB
   if (status === 'guest') {
     // Canonical guest behavior: login with sanitized return-to (same as legacy).
     return <Navigate to={loginWithReturnTo(location.pathname)} replace />
+  }
+  // RX06-LR06 (Owner decision N2): a check that could not be done is not "not approved". Still no dealer data.
+  if (status === 'check-failed' && failure) {
+    return <DealerStatusCheckFailed failure={failure} onRetry={retry} signInHref={loginWithReturnTo(location.pathname)} />
   }
   if (status === 'unauthorized' || !workspace) {
     return (
