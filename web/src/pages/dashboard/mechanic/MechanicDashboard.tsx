@@ -241,7 +241,7 @@ export default function MechanicDashboard() {
               <div className="text-center py-6" data-testid="partsentry-ledger-pointer">
                 <Cpu className="w-10 h-10 text-gray-200 mx-auto mb-2" />
                 <p className="text-sm text-gray-500">{unified ? 'Service logs are recorded per vehicle.' : 'Signed service logs are recorded per vehicle.'}</p>
-                <Link to="/mechanic/service-logs" className={`text-xs font-semibold ${unified ? 'text-emerald-700' : 'text-emerald-600'} hover:underline mt-1 inline-flex items-center gap-1`}>
+                <Link to="/mechanic/service-logs" className={`text-xs font-semibold ${unified ? 'text-emerald-700 min-h-11 sm:min-h-6' : 'text-emerald-600'} hover:underline mt-1 inline-flex items-center gap-1`}>
                   Open Service Logs to load a vehicle's ledger <ArrowRight className="w-3 h-3" />
                 </Link>
               </div>
