@@ -100,6 +100,7 @@ export default function RegistryVerification() {
     const rows = verifications.filter(v =>
       !search || [v.vin, v.recorded_make, v.recorded_model].some(value => String(value ?? '').toLowerCase().includes(search.toLowerCase())))
     const vehicleOf = (v: RecordedVerification) => [v.recorded_make, v.recorded_model].filter(Boolean).join(' ') || 'Vehicle not recorded'
+    const chipOf = (v: RecordedVerification) => CHIP[v.status === 'approved' || v.status === 'verified' ? 'positive' : v.status === 'pending' ? 'pending' : v.status === 'rejected' ? 'negative' : 'neutral']
     return (
       <div className="space-y-6 max-w-7xl mx-auto">
         <div>
@@ -122,7 +123,34 @@ export default function RegistryVerification() {
         {readState === 'failed' ? (
           <ReadFailedNotice subject="registry verifications" refused={readRefused} onRetry={() => void load()} testId="registry-read-failed" />
         ) : (
-          <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto card-shadow">
+          <>
+          {/* RX06-LR07 (unified only): below 768 px each verification is a card with a full-width, labelled "View
+              verification details" button. The table hid that button, the only way into a decision, beyond the
+              scroller's visible edge on a phone. Same record, same dialog, same handler. */}
+          <ul className="space-y-3 md:hidden" aria-label="Registry verifications" data-testid="registry-cards">
+            {loading ? (
+              <li><Skeleton className="h-20 w-full" /></li>
+            ) : rows.length === 0 ? (
+              <li className="rounded-xl border border-gray-100 bg-white py-12 text-center text-gray-500" data-testid="registry-empty-cards">
+                {verifications.length === 0 ? 'No registry verifications are recorded.' : 'No verifications match this search.'}
+              </li>
+            ) : (
+              rows.map((v) => (
+                <li key={v.id} className="rounded-xl border border-gray-100 bg-white p-4 card-shadow" data-testid={`registry-card-${v.id}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="min-w-0 break-words font-medium text-gray-900">{vehicleOf(v)}</p>
+                    <Badge className={chipOf(v)}>{v.recorded_status || 'Status not recorded'}</Badge>
+                  </div>
+                  <p className="mt-1 break-all font-mono text-xs text-gray-600">{v.vin}</p>
+                  <p className="mt-1 text-sm text-gray-600">Requested {recordedDate(v.created_at) ?? 'date not recorded'}</p>
+                  <Button variant="outline" className="mt-3 h-11 w-full" onClick={() => setSelectedVerification(v)} data-testid="open-registry-verification-card-button">
+                    <Eye className="mr-2 h-4 w-4" aria-hidden="true" /> View verification details
+                  </Button>
+                </li>
+              ))
+            )}
+          </ul>
+          <div className="hidden md:block bg-white rounded-xl border border-gray-100 overflow-x-auto card-shadow">
             <table className="w-full text-left border-collapse" data-testid="registry-table">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -149,7 +177,7 @@ export default function RegistryVerification() {
                       <td className="p-4 font-mono text-xs text-gray-500">{v.vin}</td>
                       <td className="p-4 text-gray-600">{recordedDate(v.created_at) ?? 'Not recorded'}</td>
                       <td className="p-4">
-                        <Badge className={CHIP[v.status === 'approved' || v.status === 'verified' ? 'positive' : v.status === 'pending' ? 'pending' : v.status === 'rejected' ? 'negative' : 'neutral']}>
+                        <Badge className={chipOf(v)}>
                           {v.recorded_status || 'Status not recorded'}
                         </Badge>
                       </td>
@@ -164,6 +192,7 @@ export default function RegistryVerification() {
               </tbody>
             </table>
           </div>
+          </>
         )}
 
         <Dialog open={!!selectedVerification} onOpenChange={(open) => !open && setSelectedVerification(null)}>

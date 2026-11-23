@@ -39,7 +39,7 @@ const FX_VIN = 'FXVIN00000000L07A'
 beforeEach(() => { fx.unified = true; fx.api = {}; fx.toast.success.mockReset(); fx.toast.error.mockReset() })
 afterEach(() => cleanup())
 beforeAll(async () => {
-  await Promise.all(['./mechanic/WorkOrders', './admin/FraudQueue', './bank/LendingQueue', './shared/GovernanceReviewQueue']
+  await Promise.all(['./mechanic/WorkOrders', './admin/FraudQueue', './bank/LendingQueue', './shared/GovernanceReviewQueue', './government/RegistryVerification']
     .map(m => import(/* @vite-ignore */ m)))
 }, 60000)
 const page = async (path: string) => (await import(/* @vite-ignore */ `./${path}`)).default
@@ -295,5 +295,34 @@ describe('GovernanceReviewQueue — unified tab panel and phone cards', () => {
     await settle(() => bodyText().includes('Fictional finding'))
     expect(screen.queryByRole('tabpanel')).toBeNull()
     expect(screen.queryByTestId('governance-item-temporal_finding:fx-item-1')).toBeNull()
+  })
+})
+
+// ── Registry verification (government) ──────────────────────────────────────────────────────────────────────────
+const REG_PENDING = { id: 'fx-reg-1', vin: FX_VIN, status: 'Pending', notes: null, verification_date: null, created_at: '2026-10-07T00:00:00Z', vehicles: { make: 'Fictional', model: 'Roadster' } }
+const REG_DONE = { id: 'fx-reg-2', vin: 'FXVIN00000000L07B', status: 'Approved', notes: 'Fictional note', verification_date: '2026-10-09T00:00:00Z', created_at: '2026-10-08T00:00:00Z', vehicles: null }
+
+describe('RegistryVerification — unified phone cards open the same decision dialog', () => {
+  it('a card shows the record as the row does and opens the same dialog; the decision values are unchanged', async () => {
+    fx.api = { fetchRegistryVerifications: vi.fn(async () => [REG_PENDING, REG_DONE]), updateRegistryVerification: vi.fn(async () => ({})) }
+    const Page = await page('government/RegistryVerification'); mount(<Page />)
+    await settle(() => !!screen.queryByTestId('registry-card-fx-reg-1'))
+    const card = within(screen.getByTestId('registry-card-fx-reg-1'))
+    expect(card.getByText('Fictional Roadster')).toBeInTheDocument()
+    expect(card.getByText(FX_VIN)).toBeInTheDocument() // shown exactly as the table row shows it (D6 HOLD)
+    expect(within(screen.getByTestId('registry-card-fx-reg-2')).getByText('Vehicle not recorded')).toBeInTheDocument()
+    fireEvent.click(card.getByRole('button', { name: 'View verification details' }))
+    const pending = within(await screen.findByTestId('registry-verification-record', {}, W))
+    expect(pending.getByText('No decision recorded')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('approve-registration-button'))
+    await until(() => expect(fx.api.updateRegistryVerification).toHaveBeenCalledWith('fx-reg-1', 'Approved', 'Updated by ZIMRA OS'))
+  })
+
+  it('flags OFF: the legacy page has no cards', async () => {
+    fx.unified = false
+    fx.api = { fetchRegistryVerifications: vi.fn(async () => [REG_PENDING]), updateRegistryVerification: vi.fn() }
+    const Page = await page('government/RegistryVerification'); mount(<Page />)
+    await settle(() => !!screen.queryByTestId('registry-row-fx-reg-1'))
+    expect(screen.queryByTestId('registry-card-fx-reg-1')).toBeNull()
   })
 })
