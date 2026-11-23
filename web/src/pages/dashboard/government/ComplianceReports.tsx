@@ -7,16 +7,26 @@ import { FileText, Download } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import type { ComplianceReport } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { ReadFailedNotice } from '@/components/workbench/ReadFailedNotice'
+import { recordedDate } from '@/components/workbench/institutionalRecords'
+
+/** What the compliance-reports read returns: report_type, created_at and a recorded status ("Submitted", "Ready", …). */
+type RecordedReport = ComplianceReport & { report_type?: string | null; created_at?: string | null }
 
 export default function ComplianceReports() {
   const { fetchComplianceReports } = useCarUpApi()
   const [reports, setReports] = useState<ComplianceReport[]>([])
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
+  const unified = isUnifiedUiEnabled()
+  const [refused, setRefused] = useState(false)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     async function load() {
       try {
+        setLoadFailed(false)
         const data = await fetchComplianceReports()
         if (Array.isArray(data)) {
           setReports(data)
@@ -31,13 +41,14 @@ export default function ComplianceReports() {
         // not an empty one.
         console.error(err)
         setLoadFailed(true)
+        setRefused((err as { status?: unknown } | null)?.status === 403)
         toast.error('Failed to load compliance reports')
       } finally {
         setLoading(false)
       }
     }
     load()
-  }, [fetchComplianceReports])
+  }, [fetchComplianceReports, attempt])
 
   /**
    * This previously resolved a two-second timer and then announced that a
@@ -58,6 +69,70 @@ export default function ComplianceReports() {
   // Not a "compliance rate": it is the share of THIS list that has been
   // generated, and says nothing about whether anybody is compliant.
   const generatedShare = totalReports ? ((generatedCount / totalReports) * 100).toFixed(1) + '%' : null
+
+  if (unified) {
+    // RX06-LR06 U10-S1 (unified only): counts appear only after a successful read, grouped by the status the report
+    // actually records. No "generated share" (no report records "generated"), no size, no invented date.
+    const byStatus = Array.from(reports.reduce((acc, r) => {
+      const key = String(r.status || 'Status not recorded')
+      acc.set(key, (acc.get(key) ?? 0) + 1)
+      return acc
+    }, new Map<string, number>()))
+    const tile = (value: string) => loading ? <Skeleton className="h-8 w-12 mt-1" /> : loadFailed ? 'Not available' : value
+    return (
+      <div className="space-y-6 max-w-7xl mx-auto">
+        <div>
+          <h1 className="text-2xl font-bold">Compliance Reports</h1>
+          <p className="text-gray-500">Compliance reports on record</p>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-4" data-testid="compliance-counts">
+          <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Reports on record</p><p className="text-2xl font-bold" data-testid="compliance-count-total">{tile(String(totalReports))}</p></CardContent></Card>
+          <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">By recorded status</p><p className="text-base font-semibold mt-1" data-testid="compliance-count-by-status">{tile(byStatus.length ? byStatus.map(([status, n]) => `${status}: ${n}`).join(' · ') : 'No reports')}</p></CardContent></Card>
+        </div>
+
+        <div className="space-y-3">
+          {loading ? (
+            <Card className="border-0 card-shadow"><CardContent className="p-4 flex items-center gap-4"><Skeleton className="w-10 h-10 rounded-lg shrink-0" /><div className="flex-1 space-y-2"><Skeleton className="h-5 w-1/3" /><Skeleton className="h-4 w-1/4" /></div></CardContent></Card>
+          ) : loadFailed ? (
+            <ReadFailedNotice subject="compliance reports" refused={refused} onRetry={() => { setLoading(true); setAttempt(a => a + 1) }} testId="compliance-reports-failed" />
+          ) : reports.length === 0 ? (
+            <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed" data-testid="compliance-reports-empty">
+              No compliance reports are recorded.
+            </div>
+          ) : (
+            (reports as RecordedReport[]).map((report) => (
+              <Card key={report.id} className="border-0 card-shadow" data-testid={`compliance-report-${report.id}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                      <FileText className="w-5 h-5 text-gray-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <h3 className="font-medium">{report.title || 'Untitled report'}</h3>
+                        <Badge className="bg-gray-600">{report.status || 'Status not recorded'}</Badge>
+                      </div>
+                      <div className="flex flex-wrap gap-3 text-xs text-gray-500" data-testid="compliance-report-fields">
+                        <span>Type: {report.report_type || report.type || 'Not recorded'}</span>
+                        <span>Recorded: {recordedDate(report.created_at) ?? 'Not recorded'}</span>
+                      </div>
+                    </div>
+                    {report.status === 'generated' && (
+                      <Button size="sm" variant="outline" className="gap-1" disabled={!report.url} onClick={() => handleDownload(report)} data-testid={`compliance-download-${report.id}`}>
+                        <Download className="w-4 h-4" /> {report.url ? 'Download' : 'No file'}
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div>

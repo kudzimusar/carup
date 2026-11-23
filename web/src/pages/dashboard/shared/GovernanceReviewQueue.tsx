@@ -10,6 +10,9 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import { ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react'
 import type { GovernanceReviewItem, GovernanceTaskType, GovernanceDecision, GovernanceTargetType } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { ReadFailedNotice } from '@/components/workbench/ReadFailedNotice'
+import { isReadRefusal, type RecordReadState } from '@/components/workbench/institutionalRecords'
 
 // Master plan §11.4 decision verbs. Trust is NEVER changed here — the backend records a
 // governed decision; trust changes flow only through the governed trust-change path.
@@ -40,6 +43,12 @@ export default function GovernanceReviewQueue() {
   const [loading, setLoading] = useState(true)
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
+  // RX06-LR06 U10-S1 (unified only): a failed read is said so — never "Nothing pending review", and never the previous
+  // tab's items left on screen under the new tab.
+  const unified = isUnifiedUiEnabled()
+  const [readState, setReadState] = useState<RecordReadState>('loading')
+  const [readRefused, setReadRefused] = useState(false)
+  const [attempt, setAttempt] = useState(0)
 
   const role = String(user?.role || '').toLowerCase()
   const authorized = REVIEWER_ROLES.includes(role)
@@ -52,11 +61,11 @@ export default function GovernanceReviewQueue() {
     if (!authorized) return
     let mounted = true
     fetchReviewQueue(tab === 'all' ? undefined : tab)
-      .then((res) => { if (mounted) setItems(res.queue || []) })
-      .catch((e) => { if (mounted) toast.error(`Failed to load review queue: ${(e as Error).message}`) })
+      .then((res) => { if (mounted) { setItems(res.queue || []); setReadState('ready') } })
+      .catch((e) => { if (mounted) { toast.error(`Failed to load review queue: ${(e as Error).message}`); setReadState('failed'); setReadRefused(isReadRefusal(e)) } })
       .finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false }
-  }, [authorized, tab, fetchReviewQueue])
+  }, [authorized, tab, fetchReviewQueue, attempt])
 
   const keyOf = (it: GovernanceReviewItem) => `${it.target_type}:${it.target_id}`
 
@@ -80,7 +89,8 @@ export default function GovernanceReviewQueue() {
     }
   }
 
-  const heading = useMemo(() => `Governance review queue${items.length ? ` (${items.length})` : ''}`, [items.length])
+  const showCount = !unified || readState === 'ready'
+  const heading = useMemo(() => `Governance review queue${items.length && showCount ? ` (${items.length})` : ''}`, [items.length, showCount])
 
   if (authLoading) return <div className="p-6 text-muted-foreground">Loading…</div>
   if (!authorized) {
@@ -113,6 +123,8 @@ export default function GovernanceReviewQueue() {
 
       {loading ? (
         <div className="flex items-center gap-2 p-6 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading queue…</div>
+      ) : unified && readState === 'failed' ? (
+        <ReadFailedNotice subject="review items" refused={readRefused} onRetry={() => { setLoading(true); setAttempt((a) => a + 1) }} testId="governance-queue-read-failed" />
       ) : items.length === 0 ? (
         <Card><CardContent className="p-6 text-muted-foreground">Nothing pending review. 🎉</CardContent></Card>
       ) : (

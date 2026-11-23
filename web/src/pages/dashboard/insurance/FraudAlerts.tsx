@@ -7,11 +7,20 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { FraudAlert } from '@/types'
 import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { ReadFailedNotice } from '@/components/workbench/ReadFailedNotice'
+import { isReadRefusal, normalizedStatus, recordedDate, type RecordReadState } from '@/components/workbench/institutionalRecords'
+
+/** The columns the fraud-alert read actually returns (fraud_alerts): "Open"/"Resolved", "High"/"Medium"/"Low". */
+type RecordedFraudAlert = FraudAlert & { alert_type?: string | null; created_at?: string | null; resolved_at?: string | null }
 
 export default function FraudAlerts() {
   const { fetchFraudAlerts, resolveFraudAlert } = useCarUpApi()
   const [alerts, setAlerts] = useState<FraudAlert[]>([])
   const [loading, setLoading] = useState(true)
+  const unified = isUnifiedUiEnabled()
+  const [readState, setReadState] = useState<RecordReadState>('loading')
+  const [readRefused, setReadRefused] = useState(false)
 
   useEffect(() => {
     loadAlerts()
@@ -20,10 +29,14 @@ export default function FraudAlerts() {
   const loadAlerts = async () => {
     try {
       setLoading(true)
+      setReadState('loading')
       const data = await fetchFraudAlerts()
       setAlerts(data || [])
+      setReadState('ready')
     } catch (error) {
       toast.error('Failed to load fraud alerts')
+      setReadState('failed')
+      setReadRefused(isReadRefusal(error))
     } finally {
       setLoading(false)
     }
@@ -42,6 +55,69 @@ export default function FraudAlerts() {
   const openAlerts = alerts.filter(a => a.status === 'open').length
   const underInvestigation = alerts.filter(a => a.status === 'under-investigation').length
   const resolved = alerts.filter(a => a.status === 'resolved').length
+  // RX06-LR06 U10-S1 (unified only): counts compare the recorded status without case, and are shown only after a read.
+  const readFailed = unified && readState === 'failed'
+  const unifiedCount = (status: string) => readState === 'ready' ? String(alerts.filter(a => normalizedStatus(a.status) === status).length) : readState === 'loading' ? 'Loading…' : 'Not available'
+
+  if (unified) {
+    return (
+      <div className="space-y-6 max-w-7xl mx-auto">
+        <div>
+          <h1 className="text-2xl font-bold">Fraud Alerts</h1>
+          <p className="text-gray-500">Recorded fraud alerts that may need investigation</p>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-4" data-testid="fraud-alert-counts">
+          <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Open alerts</p><p className="text-2xl font-bold text-red-600" data-testid="fraud-alert-count-open">{unifiedCount('open')}</p></CardContent></Card>
+          <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Resolved alerts</p><p className="text-2xl font-bold text-green-600" data-testid="fraud-alert-count-resolved">{unifiedCount('resolved')}</p></CardContent></Card>
+        </div>
+
+        <div className="space-y-4">
+          {readFailed ? (
+            <ReadFailedNotice subject="fraud alerts" refused={readRefused} onRetry={() => void loadAlerts()} testId="fraud-alerts-read-failed" />
+          ) : loading ? (
+            <Card className="border-0 card-shadow"><CardContent className="p-5 flex gap-4"><Skeleton className="w-10 h-10 rounded-lg" /><div className="flex-1 space-y-2"><Skeleton className="h-5 w-1/3" /><Skeleton className="h-4 w-1/2" /></div></CardContent></Card>
+          ) : alerts.length === 0 ? (
+            <div className="text-center py-10 text-gray-500" data-testid="fraud-alerts-empty">No fraud alerts are recorded.</div>
+          ) : (
+            (alerts as RecordedFraudAlert[]).map((alert) => {
+              const severity = normalizedStatus(alert.severity)
+              const isResolved = normalizedStatus(alert.status) === 'resolved'
+              return (
+                <Card key={alert.id} className={`border-0 card-shadow ${severity === 'high' ? 'ring-1 ring-red-200' : severity === 'medium' ? 'ring-1 ring-amber-200' : ''}`} data-testid={`fraud-alert-${alert.id}`}>
+                  <CardContent className="p-5">
+                    <div className="flex items-start gap-4">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${severity === 'high' ? 'bg-red-100' : severity === 'medium' ? 'bg-amber-100' : 'bg-gray-100'}`}>
+                        <AlertTriangle className={`w-5 h-5 ${severity === 'high' ? 'text-red-600' : severity === 'medium' ? 'text-amber-600' : 'text-gray-600'}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <h3 className="font-semibold">{alert.alert_type || alert.type || 'Alert type not recorded'}</h3>
+                          <Badge className={severity === 'high' ? 'bg-red-500' : severity === 'medium' ? 'bg-amber-500' : 'bg-gray-500'}>{alert.severity || 'Severity not recorded'}</Badge>
+                          <Badge className={isResolved ? 'bg-green-500' : 'bg-gray-500'} data-testid="fraud-alert-status">{alert.status || 'Status not recorded'}</Badge>
+                        </div>
+                        <p className="text-sm text-gray-700 mb-2">{alert.description || 'No description recorded'}</p>
+                        <div className="flex flex-wrap gap-3 text-xs text-gray-500" data-testid="fraud-alert-recorded-fields">
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />Raised: {recordedDate(alert.created_at) ?? 'Date not recorded'}</span>
+                          {isResolved && <span>Resolved: {recordedDate(alert.resolved_at) ?? 'Date not recorded'}</span>}
+                          <span className="break-all">Reference: {alert.id}</span>
+                        </div>
+                      </div>
+                      {!isResolved && (
+                        <Button size="sm" variant="outline" className="text-green-600 hover:text-green-700 hover:bg-green-50" title="Resolve Alert" aria-label="Resolve Alert" onClick={() => handleResolve(alert.id)} data-testid="fraud-alert-resolve">
+                          <CheckCircle className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">

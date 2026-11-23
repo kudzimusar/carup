@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Shield, FileText, AlertTriangle, DollarSign, ArrowRight, BarChart3 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 
 // No claims read model backs this dashboard yet. The previous chart series and "recent claims" rows
 // were invented (fabricated policyholder names, vehicles and settlement amounts), so both render as
@@ -86,7 +87,14 @@ export default function InsuranceDashboard() {
             </CardHeader>
             <CardContent className="space-y-3">
               {recentClaims.length === 0 && (
+                // RX06-LR06 U10-S1 (unified only): this dashboard reads no claims, so it must not say none exist.
+                isUnifiedUiEnabled() ? (
+                  <p className="text-sm text-gray-500" data-testid="insurance-claims-not-read">
+                    Recent claims are not read on this dashboard. <Link to="/insurance-dash/claims" className="font-medium text-orange-700 underline">Open Claims</Link> to see the claims on record.
+                  </p>
+                ) : (
                 <p className="text-sm text-gray-500" data-testid="insurance-claims-empty">No claims recorded yet.</p>
+                )
               )}
               {recentClaims.map((claim) => (
                 <div key={claim.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">

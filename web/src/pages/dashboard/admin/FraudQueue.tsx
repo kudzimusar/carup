@@ -7,6 +7,9 @@ import { ShieldAlert, CheckCircle, XCircle } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import { getErrorMessage } from '@/lib/errorMessage'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { ReadFailedNotice } from '@/components/workbench/ReadFailedNotice'
+import { isReadRefusal, recordedDate, type RecordReadState } from '@/components/workbench/institutionalRecords'
 
 export interface FraudCase {
   id: string
@@ -35,7 +38,14 @@ export function FraudCaseCard({ fraudCase, onResolve, busy }: { fraudCase: Fraud
               <Badge className={SEV_COLORS[fraudCase.highest_severity] || 'bg-gray-200'}>{fraudCase.highest_severity}</Badge>
               {fraudCase.blocks_publication && <Badge variant="outline" className="border-red-300 text-red-700">blocks publication</Badge>}
             </div>
+            {isUnifiedUiEnabled() ? (
+              // RX06-LR06 U10-S1 (unified only): an unrecorded signal count or date is said so, never shown as 0 / "Invalid Date".
+              <p className="text-xs text-gray-500 mt-1" data-testid="fraud-case-recorded-fields">
+                {typeof fraudCase.open_signal_count === 'number' ? `${fraudCase.open_signal_count} signal(s)` : 'Signal count not recorded'} · {fraudCase.status || 'Status not recorded'} · {recordedDate(fraudCase.created_at) ?? 'Date not recorded'}
+              </p>
+            ) : (
             <p className="text-xs text-gray-500 mt-1">{fraudCase.open_signal_count ?? 0} signal(s) · {fraudCase.status} · {new Date(fraudCase.created_at).toLocaleDateString()}</p>
+            )}
           </div>
           {fraudCase.status === 'open' || fraudCase.status === 'investigating' ? (
             <div className="flex gap-2">
@@ -58,11 +68,14 @@ export default function FraudQueue() {
   const [cases, setCases] = useState<FraudCase[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
+  const unified = isUnifiedUiEnabled()
+  const [readState, setReadState] = useState<RecordReadState>('loading')
+  const [readRefused, setReadRefused] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { const r = await fetchFraudCases({ status: 'open' }); setCases((r.cases || []) as FraudCase[]) }
-    catch (err) { toast.error(getErrorMessage(err)) }
+    try { const r = await fetchFraudCases({ status: 'open' }); setCases((r.cases || []) as FraudCase[]); setReadState('ready') }
+    catch (err) { toast.error(getErrorMessage(err)); setReadState('failed'); setReadRefused(isReadRefusal(err)) }
     finally { setLoading(false) }
   }, [fetchFraudCases])
 
@@ -71,8 +84,8 @@ export default function FraudQueue() {
   useEffect(() => {
     let cancelled = false
     fetchFraudCases({ status: 'open' })
-      .then((r) => { if (!cancelled) setCases((r.cases || []) as FraudCase[]) })
-      .catch((err) => { if (!cancelled) toast.error(getErrorMessage(err)) })
+      .then((r) => { if (!cancelled) { setCases((r.cases || []) as FraudCase[]); setReadState('ready') } })
+      .catch((err) => { if (!cancelled) { toast.error(getErrorMessage(err)); setReadState('failed'); setReadRefused(isReadRefusal(err)) } })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [fetchFraudCases])
@@ -94,6 +107,7 @@ export default function FraudQueue() {
         <p className="text-gray-500 text-sm">Open cases from the duplicate/fraud engine. Resolving records an append-only decision; vehicle passports are never auto-merged.</p>
       </div>
       {loading ? [1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full" />)
+        : unified && readState === 'failed' ? <ReadFailedNotice subject="open fraud cases" refused={readRefused} onRetry={() => void load()} testId="fraud-cases-read-failed" />
         : cases.length === 0 ? <Card className="border-0 card-shadow"><CardContent className="py-10 text-center text-gray-400">No open fraud cases.</CardContent></Card>
         : cases.map(c => <FraudCaseCard key={c.id} fraudCase={c} onResolve={onResolve} busy={busy === c.id} />)}
     </div>
