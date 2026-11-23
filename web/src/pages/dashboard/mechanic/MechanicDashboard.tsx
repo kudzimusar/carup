@@ -13,6 +13,7 @@ import { Link } from 'react-router-dom'
 import ServiceIntelligence from '@/components/intelligence/ServiceIntelligence'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import type { WorkOrder } from '@/types'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -35,6 +36,10 @@ export default function MechanicDashboard() {
 
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [ordersError, setOrdersError] = useState<string | null>(null)
+  // RX06-LR06 U06-S1 (unified only): nothing is counted until the work orders have actually been read.
+  const unified = isUnifiedUiEnabled()
+  const [readState, setReadState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const [readRefused, setReadRefused] = useState(false)
 
   const [showWorkOrderDialog, setShowWorkOrderDialog] = useState(false)
   const [workOrderForm, setWorkOrderForm] = useState({ vin: '', customerName: '', issue: '' })
@@ -47,10 +52,13 @@ export default function MechanicDashboard() {
       .then(orders => {
         setWorkOrders(Array.isArray(orders) ? orders : [])
         setOrdersError(null)
+        setReadState('ready')
       })
       .catch((err: unknown) => {
         setWorkOrders([])
         setOrdersError(err instanceof Error ? err.message : 'Failed to load work orders')
+        setReadState('failed')
+        setReadRefused((err as { status?: unknown } | null)?.status === 403)
       })
   }, [fetchMechanicWorkOrders])
 
@@ -69,6 +77,15 @@ export default function MechanicDashboard() {
   const completedThisMonth = workOrders.filter(o => String(o.status).toLowerCase() === 'completed' && isThisMonth(o.created_at || o.date))
   const monthlyRevenue = completedThisMonth.reduce((sum, o) => sum + (o.total_cost || o.cost || 0), 0)
   const weeklyJobs = weeklyJobsFrom(workOrders)
+  // Unified: a cost that was never recorded is not $0, and work orders carry no currency.
+  const recordedCosts = completedThisMonth.map(o => o.total_cost ?? o.cost).filter((c): c is number => typeof c === 'number' && Number.isFinite(c))
+  const notRead = readState !== 'ready'
+  const unifiedStats = [
+    { label: 'Active Orders', value: notRead ? null : String(activeOrders.length), icon: ClipboardList, color: 'text-amber-500', bg: 'bg-amber-50' },
+    { label: 'Completed (Mo)', value: notRead ? null : String(completedThisMonth.length), icon: CheckCircle, color: 'text-green-500', bg: 'bg-green-50' },
+    { label: 'Recorded cost (Mo)', value: notRead ? null : recordedCosts.length ? recordedCosts.reduce((a, b) => a + b, 0).toLocaleString() : 'Not recorded', icon: DollarSign, color: 'text-blue-500', bg: 'bg-blue-50' },
+    { label: 'Total Orders', value: notRead ? null : String(workOrders.length), icon: Wrench, color: 'text-purple-500', bg: 'bg-purple-50' },
+  ]
 
   const handleCreateWorkOrder = async () => {
     if (!workOrderForm.vin || !workOrderForm.customerName) {
@@ -119,7 +136,31 @@ export default function MechanicDashboard() {
       <ServiceIntelligence scope="mechanic" />
 
       {/* Stats Grid — real counts from fetched work orders */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {unified && readState === 'failed' && (
+        <p className="text-sm text-gray-600" data-testid="mechanic-stats-not-read">
+          {readRefused ? 'This account is not permitted to read work orders, so no figures are shown.' : 'Work orders could not be read, so these figures are not available. They are NOT zero.'}
+        </p>
+      )}
+      {unified && (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="mechanic-stats" data-read-state={readState}>
+          {unifiedStats.map((stat) => (
+            <Card key={stat.label} className="border-0 card-shadow">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500">{stat.label}</p>
+                    <p className="text-2xl font-bold mt-1" data-testid={`mechanic-stat-${stat.label}`}>{stat.value ?? (readState === 'loading' ? 'Loading…' : 'Not available')}</p>
+                  </div>
+                  <div className={`w-10 h-10 rounded-lg ${stat.bg} ${stat.color} flex items-center justify-center`}>
+                    <stat.icon className="w-5 h-5" aria-hidden="true" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+      {!unified && <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Active Orders', value: String(activeOrders.length), icon: ClipboardList, color: 'text-amber-500', bg: 'bg-amber-50' },
           { label: 'Completed (Mo)', value: String(completedThisMonth.length), icon: CheckCircle, color: 'text-green-500', bg: 'bg-green-50' },
@@ -140,7 +181,7 @@ export default function MechanicDashboard() {
             </CardContent>
           </Card>
         ))}
-      </div>
+      </div>}
 
       {/* Main Grid */}
       <div className="grid lg:grid-cols-3 gap-6">
@@ -152,15 +193,24 @@ export default function MechanicDashboard() {
                 <Cpu className="w-5 h-5 text-emerald-600" />
                 Recent Work Orders
               </CardTitle>
-              <Badge className="bg-emerald-50 text-emerald-700 shadow-none border-none">Live</Badge>
+              {(!unified || readState === 'ready') && <Badge className="bg-emerald-50 text-emerald-700 shadow-none border-none">Live</Badge>}
             </CardHeader>
             <CardContent className="space-y-4">
-              {ordersError && (
+              {ordersError && !unified && (
                 <div className="p-3.5 bg-red-50 rounded-xl border border-red-100 text-xs text-red-700" data-testid="work-orders-error">
                   Could not load work orders: {ordersError}
                 </div>
               )}
-              {!ordersError && workOrders.length === 0 && (
+              {unified && readState === 'failed' && (
+                <div className="p-3.5 bg-red-50 rounded-xl border border-red-100 text-xs text-red-700" data-testid="work-orders-error" role="status">
+                  {readRefused ? 'This account is not permitted to read work orders.' : 'Your work orders could not be loaded. This is not an empty workshop.'}
+                  {!readRefused && <button type="button" className="ml-2 font-semibold underline" onClick={() => { setReadState('loading'); void loadWorkOrders() }} data-testid="work-orders-retry">Try again</button>}
+                </div>
+              )}
+              {unified && readState === 'loading' && (
+                <p className="text-xs text-gray-500" data-testid="work-orders-loading">Loading your work orders…</p>
+              )}
+              {!ordersError && workOrders.length === 0 && (!unified || readState === 'ready') && (
                 <div className="text-center py-8" data-testid="work-orders-empty">
                   <ClipboardList className="w-10 h-10 text-gray-200 mx-auto mb-2" />
                   <p className="text-sm text-gray-500">No work orders recorded yet.</p>
@@ -185,11 +235,11 @@ export default function MechanicDashboard() {
 
           {/* PartSentry pointer — VIN-scoped service logs live on the Service Logs page */}
           <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Cryptographic PartSentry Ledger</CardTitle></CardHeader>
+            <CardHeader className="pb-3"><CardTitle className="text-lg">{unified ? 'PartSentry service ledger' : 'Cryptographic PartSentry Ledger'}</CardTitle></CardHeader>
             <CardContent>
               <div className="text-center py-6" data-testid="partsentry-ledger-pointer">
                 <Cpu className="w-10 h-10 text-gray-200 mx-auto mb-2" />
-                <p className="text-sm text-gray-500">Signed service logs are recorded per vehicle.</p>
+                <p className="text-sm text-gray-500">{unified ? 'Service logs are recorded per vehicle.' : 'Signed service logs are recorded per vehicle.'}</p>
                 <Link to="/mechanic/service-logs" className="text-xs font-semibold text-emerald-600 hover:underline mt-1 inline-flex items-center gap-1">
                   Open Service Logs to load a vehicle's ledger <ArrowRight className="w-3 h-3" />
                 </Link>
@@ -203,14 +253,16 @@ export default function MechanicDashboard() {
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3"><CardTitle className="text-lg">Jobs This Week</CardTitle></CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={160}>
+              {unified && readState !== 'ready' ? (
+                <p className="text-sm text-gray-500" data-testid="mechanic-weekly-not-read">{readState === 'loading' ? 'Loading…' : 'Not available: the work orders could not be read. This is not a quiet week.'}</p>
+              ) : <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={weeklyJobs}>
                   <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} allowDecimals={false} />
                   <Tooltip />
                   <Bar dataKey="jobs" fill="#10b981" radius={[4, 4, 0, 0]} barSize={20} />
                 </BarChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer>}
             </CardContent>
           </Card>
 
@@ -248,7 +300,7 @@ export default function MechanicDashboard() {
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Customer Name *</label>
-              <Input value={workOrderForm.customerName} onChange={e => setWorkOrderForm(f => ({ ...f, customerName: e.target.value }))} placeholder="e.g. Tendai Moyo" data-testid="customer-name-input" />
+              <Input value={workOrderForm.customerName} onChange={e => setWorkOrderForm(f => ({ ...f, customerName: e.target.value }))} placeholder={unified ? "Customer's full name" : 'e.g. Tendai Moyo'} data-testid="customer-name-input" />
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Issue Description</label>

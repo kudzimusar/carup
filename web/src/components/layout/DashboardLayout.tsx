@@ -1,5 +1,6 @@
 import { BrandIdentity } from '@/components/brand/BrandIdentity'
 import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
@@ -221,7 +222,10 @@ export default function DashboardLayout({ role }: { role: string }) {
                 {vis.beta && (
                   <Badge className="text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700">Beta</Badge>
                 )}
-                {item.badge && (
+                {/* RX06-LR06 U06/U10-S1: a numeric badge in the registry is a fixed number, not a count of anything
+                    (e.g. "Work Orders 8", "Claims 12"). The unified presentation never shows one; text labels stay.
+                    The legacy presentation is unchanged. */}
+                {item.badge && !(isUnifiedUiEnabled() && typeof item.badge === 'number') && (
                   <Badge variant={isActive ? 'default' : 'secondary'} className="text-[10px] h-5 px-1.5">
                     {item.badge}
                   </Badge>

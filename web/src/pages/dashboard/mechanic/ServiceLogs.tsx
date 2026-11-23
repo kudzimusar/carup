@@ -8,6 +8,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 
 // Matches the DB CHECK constraint on partsentry_logs.action_type.
 const ACTION_TYPES = ['Replaced', 'Repaired', 'Inspected', 'Diagnosed'] as const
@@ -42,6 +43,12 @@ export default function ServiceLogs() {
     mileage: 0
   })
 
+  // RX06-LR06 U06-S1 (unified only): a failed lookup never leaves the previous vehicle's logs on screen and is not
+  // shown as an empty history.
+  const unified = isUnifiedUiEnabled()
+  const [loadFailedFor, setLoadFailedFor] = useState<string | null>(null)
+  const [loadRefused, setLoadRefused] = useState(false)
+
   const loadHistory = async (vin: string) => {
     const trimmed = vin.trim()
     if (!trimmed) {
@@ -53,8 +60,15 @@ export default function ServiceLogs() {
       const rows = await fetchRepairHistory(trimmed)
       setLogs(Array.isArray(rows) ? rows : [])
       setLoadedVin(trimmed)
+      setLoadFailedFor(null)
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to load service history')
+      if (unified) {
+        setLogs([])
+        setLoadedVin('')
+        setLoadFailedFor(trimmed)
+        setLoadRefused((err as { status?: unknown } | null)?.status === 403)
+      }
     } finally {
       setHistoryLoading(false)
     }
@@ -114,7 +128,7 @@ export default function ServiceLogs() {
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <div className="bg-blue-50 text-blue-800 text-xs p-3 rounded-md flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <p>Logs submitted here are cryptographically signed and permanently recorded on the PartSentry audit ledger. This cannot be undone.</p>
+                <p>{unified ? 'Logs submitted here are permanently recorded on the PartSentry ledger for this vehicle. This cannot be undone.' : 'Logs submitted here are cryptographically signed and permanently recorded on the PartSentry audit ledger. This cannot be undone.'}</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -199,7 +213,12 @@ export default function ServiceLogs() {
         {logs.length === 0 && (
           <div className="text-center py-12 bg-white rounded-xl border border-gray-100">
             <FileText className="w-12 h-12 text-gray-200 mx-auto mb-4" />
-            {loadedVin ? (
+            {unified && loadFailedFor ? (
+              <div data-testid="service-logs-read-failed" role="status">
+                <h3 className="text-lg font-medium text-gray-900 mb-1">{loadRefused ? `This account cannot read the service history for ${loadFailedFor}` : `The service history for ${loadFailedFor} could not be loaded`}</h3>
+                <p className="text-gray-500">{loadRefused ? 'CarUp refused this account access to that history. Nothing has changed.' : 'This is not an empty history: CarUp could not read it just now. Nothing has changed. Try again.'}</p>
+              </div>
+            ) : loadedVin ? (
               <>
                 <h3 className="text-lg font-medium text-gray-900 mb-1">No service logs found for {loadedVin}</h3>
                 <p className="text-gray-500">Record a new service log to add history for this vehicle.</p>

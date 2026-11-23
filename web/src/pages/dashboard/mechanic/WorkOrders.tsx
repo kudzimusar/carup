@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import type { WorkOrder } from '@/types'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 
 export default function WorkOrders() {
   const { fetchMechanicWorkOrders, createMechanicWorkOrder, updateMechanicWorkOrder, loading } = useCarUpApi()
@@ -28,6 +29,11 @@ export default function WorkOrders() {
   const [completingId, setCompletingId] = useState<string | null>(null)
   const [completeCost, setCompleteCost] = useState('')
   const [actionBusyId, setActionBusyId] = useState<string | null>(null)
+  // RX06-LR06 U06-S1 (unified only): a failed or unfinished read is never shown as "No work orders found", and
+  // nothing the record does not hold (a mechanic's name, a date, a description) is invented.
+  const unified = isUnifiedUiEnabled()
+  const [readState, setReadState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const [readRefused, setReadRefused] = useState(false)
 
   const loadWorkOrders = useCallback(() => {
     return fetchMechanicWorkOrders().then(data => {
@@ -35,22 +41,25 @@ export default function WorkOrders() {
         // Keep the FULL DB id — PATCH /mechanic/work-orders/:id needs it. The short display id
         // is derived at render time.
         id: d.id,
-        vehicle: d.vin || d.vehicle || 'Unknown',
-        customer: d.customer_name || d.customer || 'Unknown',
+        vehicle: d.vin || d.vehicle || (unified ? 'Vehicle not recorded' : 'Unknown'),
+        customer: d.customer_name || d.customer || (unified ? 'Customer not recorded' : 'Unknown'),
         // `description` is the Phase-4 column the create form's issue text is stored in.
-        service: d.service || d.description || d.issue_description || 'General Service',
+        service: d.service || d.description || d.issue_description || (unified ? 'No description recorded' : 'General Service'),
         status: d.status?.toLowerCase().replace(' ', '-') as WorkOrder['status'] || 'pending',
-        date: d.date || new Date(d.created_at).toLocaleDateString(),
+        date: d.date || (unified && (!d.created_at || Number.isNaN(Date.parse(d.created_at))) ? 'Date not recorded' : new Date(d.created_at).toLocaleDateString()),
         cost: d.total_cost ?? d.cost ?? 0,
-        mechanic: d.mechanic_id || d.mechanic ? `Mechanic (${(d.mechanic_id || d.mechanic).substring(0,4)})` : 'Unassigned',
+        mechanic: d.mechanic_id || d.mechanic ? (unified ? 'Assigned to a mechanic' : `Mechanic (${(d.mechanic_id || d.mechanic).substring(0,4)})`) : 'Unassigned',
         created_at: d.created_at
       }))
       setWorkOrders(formatted)
+      setReadState('ready')
     }).catch(err => {
       console.error(err)
       toast.error('Failed to load Work Orders.')
+      setReadState('failed')
+      setReadRefused((err as { status?: unknown } | null)?.status === 403)
     })
-  }, [fetchMechanicWorkOrders])
+  }, [fetchMechanicWorkOrders, unified])
 
   useEffect(() => {
     void loadWorkOrders()
@@ -268,7 +277,18 @@ export default function WorkOrders() {
             </CardContent>
           </Card>
         ))}
-        {filtered.length === 0 && (
+        {unified && readState === 'failed' && (
+          <div className="text-center py-12 bg-white rounded-xl border border-red-100" data-testid="workorders-read-failed" role="status">
+            <Wrench className="w-12 h-12 text-gray-200 mx-auto mb-4" aria-hidden="true" />
+            <h3 className="text-lg font-medium text-gray-900 mb-1">{readRefused ? 'This account cannot read work orders' : 'Your work orders could not be loaded'}</h3>
+            <p className="text-gray-500">{readRefused ? 'CarUp refused this account access to work orders. Nothing has changed.' : 'This is not an empty list: CarUp could not read your work orders just now. Nothing has changed.'}</p>
+            {!readRefused && <Button variant="outline" className="mt-4" onClick={() => { setReadState('loading'); void loadWorkOrders() }} data-testid="workorders-retry">Try again</Button>}
+          </div>
+        )}
+        {unified && readState === 'loading' && (
+          <p className="text-center py-12 text-gray-500" data-testid="workorders-loading">Loading your work orders…</p>
+        )}
+        {filtered.length === 0 && (!unified || readState === 'ready') && (
           <div className="text-center py-12 bg-white rounded-xl border border-gray-100" data-testid="no-workorders-state">
             <Wrench className="w-12 h-12 text-gray-200 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-1">No work orders found</h3>

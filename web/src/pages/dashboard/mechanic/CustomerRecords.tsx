@@ -4,6 +4,8 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Search, Plus, Phone, Mail, Car, Wrench } from 'lucide-react'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 
 const customers = [
   { id: 1, name: 'Tendai Moyo', phone: '+263 773 345 678', email: 'tendai@email.co.zw', vehicles: 2, visits: 8, totalSpent: 1240, lastVisit: '2026-04-20' },
@@ -14,6 +16,25 @@ const customers = [
 
 export default function CustomerRecords() {
   const [search, setSearch] = useState('')
+  // RX06-LR06 U06-S1 (unified only): CarUp has no garage customer list (no API exists), so the unified view shows no
+  // invented customers and no dead "Add Customer" action. The legacy page below is unchanged.
+  if (isUnifiedUiEnabled()) {
+    return (
+      <div className="space-y-6 max-w-7xl mx-auto" data-testid="customer-records-unavailable">
+        <div>
+          <h1 className="text-2xl font-bold">Customer Records</h1>
+          <p className="text-gray-500">Your customers, from the work you record</p>
+        </div>
+        <Card className="border-0 card-shadow">
+          <CardContent className="p-6 space-y-2">
+            <h2 className="text-lg font-semibold">Customer records are not available yet</h2>
+            <p className="text-gray-600">CarUp does not keep a separate customer list for garages yet, so nothing is shown here. The customers you serve appear on the work orders you record.</p>
+            <Link to="/mechanic/work-orders" className="inline-block text-sm font-semibold text-orange-600 hover:underline">Open your work orders</Link>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
   const filtered = customers.filter(c => !search || c.name.toLowerCase().includes(search.toLowerCase()))
 
   return (
