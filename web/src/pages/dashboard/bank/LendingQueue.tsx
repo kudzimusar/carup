@@ -380,7 +380,9 @@ export default function LendingQueue() {
                       <td className="px-6 py-4">
                         <div>
                           <p className="font-bold text-indigo-700">${app.requested_amount.toLocaleString()} USD</p>
-                          <p className="text-[10px] text-gray-400">Monthly: ${app.monthly_payment.toFixed(2)} @ {app.apr}% APR</p>
+                          <p className="text-[10px] text-gray-400">{app.monthly_payment != null && app.apr != null
+                            ? <>Monthly: ${app.monthly_payment.toFixed(2)} @ {app.apr}% APR</>
+                            : 'Terms not set'}</p>
                         </div>
                       </td>
                       <td className="px-6 py-4">
