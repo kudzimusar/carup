@@ -195,7 +195,7 @@ export default function WorkOrders() {
             ))}
           </div>
         ) : (
-        <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0">
+        <div className="flex flex-wrap gap-2">
           {['all', 'pending', 'in-progress', 'completed', 'cancelled'].map(s => (
             <Button key={s} variant={filter === s ? 'default' : 'outline'} size="sm" onClick={() => setFilter(s)} className={filter === s ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}>
               {s.charAt(0).toUpperCase() + s.slice(1)}
@@ -307,10 +307,10 @@ export default function WorkOrders() {
                 <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
                   <Wrench className="w-5 h-5 text-orange-600" />
                 </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-medium text-lg">{order.vehicle}</h3>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <h3 className="font-medium text-lg break-all">{order.vehicle}</h3>
                       <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{order.id.substring(0, 11).toUpperCase()}</span>
                     </div>
                     <Badge className={order.status === 'completed' ? 'bg-green-500 hover:bg-green-600 text-white' : order.status === 'in-progress' ? 'bg-amber-500 hover:bg-amber-600 text-white' : order.status === 'cancelled' ? 'bg-gray-400 hover:bg-gray-500 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}>

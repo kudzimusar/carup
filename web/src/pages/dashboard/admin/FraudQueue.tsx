@@ -33,18 +33,18 @@ export function FraudCaseCard({ fraudCase, onResolve, busy }: FraudCaseCardProps
   return (
     <Card className="border-0 card-shadow" data-testid="fraud-case-card">
       <CardContent className="p-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-red-500" />
-              <span className="font-medium">VIN {fraudCase.vin}</span>
+              <span className="font-medium break-all">VIN {fraudCase.vin}</span>
               <Badge className={SEV_COLORS[fraudCase.highest_severity] || 'bg-gray-200'}>{fraudCase.highest_severity}</Badge>
               {fraudCase.blocks_publication && <Badge variant="outline" className="border-red-300 text-red-700">blocks publication</Badge>}
             </div>
             <p className="text-xs text-gray-500 mt-1">{fraudCase.open_signal_count ?? 0} signal(s) · {fraudCase.status} · {new Date(fraudCase.created_at).toLocaleDateString()}</p>
           </div>
           {fraudCase.status === 'open' || fraudCase.status === 'investigating' ? (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" disabled={busy} onClick={() => onResolve(fraudCase.id, 'false_positive')}>
                 <CheckCircle className="w-3.5 h-3.5 mr-1" /> False positive
               </Button>
