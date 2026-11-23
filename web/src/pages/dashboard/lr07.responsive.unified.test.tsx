@@ -29,6 +29,10 @@ vi.mock('@/context/AuthContext', () => ({
 }))
 
 const settle = (probe: () => boolean) => waitFor(() => expect(probe()).toBe(true), { timeout: 2500 })
+// Every wait is bounded below the 5 s test timeout (the setup's asyncUtilTimeout is 5 s), so a wrong state or a missing
+// call fails on its assertion instead of timing the test out.
+const W = { timeout: 2500 }
+const until = (assertion: () => void) => waitFor(assertion, W)
 const bodyText = () => document.body.textContent || ''
 const FX_VIN = 'FXVIN00000000L07A'
 
@@ -56,42 +60,42 @@ describe('WorkOrders — unified phone layout keeps every action', () => {
   it("Complete → cost → Confirm sends the DB-legal 'Completed' status, the entered total_cost and the FULL id", async () => {
     fx.api = workOrdersApi([IN_PROGRESS])
     const Page = await page('mechanic/WorkOrders'); mount(<Page />)
-    fireEvent.click(await screen.findByTestId(`workorder-complete-${ORDER_ID}`))
+    fireEvent.click(await screen.findByTestId(`workorder-complete-${ORDER_ID}`, {}, W))
     fireEvent.change(screen.getByTestId(`workorder-cost-input-${ORDER_ID}`), { target: { value: '450' } })
     fireEvent.click(screen.getByTestId(`workorder-confirm-complete-${ORDER_ID}`))
-    await waitFor(() => expect(fx.api.updateMechanicWorkOrder).toHaveBeenCalledWith(ORDER_ID, { status: 'Completed', total_cost: 450 }))
-    await waitFor(() => expect(fx.api.fetchMechanicWorkOrders).toHaveBeenCalledTimes(2))
+    await until(() => expect(fx.api.updateMechanicWorkOrder).toHaveBeenCalledWith(ORDER_ID, { status: 'Completed', total_cost: 450 }))
+    await until(() => expect(fx.api.fetchMechanicWorkOrders).toHaveBeenCalledTimes(2))
   })
 
   it('completes without total_cost when the optional input is left empty', async () => {
     fx.api = workOrdersApi([IN_PROGRESS])
     const Page = await page('mechanic/WorkOrders'); mount(<Page />)
-    fireEvent.click(await screen.findByTestId(`workorder-complete-${ORDER_ID}`))
+    fireEvent.click(await screen.findByTestId(`workorder-complete-${ORDER_ID}`, {}, W))
     fireEvent.click(screen.getByTestId(`workorder-confirm-complete-${ORDER_ID}`))
-    await waitFor(() => expect(fx.api.updateMechanicWorkOrder).toHaveBeenCalledWith(ORDER_ID, { status: 'Completed' }))
+    await until(() => expect(fx.api.updateMechanicWorkOrder).toHaveBeenCalledWith(ORDER_ID, { status: 'Completed' }))
   })
 
   it("Cancel order sends the DB-legal 'Cancelled' status", async () => {
     fx.api = workOrdersApi([IN_PROGRESS])
     const Page = await page('mechanic/WorkOrders'); mount(<Page />)
-    fireEvent.click(await screen.findByTestId(`workorder-cancel-${ORDER_ID}`))
-    await waitFor(() => expect(fx.api.updateMechanicWorkOrder).toHaveBeenCalledWith(ORDER_ID, { status: 'Cancelled' }))
+    fireEvent.click(await screen.findByTestId(`workorder-cancel-${ORDER_ID}`, {}, W))
+    await until(() => expect(fx.api.updateMechanicWorkOrder).toHaveBeenCalledWith(ORDER_ID, { status: 'Cancelled' }))
   })
 
   it('a negative total_cost is refused client-side, without calling the API', async () => {
     fx.api = workOrdersApi([IN_PROGRESS])
     const Page = await page('mechanic/WorkOrders'); mount(<Page />)
-    fireEvent.click(await screen.findByTestId(`workorder-complete-${ORDER_ID}`))
+    fireEvent.click(await screen.findByTestId(`workorder-complete-${ORDER_ID}`, {}, W))
     fireEvent.change(screen.getByTestId(`workorder-cost-input-${ORDER_ID}`), { target: { value: '-5' } })
     fireEvent.click(screen.getByTestId(`workorder-confirm-complete-${ORDER_ID}`))
-    await waitFor(() => expect(fx.toast.error).toHaveBeenCalledWith('Total cost must be a non-negative number'))
+    await until(() => expect(fx.toast.error).toHaveBeenCalledWith('Total cost must be a non-negative number'))
     expect(fx.api.updateMechanicWorkOrder).not.toHaveBeenCalled()
   })
 
   it('Back leaves the completion step without sending anything', async () => {
     fx.api = workOrdersApi([IN_PROGRESS])
     const Page = await page('mechanic/WorkOrders'); mount(<Page />)
-    fireEvent.click(await screen.findByTestId(`workorder-complete-${ORDER_ID}`))
+    fireEvent.click(await screen.findByTestId(`workorder-complete-${ORDER_ID}`, {}, W))
     fireEvent.click(screen.getByTestId(`workorder-complete-back-${ORDER_ID}`))
     expect(screen.getByTestId(`workorder-complete-${ORDER_ID}`)).toBeInTheDocument()
     expect(fx.api.updateMechanicWorkOrder).not.toHaveBeenCalled()
@@ -101,9 +105,9 @@ describe('WorkOrders — unified phone layout keeps every action', () => {
     fx.api = workOrdersApi([IN_PROGRESS])
     fx.api.updateMechanicWorkOrder.mockRejectedValue(new Error('Work order not found'))
     const Page = await page('mechanic/WorkOrders'); mount(<Page />)
-    fireEvent.click(await screen.findByTestId(`workorder-cancel-${ORDER_ID}`))
-    await waitFor(() => expect(fx.toast.error).toHaveBeenCalledWith('Work order not found'))
-    expect(await screen.findByTestId(`workorder-complete-${ORDER_ID}`)).toBeTruthy()
+    fireEvent.click(await screen.findByTestId(`workorder-cancel-${ORDER_ID}`, {}, W))
+    await until(() => expect(fx.toast.error).toHaveBeenCalledWith('Work order not found'))
+    expect(await screen.findByTestId(`workorder-complete-${ORDER_ID}`, {}, W)).toBeTruthy()
     expect(fx.api.fetchMechanicWorkOrders).toHaveBeenCalledTimes(1)
   })
 
@@ -228,7 +232,7 @@ describe('LendingQueue — unified phone cards carry the same decisions as the t
     const Page = await page('bank/LendingQueue'); mount(<Page />)
     await settle(() => !!screen.queryByTestId(`lending-card-${id}`))
     fireEvent.click(within(screen.getByTestId(`lending-card-${id}`)).getByRole('button', { name: label }))
-    await waitFor(() => expect(fx.api.updateFinanceApplicationStatus).toHaveBeenCalledWith(id, next))
+    await until(() => expect(fx.api.updateFinanceApplicationStatus).toHaveBeenCalledWith(id, next))
   })
 
   it('every application offers the same decision labels in its card and in its table row', async () => {
@@ -272,7 +276,7 @@ describe('GovernanceReviewQueue — unified tab panel and phone cards', () => {
     const card = within(screen.getByTestId('governance-item-temporal_finding:fx-item-1'))
     fireEvent.change(card.getByRole('textbox'), { target: { value: 'Fictional reviewer note' } })
     fireEvent.click(card.getByRole('button', { name: label }))
-    await waitFor(() => expect(fx.api.submitGovernanceDecision).toHaveBeenCalledWith({
+    await until(() => expect(fx.api.submitGovernanceDecision).toHaveBeenCalledWith({
       targetType: 'temporal_finding', targetId: 'fx-item-1', vin: FX_VIN, decision, notes: 'Fictional reviewer note' }))
   })
 
