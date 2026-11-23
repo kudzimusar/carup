@@ -201,14 +201,16 @@ function UnifiedClaimRow({ claim, onDecide }: { claim: RecordedClaim; onDecide: 
   return (
     <Card className="border-0 card-shadow" data-testid={`claim-row-${claim.id}`}>
       <CardContent className="p-4">
-        <div className="flex items-center gap-4">
+        {/* On a phone the status and the controls sit under the claim, so the claim's text keeps its width. */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex flex-1 min-w-0 items-start gap-3 sm:gap-4">
           <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
             <FileText className="w-5 h-5 text-blue-600" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <h3 className="font-medium break-all">{claim.id}</h3>
-              <span className="font-medium text-right" data-testid="claim-amount">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-1">
+              <h3 className="font-medium break-words">{claim.id}</h3>
+              <span className="font-medium" data-testid="claim-amount">
                 {amount === null ? 'Amount not recorded' : `${amount} · currency not recorded`}
               </span>
             </div>
@@ -219,7 +221,8 @@ function UnifiedClaimRow({ claim, onDecide }: { claim: RecordedClaim; onDecide: 
               <span>Filed: {recordedDate(claim.created_at) ?? 'Not recorded'}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          </div>
+          <div className="flex items-center justify-end gap-2 sm:shrink-0">
             <Badge className={CHIP[stage === 'approved' ? 'positive' : stage === 'rejected' ? 'negative' : stage === 'awaiting' ? 'pending' : 'neutral']} data-testid="claim-status">
               {claim.status || 'Status not recorded'}
             </Badge>

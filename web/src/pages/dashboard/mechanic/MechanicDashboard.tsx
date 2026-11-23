@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import {
-  Wrench, ClipboardList, DollarSign, CheckCircle,
+  Wrench, ClipboardList, DollarSign, CheckCircle, Receipt,
   ArrowRight, Cpu, Plus, Loader2
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -83,7 +83,7 @@ export default function MechanicDashboard() {
   const unifiedStats = [
     { label: 'Active Orders', value: notRead ? null : String(activeOrders.length), icon: ClipboardList, color: 'text-amber-500', bg: 'bg-amber-50' },
     { label: 'Completed (Mo)', value: notRead ? null : String(completedThisMonth.length), icon: CheckCircle, color: 'text-green-500', bg: 'bg-green-50' },
-    { label: 'Recorded cost (Mo)', value: notRead ? null : recordedCosts.length ? recordedCosts.reduce((a, b) => a + b, 0).toLocaleString() : 'Not recorded', icon: DollarSign, color: 'text-blue-500', bg: 'bg-blue-50' },
+    { label: 'Recorded cost (Mo)', value: notRead ? null : recordedCosts.length ? recordedCosts.reduce((a, b) => a + b, 0).toLocaleString() : 'Not recorded', icon: Receipt, color: 'text-blue-500', bg: 'bg-blue-50' }, // no currency is recorded, so no $ icon
     { label: 'Total Orders', value: notRead ? null : String(workOrders.length), icon: Wrench, color: 'text-purple-500', bg: 'bg-purple-50' },
   ]
 
