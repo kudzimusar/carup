@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   apiRequest,
   fetchCsrfToken,
+  forgetSharedReads,
   resetCsrfTokenCache,
   setUnauthorizedHandler,
   SessionExpiredError,
@@ -483,3 +484,101 @@ describe('apiClient 403 handling for unsafe requests', () => {
     expect(calls.filter((c) => c.url.endsWith('/review'))).toHaveLength(1)
   })
 })
+
+describe('RX06-LR06: shared reads never cross an account, tenant or session boundary', () => {
+  const jsonResponse = (body: unknown, status = 200): Response =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  // Every call stays in flight until the test answers it, so a sign-out, sign-in or token change can happen
+  // while the first read is still travelling.
+  function deferredFetch() {
+    const pending: Array<{ url: string; headers: Record<string, string>; answer: (r: Response) => void }> = []
+    const impl = vi.fn((url: unknown, init?: RequestInit) => new Promise<Response>(answer => {
+      pending.push({ url: String(url), headers: (init?.headers as Record<string, string>) ?? {}, answer })
+    })) as unknown as typeof fetch
+    return { impl, pending }
+  }
+  const read = <T = unknown,>(impl: typeof fetch, path: string, authHeaders: AuthHeaders) =>
+    apiRequest<T>({ baseUrl: BASE, path, authHeaders, fetchImpl: impl })
+  const A: AuthHeaders = { 'x-user-id': 'owner-a', 'x-session-token': 'sess-a' }
+  const B: AuthHeaders = { 'x-user-id': 'owner-b', 'x-session-token': 'sess-b' }
+
+  beforeEach(() => { setUnauthorizedHandler(null) })
+
+  it('two accounts reading the same URL at the same moment: two requests, and each gets only its own answer', async () => {
+    const { impl, pending } = deferredFetch()
+    const a = read<{ owner: string }>(impl, '/vehicles/me', A)
+    const b = read<{ owner: string }>(impl, '/vehicles/me', B)
+    expect(pending).toHaveLength(2)
+    for (const p of pending) p.answer(jsonResponse({ owner: p.headers['x-user-id'] }))
+    expect(await a).toEqual({ owner: 'owner-a' })
+    expect(await b).toEqual({ owner: 'owner-b' })
+  })
+
+  it('the same account in two tenants: two requests, each answered for its own tenant', async () => {
+    const { impl, pending } = deferredFetch()
+    const t1 = read<{ tenant: string }>(impl, '/dealer/operational-workspace', { ...A, 'x-tenant-id': 'tenant-1' })
+    const t2 = read<{ tenant: string }>(impl, '/dealer/operational-workspace', { ...A, 'x-tenant-id': 'tenant-2' })
+    expect(pending).toHaveLength(2)
+    for (const p of pending) p.answer(jsonResponse({ tenant: p.headers['x-tenant-id'] }))
+    expect(await t1).toEqual({ tenant: 'tenant-1' })
+    expect(await t2).toEqual({ tenant: 'tenant-2' })
+  })
+
+  it('a session rotated while a read is in flight: the new token never receives the old token\'s answer', async () => {
+    const { impl, pending } = deferredFetch()
+    const before = read<{ token: string }>(impl, '/notifications/me', A)
+    const after = read<{ token: string }>(impl, '/notifications/me', { ...A, 'x-session-token': 'sess-a-rotated' })
+    expect(pending).toHaveLength(2)
+    for (const p of pending) p.answer(jsonResponse({ token: p.headers['x-session-token'] }))
+    expect(await before).toEqual({ token: 'sess-a' })
+    expect(await after).toEqual({ token: 'sess-a-rotated' })
+  })
+
+  it('sign-out while a read is in flight: a caller still holding the old token asks the server again and gets its current answer', async () => {
+    const { impl, pending } = deferredFetch()
+    const before = read<{ items: number[] }>(impl, '/notifications/me', A)
+    forgetSharedReads() // what AuthContext does on sign-out
+    const stale = read(impl, '/notifications/me', A)
+    expect(pending).toHaveLength(2) // the stale caller did not join the read that left before the sign-out
+    pending[0].answer(jsonResponse({ items: [1, 2] }))
+    pending[1].answer(jsonResponse({ error: SESSION_INVALID_MESSAGE }, 401))
+    expect(await before).toEqual({ items: [1, 2] })
+    await expect(stale).rejects.toBeInstanceOf(SessionExpiredError)
+  })
+
+  it('sign-in while a guest read is in flight: a read issued after the sign-in never joins the guest read', async () => {
+    const { impl, pending } = deferredFetch()
+    const guest = read(impl, '/marketplace/listings', {})
+    forgetSharedReads() // what AuthContext does on sign-in
+    const afterSignIn = read(impl, '/marketplace/listings', {})
+    expect(pending).toHaveLength(2)
+    pending[0].answer(jsonResponse({ n: 1 }))
+    pending[1].answer(jsonResponse({ n: 2 }))
+    expect(await guest).toEqual({ n: 1 })
+    expect(await afterSignIn).toEqual({ n: 2 })
+  })
+
+  it('an ended session (401) closes every read still in flight for it: a later caller with that token never joins them', async () => {
+    const { impl, pending } = deferredFetch()
+    const ended = read(impl, '/notifications/me', A)
+    const stillTravelling = read<{ v: number }>(impl, '/vehicles/me', A)
+    pending[0].answer(jsonResponse({ error: SESSION_INVALID_MESSAGE }, 401))
+    await expect(ended).rejects.toBeInstanceOf(SessionExpiredError)
+    const late = read<{ v: number }>(impl, '/vehicles/me', A)
+    expect(pending).toHaveLength(3) // the late caller went to the server instead of joining /vehicles/me
+    pending[1].answer(jsonResponse({ v: 1 }))
+    pending[2].answer(jsonResponse({ error: SESSION_INVALID_MESSAGE }, 401))
+    expect(await stillTravelling).toEqual({ v: 1 })
+    await expect(late).rejects.toBeInstanceOf(SessionExpiredError)
+  })
+
+  it('within one session, identical reads still share, and three callers each read the full body of their own copy', async () => {
+    const { impl, pending } = deferredFetch()
+    const big = { rows: Array.from({ length: 2000 }, (_, i) => ({ i, label: `row ${i}` })) }
+    const reads = [1, 2, 3].map(() => read<typeof big>(impl, '/diaspora/import-orders', A))
+    expect(pending).toHaveLength(1)
+    pending[0].answer(jsonResponse(big))
+    for (const r of await Promise.all(reads)) expect(r).toEqual(big)
+  })
+})
+

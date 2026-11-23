@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { UserRole, AuthUser } from '@shared/types'
-import { apiRequest, resolveApiBaseUrl, setUnauthorizedHandler, SessionExpiredError, type AuthHeaders } from '@/lib/apiClient'
+import { apiRequest, forgetSharedReads, resolveApiBaseUrl, setUnauthorizedHandler, SessionExpiredError, type AuthHeaders } from '@/lib/apiClient'
 import { readStoredAuth, storeAuth, clearStoredAuth, validateStoredSession } from '@/lib/authSession'
 import { setNavAnalyticsAuthProvider } from '@/lib/navigationAnalytics'
 
@@ -44,6 +44,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Clear ALL client auth state + storage. Used on logout and whenever the backend reports the
   // session is invalid/expired.
   const clearAuth = useCallback(() => {
+    // RX06-LR06: a new session epoch, so no read issued from now on can join one that left for the old session.
+    forgetSharedReads()
     setUser(null)
     setToken(null)
     clearStoredAuth(localStorage)
@@ -101,6 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearAuth])
 
   const login = useCallback((userData: AuthUser, sessionToken: string) => {
+    forgetSharedReads() // RX06-LR06: a signed-in read never joins one that left as a guest or another account
     setUser(userData)
     setToken(sessionToken)
     storeAuth(localStorage, userData, sessionToken)
@@ -128,6 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Update user + token atomically to avoid a stale token/user mismatch.
       const updated = { ...user, ...(data.user ?? {}) }
       const nextToken = data.token ?? token
+      forgetSharedReads() // RX06-LR06: the role/session changed; no new read joins one issued before it
       setUser(updated)
       setToken(nextToken)
       storeAuth(localStorage, updated, nextToken)

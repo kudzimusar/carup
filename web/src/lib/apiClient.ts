@@ -312,6 +312,19 @@ interface InflightRead {
 const inflightReads = new WeakMap<FetchLike, Map<string, InflightRead>>()
 const SHAREABLE_READ_OPTIONS = new Set(['method', 'headers', 'credentials'])
 
+/**
+ * RX06-LR06 — session boundary. The server identifies a caller only by the explicit identity headers
+ * (x-session-token / Authorization, x-user-id, x-tenant-id), and those are part of the sharing key, so two
+ * accounts, tenants or sessions never share a read. The epoch closes the remaining gap: a caller that still
+ * holds an old token after a sign-out, sign-in, role switch or ended session must not join a read that left
+ * BEFORE that change and receive an answer computed for the old session. Each change starts a new epoch;
+ * reads already in flight finish for the callers that started them, and nobody new can join them.
+ */
+let sharedReadEpoch = 0
+export function forgetSharedReads(): void {
+  sharedReadEpoch += 1
+}
+
 function isShareableRead(method: string, options: RequestInit | undefined): boolean {
   if (method !== 'GET') return false
   if (!options) return true
@@ -325,7 +338,7 @@ function sharedRead(fetchImpl: FetchLike, url: string, init: RequestInit): Promi
     inflightReads.set(fetchImpl, byKey)
   }
   const headers = Object.entries((init.headers as Record<string, string>) || {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  const key = JSON.stringify([url, init.credentials ?? null, headers])
+  const key = JSON.stringify([sharedReadEpoch, url, init.credentials ?? null, headers])
   let entry = byKey.get(key)
   if (!entry) {
     let response: Promise<Response>
@@ -441,7 +454,9 @@ export async function apiRequest<T = any>({
 
     if (isSessionFailure(response.status, message)) {
       // Stale/expired session: clear client auth so the app stops trusting it, then surface a
-      // typed error the caller can handle without an unhandled rejection.
+      // typed error the caller can handle without an unhandled rejection. The session is over, so no
+      // later caller may join a read still in flight for it (RX06-LR06).
+      forgetSharedReads()
       if (unauthorizedHandler) {
         try { unauthorizedHandler() } catch { /* never let the handler mask the original failure */ }
       }
