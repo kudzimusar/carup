@@ -40,12 +40,12 @@ function recordedRequest(app: RecordedApplication): string {
   return amount === null ? 'Amount not recorded' : app.requested_currency ? `${amount} ${app.requested_currency}` : `${amount} · currency not recorded`
 }
 
-/** The decision buttons' colours, as LR06 rendered them. */
+/** RX06-LR07 (unified only): the decision buttons at AA contrast (the legacy amber/purple/orange/indigo-500 measured 2.1–4.5:1). */
 const DECISION_COLOUR = {
-  review: 'bg-amber-500 hover:bg-amber-600 text-white',
-  approve: 'bg-purple-500 hover:bg-purple-600 text-white',
-  disburse: 'bg-orange-500 hover:bg-orange-600 text-white',
-  activate: 'bg-indigo-500 hover:bg-indigo-600 text-white',
+  review: 'bg-amber-700 hover:bg-amber-800 text-white',
+  approve: 'bg-purple-700 hover:bg-purple-800 text-white',
+  disburse: 'bg-orange-700 hover:bg-orange-800 text-white',
+  activate: 'bg-indigo-700 hover:bg-indigo-800 text-white',
 }
 
 /**

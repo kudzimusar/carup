@@ -163,7 +163,7 @@ export default function WorkOrders() {
                 <Label>Issue Description</Label>
                 <Input required value={formData.issue_description} onChange={e => setFormData({...formData, issue_description: e.target.value})} placeholder="e.g. Needs new brake pads" data-testid="issue-description-input" />
               </div>
-              <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 text-white" disabled={isSubmitting} data-testid="submit-workorder-button">
+              <Button type="submit" className={unified ? `w-full ${UNIFIED_PRIMARY_ACTION}` : 'w-full bg-orange-500 hover:bg-orange-600 text-white'} disabled={isSubmitting} data-testid="submit-workorder-button">
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                 Create Work Order
               </Button>
@@ -251,7 +251,7 @@ export default function WorkOrders() {
                           />
                           <Button
                             size="sm"
-                            className="h-11 bg-green-600 text-white hover:bg-green-700 sm:h-9"
+                            className="h-11 bg-green-700 text-white hover:bg-green-800 sm:h-9"
                             onClick={() => void handleUpdateStatus(order.id, 'Completed', completeCost)}
                             disabled={actionBusyId === order.id}
                             data-testid={`workorder-confirm-complete-${order.id}`}
@@ -274,7 +274,7 @@ export default function WorkOrders() {
                         <>
                           <Button
                             size="sm"
-                            className="h-11 bg-green-600 text-white hover:bg-green-700 sm:h-9"
+                            className="h-11 bg-green-700 text-white hover:bg-green-800 sm:h-9"
                             onClick={() => { setCompletingId(order.id); setCompleteCost('') }}
                             disabled={actionBusyId !== null}
                             data-testid={`workorder-complete-${order.id}`}

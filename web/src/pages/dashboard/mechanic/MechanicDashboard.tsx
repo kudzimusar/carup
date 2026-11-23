@@ -316,7 +316,7 @@ export default function MechanicDashboard() {
             </div>
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setShowWorkOrderDialog(false)} disabled={creatingOrder}>Cancel</Button>
-              <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={handleCreateWorkOrder} disabled={creatingOrder} data-testid="submit-workorder-button">
+              <Button className={unified ? 'flex-1 bg-emerald-700 hover:bg-emerald-800' : 'flex-1 bg-emerald-600 hover:bg-emerald-700'} onClick={handleCreateWorkOrder} disabled={creatingOrder} data-testid="submit-workorder-button">
                 {creatingOrder ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : 'Create Work Order'}
               </Button>
             </div>

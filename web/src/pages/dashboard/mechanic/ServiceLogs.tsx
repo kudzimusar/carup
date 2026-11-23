@@ -165,7 +165,7 @@ export default function ServiceLogs() {
                 <Label>Description / Notes</Label>
                 <Input required value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Details of the service performed" />
               </div>
-              <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 text-white" disabled={isSubmitting}>
+              <Button type="submit" className={unified ? `w-full ${UNIFIED_PRIMARY_ACTION}` : 'w-full bg-orange-500 hover:bg-orange-600 text-white'} disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                 Submit to PartSentry
               </Button>
