@@ -1,7 +1,7 @@
 import { BrandIdentity } from '@/components/brand/BrandIdentity'
 import { isShowroomChromeEnabled } from '@/lib/presentationFlags'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import {
@@ -46,6 +46,46 @@ function resolveIcon(item: FeatureRegistryItem): React.ElementType {
 export default function DashboardLayout({ role }: { role: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [ownerSearch, setOwnerSearch] = useState('')
+  // RX06-LR07 PROPOSAL (Owner authorization required: shared chrome outside S1). Unified presentation only; the
+  // flags-OFF markup and behaviour are unchanged. On a phone this legacy chrome's drawer behaves like the unified
+  // WorkspaceShell drawer: closed, it is out of the tab order and hidden from assistive technology; open, it is a named
+  // modal dialog that takes focus, keeps Tab inside, closes on Escape and returns focus to the menu button.
+  const unifiedChrome = isUnifiedUiEnabled()
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const drawerRef = useRef<HTMLElement>(null)
+  const [isDesktop, setIsDesktop] = useState(() => typeof window === 'undefined' || typeof window.matchMedia !== 'function' || window.matchMedia('(min-width: 1024px)').matches)
+  useEffect(() => {
+    if (!unifiedChrome || typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia('(min-width: 1024px)')
+    const update = () => setIsDesktop(query.matches)
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [unifiedChrome])
+  const drawerIsModal = unifiedChrome && sidebarOpen && !isDesktop
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false)
+    if (unifiedChrome) menuButtonRef.current?.focus()
+  }, [unifiedChrome])
+  useEffect(() => {
+    if (!drawerIsModal) return
+    const panel = drawerRef.current
+    const focusables = () => panel
+      ? [...panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+      : []
+    focusables()[0]?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); closeSidebar(); return }
+      if (e.key !== 'Tab') return
+      const items = focusables()
+      if (!items.length) return
+      const first = items[0], last = items[items.length - 1]
+      const outside = !panel?.contains(document.activeElement)
+      if (e.shiftKey && (outside || document.activeElement === first)) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && (outside || document.activeElement === last)) { e.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [drawerIsModal, closeSidebar])
   const location = useLocation()
   const navigate = useNavigate()
   const { user, switchRole, loading } = useAuth()
@@ -106,11 +146,16 @@ export default function DashboardLayout({ role }: { role: string }) {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
+      {unifiedChrome && (
+        <a href="#dashboard-main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[60] focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:shadow" data-testid="dashboard-skip-link">
+          Skip to content
+        </a>
+      )}
       {/* Mobile Overlay */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
+          onClick={() => (unifiedChrome ? closeSidebar() : setSidebarOpen(false))}
         />
       )}
 
@@ -119,6 +164,13 @@ export default function DashboardLayout({ role }: { role: string }) {
         className={`fixed lg:sticky top-0 left-0 z-50 h-screen w-64 bg-white border-r flex flex-col transition-transform duration-300 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
+        ref={unifiedChrome ? drawerRef : undefined}
+        {...(unifiedChrome ? {
+          id: 'dashboard-portal-menu',
+          'aria-label': 'Portal menu',
+          ...(drawerIsModal ? { role: 'dialog', 'aria-modal': true } : {}),
+          ...(!sidebarOpen && !isDesktop ? { inert: true, 'aria-hidden': true } : {}),
+        } : {})}
       >
         {/* Sidebar Header */}
         <div className="h-16 flex items-center justify-between px-4 border-b">
@@ -139,8 +191,8 @@ export default function DashboardLayout({ role }: { role: string }) {
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden"
-            onClick={() => setSidebarOpen(false)}
+            className={unifiedChrome ? 'lg:hidden size-11' : 'lg:hidden'}
+            onClick={() => (unifiedChrome ? closeSidebar() : setSidebarOpen(false))}
             aria-label="Close sidebar menu"
           >
             <X className="w-5 h-5" aria-hidden="true" />
@@ -157,7 +209,7 @@ export default function DashboardLayout({ role }: { role: string }) {
             />
             <div className="flex-1 min-w-0">
               <p className="font-medium text-sm truncate">{user?.name || 'User'}</p>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-1">Active portal</p>
+              <p className={unifiedChrome ? 'text-[10px] font-bold uppercase tracking-wider text-gray-600 mt-1' : 'text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-1'}>Active portal</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${roleInfo.color}`} />
                 <select
@@ -176,7 +228,7 @@ export default function DashboardLayout({ role }: { role: string }) {
         </div>
 
         {/* Navigation — grouped Operations information architecture (M6) */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+        <nav className="flex-1 overflow-y-auto p-3 space-y-1" {...(unifiedChrome ? { 'aria-label': 'Portal navigation' } : {})}>
           {groupedNav.map(({ group, items }) => (
             <div key={group ?? '__ungrouped'} className="space-y-1">
               {group && (
@@ -210,7 +262,7 @@ export default function DashboardLayout({ role }: { role: string }) {
                 to={item.route}
                 onClick={() => setSidebarOpen(false)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors${unifiedChrome ? ' min-h-11 lg:min-h-0' : ''} ${
                   isActive
                     ? 'bg-orange-50 text-orange-700 before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-r before:bg-orange-500'
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
@@ -241,7 +293,7 @@ export default function DashboardLayout({ role }: { role: string }) {
         <div className="p-3 border-t space-y-1">
           <Link
             to="/settings"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
+            className={unifiedChrome ? 'flex min-h-11 items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 lg:min-h-0' : 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50'}
           >
             <Settings className="w-5 h-5 text-gray-400" />
             Settings
@@ -252,7 +304,7 @@ export default function DashboardLayout({ role }: { role: string }) {
               localStorage.clear()
               window.location.href = '/'
             }}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50"
+            className={unifiedChrome ? 'flex min-h-11 items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 lg:min-h-0' : 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50'}
             data-testid="logout-button"
           >
             <LogOut className="w-5 h-5" />
@@ -268,10 +320,12 @@ export default function DashboardLayout({ role }: { role: string }) {
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden mr-2"
+            className={unifiedChrome ? 'lg:hidden mr-2 size-11' : 'lg:hidden mr-2'}
             onClick={() => setSidebarOpen(true)}
             aria-label="Open sidebar menu"
             aria-expanded={sidebarOpen}
+            ref={unifiedChrome ? menuButtonRef : undefined}
+            {...(unifiedChrome ? { 'aria-controls': 'dashboard-portal-menu' } : {})}
           >
             <Menu className="w-5 h-5" aria-hidden="true" />
           </Button>
@@ -328,14 +382,14 @@ export default function DashboardLayout({ role }: { role: string }) {
             {user?.role === 'owner' ? (
               <OwnerNotificationBell />
             ) : (
-              <Button variant="ghost" size="icon" className="relative" asChild>
-                <Link to="/dashboard">
+              <Button variant="ghost" size="icon" className={unifiedChrome ? 'relative size-11 lg:size-9' : 'relative'} asChild>
+                <Link to="/dashboard" {...(unifiedChrome ? { 'aria-label': 'Dashboard home' } : {})}>
                   <Bell className="w-5 h-5" />
                 </Link>
               </Button>
             )}
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/" className="gap-1">
+            <Button variant="ghost" size="sm" asChild {...(unifiedChrome ? { className: 'h-11 lg:h-8' } : {})}>
+              <Link to="/" className="gap-1" {...(unifiedChrome ? { 'aria-label': 'Back to site' } : {})}>
                 <Store className="w-4 h-4" />
                 <span className="hidden sm:inline">Back to Site</span>
               </Link>
@@ -344,7 +398,7 @@ export default function DashboardLayout({ role }: { role: string }) {
         </header>
 
         {/* Page Content — boundary shows a beta notice above beta features */}
-        <main className="p-4 lg:p-6">
+        <main className="p-4 lg:p-6" {...(unifiedChrome ? { id: 'dashboard-main', tabIndex: -1 } : {})}>
           <RegistryRouteBoundary>
             <Outlet />
           </RegistryRouteBoundary>
