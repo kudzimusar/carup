@@ -110,8 +110,9 @@ function plural(n: number, one: string, many = one + 's'): string {
   return `${n} ${n === 1 ? one : many}`
 }
 
-function words(key: string): string {
-  return key.replace(/_/g, ' ').toLowerCase()
+function words(key: string | null | undefined): string {
+  const normalized = String(key ?? '').replace(/_/g, ' ').trim().toLowerCase()
+  return normalized || 'not recorded'
 }
 
 /**

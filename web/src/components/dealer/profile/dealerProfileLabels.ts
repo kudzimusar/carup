@@ -55,10 +55,11 @@ export const COMPANY_COVER_IMAGE = 'COMPANY_COVER_IMAGE'
 export const COMPANY_PROFILE_IMAGE = 'COMPANY_PROFILE_IMAGE'
 export const IDENTITY_MEDIA_CATEGORIES: ReadonlySet<string> = new Set([COMPANY_COVER_IMAGE, COMPANY_PROFILE_IMAGE])
 
-/** "SOME_KEY_NAME" / "some_key" → "Some key name". */
-export function humanizeKey(key: string): string {
-  const words = key.replace(/[_-]+/g, ' ').trim().toLowerCase()
-  return words ? words.charAt(0).toUpperCase() + words.slice(1) : key
+/** "SOME_KEY_NAME" / "some_key" → "Some key name". Nullish values return "Not recorded" (LR07-OBS-02). */
+export function humanizeKey(key: string | null | undefined): string {
+  if (key === null || key === undefined) return 'Not recorded'
+  const words = String(key).replace(/[_-]+/g, ' ').trim().toLowerCase()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : String(key) || 'Not recorded'
 }
 
 export function declaredSectionLabel(section: string): string {

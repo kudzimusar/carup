@@ -37,6 +37,8 @@ import { Search, FileText, ArrowRight, Calculator, Info } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import GovernmentIntelligence from '@/components/intelligence/GovernmentIntelligence'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { UNIFIED_PRIMARY_ACTION } from '@/components/workbench/institutionalRecords'
 
 interface DutyEstimate {
   totalDuty: number
@@ -50,6 +52,7 @@ const money = (value?: number) => (
 
 export default function GovernmentDashboard() {
   const { fetchZimraDuty } = useCarUpApi()
+  const unified = isUnifiedUiEnabled()
 
   const [vehicleValue, setVehicleValue] = useState(10000)
   const [vehicleYear, setVehicleYear] = useState(2017)
@@ -110,20 +113,20 @@ export default function GovernmentDashboard() {
 
               <div className="grid sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-semibold text-gray-500 uppercase" htmlFor="fob-value">FOB Value (USD)</label>
-                  <Input id="fob-value" type="number" value={vehicleValue} onChange={e => setVehicleValue(Number(e.target.value))} />
+                  <label className={unified ? 'text-[10px] font-semibold text-gray-600 uppercase' : 'text-[10px] font-semibold text-gray-500 uppercase'} htmlFor="fob-value">FOB Value (USD)</label>
+                  <Input id="fob-value" type="number" className={unified ? 'min-h-11 sm:min-h-9' : undefined} value={vehicleValue} onChange={e => setVehicleValue(Number(e.target.value))} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-semibold text-gray-500 uppercase" htmlFor="manufacture-year">Manufacture Year</label>
-                  <Input id="manufacture-year" type="number" value={vehicleYear} onChange={e => setVehicleYear(Number(e.target.value))} />
+                  <label className={unified ? 'text-[10px] font-semibold text-gray-600 uppercase' : 'text-[10px] font-semibold text-gray-500 uppercase'} htmlFor="manufacture-year">Manufacture Year</label>
+                  <Input id="manufacture-year" type="number" className={unified ? 'min-h-11 sm:min-h-9' : undefined} value={vehicleYear} onChange={e => setVehicleYear(Number(e.target.value))} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-semibold text-gray-500 uppercase" htmlFor="engine-size">Engine size (cc)</label>
-                  <Input id="engine-size" type="number" value={engineSize} onChange={e => setEngineSize(Number(e.target.value))} />
+                  <label className={unified ? 'text-[10px] font-semibold text-gray-600 uppercase' : 'text-[10px] font-semibold text-gray-500 uppercase'} htmlFor="engine-size">Engine size (cc)</label>
+                  <Input id="engine-size" type="number" className={unified ? 'min-h-11 sm:min-h-9' : undefined} value={engineSize} onChange={e => setEngineSize(Number(e.target.value))} />
                 </div>
               </div>
 
-              <Button onClick={handleCalculateDuty} disabled={dutyLoading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold" data-testid="calculate-duty">
+              <Button onClick={handleCalculateDuty} disabled={dutyLoading} className={unified ? `w-full min-h-11 sm:min-h-9 font-semibold ${UNIFIED_PRIMARY_ACTION}` : 'w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold'} data-testid="calculate-duty">
                 {dutyLoading ? 'Calculating…' : 'Calculate estimate'}
               </Button>
 
@@ -136,16 +139,16 @@ export default function GovernmentDashboard() {
               {dutyResult ? (
                 <div className="bg-gray-50 rounded-xl p-4 mt-2 border border-gray-100 grid sm:grid-cols-3 gap-4 text-center" data-testid="duty-estimate-result">
                   <div>
-                    <p className="text-[10px] text-gray-400">Estimated total</p>
+                    <p className={unified ? 'text-[10px] text-gray-600' : 'text-[10px] text-gray-400'}>Estimated total</p>
                     <p className="text-lg font-bold text-indigo-700" data-testid="duty-total">{money(dutyResult.totalDuty)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-gray-400">VAT</p>
+                    <p className={unified ? 'text-[10px] text-gray-600' : 'text-[10px] text-gray-400'}>VAT</p>
                     {/* Read from the breakdown, which is where the API puts it. */}
                     <p className="text-lg font-bold text-gray-700" data-testid="duty-vat">{money(dutyResult.breakdown?.vat)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-gray-400">Share of value</p>
+                    <p className={unified ? 'text-[10px] text-gray-600' : 'text-[10px] text-gray-400'}>Share of value</p>
                     <p className="text-lg font-bold text-gray-700" data-testid="duty-percent">
                       {typeof dutyResult.percentageOfValue === 'number' && Number.isFinite(dutyResult.percentageOfValue)
                         ? `${dutyResult.percentageOfValue.toFixed(1)}%`
@@ -170,7 +173,7 @@ export default function GovernmentDashboard() {
                 { label: 'Registry Verification', href: '/government/registry', icon: Search },
                 { label: 'Compliance Reports', href: '/government/compliance', icon: FileText },
               ].map((link) => (
-                <Link key={link.label} to={link.href} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors text-sm">
+                <Link key={link.label} to={link.href} className={`flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors text-sm${unified ? ' min-h-11 sm:min-h-0' : ''}`}>
                   <link.icon className="w-4 h-4 text-indigo-600" />
                   <span className="flex-1 font-semibold">{link.label}</span>
                   <ArrowRight className="w-3.5 h-3.5 text-gray-400" />

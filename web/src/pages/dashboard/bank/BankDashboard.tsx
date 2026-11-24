@@ -23,7 +23,7 @@
  * The application queue is real and is preserved, with a failed read now
  * distinguishable from an empty one.
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -33,7 +33,12 @@ import { Landmark, ArrowRight, ClipboardList, MapPin, BarChart3 } from 'lucide-r
 import { Link } from 'react-router-dom'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import FinanceIntelligence from '@/components/intelligence/FinanceIntelligence'
+import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
+import { ReadFailedNotice } from '@/components/workbench/ReadFailedNotice'
+import { CHIP, isReadRefusal, normalizedStatus, recordedAmount } from '@/components/workbench/institutionalRecords'
 import type { FinanceApplication } from '@/types'
+
+type RecordedApplication = FinanceApplication & { currency?: string | null }
 
 const QUICK_LINKS = [
   { label: 'Applications', to: '/bank/applications', icon: ClipboardList },
@@ -43,29 +48,34 @@ const QUICK_LINKS = [
 
 export default function BankDashboard() {
   const { fetchFinanceApplications } = useCarUpApi()
+  const unified = isUnifiedUiEnabled()
   const [applications, setApplications] = useState<FinanceApplication[]>([])
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
+  const [readRefused, setReadRefused] = useState(false)
+
+  const loadApps = useCallback(async () => {
+    try {
+      setLoading(true)
+      setLoadFailed(false)
+      setReadRefused(false)
+      const data = await fetchFinanceApplications()
+      setApplications(Array.isArray(data) ? data.slice(0, 3) : [])
+    } catch (err) {
+      // A failed read is not an empty queue. Without this the surface rendered
+      // "No lending applications pending" during an outage.
+      console.error(err)
+      setLoadFailed(true)
+      setReadRefused(isReadRefusal(err))
+      toast.error('Failed to load recent applications')
+    } finally {
+      setLoading(false)
+    }
+  }, [fetchFinanceApplications])
 
   useEffect(() => {
-    const loadApps = async () => {
-      try {
-        setLoading(true)
-        setLoadFailed(false)
-        const data = await fetchFinanceApplications()
-        setApplications(Array.isArray(data) ? data.slice(0, 3) : [])
-      } catch (err) {
-        // A failed read is not an empty queue. Without this the surface rendered
-        // "No lending applications pending" during an outage.
-        console.error(err)
-        setLoadFailed(true)
-        toast.error('Failed to load recent applications')
-      } finally {
-        setLoading(false)
-      }
-    }
-    loadApps()
-  }, [fetchFinanceApplications])
+    void loadApps()
+  }, [loadApps])
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -87,7 +97,7 @@ export default function BankDashboard() {
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Recent applications</CardTitle>
-              <Button variant="ghost" size="sm" asChild>
+              <Button variant="ghost" size="sm" className={unified ? 'min-h-11 sm:min-h-8' : undefined} asChild>
                 <Link to="/bank/applications">View all <ArrowRight className="w-4 h-4 ml-1" /></Link>
               </Button>
             </CardHeader>
@@ -98,17 +108,40 @@ export default function BankDashboard() {
                   <Skeleton className="h-16 w-full rounded-xl" />
                 </div>
               ) : loadFailed ? (
-                <div className="text-center py-6 text-gray-600" data-testid="bank-applications-failed">
-                  Applications could not be loaded. This is not an empty queue.
-                </div>
+                unified ? (
+                  <ReadFailedNotice
+                    subject="recent finance applications"
+                    refused={readRefused}
+                    onRetry={() => void loadApps()}
+                    testId="bank-applications-failed"
+                  />
+                ) : (
+                  <div className="text-center py-6 text-gray-600" data-testid="bank-applications-failed">
+                    Applications could not be loaded. This is not an empty queue.
+                  </div>
+                )
               ) : applications.length === 0 ? (
                 <div className="text-center py-6 text-gray-500" data-testid="bank-applications-empty">
                   No lending applications received.
                 </div>
-              ) : applications.map((app) => (
+              ) : applications.map((app) => {
+                const rec = app as RecordedApplication
+                const amount = recordedAmount(rec.requested_amount)
+                const currency = typeof rec.currency === 'string' && rec.currency.trim() ? rec.currency.trim() : null
+                const statusKey = normalizedStatus(rec.status)
+                const chipClass = CHIP[
+                  statusKey === 'approved' || statusKey === 'active'
+                    ? 'positive'
+                    : statusKey === 'rejected'
+                      ? 'negative'
+                      : statusKey
+                        ? 'pending'
+                        : 'neutral'
+                ]
+                return (
                 <div
                   key={app.id}
-                  className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100"
+                  className={unified ? 'flex flex-wrap items-center justify-between gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100' : 'flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100'}
                   data-testid={`bank-application-${app.id}`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -116,14 +149,20 @@ export default function BankDashboard() {
                       <Landmark className="w-5 h-5 text-indigo-600" />
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold text-sm truncate">{app.user_name || 'Applicant not recorded'}</span>
                         <Badge variant="outline" className="text-[10px]">{app.id}</Badge>
                       </div>
                       <p className="text-xs text-gray-500 truncate">
                         {[app.year, app.make, app.model].filter(Boolean).join(' ') || 'Vehicle not recorded'}
-                        {typeof app.requested_amount === 'number' && (
-                          <> • Requested: <b className="text-gray-800">${app.requested_amount.toLocaleString()}</b></>
+                        {unified ? (
+                          amount !== null && (
+                            <> • Requested: <b className="text-gray-800" data-testid={`bank-application-amount-${app.id}`}>{currency ? `${amount} ${currency}` : `${amount} · currency not recorded`}</b></>
+                          )
+                        ) : (
+                          typeof app.requested_amount === 'number' && (
+                            <> • Requested: <b className="text-gray-800">${app.requested_amount.toLocaleString()}</b></>
+                          )
                         )}
                       </p>
                     </div>
@@ -132,11 +171,12 @@ export default function BankDashboard() {
                       Trust is confidence in evidence about a vehicle, not a credit
                       verdict about a person, so only the application's own status
                       is shown. */}
-                  <Badge className="bg-indigo-600 text-white text-xs shrink-0">
+                  <Badge className={unified ? `${chipClass} text-xs shrink-0` : 'bg-indigo-600 text-white text-xs shrink-0'}>
                     {app.status || 'Status not recorded'}
                   </Badge>
                 </div>
-              ))}
+                )
+              })}
             </CardContent>
           </Card>
         </div>
@@ -146,7 +186,7 @@ export default function BankDashboard() {
             <CardHeader className="pb-3"><CardTitle className="text-lg">Quick actions</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               {QUICK_LINKS.map((link) => (
-                <Button key={link.to} variant="outline" className="w-full justify-start gap-2" asChild>
+                <Button key={link.to} variant="outline" className={unified ? 'w-full min-h-11 sm:min-h-9 justify-start gap-2' : 'w-full justify-start gap-2'} asChild>
                   <Link to={link.to}><link.icon className="w-4 h-4" /> {link.label}</Link>
                 </Button>
               ))}
