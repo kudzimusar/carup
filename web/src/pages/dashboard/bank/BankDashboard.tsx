@@ -103,7 +103,7 @@ export default function BankDashboard() {
       <FinanceIntelligence windowDays={30} />
 
       <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+        <div className={unified ? 'lg:col-span-2 min-w-0' : 'lg:col-span-2'}>
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Recent applications</CardTitle>
@@ -191,7 +191,7 @@ export default function BankDashboard() {
           </Card>
         </div>
 
-        <div className="space-y-6">
+        <div className={unified ? 'space-y-6 min-w-0' : 'space-y-6'}>
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3"><CardTitle className="text-lg">Quick actions</CardTitle></CardHeader>
             <CardContent className="space-y-2">

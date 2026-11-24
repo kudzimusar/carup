@@ -89,7 +89,7 @@ export default function Claims() {
               size="sm"
               aria-pressed={statusFilter === s}
               onClick={() => setStatusFilter(s)}
-              className={`min-h-11 sm:min-h-8 ${statusFilter === s ? 'bg-orange-700 hover:bg-orange-800 text-white' : ''}`}
+              className={`min-h-11 min-w-11 sm:min-h-8 sm:min-w-0 ${statusFilter === s ? 'bg-orange-700 hover:bg-orange-800 text-white' : ''}`}
               data-testid={`claims-filter-${s}`}
             >
               {label}
