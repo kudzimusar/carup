@@ -166,6 +166,50 @@ function workflowOf(thread: ConversationThread) {
   return String(thread.business_workflow || thread.conversation_type || thread.thread_type || '').toLowerCase()
 }
 
+export interface ThreadSubjectContext {
+  label: string
+  href: string | null
+  actionLabel: string | null
+}
+
+/**
+ * RX06-EXIT02-LR01 (C2.3): projects only the subject link or reference the server actually recorded on the thread.
+ * Never invents an order, vehicle or work-order link when no identifier was returned, and never invents a route
+ * for institutional/escrow subjects that have no owner page.
+ */
+export function resolveThreadSubject(thread: ConversationThread | null | undefined): ThreadSubjectContext | null {
+  if (!thread) return null
+  const listingId = thread.marketplace_listing_id?.trim()
+  if (listingId) {
+    return { label: `Listing ${listingId}`, href: `/marketplace/${encodeURIComponent(listingId)}`, actionLabel: 'Open listing' }
+  }
+  const subjectId = thread.subject_id?.trim()
+  if (subjectId) {
+    const rawKind = (thread.subject_type || thread.business_workflow || thread.conversation_type || thread.thread_type || '').trim()
+    const kind = rawKind.toLowerCase()
+    if (['import_order', 'diaspora_order', 'diaspora_import_order', 'buyer_order', 'import', 'diaspora', 'logistics'].includes(kind)) {
+      return { label: `Import order ${subjectId}`, href: `/diaspora/imports/${encodeURIComponent(subjectId)}`, actionLabel: 'Open import order' }
+    }
+    if (['vehicle', 'marketplace_listing', 'listing'].includes(kind)) {
+      return { label: `Listing ${subjectId}`, href: `/marketplace/${encodeURIComponent(subjectId)}`, actionLabel: 'Open listing' }
+    }
+    if (['work_order', 'service_record', 'garage_work_order', 'garage', 'maintenance'].includes(kind)) {
+      return { label: `Work order ${subjectId}`, href: '/dashboard/service-history', actionLabel: 'Open service history' }
+    }
+    const humanKind = thread.subject_type?.trim()
+      ? thread.subject_type.trim().replaceAll('_', ' ').replace(/^\w/, c => c.toUpperCase())
+      : 'Reference'
+    return { label: `${humanKind} ${subjectId}`, href: null, actionLabel: null }
+  }
+  if (thread.financing_application_id?.trim()) {
+    return { label: `Finance application ${thread.financing_application_id.trim()}`, href: null, actionLabel: null }
+  }
+  if (thread.escrow_id?.trim()) {
+    return { label: `Escrow ${thread.escrow_id.trim()}`, href: null, actionLabel: null }
+  }
+  return null
+}
+
 function WorkflowIcon({ thread, className }: { thread: ConversationThread; className?: string }) {
   const workflow = workflowOf(thread)
   if (workflow === 'marketplace' || workflow === 'marketplace_inquiry') return <Store className={className} aria-hidden="true" />
@@ -219,6 +263,8 @@ export function CommunicationsView(props: CommunicationsViewProps) {
   const inboxMeasured = initialReadDone && !threadsUnavailable
   const unreadNotifications = notifications.filter(n => n.read === false && !readNotificationIds.includes(n.id)).length
   const activeThread = detail ? (detail.thread as ConversationThread) : null
+  const activeSummary = threads.find(t => String(t.id) === String(activeId)) ?? null
+  const activeSubject = resolveThreadSubject(activeThread ?? activeSummary) ?? resolveThreadSubject(activeSummary)
   const detailState: 'none' | 'loading' | 'error' | 'ready' = !activeId
     ? 'none'
     : threadReadFailedId === activeId
@@ -345,6 +391,7 @@ export function CommunicationsView(props: CommunicationsViewProps) {
               const when = shortWhen(thread.latest_message?.created_at || thread.latest_message_at || thread.last_message_at)
               const unread = Number(thread.unread_count || 0)
               const selected = thread.id === activeId
+              const rowSubject = resolveThreadSubject(thread)
               return (
                 <li key={thread.id}>
                   <button
@@ -362,6 +409,11 @@ export function CommunicationsView(props: CommunicationsViewProps) {
                         <span className={`truncate text-[14px] capitalize text-carup-text ${unread > 0 ? 'font-bold' : 'font-semibold'}`}>{threadLabel(thread)}</span>
                         {when && <span className="shrink-0 text-[12px] tabular-nums text-carup-text-3">{when}</span>}
                       </span>
+                      {rowSubject && (
+                        <span className="mt-0.5 block truncate font-mono text-[11px] text-carup-text-3" data-testid={`communication-list-subject-${thread.id}`}>
+                          {rowSubject.label}
+                        </span>
+                      )}
                       <span className={`mt-0.5 line-clamp-2 text-[13px] leading-5 ${unread > 0 ? 'text-carup-text' : 'text-carup-text-2'}`}>{latest}</span>
                       <span className="mt-1 flex items-center justify-between gap-2 text-[12px] text-carup-text-3">
                         <span className="truncate"><span className="capitalize">{(thread.participant_role || thread.status || 'participant').replaceAll('_', ' ')}</span> · {channelLabel(thread.primary_channel)}</span>
@@ -433,17 +485,27 @@ export function CommunicationsView(props: CommunicationsViewProps) {
           <h2 className={`truncate text-[16px] font-semibold tracking-[-0.01em] text-carup-text ${detailState === 'ready' ? 'capitalize' : ''}`}>
             {detailState === 'ready' && activeThread ? threadLabel(activeThread) : 'Conversation'}
           </h2>
-          {detailState === 'ready' && (participants || activeThread?.marketplace_listing_id) && (
-            <p className="truncate text-[12px] text-carup-text-3">
-              {participants ? `With ${participants}` : null}
-              {participants && activeThread?.marketplace_listing_id ? ' · ' : null}
-              {activeThread?.marketplace_listing_id ? `Listing ${activeThread.marketplace_listing_id}` : null}
-            </p>
+          {detailState === 'ready' && participants && (
+            <p className="truncate text-[12px] text-carup-text-3">With {participants}</p>
+          )}
+          {detailState === 'ready' && activeSubject && (
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-carup-text-3" data-testid="communication-thread-subject">
+              <span className="truncate font-mono text-[11px]">{activeSubject.label}</span>
+              {activeSubject.href && activeSubject.actionLabel && (
+                <Link
+                  to={activeSubject.href}
+                  className={`inline-flex min-h-11 sm:min-h-7 items-center rounded-md px-1.5 -mx-1.5 font-semibold text-carup-action underline-offset-2 hover:underline ${OWNER_FOCUS}`}
+                  data-testid="communication-thread-subject-link"
+                >
+                  {activeSubject.actionLabel}
+                </Link>
+              )}
+            </div>
           )}
         </div>
         {detailState === 'ready' && Number(threads.find(t => t.id === activeId)?.unread_count || 0) > 0 && props.onMarkRead && (
           <button type="button" onClick={props.onMarkRead} disabled={props.markReadState === 'pending'}
-            className={`shrink-0 rounded-full border border-carup-line-strong px-3 py-1.5 text-[13px] font-semibold text-carup-text hover:bg-carup-bg-surface disabled:opacity-60 ${OWNER_FOCUS}`}
+            className={`inline-flex min-h-11 sm:min-h-9 shrink-0 items-center rounded-full border border-carup-line-strong px-3.5 py-1.5 text-[13px] font-semibold text-carup-text hover:bg-carup-bg-surface disabled:opacity-60 ${OWNER_FOCUS}`}
             data-testid="communication-mark-read">
             {props.markReadState === 'pending' ? 'Marking…' : 'Mark as read'}
           </button>

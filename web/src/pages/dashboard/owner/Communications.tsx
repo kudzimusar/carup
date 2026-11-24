@@ -140,10 +140,11 @@ export default function Communications() {
         thread.primary_channel,
         thread.participant_role,
         thread.marketplace_listing_id,
+        ...(unified ? [thread.subject_type, thread.subject_id, thread.financing_application_id, thread.escrow_id] : []),
         latest,
       ].some((value) => String(value || '').toLowerCase().includes(query))
     })
-  }, [filter, search, threads])
+  }, [filter, search, threads, unified])
 
   const latestMessage = useMemo(() => {
     if (!detail?.messages?.length) return null
