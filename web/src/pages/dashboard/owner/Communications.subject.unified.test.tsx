@@ -107,6 +107,145 @@ describe('resolveThreadSubject — pure subject projection', () => {
   it('returns null when the server recorded no subject, listing, financing or escrow id', () => {
     expect(resolveThreadSubject({ id: 't-7', business_workflow: 'marketplace' })).toBeNull()
     expect(resolveThreadSubject(null)).toBeNull()
+    expect(resolveThreadSubject(undefined)).toBeNull()
+    expect(resolveThreadSubject({
+      id: 't-blank',
+      subject_type: 'import_order',
+      subject_id: '   ',
+      marketplace_listing_id: '  ',
+      financing_application_id: '',
+      escrow_id: ' ',
+    })).toBeNull()
+  })
+
+  it('F-01 precedence: explicit subject_type + subject_id resolves before conflicting marketplace_listing_id', () => {
+    expect(resolveThreadSubject({
+      id: 't-imp-conflict',
+      subject_type: 'import_order',
+      subject_id: 'ord-fx-101',
+      marketplace_listing_id: 'veh-stale-999',
+    })).toEqual({
+      label: 'Import order ord-fx-101',
+      href: '/diaspora/imports/ord-fx-101',
+      actionLabel: 'Open import order',
+    })
+
+    expect(resolveThreadSubject({
+      id: 't-mkt-conflict',
+      subject_type: 'marketplace_listing',
+      subject_id: 'veh-auth-202',
+      marketplace_listing_id: 'veh-stale-999',
+    })).toEqual({
+      label: 'Listing veh-auth-202',
+      href: '/marketplace/veh-auth-202',
+      actionLabel: 'Open listing',
+    })
+
+    expect(resolveThreadSubject({
+      id: 't-wo-conflict',
+      subject_type: 'work_order',
+      subject_id: 'wo-fx-303',
+      marketplace_listing_id: 'veh-stale-999',
+    })).toEqual({
+      label: 'Work order wo-fx-303',
+      href: '/dashboard/service-history',
+      actionLabel: 'Open service history',
+    })
+  })
+
+  it('F-01 non-navigable safeguard: conflicting institutional, unknown, or ambiguous subject never falls back to marketplace_listing_id', () => {
+    expect(resolveThreadSubject({
+      id: 't-claim-conflict',
+      subject_type: 'insurance_claim',
+      subject_id: 'clm-fx-401',
+      marketplace_listing_id: 'veh-unrelated-888',
+    })).toEqual({
+      label: 'Insurance claim clm-fx-401',
+      href: null,
+      actionLabel: null,
+    })
+
+    expect(resolveThreadSubject({
+      id: 't-unknown-conflict',
+      subject_type: 'registry_audit',
+      subject_id: 'reg-fx-501',
+      marketplace_listing_id: 'veh-unrelated-888',
+    })).toEqual({
+      label: 'Registry audit reg-fx-501',
+      href: null,
+      actionLabel: null,
+    })
+
+    // Ambiguous identifier without subject_type must not infer a route from business_workflow or listing metadata
+    expect(resolveThreadSubject({
+      id: 't-ambiguous',
+      business_workflow: 'diaspora',
+      subject_id: 'ref-fx-601',
+      marketplace_listing_id: 'veh-unrelated-888',
+    })).toEqual({
+      label: 'Reference ref-fx-601',
+      href: null,
+      actionLabel: null,
+    })
+
+    expect(resolveThreadSubject({
+      id: 't-fin-conflict',
+      financing_application_id: 'fin-fx-701',
+      marketplace_listing_id: 'veh-unrelated-888',
+    })).toEqual({
+      label: 'Finance application fin-fx-701',
+      href: null,
+      actionLabel: null,
+    })
+
+    expect(resolveThreadSubject({
+      id: 't-escrow-conflict',
+      escrow_id: 'esc-fx-801',
+      marketplace_listing_id: 'veh-unrelated-888',
+    })).toEqual({
+      label: 'Escrow esc-fx-801',
+      href: null,
+      actionLabel: null,
+    })
+
+    // Unsupported type with blank subject_id must not turn unrelated listing metadata into a navigable link
+    expect(resolveThreadSubject({
+      id: 't-unsupported-blank',
+      subject_type: 'insurance_claim',
+      subject_id: '   ',
+      marketplace_listing_id: 'veh-unrelated-888',
+    })).toBeNull()
+  })
+
+  it('safely URL-encodes supported identifiers containing URL-sensitive characters', () => {
+    expect(resolveThreadSubject({
+      id: 't-enc-imp',
+      subject_type: 'import_order',
+      subject_id: 'ord fx/1?a=2#frag',
+    })).toEqual({
+      label: 'Import order ord fx/1?a=2#frag',
+      href: '/diaspora/imports/ord%20fx%2F1%3Fa%3D2%23frag',
+      actionLabel: 'Open import order',
+    })
+
+    expect(resolveThreadSubject({
+      id: 't-enc-mkt',
+      subject_type: 'marketplace_listing',
+      subject_id: 'vin fx/2?b=3#top',
+    })).toEqual({
+      label: 'Listing vin fx/2?b=3#top',
+      href: '/marketplace/vin%20fx%2F2%3Fb%3D3%23top',
+      actionLabel: 'Open listing',
+    })
+
+    expect(resolveThreadSubject({
+      id: 't-enc-standalone',
+      marketplace_listing_id: 'vin fx/3?c=4#end',
+    })).toEqual({
+      label: 'Listing vin fx/3?c=4#end',
+      href: '/marketplace/vin%20fx%2F3%3Fc%3D4%23end',
+      actionLabel: 'Open listing',
+    })
   })
 })
 
@@ -196,6 +335,87 @@ describe('Communications — C2.3 subject-linked thread context & S1 touch targe
     fireEvent.click(screen.getByTestId('communication-thread-thread-plain'))
     expect(await screen.findByText('General question.')).toBeInTheDocument()
     expect(screen.queryByTestId('communication-thread-subject')).toBeNull()
+  })
+
+  it('F-01 UI regression: conflicting marketplace_listing_id never turns an institutional or typed thread into an unrelated listing link', async () => {
+    const conflictingClaimThread = {
+      id: 'thread-claim-conflict',
+      business_workflow: 'insurance',
+      subject_type: 'insurance_claim',
+      subject_id: 'clm-fx-901',
+      marketplace_listing_id: 'veh-unrelated-777',
+      participant_role: 'policyholder',
+      primary_channel: 'in_app',
+      unread_count: 0,
+      latest_message: { id: 'm-c1', text: 'Claim evidence reviewed.', created_at: '2026-11-24T08:00:00.000Z' },
+    }
+    const conflictingImportThread = {
+      id: 'thread-imp-conflict',
+      business_workflow: 'diaspora',
+      subject_type: 'import_order',
+      subject_id: 'ord-fx-902',
+      marketplace_listing_id: 'veh-unrelated-777',
+      participant_role: 'buyer',
+      primary_channel: 'in_app',
+      unread_count: 0,
+      latest_message: { id: 'm-i1', text: 'Bill of lading uploaded.', created_at: '2026-11-24T09:00:00.000Z' },
+    }
+    const conflictingMarketplaceThread = {
+      id: 'thread-mkt-conflict',
+      business_workflow: 'marketplace',
+      subject_type: 'marketplace_listing',
+      subject_id: 'veh-auth-903',
+      marketplace_listing_id: 'veh-stale-000',
+      participant_role: 'buyer',
+      primary_channel: 'in_app',
+      unread_count: 0,
+      latest_message: { id: 'm-m1', text: 'Inspecting Corolla tomorrow.', created_at: '2026-11-24T10:00:00.000Z' },
+    }
+    api.fetchCommunicationThreads.mockResolvedValue({
+      threads: [conflictingClaimThread, conflictingImportThread, conflictingMarketplaceThread],
+    })
+    api.fetchCommunicationThread.mockImplementation(async (id: string) => {
+      if (id === 'thread-claim-conflict') {
+        return {
+          thread: conflictingClaimThread,
+          participants: [{ id: 'p-c1', display_name: 'Claims Desk', is_self: false }],
+          messages: [{ id: 'm-c1', text: 'Claim evidence reviewed.', author: { display_name: 'Claims Desk', is_self: false }, channel: 'in_app' }],
+        }
+      }
+      if (id === 'thread-imp-conflict') {
+        return {
+          thread: conflictingImportThread,
+          participants: [{ id: 'p-i1', display_name: 'Trade Desk', is_self: false }],
+          messages: [{ id: 'm-i1', text: 'Bill of lading uploaded.', author: { display_name: 'Trade Desk', is_self: false }, channel: 'in_app' }],
+        }
+      }
+      return {
+        thread: conflictingMarketplaceThread,
+        participants: [{ id: 'p-m1', display_name: 'Seller', is_self: false }],
+        messages: [{ id: 'm-m1', text: 'Inspecting Corolla tomorrow.', author: { display_name: 'Seller', is_self: false }, channel: 'in_app' }],
+      }
+    })
+
+    await renderUnified(true)
+
+    expect(await screen.findByTestId('communication-list-subject-thread-claim-conflict')).toHaveTextContent('Insurance claim clm-fx-901')
+    expect(screen.getByTestId('communication-list-subject-thread-imp-conflict')).toHaveTextContent('Import order ord-fx-902')
+    expect(screen.getByTestId('communication-list-subject-thread-mkt-conflict')).toHaveTextContent('Listing veh-auth-903')
+
+    // Opening conflicting institutional claim thread must render plain reference text with ZERO link
+    fireEvent.click(screen.getByTestId('communication-thread-thread-claim-conflict'))
+    expect(await screen.findByTestId('communication-thread-subject')).toHaveTextContent('Insurance claim clm-fx-901')
+    expect(screen.queryByTestId('communication-thread-subject-link')).toBeNull()
+
+    // Opening conflicting import order thread must link to the import order, not the unrelated listing
+    fireEvent.click(screen.getByTestId('communication-thread-thread-imp-conflict'))
+    expect(await screen.findByTestId('communication-thread-subject')).toHaveTextContent('Import order ord-fx-902')
+    expect(screen.getByTestId('communication-thread-subject-link')).toHaveAttribute('href', '/diaspora/imports/ord-fx-902')
+
+    // Opening conflicting typed marketplace thread must link to authoritative subject_id veh-auth-903
+    fireEvent.click(screen.getByTestId('communication-thread-thread-mkt-conflict'))
+    expect(await screen.findByTestId('communication-thread-subject')).toHaveTextContent('Listing veh-auth-903')
+    expect(screen.getByTestId('communication-thread-subject-link')).toHaveAttribute('href', '/marketplace/veh-auth-903')
   })
 
   it('flags OFF: legacy Communications page is unchanged and renders no unified subject banner', async () => {
