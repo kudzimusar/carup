@@ -23,7 +23,7 @@
  * The application queue is real and is preserved, with a failed read now
  * distinguishable from an empty one.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -53,29 +53,39 @@ export default function BankDashboard() {
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
   const [readRefused, setReadRefused] = useState(false)
-
-  const loadApps = useCallback(async () => {
-    try {
-      setLoading(true)
-      setLoadFailed(false)
-      setReadRefused(false)
-      const data = await fetchFinanceApplications()
-      setApplications(Array.isArray(data) ? data.slice(0, 3) : [])
-    } catch (err) {
-      // A failed read is not an empty queue. Without this the surface rendered
-      // "No lending applications pending" during an outage.
-      console.error(err)
-      setLoadFailed(true)
-      setReadRefused(isReadRefusal(err))
-      toast.error('Failed to load recent applications')
-    } finally {
-      setLoading(false)
-    }
-  }, [fetchFinanceApplications])
+  const [reloadSeq, setReloadSeq] = useState(0)
 
   useEffect(() => {
+    let active = true
+    const loadApps = async () => {
+      try {
+        const data = await fetchFinanceApplications()
+        if (!active) return
+        setApplications(Array.isArray(data) ? data.slice(0, 3) : [])
+      } catch (err) {
+        // A failed read is not an empty queue. Without this the surface rendered
+        // "No lending applications pending" during an outage.
+        console.error(err)
+        if (!active) return
+        setLoadFailed(true)
+        setReadRefused(isReadRefusal(err))
+        toast.error('Failed to load recent applications')
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
     void loadApps()
-  }, [loadApps])
+    return () => {
+      active = false
+    }
+  }, [fetchFinanceApplications, reloadSeq])
+
+  const handleRetry = () => {
+    setLoading(true)
+    setLoadFailed(false)
+    setReadRefused(false)
+    setReloadSeq(n => n + 1)
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -112,7 +122,7 @@ export default function BankDashboard() {
                   <ReadFailedNotice
                     subject="recent finance applications"
                     refused={readRefused}
-                    onRetry={() => void loadApps()}
+                    onRetry={handleRetry}
                     testId="bank-applications-failed"
                   />
                 ) : (
@@ -149,7 +159,7 @@ export default function BankDashboard() {
                       <Landmark className="w-5 h-5 text-indigo-600" />
                     </div>
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className={unified ? 'flex flex-wrap items-center gap-2' : 'flex items-center gap-2'}>
                         <span className="font-semibold text-sm truncate">{app.user_name || 'Applicant not recorded'}</span>
                         <Badge variant="outline" className="text-[10px]">{app.id}</Badge>
                       </div>

@@ -36,6 +36,7 @@ import { CommunicationMultimodalComposer } from '@/components/communications/Com
 import { DataState } from '@/components/truth'
 import { OWNER_FOCUS, OWNER_PRIMARY_ACTION, OWNER_SECONDARY_ACTION, OwnerPageHeader } from '@/components/owner/OwnerPageHeader'
 import { deliveryLabel } from '@/features/communications/communicationFormatting'
+import { resolveThreadSubject } from './communicationSubject'
 
 type Api = ReturnType<typeof useCarUpApi>
 type ThreadSummary = Awaited<ReturnType<Api['fetchCommunicationThreads']>>['threads'][number]
@@ -164,50 +165,6 @@ function channelLabel(value?: string | null): string {
 
 function workflowOf(thread: ConversationThread) {
   return String(thread.business_workflow || thread.conversation_type || thread.thread_type || '').toLowerCase()
-}
-
-export interface ThreadSubjectContext {
-  label: string
-  href: string | null
-  actionLabel: string | null
-}
-
-/**
- * RX06-EXIT02-LR01 (C2.3): projects only the subject link or reference the server actually recorded on the thread.
- * Never invents an order, vehicle or work-order link when no identifier was returned, and never invents a route
- * for institutional/escrow subjects that have no owner page.
- */
-export function resolveThreadSubject(thread: ConversationThread | null | undefined): ThreadSubjectContext | null {
-  if (!thread) return null
-  const listingId = thread.marketplace_listing_id?.trim()
-  if (listingId) {
-    return { label: `Listing ${listingId}`, href: `/marketplace/${encodeURIComponent(listingId)}`, actionLabel: 'Open listing' }
-  }
-  const subjectId = thread.subject_id?.trim()
-  if (subjectId) {
-    const rawKind = (thread.subject_type || thread.business_workflow || thread.conversation_type || thread.thread_type || '').trim()
-    const kind = rawKind.toLowerCase()
-    if (['import_order', 'diaspora_order', 'diaspora_import_order', 'buyer_order', 'import', 'diaspora', 'logistics'].includes(kind)) {
-      return { label: `Import order ${subjectId}`, href: `/diaspora/imports/${encodeURIComponent(subjectId)}`, actionLabel: 'Open import order' }
-    }
-    if (['vehicle', 'marketplace_listing', 'listing'].includes(kind)) {
-      return { label: `Listing ${subjectId}`, href: `/marketplace/${encodeURIComponent(subjectId)}`, actionLabel: 'Open listing' }
-    }
-    if (['work_order', 'service_record', 'garage_work_order', 'garage', 'maintenance'].includes(kind)) {
-      return { label: `Work order ${subjectId}`, href: '/dashboard/service-history', actionLabel: 'Open service history' }
-    }
-    const humanKind = thread.subject_type?.trim()
-      ? thread.subject_type.trim().replaceAll('_', ' ').replace(/^\w/, c => c.toUpperCase())
-      : 'Reference'
-    return { label: `${humanKind} ${subjectId}`, href: null, actionLabel: null }
-  }
-  if (thread.financing_application_id?.trim()) {
-    return { label: `Finance application ${thread.financing_application_id.trim()}`, href: null, actionLabel: null }
-  }
-  if (thread.escrow_id?.trim()) {
-    return { label: `Escrow ${thread.escrow_id.trim()}`, href: null, actionLabel: null }
-  }
-  return null
 }
 
 function WorkflowIcon({ thread, className }: { thread: ConversationThread; className?: string }) {

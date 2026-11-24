@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { resolveThreadSubject } from '@/components/owner/assist/CommunicationsView'
+import { resolveThreadSubject } from '@/components/owner/assist/communicationSubject'
 
 vi.setConfig({ testTimeout: 30_000 })
 

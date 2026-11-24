@@ -175,10 +175,10 @@ export default function ServiceLogs() {
       </div>
 
       <form
-        className="flex flex-wrap sm:flex-nowrap gap-2"
+        className={unified ? 'flex flex-wrap sm:flex-nowrap gap-2' : 'flex gap-2'}
         onSubmit={e => { e.preventDefault(); loadHistory(vinQuery) }}
       >
-        <div className="relative flex-1 min-w-[12rem]">
+        <div className={unified ? 'relative flex-1 min-w-[12rem]' : 'relative flex-1'}>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input
             placeholder="Enter a vehicle VIN to load its service history..."
