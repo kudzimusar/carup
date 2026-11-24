@@ -9,7 +9,7 @@ import { toast } from 'sonner'
 import type { ComplianceReport } from '@/types'
 import { isUnifiedUiEnabled } from '@/components/shell/unifiedFlag'
 import { ReadFailedNotice } from '@/components/workbench/ReadFailedNotice'
-import { recordedDate } from '@/components/workbench/institutionalRecords'
+import { CHIP, normalizedStatus, recordedDate } from '@/components/workbench/institutionalRecords'
 
 /** What the compliance-reports read returns: report_type, created_at and a recorded status ("Submitted", "Ready", …). */
 type RecordedReport = ComplianceReport & { report_type?: string | null; created_at?: string | null }
@@ -87,8 +87,8 @@ export default function ComplianceReports() {
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4" data-testid="compliance-counts">
-          <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Reports on record</p><p className="text-2xl font-bold" data-testid="compliance-count-total">{tile(String(totalReports))}</p></CardContent></Card>
-          <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">By recorded status</p><p className="text-base font-semibold mt-1" data-testid="compliance-count-by-status">{tile(byStatus.length ? byStatus.map(([status, n]) => `${status}: ${n}`).join(' · ') : 'No reports')}</p></CardContent></Card>
+          <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Reports on record</p><div className="text-2xl font-bold" data-testid="compliance-count-total">{tile(String(totalReports))}</div></CardContent></Card>
+          <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">By recorded status</p><div className="text-base font-semibold mt-1" data-testid="compliance-count-by-status">{tile(byStatus.length ? byStatus.map(([status, n]) => `${status}: ${n}`).join(' · ') : 'No reports')}</div></CardContent></Card>
         </div>
 
         <div className="space-y-3">
@@ -111,7 +111,7 @@ export default function ComplianceReports() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2 mb-1">
                         <h3 className="font-medium">{report.title || 'Untitled report'}</h3>
-                        <Badge className="bg-gray-600">{report.status || 'Status not recorded'}</Badge>
+                        <Badge className={CHIP[normalizedStatus(report.status) === 'generated' || normalizedStatus(report.status) === 'ready' ? 'positive' : 'neutral']}>{report.status || 'Status not recorded'}</Badge>
                       </div>
                       <div className="flex flex-wrap gap-3 text-xs text-gray-500" data-testid="compliance-report-fields">
                         <span>Type: {report.report_type || report.type || 'Not recorded'}</span>
@@ -119,7 +119,7 @@ export default function ComplianceReports() {
                       </div>
                     </div>
                     {report.status === 'generated' && (
-                      <Button size="sm" variant="outline" className="gap-1" disabled={!report.url} onClick={() => handleDownload(report)} data-testid={`compliance-download-${report.id}`}>
+                      <Button size="sm" variant="outline" className="gap-1 min-h-11 sm:min-h-8" disabled={!report.url} onClick={() => handleDownload(report)} data-testid={`compliance-download-${report.id}`}>
                         <Download className="w-4 h-4" /> {report.url ? 'Download' : 'No file'}
                       </Button>
                     )}

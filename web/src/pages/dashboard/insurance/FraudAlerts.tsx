@@ -104,7 +104,7 @@ export default function FraudAlerts() {
                         </div>
                       </div>
                       {!isResolved && (
-                        <Button size="sm" variant="outline" className="text-green-600 hover:text-green-700 hover:bg-green-50" title="Resolve Alert" aria-label="Resolve Alert" onClick={() => handleResolve(alert.id)} data-testid="fraud-alert-resolve">
+                        <Button size="sm" variant="outline" className="min-h-11 min-w-11 sm:min-h-8 sm:min-w-0 text-green-700 hover:text-green-800 hover:bg-green-50" title="Resolve Alert" aria-label="Resolve Alert" onClick={() => handleResolve(alert.id)} data-testid="fraud-alert-resolve">
                           <CheckCircle className="w-4 h-4" />
                         </Button>
                       )}

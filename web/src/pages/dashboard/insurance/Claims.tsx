@@ -83,7 +83,15 @@ export default function Claims() {
         </div>
         <div className={unified ? 'flex flex-wrap gap-2' : 'flex gap-2'} data-testid={unified ? 'claims-filters' : undefined}>
           {unified ? UNIFIED_CLAIM_FILTERS.map(([s, label]) => (
-            <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter(s)} className={statusFilter === s ? 'bg-orange-700 hover:bg-orange-800 text-white' : ''} data-testid={`claims-filter-${s}`}>
+            <Button
+              key={s}
+              variant={statusFilter === s ? 'default' : 'outline'}
+              size="sm"
+              aria-pressed={statusFilter === s}
+              onClick={() => setStatusFilter(s)}
+              className={`min-h-11 sm:min-h-8 ${statusFilter === s ? 'bg-orange-700 hover:bg-orange-800 text-white' : ''}`}
+              data-testid={`claims-filter-${s}`}
+            >
               {label}
             </Button>
           )) : ['all', 'pending', 'under-review', 'approved', 'rejected'].map(s => (
@@ -100,7 +108,7 @@ export default function Claims() {
           placeholder={unified ? 'Search by claim reference, policy or description' : 'Search claims...'}
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="pl-10"
+          className={unified ? 'pl-10 min-h-11 sm:min-h-9' : 'pl-10'}
           data-testid="claims-search-input"
           aria-label="Search claims"
         />
@@ -230,7 +238,7 @@ function UnifiedClaimRow({ claim, onDecide }: { claim: RecordedClaim; onDecide: 
               variant="ghost"
               size="icon"
               title="Approve Claim"
-              className="text-green-600 hover:text-green-700 hover:bg-green-50"
+              className="size-11 sm:size-9 text-green-700 hover:text-green-800 hover:bg-green-50"
               onClick={() => onDecide(claim.id, 'approved')}
               data-testid="approve-claim-button"
               aria-label="Approve Claim"
@@ -241,7 +249,7 @@ function UnifiedClaimRow({ claim, onDecide }: { claim: RecordedClaim; onDecide: 
               variant="ghost"
               size="icon"
               title="Reject Claim"
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              className="size-11 sm:size-9 text-red-700 hover:text-red-800 hover:bg-red-50"
               onClick={() => onDecide(claim.id, 'rejected')}
               data-testid="reject-claim-button"
               aria-label="Reject Claim"

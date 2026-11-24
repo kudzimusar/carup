@@ -124,7 +124,7 @@ export default function MechanicDashboard() {
           <p className="text-gray-500">Workshop overview from your recorded work orders</p>
         </div>
         <Button
-          className={unified ? `${UNIFIED_PRIMARY_ACTION} gap-1` : 'bg-orange-500 hover:bg-orange-600 text-white gap-1'}
+          className={unified ? `${UNIFIED_PRIMARY_ACTION} min-h-11 sm:min-h-9 gap-1` : 'bg-orange-500 hover:bg-orange-600 text-white gap-1'}
           onClick={() => setShowWorkOrderDialog(true)}
           data-testid="mechanic-dashboard-create-workorder-button"
         >
@@ -276,7 +276,7 @@ export default function MechanicDashboard() {
                 { label: 'Service Logs', href: '/mechanic/service-logs', icon: CheckCircle },
                 { label: 'Parts Tracking', href: '/mechanic/parts', icon: Wrench },
               ].map((link) => (
-                <Link key={link.label} to={link.href} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors text-sm">
+                <Link key={link.label} to={link.href} className={`flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors text-sm${unified ? ' min-h-11 sm:min-h-0' : ''}`}>
                   <link.icon className="w-4 h-4 text-emerald-600" />
                   <span className="flex-1 font-semibold">{link.label}</span>
                   <ArrowRight className="w-3.5 h-3.5 text-gray-400" />

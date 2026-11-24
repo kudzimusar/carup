@@ -23,7 +23,7 @@ export default function InsuranceDashboard() {
           <h1 className="text-2xl font-bold">Insurance Dashboard</h1>
           <p className="text-gray-500">Insurer workspace</p>
         </div>
-        <Button className={isUnifiedUiEnabled() ? `${UNIFIED_PRIMARY_ACTION} gap-1` : 'bg-orange-500 hover:bg-orange-600 gap-1'} asChild>
+        <Button className={isUnifiedUiEnabled() ? `${UNIFIED_PRIMARY_ACTION} min-h-11 sm:min-h-9 gap-1` : 'bg-orange-500 hover:bg-orange-600 gap-1'} asChild>
           <Link to="/insurance-dash/claims"><FileText className="w-4 h-4" /> View Claims</Link>
         </Button>
       </div>
@@ -83,7 +83,7 @@ export default function InsuranceDashboard() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">Recent Claims</CardTitle>
-                <Button variant="ghost" size="sm" asChild><Link to="/insurance-dash/claims">View All</Link></Button>
+                <Button variant="ghost" size="sm" className={isUnifiedUiEnabled() ? 'min-h-11 sm:min-h-8' : undefined} asChild><Link to="/insurance-dash/claims">View All</Link></Button>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -136,7 +136,7 @@ export default function InsuranceDashboard() {
                 <div>
                   <h3 className="font-medium text-sm">Fraud Alerts</h3>
                   <p className="text-xs text-gray-600">Fraud case counts are not available for this workspace yet.</p>
-                  <Button size="sm" variant="outline" className="mt-2 text-xs" asChild><Link to="/insurance-dash/fraud">Investigate</Link></Button>
+                  <Button size="sm" variant="outline" className={isUnifiedUiEnabled() ? 'mt-2 min-h-11 sm:min-h-8 text-xs' : 'mt-2 text-xs'} asChild><Link to="/insurance-dash/fraud">Investigate</Link></Button>
                 </div>
               </div>
             </CardContent>
@@ -150,7 +150,7 @@ export default function InsuranceDashboard() {
                 { label: 'Risk Analysis', href: '/insurance-dash/risk', icon: BarChart3 },
                 { label: 'Fraud Alerts', href: '/insurance-dash/fraud', icon: AlertTriangle },
               ].map((link) => (
-                <Link key={link.label} to={link.href} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors text-sm">
+                <Link key={link.label} to={link.href} className={`flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors text-sm${isUnifiedUiEnabled() ? ' min-h-11 sm:min-h-0' : ''}`}>
                   <link.icon className="w-4 h-4 text-orange-500" />
                   <span className="flex-1">{link.label}</span>
                   <ArrowRight className="w-3.5 h-3.5 text-gray-400" />

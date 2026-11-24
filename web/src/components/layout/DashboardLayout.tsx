@@ -46,6 +46,8 @@ function resolveIcon(item: FeatureRegistryItem): React.ElementType {
 export default function DashboardLayout({ role }: { role: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [ownerSearch, setOwnerSearch] = useState('')
+  const [switchingRole, setSwitchingRole] = useState(false)
+  const [roleSwitchError, setRoleSwitchError] = useState<string | null>(null)
   // RX06-LR07 PROPOSAL (Owner authorization required: shared chrome outside S1). Unified presentation only; the
   // flags-OFF markup and behaviour are unchanged. On a phone this legacy chrome's drawer behaves like the unified
   // WorkspaceShell drawer: closed, it is out of the tab order and hidden from assistive technology; open, it is a named
@@ -91,12 +93,27 @@ export default function DashboardLayout({ role }: { role: string }) {
   const { user, switchRole, loading } = useAuth()
 
   const handleRoleChange = async (newRole: string) => {
+    if (unifiedChrome) {
+      setSwitchingRole(true)
+      setRoleSwitchError(null)
+    }
     try {
       await switchRole(newRole as Parameters<typeof switchRole>[0])
+      if (unifiedChrome) setSidebarOpen(false)
       navigate(getDashboardRoute(newRole as UserRole))
     } catch (err) {
       console.error('Failed to switch stakeholder role:', err)
+      if (unifiedChrome) {
+        const status = (err as { status?: unknown } | null)?.status
+        setRoleSwitchError(
+          status === 403
+            ? 'This account is not verified for that portal role. Active role unchanged.'
+            : 'Could not switch portal role right now. Active role unchanged.',
+        )
+      }
       toast.error('Could not switch portal role. Please try again.')
+    } finally {
+      if (unifiedChrome) setSwitchingRole(false)
     }
   }
 
@@ -175,11 +192,16 @@ export default function DashboardLayout({ role }: { role: string }) {
         {/* Sidebar Header */}
         <div className="h-16 flex items-center justify-between px-4 border-b">
           {isShowroomChromeEnabled() ? (
-            <Link to="/" className="flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C]" aria-label="CarUp home" data-testid="brand-home-link">
+            <Link
+              to="/"
+              className={`flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C]${unifiedChrome ? ' min-h-11 lg:min-h-0' : ''}`}
+              aria-label="CarUp home"
+              data-testid="brand-home-link"
+            >
               <BrandIdentity role="stacked" surface="light" height={40} decorative priority />
             </Link>
           ) : (
-            <Link to="/" className="flex items-center gap-2">
+            <Link to="/" className={`flex items-center gap-2${unifiedChrome ? ' min-h-11 lg:min-h-0' : ''}`}>
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
                 <Car className="w-4 h-4 text-white" />
               </div>
@@ -209,20 +231,54 @@ export default function DashboardLayout({ role }: { role: string }) {
             />
             <div className="flex-1 min-w-0">
               <p className="font-medium text-sm truncate">{user?.name || 'User'}</p>
-              <p className={unifiedChrome ? 'text-[10px] font-bold uppercase tracking-wider text-gray-600 mt-1' : 'text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-1'}>Active portal</p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className={`w-2 h-2 rounded-full shrink-0 ${roleInfo.color}`} />
-                <select
-                  value={role}
-                  onChange={(e) => handleRoleChange(e.target.value)}
-                  aria-label="Switch active portal role"
-                  className="text-xs text-gray-600 bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium hover:text-gray-900 transition-colors"
-                >
-                  {getAllRoles().map((r) => (
-                    <option key={r} value={r}>{getRoleMetadata(r).title}</option>
-                  ))}
-                </select>
-              </div>
+              {unifiedChrome ? (
+                <>
+                  <label
+                    htmlFor="dashboard-portal-role-select"
+                    className="block text-[10px] font-bold uppercase tracking-wider text-gray-600 mt-1"
+                  >
+                    Active portal
+                  </label>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${roleInfo.color}`} aria-hidden="true" />
+                    <select
+                      id="dashboard-portal-role-select"
+                      value={role}
+                      disabled={switchingRole}
+                      onChange={(e) => handleRoleChange(e.target.value)}
+                      aria-label="Switch active portal role"
+                      data-testid="dashboard-portal-role-select"
+                      className="min-h-11 lg:min-h-9 w-full rounded-md border border-gray-200 bg-gray-50 px-2.5 py-2 text-xs font-medium text-gray-800 cursor-pointer hover:border-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C2410C] focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
+                    >
+                      {getAllRoles().map((r) => (
+                        <option key={r} value={r}>{getRoleMetadata(r).title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {roleSwitchError && (
+                    <p role="status" aria-live="polite" className="mt-1.5 text-xs text-red-700" data-testid="portal-role-switch-refused">
+                      {roleSwitchError}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-1">Active portal</p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${roleInfo.color}`} />
+                    <select
+                      value={role}
+                      onChange={(e) => handleRoleChange(e.target.value)}
+                      aria-label="Switch active portal role"
+                      className="text-xs text-gray-600 bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium hover:text-gray-900 transition-colors"
+                    >
+                      {getAllRoles().map((r) => (
+                        <option key={r} value={r}>{getRoleMetadata(r).title}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -367,7 +423,7 @@ export default function DashboardLayout({ role }: { role: string }) {
             <Button
               variant="ghost"
               size="icon"
-              className="sm:hidden"
+              className={unifiedChrome ? 'sm:hidden size-11' : 'sm:hidden'}
               aria-label="Search vehicles"
               data-testid="owner-topbar-search-mobile"
               onClick={() => navigate('/search')}

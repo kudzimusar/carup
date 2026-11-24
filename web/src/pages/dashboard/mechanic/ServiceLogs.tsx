@@ -117,7 +117,7 @@ export default function ServiceLogs() {
 
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
-            <Button className={unified ? `${UNIFIED_PRIMARY_ACTION} gap-1` : 'bg-orange-500 hover:bg-orange-600 gap-1 text-white'}><Plus className="w-4 h-4" /> Add Log</Button>
+            <Button className={unified ? `${UNIFIED_PRIMARY_ACTION} min-h-11 sm:min-h-9 gap-1` : 'bg-orange-500 hover:bg-orange-600 gap-1 text-white'}><Plus className="w-4 h-4" /> Add Log</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -175,14 +175,20 @@ export default function ServiceLogs() {
       </div>
 
       <form
-        className="flex gap-2"
+        className="flex flex-wrap sm:flex-nowrap gap-2"
         onSubmit={e => { e.preventDefault(); loadHistory(vinQuery) }}
       >
-        <div className="relative flex-1">
+        <div className="relative flex-1 min-w-[12rem]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input placeholder="Enter a vehicle VIN to load its service history..." value={vinQuery} onChange={e => setVinQuery(e.target.value)} className="pl-10 bg-white font-mono" />
+          <Input
+            placeholder="Enter a vehicle VIN to load its service history..."
+            value={vinQuery}
+            onChange={e => setVinQuery(e.target.value)}
+            className={unified ? 'pl-10 min-h-11 sm:min-h-9 bg-white font-mono' : 'pl-10 bg-white font-mono'}
+            {...(unified ? { 'aria-label': 'Vehicle VIN' } : {})}
+          />
         </div>
-        <Button type="submit" variant="outline" disabled={historyLoading}>
+        <Button type="submit" variant="outline" className={unified ? 'min-h-11 sm:min-h-9' : undefined} disabled={historyLoading}>
           {historyLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Load History'}
         </Button>
       </form>
@@ -217,7 +223,12 @@ export default function ServiceLogs() {
             {unified && loadFailedFor ? (
               <div data-testid="service-logs-read-failed" role="status">
                 <h3 className="text-lg font-medium text-gray-900 mb-1">{loadRefused ? `This account cannot read the service history for ${loadFailedFor}` : `The service history for ${loadFailedFor} could not be loaded`}</h3>
-                <p className="text-gray-500">{loadRefused ? 'CarUp refused this account access to that history. Nothing has changed.' : 'This is not an empty history: CarUp could not read it just now. Nothing has changed. Try again.'}</p>
+                <p className="text-gray-500">{loadRefused ? 'CarUp refused this account access to that history. Nothing has changed.' : 'This is not an empty history: CarUp could not read it just now. Nothing has changed.'}</p>
+                {!loadRefused && (
+                  <Button type="button" variant="outline" className="mt-3 min-h-11 sm:min-h-9" onClick={() => void loadHistory(loadFailedFor)} data-testid="service-logs-retry">
+                    Try again
+                  </Button>
+                )}
               </div>
             ) : loadedVin ? (
               <>
