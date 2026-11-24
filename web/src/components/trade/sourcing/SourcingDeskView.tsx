@@ -89,6 +89,7 @@ export function SourcingDeskView({ model }: { model: SourcingDeskModel }) {
         )}
         actions={(
           <>
+            {isBuyer && <Link to="/diaspora/imports" className={WS_SECONDARY} data-testid="trade-rfq-imports-link">Import orders</Link>}
             <Link to="/diaspora/containers" className={WS_SECONDARY}>Shared containers</Link>
             {isSeller && <Link to="/diaspora/stock" className={WS_SECONDARY}><Store className="h-4 w-4" aria-hidden="true" />Stock</Link>}
           </>
@@ -225,7 +226,14 @@ function BuyerLane({ model, counts }: { model: SourcingDeskModel; counts: Return
             title="Every request has an accepted quote"
             usuallyWith="You"
             after="Accepted requests continue as import orders. Compose a new request whenever you need parts."
-            action={<button type="button" className={WS_SECONDARY} onClick={() => composeRef.current?.focus()}>Compose a request</button>}
+            action={(
+              <div className="flex flex-wrap items-center gap-2">
+                <Link to="/diaspora/imports" className={WS_PRIMARY} data-testid="trade-rfq-next-imports">
+                  Open import orders<ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+                <button type="button" className={WS_SECONDARY} onClick={() => composeRef.current?.focus()}>Compose a request</button>
+              </div>
+            )}
           />
         )
       )}
@@ -390,10 +398,20 @@ function RequestDetail({ model, order }: { model: SourcingDeskModel; order: Dias
   return (
     <article ref={ref} tabIndex={-1} aria-labelledby={titleId} className="min-w-0 space-y-4 rounded-card focus-visible:outline-none" data-testid="trade-rfq-detail" data-stage={stage}>
       <header className="rounded-card border border-carup-line bg-carup-bg-raised p-4 sm:p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusChip tone={meta.tone} testId="trade-rfq-detail-stage">{meta.label}</StatusChip>
-          <span className="text-xs text-carup-text-3">Request</span>
-          <RefCode value={order.id} label="Request" testId="trade-rfq-detail-ref" />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusChip tone={meta.tone} testId="trade-rfq-detail-stage">{meta.label}</StatusChip>
+            {order.status && (
+              <span className="rounded-full border border-carup-line bg-carup-bg-surface px-2.5 py-0.5 text-xs font-medium text-carup-text-2" data-testid="trade-rfq-detail-order-status">
+                Order status: {statusLabel(order.status)}
+              </span>
+            )}
+            <span className="text-xs text-carup-text-3">Request</span>
+            <RefCode value={order.id} label="Request" testId="trade-rfq-detail-ref" />
+          </div>
+          <Link to={`/diaspora/imports/${encodeURIComponent(order.id)}`} className={WS_SECONDARY} data-testid="trade-rfq-open-order-record">
+            Open order workspace
+          </Link>
         </div>
         <h2 id={titleId} className="mt-2 text-xl font-bold leading-tight tracking-[-0.02em] text-carup-text [overflow-wrap:anywhere] sm:text-2xl">
           {demandTitle(order)}{years && <span className="font-semibold text-carup-text-2"> · {years}</span>}
